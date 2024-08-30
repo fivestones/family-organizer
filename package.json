@@ -8,6 +8,7 @@
   "dependencies": {
     "@instantdb/react": "^0.12.12",
     "date-fns": "^3.6.0",
+    "nepali-date-converter": "^3.3.2",
     "next": "latest",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

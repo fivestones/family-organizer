@@ -67,29 +67,6 @@ function initializeCalendarItems() {
 }
 
 
-function InitializeItems({ calendarItem }: { calendarItems: CalendarItem[] }) {
-  return (
-    <div>
-      <div onClick={() => toggleAll(todos)}>
-        ⌄
-      </div>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          addTodo(e.target[0].value)
-          e.target[0].value = ''
-        }}
-      >
-        <input
-          autoFocus
-          placeholder="What needs to be done?"
-          type="text"
-        />
-      </form>
-    </div>
-  )
-}
-
 type calendarItem = {
   id: string
   title: string
