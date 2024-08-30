@@ -1,25 +1,38 @@
-# Welcome to Next.js
+# Thomas Family Organizer
 
-This is the most minimal starter for your Next.js project.
+This is the code for our family's organizer
 
-## Deploy your own
+## Features planned
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/vercel/next.js/tree/canary/examples/hello-world&project-name=hello-world&repository-name=hello-world)
+* Calendar
+    * For multiple people
+    * Day, 3-4 day, weekly, ajenda, monthly, multi-month, and full year views
+    * Custom metadata (circle, highlight events. Make an event a major even (to show only major events on the yearly (or other) calendar). Events can be associated with a person or multiple people.
+    * Events can be all day, specific time, no particular time (shows not as all day, but also has no time given), or a time period (Early morning, Morning, Mid-day, Afternoon, Evening, Night, Middle of the night).
+* To do list
+    * Associate To dos with a particular person
+    * Regular lists
+* Meal plan
+* Family chores/rewards tracking
+* Dashboard view for keyboardless/mouseless usage
+* Photo stream
+* Extension-capible
+    * Quote of the day
+    * Current family Bible memory passage
+    * Current family hymn/song of the week
+    * Kid home school/homework tracker
+        * With each item tagged for whether they can do it alone or only with a parent
 
-## How to use
+* Offline capibile, fast
+    * Uses instantdb.com in the background for synching
+* iOS and web clients
+* Two-way sync with Google calendar and apple calendar
+* Touch screen capable
+* Connect to Immage photo server for photostream
 
-Execute [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app) with [npm](https://docs.npmjs.com/cli/init), [Yarn](https://yarnpkg.com/lang/en/docs/cli/create/), or [pnpm](https://pnpm.io) to bootstrap the example:
 
-```bash
-npx create-next-app --example hello-world hello-world-app
-```
+## Features implemented
 
-```bash
-yarn create next-app --example hello-world hello-world-app
-```
+* Rudimentary calendar that doesn't let you add or remove items or sync.
 
-```bash
-pnpm create next-app --example hello-world hello-world-app
-```
-
-Deploy it to the cloud with [Vercel](https://vercel.com/new?utm_source=github&utm_medium=readme&utm_campaign=next-example) ([Documentation](https://nextjs.org/docs/deployment)).
+We'll see how far I get!
