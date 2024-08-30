@@ -6,8 +6,8 @@ This is the code for our family's organizer
 
 * Calendar
     * For multiple people
-    * Day, 3-4 day, weekly, ajenda, monthly, multi-month, and full year views
-    * Custom metadata (circle, highlight events. Make an event a major even (to show only major events on the yearly (or other) calendar). Events can be associated with a person or multiple people.
+    * Day, 3-4 day, weekly, agenda, monthly, multi-month, and full year views
+    * Custom metadata (circle, highlight events. Make an event a major even (to show only major events on the yearly (or other) calendar). Events can be associated with a person or multiple people.)
     * Events can be all day, specific time, no particular time (shows not as all day, but also has no time given), or a time period (Early morning, Morning, Mid-day, Afternoon, Evening, Night, Middle of the night).
 * To do list
     * Associate To dos with a particular person
