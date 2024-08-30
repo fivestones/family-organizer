@@ -1,95 +1,90 @@
-  .calendarTable {
+.calendarTable {
     width: 100%;
     border-collapse: collapse; /* Ensures there are no gaps between borders */
     margin: 20px auto;
-    font-family: Arial, sans-serif;
-    table-layout: fixed; /* columns of equal width */
-  }
-  
-  .headerCell {
-    background-color: #f0f0f0;
+    /* font-family: 'EB Garamond'; */
+    table-layout: fixed; /* Columns of equal width */
+}
+
+.headerCell {
+    background-color: transparent; /* No background color */
     font-weight: bold;
-    padding: 10px;
-    border: 1px solid #000;
-    text-align: center;
-  }
-  
-  .dayCell {
-    padding: 15px;
-    border: 1px solid #000;
-    text-align: center;
-    background-color: #fff;
-    position: relative; /* Make the cell a positioning context for the month name */
-    height: 60px; /* Increase height to ensure enough space for month names */
+    font-size: xx-large;
+    padding-right: 0.5%; /* Remove default padding */
+    border-top: none; /* Remove top border */
+    border-left: none; /* Remove left border */
+    border-right: 0.5px solid black; /* Remove right border */
+    border-bottom: 0.5px solid #000; /* 0.5px bottom border */
+    text-align: right; /* Right-justify the text */
+}
+
+.dayCell {
+    padding: 1px; /* Only 1px padding inside day cells */
+    border: 0.5px solid #000; /* 0.5px border for all sides */
+    text-align: right; /* Right-justify the text */
+    /* background-color: #fff; White background */
+    position: relative; /* Positioning context for month name */
+    height: 120px; /* Fixed height to ensure enough space for month names */
     vertical-align: top; /* Align text to the top */
-  }
-  
-  .firstDayOfMonth {
-    background: linear-gradient(to right, rgb(209, 223, 252), white); /* Apply gradient from grey to white */
-  }
+}
 
-  .firstDayOfYear {
-    background: linear-gradient(to right, rgb(138, 255, 91), white); /* Apply gradient from green to white */
-  }
+.firstDayOfMonth {
+    background: linear-gradient(to right, rgb(209, 223, 252), white); /* Apply gradient */
+}
 
-  .dayNumber {
+.firstDayOfYear {
+    background: linear-gradient(to right, rgb(138, 255, 91), white); /* Apply gradient */
+}
+
+.dayNumber {
     font-size: 16px;
     color: #333;
-  }
+    padding-right: 1.5%;
+    /* position: absolute; *//* Positioning the day number */
+    top: 5px; /* Closer to the top */
+    right: 5px; /* Right-justified within the cell */
+}
 
-  .event {
-    font-family: Georgia, 'Times New Roman', Times, serif;
+.event {
+    /* font-family: 'EB Garamond'; */
     font-size: small;
-    display: inline-block;
-  }
+    display: inline-block; /* Makes div behave more like span */
+}
 
-  .circled {
+.circled {
     border-radius: 15px; /* Making border radius */
     border-width: 2px;
     border-color: red;
-    width: auto; /* Making auto-sizable width */
-    height: auto; /* Making auto-sizable height */
-    padding: 1px; /* Making space around letters */
-    padding-left: 4px;
-    padding-right: 4px;
+    width: auto; /* Auto-sizable width */
+    height: auto; /* Auto-sizable height */
+    padding: 1px 4px; /* Space around letters */
     border-style: solid;
-  }
+}
 
-  .highlighted {
+.highlighted {
     background-color: #FFFF00;
-  }
+}
 
-  .important {
-    text-size-adjust: 5;
-    text-emphasis: bold;
-  }
+.important {
+    font-weight: bold;
+}
 
-  .monthName {
+.monthName {
     position: absolute;
-    font-size: smaller;
-    /* display:flex; */
-    /* justify-content: flex-start; */
-    /* float: bottom; */
-    /* border: 2px solid black; */
-    /* border-spacing:0; */
+    font-size: larger;
     padding: 8px 0px 4px 0px;
-    margin-left:-5%;
-    /* vertical-align: bottom; */
-    /* text-align: right; */
-    /* -ms-writing-mode: tb-lr; */
-    /* -webkit-writing-mode: vertical-lr; */
+    /* margin-left: -5%; */
     writing-mode: vertical-rl;
     transform: rotate(180deg);
     bottom: 0;
-    /* white-space: nowrap; */
-  }
+}
 
-  .yearNumber {
+.yearNumber {
     position: absolute;
     top: 5px;
     left: 5px;
-    font-size: 12px;
+    font-size: larger;
     font-weight: bold;
     color: #000;
     z-index: 20; /* Ensure year number is above other content */
-  }
+}
