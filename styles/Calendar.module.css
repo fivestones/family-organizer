@@ -1,0 +1,95 @@
+  .calendarTable {
+    width: 100%;
+    border-collapse: collapse; /* Ensures there are no gaps between borders */
+    margin: 20px auto;
+    font-family: Arial, sans-serif;
+    table-layout: fixed; /* columns of equal width */
+  }
+  
+  .headerCell {
+    background-color: #f0f0f0;
+    font-weight: bold;
+    padding: 10px;
+    border: 1px solid #000;
+    text-align: center;
+  }
+  
+  .dayCell {
+    padding: 15px;
+    border: 1px solid #000;
+    text-align: center;
+    background-color: #fff;
+    position: relative; /* Make the cell a positioning context for the month name */
+    height: 60px; /* Increase height to ensure enough space for month names */
+    vertical-align: top; /* Align text to the top */
+  }
+  
+  .firstDayOfMonth {
+    background: linear-gradient(to right, rgb(209, 223, 252), white); /* Apply gradient from grey to white */
+  }
+
+  .firstDayOfYear {
+    background: linear-gradient(to right, rgb(138, 255, 91), white); /* Apply gradient from green to white */
+  }
+
+  .dayNumber {
+    font-size: 16px;
+    color: #333;
+  }
+
+  .event {
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: small;
+    display: inline-block;
+  }
+
+  .circled {
+    border-radius: 15px; /* Making border radius */
+    border-width: 2px;
+    border-color: red;
+    width: auto; /* Making auto-sizable width */
+    height: auto; /* Making auto-sizable height */
+    padding: 1px; /* Making space around letters */
+    padding-left: 4px;
+    padding-right: 4px;
+    border-style: solid;
+  }
+
+  .highlighted {
+    background-color: #FFFF00;
+  }
+
+  .important {
+    text-size-adjust: 5;
+    text-emphasis: bold;
+  }
+
+  .monthName {
+    position: absolute;
+    font-size: smaller;
+    /* display:flex; */
+    /* justify-content: flex-start; */
+    /* float: bottom; */
+    /* border: 2px solid black; */
+    /* border-spacing:0; */
+    padding: 8px 0px 4px 0px;
+    margin-left:-5%;
+    /* vertical-align: bottom; */
+    /* text-align: right; */
+    /* -ms-writing-mode: tb-lr; */
+    /* -webkit-writing-mode: vertical-lr; */
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    bottom: 0;
+    /* white-space: nowrap; */
+  }
+
+  .yearNumber {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    font-size: 12px;
+    font-weight: bold;
+    color: #000;
+    z-index: 20; /* Ensure year number is above other content */
+  }
