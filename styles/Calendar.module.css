@@ -33,7 +33,19 @@
 }
 
 .firstDayOfYear {
-    background: linear-gradient(to right, rgb(138, 255, 91), white); /* Apply gradient */
+    background:
+        linear-gradient(to right, rgb(49, 138, 255), white) 0% 0% / 80% 23% no-repeat, /* Blue to white gradient strip along the top edge */
+        linear-gradient(to right, rgb(209, 223, 252), white); /* regular new month gradient */
+}
+
+.firstDayOfNepaliMonth {
+    background: linear-gradient(to right, rgb(252, 209, 209), white); /* Apply gradient */
+}
+
+.firstDayOfNepaliYear {
+    background:
+        linear-gradient(to right, red, white) 0% 0% / 80% 23% no-repeat, /* Red to white gradient strip along the top edge */
+        linear-gradient(to right, rgb(252, 209, 209), white); /* regular Nepali new month gradient */
 }
 
 .dayNumber {
@@ -53,7 +65,7 @@
 
 .circled {
     border-radius: 15px; /* Making border radius */
-    border-width: 2px;
+    border-width: 1px;
     border-color: red;
     width: auto; /* Auto-sizable width */
     height: auto; /* Auto-sizable height */
@@ -79,6 +91,16 @@
     bottom: 0;
 }
 
+.nepaliMonthName {
+    position: absolute;
+    font-size: smaller;
+    padding: 8px 0px 4px 0px;
+    /* margin-left: -5%; */
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    bottom: 0;
+}
+
 .yearNumber {
     position: absolute;
     top: 5px;
@@ -87,4 +109,25 @@
     font-weight: bold;
     color: #000;
     z-index: 20; /* Ensure year number is above other content */
+}
+
+.nepaliYearNumber {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    font-size: larger;
+    font-weight: bold;
+    color: #000;
+    z-index: 20; /* Ensure year number is above other content */
+}
+
+.displayBothMonths {
+    position: absolute;
+    top: -15px; /* Adjust based on the desired overlap */
+    left: 10px; /* Adjust position within the cell */
+    background-color: #ffffff; /* Same as table background color */
+    border: 0.5px solid #333; /* Border around the inset box */
+    padding: 1px 3px 2px 3px;
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.1); /* Optional: adds a slight shadow for better visibility */
+    z-index: 1; /* Ensure the box overlays the table border */
 }

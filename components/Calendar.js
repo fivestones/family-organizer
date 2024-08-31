@@ -17,7 +17,7 @@ const db = init({
 });
 
 
-const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = false }) => {
+const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) => {
     // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
     // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
     // and displayMonthNumber = false, to display the month number as well as the name.
@@ -68,7 +68,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = false })
   };
 
   // show the built query in the console
-//   console.log(JSON.stringify(query, null, 2)); // I like this one better. It is all visible as text instead of having to open up sections like the line below
+   console.log(JSON.stringify(query, null, 2)); // I like this one better. It is all visible as text instead of having to open up sections like the line below
 //   console.dir(query, { depth: null, colors: true });
 
   // Fetch data using the query
@@ -112,6 +112,9 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = false })
   let isYearSet = false; // Flag to check if the year has been displayed
   let isNepaliYearSet = false; // Flag to check if the Nepali year has been displayed
   let displayNepaliMonthName = false;
+  let shouldDisplayBothYears = false;
+  let shouldDisplayYear = false;
+  let shouldDisplayNepaliYear = false;
 
   return (
     <table className={styles.calendarTable}>
@@ -133,24 +136,39 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = false })
               const isFirstDayOfYear = getDate(day) === 1 && getMonth(day) === 0; // Check if it's the first day of the year
               const year = format(day, 'yyyy'); // Get the year in YYYY format
               const nepaliYear = nepaliDate.format('YYYY'); // Get the Nepali year in YYYY format
+              shouldDisplayBothYears = false;
 
-              console.log(day, dayIndex);
-              console.log(nepaliDate);
-              const isFirstDayOfNepaliMonth = nepaliDate.getDay === 1;
-              const isFirstDayOfNepaliYear = nepaliDate.getMonth === 1 && nepaliDate.getDay === 1;
+            //   console.log(day);
+            //   console.log(nepaliDate.format('dd D of MMMM, YYYY'));
+              const isFirstDayOfNepaliMonth = nepaliDate.getDate() === 1;
+              const isFirstDayOfNepaliYear = nepaliDate.getDate() === 1 && nepaliDate.getMonth() === 0;
+            //   console.log("nepaliDate.getMonth: " + nepaliDate.getMonth())
 
               // Determine if we should display the year in this cell
-              const shouldDisplayYear = (!isYearSet && dayIndex === 0 && weekIndex === 0 || isFirstDayOfYear);
+              shouldDisplayYear = (!isYearSet && dayIndex === 0 && weekIndex === 0 || isFirstDayOfYear);
               if (shouldDisplayYear) {
                 isYearSet = true; // Set the flag to true after displaying the year
               }
 
               // Determine if we should display the Nepali year in this cell
-              const shouldDisplayNepaliYear = (displayBS && (!isNepaliYearSet && dayIndex === 0 && weekIndex === 0 || isFirstDayOfNepaliYear));
+              shouldDisplayNepaliYear = (displayBS && (dayIndex === 0 && weekIndex === 0 || isFirstDayOfNepaliYear));
               if (shouldDisplayNepaliYear) {
-                isNepaliYearSet = true;
+                // console.log("displaying nepali year for " + nepaliDate.format('YYYY/MM/DD'))
+                // isNepaliYearSet = true;
               }
 
+              if (shouldDisplayYear && shouldDisplayNepaliYear) {
+                shouldDisplayBothYears = true;
+                shouldDisplayYear = false;
+                shouldDisplayNepaliYear = false;
+              }
+
+              // Determine if it is the first day of the first month--and display both AD and BS Months
+              const displayBothMonths = displayBS && !lastMonth;
+              if (displayBothMonths) {
+                lastMonth = day;
+                lastNepaliMonth = nepaliDate;
+              }
 
               // Determine if we should display the month in this cell
               const displayMonthName = !lastMonth || getMonth(day) !== getMonth(lastMonth);
@@ -159,25 +177,27 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = false })
               }
 
               // Determine if we should display the Nepali month in this cell
-              if (!lastNepaliMonth) {
-                displayNepaliMonthName = true;
-              } else if (nepaliDate.getMonth() !== lastNepaliMonth.getMonth()) {
-                displayNepaliMonthName = true;
-              } else if (lastNepaliMonth || nepaliDate.getMonth() === lastNepaliMonth.getMonth()) {
-                displayNepaliMonthName = false;
+              if (displayBS) {
+                if (nepaliDate.getMonth() !== lastNepaliMonth.getMonth()) {
+                    displayNepaliMonthName = true; // We started a new Nepali month, so display the month name
+                  } else if (lastNepaliMonth || nepaliDate.getMonth() === lastNepaliMonth.getMonth()) {
+                    displayNepaliMonthName = false; // Make sure not to show the Nepali month if we displayed it yesterday
+                  }
+                  if (displayNepaliMonthName) {
+                    lastNepaliMonth = nepaliDate; // Update which month was the last month labeled
+                  }
+    
               }
-              if (displayNepaliMonthName) {
-                lastNepaliMonth = nepaliDate; // Update which month was the last month labeled
-              }
-
+              
 
               // Filter events for the current day
               const dayItems = calendarItems.filter(item =>
                 format(new Date(item.startDate), 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd')
               );
+            //   console.log(dayItems);
 
               return (
-                <td key={dayIndex} className={`${styles.dayCell} ${isFirstDayOfYear ? styles.firstDayOfYear : ''} ${isFirstDayOfMonth ? styles.firstDayOfMonth : ''} ${isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''} ${isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''}`}>
+                <td key={dayIndex} className={`${styles.dayCell} ${isFirstDayOfYear ? styles.firstDayOfYear : ''} ${isFirstDayOfMonth ? styles.firstDayOfMonth : ''} ${displayBS && isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''} ${displayBS && isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''}`}>
                   {shouldDisplayYear && (
                     <div className={styles.yearNumber}>
                       {year}
@@ -187,6 +207,16 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = false })
                     <div className={styles.nepaliYearNumber}>
                         {nepaliYear}
                     </div>
+                  )}
+                  {shouldDisplayBothYears && (
+                    <div className={styles.yearNumber}>
+                      {year} / {nepaliYear}
+                    </div>
+                  )}
+                  {displayBothMonths && (
+                    <span className={styles.displayBothMonths}>
+                        {currentMonth} / {nepaliDate.format('MMMM', 'np') + " (" + nepaliDate.format('MMMM') + ")"}
+                    </span>
                   )}
                   {displayMonthName && (
                     <div className={styles.monthName}>
@@ -198,8 +228,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = false })
                         {nepaliDate.format('MMMM', 'np') + " (" + nepaliDate.format('MMMM') + ")"} {/* could use currentNepaliMonth to make use of the nepaliMonths array (and get short common month names) */}
                     </div>
                   )}
-                  <div className={styles.dayNumber}>{format(day, 'd')}</div>
-                  <div className={styles.nepaliDayNumber}>{nepaliDate.format('D', 'np')}</div>
+                  <div className={styles.dayNumber}>{format(day, 'd')} {displayBS ? ' / ' + nepaliDate.format('D', 'np') : ''}</div>
                   {dayItems.map(item => (
                     <div key={item.id} className={`${styles.calendarItem} ${styles.event} ${styles.circled}`}>
                       {item.title}
