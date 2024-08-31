@@ -8,7 +8,7 @@
 
 .headerCell {
     background-color: transparent; /* No background color */
-    font-weight: bold;
+    font-weight: normal;
     font-size: xx-large;
     padding-right: 0.5%; /* Remove default padding */
     border-top: none; /* Remove top border */
@@ -30,7 +30,40 @@
 
 .firstDayOfMonth {
     background: linear-gradient(to right, rgb(209, 223, 252), white); /* Apply gradient */
+    border-top: 1px solid blue;
+    border-left: 1px solid blue;
+    border-style: double;
 }
+
+.firstDayOfMonth + td, .firstDayOfMonth + td + td, .firstDayOfMonth + td + td + td, .firstDayOfMonth + td + td + td + td, .firstDayOfMonth + td + td + td + td + td, .firstDayOfMonth + td + td + td + td + td + td {
+    border-top: 1px solid blue;
+    border-style: double;
+}
+
+.firstWeekOfMonth {
+    border-style: double;
+    border-top: 1px solid blue;
+}
+
+/* .firstDayOfMonth::before, .firstDayOfMonth::after {
+    content: "";
+    position: absolute;
+    background-color: blue;
+}
+
+.firstDayOfMonth::before {
+    top: -1px;
+    left: 0;
+    right: 0;
+    width: 2px;
+}
+
+.firstDayOfMonth::after {
+    top: 0px;
+    left: -1;
+    width: 1px;
+    height: 100%;
+} */
 
 .firstDayOfYear {
     background:
@@ -40,6 +73,14 @@
 
 .firstDayOfNepaliMonth {
     background: linear-gradient(to right, rgb(252, 209, 209), white); /* Apply gradient */
+    border-top: 1px solid rgb(255, 150, 150);
+    border-left: 1px solid rgb(255, 150, 150);
+    border-style: double;
+}
+
+.firstWeekOfNepaliMonth {
+    border-style: double;
+    border-top: 1px solid rgb(255, 150, 150);
 }
 
 .firstDayOfNepaliYear {
@@ -66,7 +107,8 @@
 .circled {
     border-radius: 15px; /* Making border radius */
     border-width: 1px;
-    border-color: red;
+    border-color: #b9f8d0;
+    background-color: #b9f8d0;
     width: auto; /* Auto-sizable width */
     height: auto; /* Auto-sizable height */
     padding: 1px 4px; /* Space around letters */
@@ -93,7 +135,7 @@
 
 .nepaliMonthName {
     position: absolute;
-    font-size: smaller;
+    font-size: auto;
     padding: 8px 0px 4px 0px;
     /* margin-left: -5%; */
     writing-mode: vertical-rl;
@@ -106,7 +148,7 @@
     top: 5px;
     left: 5px;
     font-size: larger;
-    font-weight: bold;
+    font-weight: normal;
     color: #000;
     z-index: 20; /* Ensure year number is above other content */
 }
@@ -116,14 +158,14 @@
     top: 5px;
     left: 5px;
     font-size: larger;
-    font-weight: bold;
+    font-weight: normal;
     color: #000;
     z-index: 20; /* Ensure year number is above other content */
 }
 
 .displayBothMonths {
     position: absolute;
-    top: -15px; /* Adjust based on the desired overlap */
+    top: -20px; /* Adjust based on the desired overlap */
     left: 10px; /* Adjust position within the cell */
     background-color: #ffffff; /* Same as table background color */
     border: 0.5px solid #333; /* Border around the inset box */

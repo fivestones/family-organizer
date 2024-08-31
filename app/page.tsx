@@ -19,7 +19,7 @@ function App() {
     <div>
       {/* <div style={styles.header}>Family Calendar</div> */}
       {/* Use the Calendar component */}
-      <Calendar currentDate={new Date()} numWeeks={8} />
+      <Calendar currentDate={new Date()} numWeeks={85} displayBS={true}/>
       <div>Calendar Items</div>
       {/* Initialization Button */}
       <button onClick={initializeCalendarItems}>
