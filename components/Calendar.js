@@ -177,13 +177,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = false })
               );
 
               return (
-                <td key={dayIndex} className={`
-                  ${styles.dayCell}
-                  ${isFirstDayOfYear ? styles.firstDayOfYear : ''}
-                  ${isFirstDayOfMonth ? styles.firstDayOfMonth : ''}
-                  ${isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''}
-                  ${isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''}`
-                }>
+                <td key={dayIndex} className={`${styles.dayCell} ${isFirstDayOfYear ? styles.firstDayOfYear : ''} ${isFirstDayOfMonth ? styles.firstDayOfMonth : ''} ${isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''} ${isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''}`}>
                   {shouldDisplayYear && (
                     <div className={styles.yearNumber}>
                       {year}
