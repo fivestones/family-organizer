@@ -16,8 +16,9 @@ const db = init({
   websocketURI: "ws://kepler.local:8888/runtime/session",
 });
 
-const AddEventForm = ({ selectedDate, onClose, defaultStartTime = '10:00' }) => {
+const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime = '10:00' }) => {
   const [formData, setFormData] = useState({
+    id: '',
     title: '',
     description: '',
     startDate: '',
@@ -28,20 +29,44 @@ const AddEventForm = ({ selectedDate, onClose, defaultStartTime = '10:00' }) => 
   });
 
   useEffect(() => {
-    if (selectedDate) {
+    if (selectedEvent) {
+      console.log("Populating form with selected event:", selectedEvent);
+      // Editing an existing event
+      const startDate = selectedEvent.isAllDay ? selectedEvent.startDate : format(parseISO(selectedEvent.startDate), 'yyyy-MM-dd');
+      const endDate = selectedEvent.isAllDay ? selectedEvent.endDate : format(parseISO(selectedEvent.endDate), 'yyyy-MM-dd');
+      const startTime = selectedEvent.isAllDay ? defaultStartTime : format(parseISO(selectedEvent.startDate), 'HH:mm');
+      const endTime = selectedEvent.isAllDay ? format(addHours(parse(defaultStartTime, 'HH:mm', new Date()), 1), 'HH:mm') : format(parseISO(selectedEvent.endDate), 'HH:mm');
+
+      setFormData({
+        id: selectedEvent.id,
+        title: selectedEvent.title,
+        description: selectedEvent.description || '',
+        startDate,
+        endDate,
+        startTime,
+        endTime,
+        isAllDay: selectedEvent.isAllDay,
+      });
+    } else if (selectedDate) {
+      console.log("Setting up form for new event on:", selectedDate);
+      // Adding a new event
       const formattedDate = format(selectedDate, "yyyy-MM-dd");
       const startDateTime = parse(defaultStartTime, 'HH:mm', new Date());
       const endDateTime = addHours(startDateTime, 1);
       
       setFormData(prevState => ({
         ...prevState,
+        id: '',
+        title: '',
+        description: '',
         startDate: formattedDate,
         endDate: formattedDate,
         startTime: format(startDateTime, 'HH:mm'),
         endTime: format(endDateTime, 'HH:mm'),
+        isAllDay: true,
       }));
     }
-  }, [selectedDate, defaultStartTime]);
+  }, [selectedDate, selectedEvent, defaultStartTime]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -82,7 +107,7 @@ const AddEventForm = ({ selectedDate, onClose, defaultStartTime = '10:00' }) => 
       endDateObj = parseISO(`${formData.startDate}T${formData.endTime}:00`);
     }
 
-    const newEvent = {
+    const eventData = {
       title: formData.title,
       description: formData.description,
       startDate: formData.isAllDay ? format(startDateObj, "yyyy-MM-dd") : startDateObj.toISOString(),
@@ -93,10 +118,18 @@ const AddEventForm = ({ selectedDate, onClose, defaultStartTime = '10:00' }) => 
       dayOfMonth: startDateObj.getDate(),
     };
 
-    // Add the event to the database
-    db.transact([
-      tx.calendarItems[id()].update(newEvent)
-    ]);
+    // Add or update the event in the database
+    if (formData.id) {
+      // Updating existing event
+      db.transact([
+        tx.calendarItems[formData.id].update(eventData)
+      ]);
+    } else {
+      // Adding new event
+      db.transact([
+        tx.calendarItems[id()].update(eventData)
+      ]);
+    }
 
     // Close the modal
     onClose();
@@ -185,7 +218,7 @@ const AddEventForm = ({ selectedDate, onClose, defaultStartTime = '10:00' }) => 
       )}
       <div className="flex justify-end space-x-2">
         <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button type="submit">Add Event</Button>
+        <Button type="submit">{formData.id ? 'Update' : 'Add'} Event</Button>
       </div>
     </form>
   );

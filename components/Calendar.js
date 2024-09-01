@@ -1,15 +1,10 @@
-// import Image from "next/image";
 import React, { useState, useEffect } from 'react';
 import styles from '../styles/Calendar.module.css';
-import { format, addDays, startOfWeek, isSameMonth, getMonth, getDate, getYear } from 'date-fns';
+import { format, addDays, startOfWeek, getMonth, getDate, parseISO } from 'date-fns';
 import { init } from '@instantdb/react';
 import NepaliDate from 'nepali-date-converter';
 import AddEventForm from './AddEvent';
-import { Dialog, DialogContent, DialogTrigger } from "../components/ui/dialog"
-
-//Other things to add:
-// thicker/bold line border between months
-// Put the day in the corner
+import { Dialog, DialogContent } from "../components/ui/dialog"
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4' //kepler.local
 const db = init({
@@ -25,6 +20,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
     // and displayMonthNumber = false, to display the month number as well as the name.
   const [calendarItems, setCalendarItems] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   // Calculate the start date of the calendar
@@ -79,14 +75,25 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
     conditions.push({ year: endYear, month: { in: endYearMonths } });
   }
 
+
   const handleDayClick = (day) => {
     setSelectedDate(day);
+    setSelectedEvent(null);
     setIsModalOpen(true);
+  };
+
+  const handleEventClick = (e, calendarEvent) => {
+    e.stopPropagation();
+    setSelectedDate(parseISO(calendarEvent.startDate));
+    setSelectedEvent(calendarEvent);
+    setIsModalOpen(true);
+    console.log("Setting selected event with event id of " + calendarEvent.id);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedDate(null);
+    setSelectedEvent(null);
   };
 
   // Build the query for the date range
@@ -273,13 +280,14 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                 }
                 
 
+                // Filter events for the current day
                 const dayItems = calendarItems.filter(item => {
                   if (item.isAllDay) {
                     // For all-day events, compare only the date part
                     return item.startDate <= format(day, 'yyyy-MM-dd') && format(day, 'yyyy-MM-dd') < item.endDate;
                   } else {
-                    // For timed events, use the existing comparison
-                    return format(new Date(item.startDate), 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd');
+                    // For timed events, use the regular comparison
+                    return format(parseISO(item.startDate), 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd');
                   }
                 });
               //   console.log(dayItems);
@@ -324,7 +332,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                     )}
                     <div className={styles.dayNumber}>{format(day, 'd')} {displayBS ? ' / ' + nepaliDate.format('D', 'np') : ''}</div>
                     {dayItems.map(item => (
-                      <div key={item.id} className={`${styles.calendarItem} ${styles.event} ${styles.circled}`}>
+                      <div
+                        key={item.id}
+                        className={`${styles.calendarItem} ${styles.event} ${styles.circled}`}
+                        onClick={(e) => handleEventClick(e, item)}
+                      >
                         {item.title}
                       </div>
                     ))}
@@ -337,12 +349,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
       </table>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-      <DialogContent>
-        <AddEventForm 
-          selectedDate={selectedDate} 
-          onClose={handleCloseModal}
-        />
-      </DialogContent>
+        <DialogContent>
+          <AddEventForm 
+            selectedDate={selectedDate}
+            selectedEvent={selectedEvent}
+            onClose={handleCloseModal}
+          />
+        </DialogContent>
       </Dialog>
     </>
   );
