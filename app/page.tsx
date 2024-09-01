@@ -4,6 +4,7 @@ import { init, tx, id } from '@instantdb/react'
 import Image from "next/image";
 import React, { useState, useEffect } from 'react';
 import Calendar from '../components/Calendar';
+import AddEventForm from '../components/AddEvent';
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4' //kepler.local
 const db = init({
@@ -19,7 +20,7 @@ function App() {
     <div>
       {/* <div style={styles.header}>Family Calendar</div> */}
       {/* Use the Calendar component */}
-      <Calendar currentDate={new Date()} numWeeks={85} displayBS={true}/>
+      <Calendar currentDate={new Date()} numWeeks={10} displayBS={false}/>
       <div>Calendar Items</div>
       {/* Initialization Button */}
       <button onClick={initializeCalendarItems}>
@@ -77,86 +78,5 @@ type calendarItem = {
   attendees: string
 }
 
-
-// Styles
-// ----------
-// const styles: Record<string, React.CSSProperties> = {
-//   container: {
-//     boxSizing: 'border-box',
-//     backgroundColor: '#fafafa',
-//     fontFamily: 'code, monospace',
-//     height: '100vh',
-//     display: 'flex',
-//     justifyContent: 'center',
-//     alignItems: 'center',
-//     flexDirection: 'column',
-//   },
-//   header: {
-//     letterSpacing: '2px',
-//     fontSize: '50px',
-//     color: 'lightgray',
-//     marginBottom: '10px',
-//   },
-//   form: {
-//     boxSizing: 'inherit',
-//     display: 'flex',
-//     border: '1px solid lightgray',
-//     borderBottomWidth: '0px',
-//     width: '350px',
-//   },
-//   toggleAll: {
-//     fontSize: '30px',
-//     cursor: 'pointer',
-//     marginLeft: '11px',
-//     marginTop: '-6px',
-//     width: '15px',
-//     marginRight: '12px',
-//   },
-//   input: {
-//     backgroundColor: 'transparent',
-//     fontFamily: 'code, monospace',
-//     width: '287px',
-//     padding: '10px',
-//     fontStyle: 'italic',
-//   },
-//   todoList: {
-//     boxSizing: 'inherit',
-//     width: '350px',
-//   },
-//   checkbox: {
-//     fontSize: '30px',
-//     marginLeft: '5px',
-//     marginRight: '20px',
-//     cursor: 'pointer',
-//   },
-//   todo: {
-//     display: 'flex',
-//     alignItems: 'center',
-//     padding: '10px',
-//     border: '1px solid lightgray',
-//     borderBottomWidth: '0px',
-//   },
-//   todoText: {
-//     flexGrow: '1',
-//     overflow: 'hidden',
-//   },
-//   delete: {
-//     width: '25px',
-//     cursor: 'pointer',
-//     color: 'lightgray',
-//   },
-//   actionBar: {
-//     display: 'flex',
-//     justifyContent: 'space-between',
-//     width: '328px',
-//     padding: '10px',
-//     border: '1px solid lightgray',
-//     fontSize: '10px',
-//   },
-//   footer: {
-//     marginTop: '20px',
-//     fontSize: '10px',
-//   },
-// }
 
 export default App
