@@ -100,7 +100,7 @@
 
 .event {
     /* font-family: 'EB Garamond'; */
-    font-size: small;
+    font-size: normal;
     display: inline-block; /* Makes div behave more like span */
 }
 
@@ -172,4 +172,12 @@
     padding: 1px 3px 2px 3px;
     box-shadow: 0 0 3px rgba(0, 0, 0, 0.1); /* Optional: adds a slight shadow for better visibility */
     z-index: 1; /* Ensure the box overlays the table border */
+}
+
+.react-beautiful-dnd-drag-handle {
+    cursor: move;
+}
+
+.react-beautiful-dnd-dragging {
+    opacity: 0.8;
 }

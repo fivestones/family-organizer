@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import styles from '../styles/Calendar.module.css';
-import { format, addDays, startOfWeek, getMonth, getDate, parseISO } from 'date-fns';
-import { init } from '@instantdb/react';
+import { format, addDays, startOfWeek, getMonth, getDate, parseISO, addWeeks } from 'date-fns';
+import { init, tx } from '@instantdb/react';
 import NepaliDate from 'nepali-date-converter';
 import AddEventForm from './AddEvent';
 import { Dialog, DialogContent } from "../components/ui/dialog"
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4' //kepler.local
 const db = init({
@@ -15,9 +16,9 @@ const db = init({
 
 
 const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) => {
-    // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
-    // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
-    // and displayMonthNumber = false, to display the month number as well as the name.
+  // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
+  // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
+  // and displayMonthNumber = false, to display the month number as well as the name.
   const [calendarItems, setCalendarItems] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -75,7 +76,6 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
     conditions.push({ year: endYear, month: { in: endYearMonths } });
   }
 
-
   const handleDayClick = (day) => {
     setSelectedDate(day);
     setSelectedEvent(null);
@@ -87,13 +87,63 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
     setSelectedDate(parseISO(calendarEvent.startDate));
     setSelectedEvent(calendarEvent);
     setIsModalOpen(true);
-    console.log("Setting selected event with event id of " + calendarEvent.id);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedDate(null);
     setSelectedEvent(null);
+  };
+
+  // Code to allow dragging items from one day to another
+  const onDragEnd = (result) => {
+    const { destination, source, draggableId } = result;
+
+    if (!destination) {
+      return;
+    }
+
+    if (
+      destination.droppableId === source.droppableId &&
+      destination.index === source.index
+    ) {
+      return;
+    }
+
+    console.log('Drag ended:', { source, destination, draggableId });
+
+    const event = calendarItems.find(item => item.id === draggableId);
+
+    const sourceDate = parseISO(source.droppableId);
+    const destinationDate = parseISO(destination.droppableId);
+    const daysDifference = Math.round((destinationDate - sourceDate) / (1000 * 60 * 60 * 24));
+
+    let newStartDate, newEndDate;
+
+    if (event.isAllDay) {
+      newStartDate = format(addDays(parseISO(event.startDate), daysDifference), 'yyyy-MM-dd');
+      newEndDate = format(addDays(parseISO(event.endDate), daysDifference), 'yyyy-MM-dd');
+    } else {
+      newStartDate = addDays(parseISO(event.startDate), daysDifference).toISOString();
+      newEndDate = addDays(parseISO(event.endDate), daysDifference).toISOString();
+    }
+
+    db.transact([
+      tx.calendarItems[event.id].update({
+        startDate: newStartDate,
+        endDate: newEndDate,
+        year: destinationDate.getFullYear(),
+        month: destinationDate.getMonth() + 1,
+        dayOfMonth: destinationDate.getDate(),
+      })
+    ]);
+
+    const updatedItems = calendarItems.map(item => 
+      item.id === event.id 
+        ? { ...item, startDate: newStartDate, endDate: newEndDate }
+        : item
+    );
+    setCalendarItems(updatedItems);
   };
 
   // Build the query for the date range
@@ -204,7 +254,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
   let shouldDisplayNepaliYear = false;
 
   return (
-    <>
+    <DragDropContext onDragEnd={onDragEnd}>
       <table className={styles.calendarTable}>
         <thead>
           <tr>
@@ -226,6 +276,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                 const year = format(day, 'yyyy'); // Get the year in YYYY format
                 const nepaliYear = nepaliDate.format('YYYY'); // Get the Nepali year in YYYY format
                 shouldDisplayBothYears = false;
+                const dateStr = format(day, 'yyyy-MM-dd');
 
               //   console.log(day);
               //   console.log(nepaliDate.format('dd D of MMMM, YYYY'));
@@ -279,68 +330,79 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
       
                 }
                 
-
                 // Filter events for the current day
                 const dayItems = calendarItems.filter(item => {
                   if (item.isAllDay) {
                     // For all-day events, compare only the date part
-                    return item.startDate <= format(day, 'yyyy-MM-dd') && format(day, 'yyyy-MM-dd') < item.endDate;
+                    return item.startDate <= dateStr && dateStr < item.endDate;
                   } else {
                     // For timed events, use the regular comparison
-                    return format(parseISO(item.startDate), 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd');
+                    return format(parseISO(item.startDate), 'yyyy-MM-dd') === dateStr;
                   }
                 });
-              //   console.log(dayItems);
+                //   console.log(dayItems);
 
                 return (
-                  <td
-                    key={dayIndex}
-                    className={`${styles.dayCell} ${isFirstDayOfYear ? styles.firstDayOfYear : ''} ${isFirstDayOfMonth ? styles.firstDayOfMonth : ''} ${isFirstWeekOfMonthButNotFirstDay ? styles.firstWeekOfMonth : ''} ${displayBS && isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''} ${displayBS && isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''} ${displayBS && isFirstWeekOfNepaliMonthButNotFirstDay ? styles.firstWeekOfNepaliMonth : ''}`}
-                    onClick={() => handleDayClick(day)}
-                  >
-                    {shouldDisplayYear && (
-                      <div className={styles.yearNumber}>
-                        {year}
-                      </div>
-                    )}
-                    {shouldDisplayNepaliYear && (
-                      <div className={styles.nepaliYearNumber}>
-                          {nepaliYear}
-                      </div>
-                    )}
-                    {shouldDisplayBothYears && (
-                      <div className={styles.yearNumber}>
-                        {year} / {nepaliYear}
-                      </div>
-                    )}
-                    {displayBothMonths && (
-                      <span className={styles.displayBothMonths}>
-                          {currentMonth} / {nepaliMonthsCommonDevanagari[nepaliDate.getMonth()] + " (" + nepaliMonthsCommonRoman[nepaliDate.getMonth()] + ")"}
-                          {/* {currentMonth} / {nepaliDate.format('MMMM', 'np') + " (" + nepaliDate.format('MMMM') + ")"} */}
-                      </span>
-                    )}
-                    {displayMonthName && (
-                      <div className={styles.monthName}>
-                        {currentMonth}
-                      </div>
-                    )}
-                    {displayNepaliMonthName && (
-                      <div className={styles.nepaliMonthName}>
-                          {nepaliMonthsCommonDevanagari[nepaliDate.getMonth()] + " (" + nepaliMonthsCommonRoman[nepaliDate.getMonth()] + ")"}
-                          {/* {nepaliDate.format('MMMM', 'np') + " (" + nepaliDate.format('MMMM') + ")"} could use currentNepaliMonth to make use of the nepaliMonths array (and get short common month names) */}
-                      </div>
-                    )}
-                    <div className={styles.dayNumber}>{format(day, 'd')} {displayBS ? ' / ' + nepaliDate.format('D', 'np') : ''}</div>
-                    {dayItems.map(item => (
-                      <div
-                        key={item.id}
-                        className={`${styles.calendarItem} ${styles.event} ${styles.circled}`}
-                        onClick={(e) => handleEventClick(e, item)}
+                  <Droppable droppableId={dateStr} key={dateStr}>
+                    {(provided, snapshot) => (
+                      <td
+                        ref={provided.innerRef}
+                        {...provided.droppableProps}
+                        className={`${styles.dayCell} ${isFirstDayOfYear ? styles.firstDayOfYear : ''} ${isFirstDayOfMonth ? styles.firstDayOfMonth : ''} ${isFirstWeekOfMonthButNotFirstDay ? styles.firstWeekOfMonth : ''} ${displayBS && isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''} ${displayBS && isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''} ${displayBS && isFirstWeekOfNepaliMonthButNotFirstDay ? styles.firstWeekOfNepaliMonth : ''}`}
+                        onClick={() => handleDayClick(day)}
                       >
-                        {item.title}
-                      </div>
-                    ))}
-                  </td>
+                        {shouldDisplayYear && (
+                          <div className={styles.yearNumber}>
+                            {year}
+                          </div>
+                        )}
+                        {shouldDisplayNepaliYear && (
+                          <div className={styles.nepaliYearNumber}>
+                              {nepaliYear}
+                          </div>
+                        )}
+                        {shouldDisplayBothYears && (
+                          <div className={styles.yearNumber}>
+                            {year} / {nepaliYear}
+                          </div>
+                        )}
+                        {displayBothMonths && (
+                          <span className={styles.displayBothMonths}>
+                              {currentMonth} / {nepaliMonthsCommonDevanagari[nepaliDate.getMonth()] + " (" + nepaliMonthsCommonRoman[nepaliDate.getMonth()] + ")"}
+                              {/* {currentMonth} / {nepaliDate.format('MMMM', 'np') + " (" + nepaliDate.format('MMMM') + ")"} */}
+                          </span>
+                        )}
+                        {displayMonthName && (
+                          <div className={styles.monthName}>
+                            {currentMonth}
+                          </div>
+                        )}
+                        {displayNepaliMonthName && (
+                          <div className={styles.nepaliMonthName}>
+                              {nepaliMonthsCommonDevanagari[nepaliDate.getMonth()] + " (" + nepaliMonthsCommonRoman[nepaliDate.getMonth()] + ")"}
+                              {/* {nepaliDate.format('MMMM', 'np') + " (" + nepaliDate.format('MMMM') + ")"} could use currentNepaliMonth to make use of the nepaliMonths array (and get short common month names) */}
+                          </div>
+                        )}
+                        <div className={styles.dayNumber}>{format(day, 'd')} {displayBS ? ' / ' + nepaliDate.format('D', 'np') : ''}</div>
+                        {dayItems.map((item, index) => (
+                          <Draggable key={item.id} draggableId={item.id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                className={`${styles.calendarItem} ${styles.event} ${styles.circled}`}
+                                onClick={(e) => handleEventClick(e, item)}
+                              >
+                                {item.title}
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </td>
+                    )}
+                  </Droppable>
                 );
               })}
             </tr>
@@ -357,7 +419,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
           />
         </DialogContent>
       </Dialog>
-    </>
+    </DragDropContext>
   );
 };
 

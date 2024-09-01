@@ -23,9 +23,9 @@ function App() {
       <Calendar currentDate={new Date()} numWeeks={10} displayBS={false}/>
       <div>Calendar Items</div>
       {/* Initialization Button */}
-      <button onClick={initializeCalendarItems}>
+      {/* <button onClick={initializeCalendarItems}>
         Initialize Calendar Items
-      </button>
+      </button> */}
     </div>
   )
 }
