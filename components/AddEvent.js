@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { format, addHours, addDays, setHours, setMinutes, parse } from 'date-fns';
+import { format, addHours, addDays, parse, parseISO } from 'date-fns';
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4' //kepler.local
 const db = init({
@@ -72,18 +72,21 @@ const AddEventForm = ({ selectedDate, onClose, defaultStartTime = '10:00' }) => 
     let startDateObj, endDateObj;
 
     if (formData.isAllDay) {
-      startDateObj = parse(`${formData.startDate} 00:00:00`, 'yyyy-MM-dd HH:mm:ss', new Date());
-      endDateObj = addDays(parse(`${formData.endDate} 00:00:00`, 'yyyy-MM-dd HH:mm:ss', new Date()), 1);
+      // For all-day events, use floating time (no timezone)
+      startDateObj = parseISO(`${formData.startDate}T00:00:00`);
+      endDateObj = parseISO(`${formData.endDate}T00:00:00`);
+      endDateObj = addDays(endDateObj, 1); // End date is exclusive
     } else {
-      startDateObj = parse(`${formData.startDate} ${formData.startTime}`, 'yyyy-MM-dd HH:mm', new Date());
-      endDateObj = parse(`${formData.startDate} ${formData.endTime}`, 'yyyy-MM-dd HH:mm', new Date());
+      // For timed events, use the user's local timezone
+      startDateObj = parseISO(`${formData.startDate}T${formData.startTime}:00`);
+      endDateObj = parseISO(`${formData.startDate}T${formData.endTime}:00`);
     }
 
     const newEvent = {
       title: formData.title,
       description: formData.description,
-      startDate: startDateObj.toISOString(),
-      endDate: endDateObj.toISOString(),
+      startDate: formData.isAllDay ? format(startDateObj, "yyyy-MM-dd") : startDateObj.toISOString(),
+      endDate: formData.isAllDay ? format(endDateObj, "yyyy-MM-dd") : endDateObj.toISOString(),
       isAllDay: formData.isAllDay,
       year: startDateObj.getFullYear(),
       month: startDateObj.getMonth() + 1,

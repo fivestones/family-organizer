@@ -273,10 +273,15 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                 }
                 
 
-                // Filter events for the current day
-                const dayItems = calendarItems.filter(item =>
-                  format(new Date(item.startDate), 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd')
-                );
+                const dayItems = calendarItems.filter(item => {
+                  if (item.isAllDay) {
+                    // For all-day events, compare only the date part
+                    return item.startDate <= format(day, 'yyyy-MM-dd') && format(day, 'yyyy-MM-dd') < item.endDate;
+                  } else {
+                    // For timed events, use the existing comparison
+                    return format(new Date(item.startDate), 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd');
+                  }
+                });
               //   console.log(dayItems);
 
                 return (
