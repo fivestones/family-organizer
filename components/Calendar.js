@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import styles from '../styles/Calendar.module.css';
-import { format, addDays, startOfWeek, getMonth, getDate, parseISO, addWeeks } from 'date-fns';
+import { format, addDays, startOfWeek, getMonth, getDate, parseISO, addWeeks, differenceInDays } from 'date-fns';
 import { init, tx } from '@instantdb/react';
 import NepaliDate from 'nepali-date-converter';
 import AddEventForm from './AddEvent';
 import { Dialog, DialogContent } from "../components/ui/dialog"
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { EB_Garamond } from 'next/font/google';
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4' //kepler.local
 const db = init({
@@ -14,6 +15,12 @@ const db = init({
   websocketURI: "ws://kepler.local:8888/runtime/session",
 });
 
+const ebGaramond = EB_Garamond({
+  weight: '400',
+  subsets: ['latin'],
+  style: 'normal',
+  display: 'swap',
+});
 
 const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) => {
   // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
@@ -115,8 +122,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
     const event = calendarItems.find(item => item.id === draggableId);
 
     const sourceDate = parseISO(source.droppableId);
+    console.log("sourceDate: " + sourceDate);
     const destinationDate = parseISO(destination.droppableId);
-    const daysDifference = Math.round((destinationDate - sourceDate) / (1000 * 60 * 60 * 24));
+    console.log("destinationDate: " + destinationDate);
+    const daysDifference = differenceInDays(destinationDate, sourceDate);
+    // const daysDifference = Math.round((destinationDate - sourceDate) / (1000 * 60 * 60 * 24));
+    console.log("daysDifference: " + daysDifference)
+
 
     let newStartDate, newEndDate;
 
@@ -128,6 +140,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
       newEndDate = addDays(parseISO(event.endDate), daysDifference).toISOString();
     }
 
+    const updatedItems = calendarItems.map(item => 
+      item.id === event.id 
+        ? { ...item, startDate: newStartDate, endDate: newEndDate }
+        : item
+    );
+    setCalendarItems(updatedItems);
+
     db.transact([
       tx.calendarItems[event.id].update({
         startDate: newStartDate,
@@ -138,12 +157,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
       })
     ]);
 
-    const updatedItems = calendarItems.map(item => 
-      item.id === event.id 
-        ? { ...item, startDate: newStartDate, endDate: newEndDate }
-        : item
-    );
-    setCalendarItems(updatedItems);
+    
   };
 
   // Build the query for the date range
@@ -256,7 +270,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <table className={styles.calendarTable}>
-        <thead>
+        <thead className={ebGaramond.className}>
           <tr>
             {daysOfWeek.map((day, index) => (
               <th key={index} className={styles.headerCell}>{day}</th>

@@ -5,6 +5,7 @@ import Image from "next/image";
 import React, { useState, useEffect } from 'react';
 import Calendar from '../components/Calendar';
 import AddEventForm from '../components/AddEvent';
+import FamilyChoreTracker from '@/components/ChoresTracker';
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4' //kepler.local
 const db = init({
@@ -21,11 +22,12 @@ function App() {
       {/* <div style={styles.header}>Family Calendar</div> */}
       {/* Use the Calendar component */}
       <Calendar currentDate={new Date()} numWeeks={10} displayBS={false}/>
-      <div>Calendar Items</div>
+      
       {/* Initialization Button */}
       {/* <button onClick={initializeCalendarItems}>
         Initialize Calendar Items
       </button> */}
+      <FamilyChoreTracker />
     </div>
   )
 }

@@ -101,7 +101,9 @@
 .event {
     /* font-family: 'EB Garamond'; */
     font-size: normal;
-    display: inline-block; /* Makes div behave more like span */
+    /*display: inline-block; /* Makes div behave more like span */
+    /* margin-left: 12%; */
+    /* margin-right: 2%; */
 }
 
 .circled {
@@ -181,3 +183,4 @@
 .react-beautiful-dnd-dragging {
     opacity: 0.8;
 }
+

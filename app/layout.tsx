@@ -23,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={ebGaramond.className}>
+    <html lang="en">
       <body>{children}</body>
     </html>
   );
