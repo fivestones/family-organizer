@@ -4,7 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { PlusCircle, Trash2, Edit, X } from 'lucide-react';
+import { PlusCircle, Trash2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 
 function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, addFamilyMember, deleteFamilyMember }) {
@@ -14,10 +14,12 @@ function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, a
   const [isEditMode, setIsEditMode] = useState(false);
 
   const handleAddMember = () => {
-    addFamilyMember(newMemberName, newMemberEmail);
-    setNewMemberName('');
-    setNewMemberEmail('');
-    setIsAddMemberOpen(false);
+    if (newMemberName) {
+      addFamilyMember(newMemberName, newMemberEmail || null); // Pass null if email is empty
+      setNewMemberName('');
+      setNewMemberEmail('');
+      setIsAddMemberOpen(false);
+    }
   };
 
   return (
@@ -86,7 +88,7 @@ function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, a
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="email" className="text-right">
-                Email
+                Email (optional)
               </Label>
               <Input
                 id="email"
@@ -97,7 +99,7 @@ function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, a
               />
             </div>
           </div>
-          <Button onClick={handleAddMember}>Add Member</Button>
+          <Button onClick={handleAddMember} disabled={!newMemberName}>Add Member</Button>
         </DialogContent>
       </Dialog>
     </div>

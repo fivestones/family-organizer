@@ -8,6 +8,41 @@ const db = init({
   websocketURI: "ws://kepler.local:8888/runtime/session",
 });
 
+
+export function createRRule(ruleObject) {
+  const options = {
+    freq: RRule[ruleObject.freq.toUpperCase()],
+    interval: ruleObject.interval,
+    dtstart: ruleObject.dtstart ? new Date(ruleObject.dtstart) : null,
+    until: ruleObject.until ? new Date(ruleObject.until) : null,
+  };
+
+  if (ruleObject.byweekday) {
+    options.byweekday = ruleObject.byweekday.map(day => RRule[day]);
+  }
+
+  if (ruleObject.bymonthday) {
+    options.bymonthday = ruleObject.bymonthday;
+  }
+
+  return new RRule(options);
+}
+
+export function getNextOccurrence(rrule, after = new Date()) {
+  return rrule.after(after);
+}
+
+export function getOccurrences(rrule, start, end) {
+  return rrule.between(start, end);
+}
+
+
+
+
+
+// ********************************************************************
+// The below functions were used for an earlier version and may or may not be useful:
+
 export const isChoreDueForPerson = async (db, chore, familyMemberId, date) => {
   const rrule = RRule.fromString(chore.recurrenceRule);
   

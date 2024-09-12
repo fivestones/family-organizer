@@ -4,17 +4,30 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Edit, Trash2 } from "lucide-react";
+import { createRRule, getNextOccurrence } from '@/lib/chore-utils';
 
 function ChoreList({ chores, familyMembers, selectedMember, toggleChoreDone, updateChore, deleteChore }) {
-  const formatRepeatInfo = (chore) => {
-    // This is a placeholder. You'll need to implement this based on your chore data structure
-    return 'Repeat info placeholder';
+  const today = new Date();
+
+  const shouldShowChore = (chore) => {
+    if (!chore.rrule) return true; // Non-recurring chores always show
+
+    const rrule = createRRule(JSON.parse(chore.rrule));
+    const nextOccurrence = getNextOccurrence(rrule, today);
+
+    // Show the chore if its next occurrence is today
+    return nextOccurrence && 
+           nextOccurrence.getDate() === today.getDate() &&
+           nextOccurrence.getMonth() === today.getMonth() &&
+           nextOccurrence.getFullYear() === today.getFullYear();
   };
+
+  const filteredChores = chores.filter(shouldShowChore);
 
   return (
     <ScrollArea className="h-[calc(100vh-200px)]">
       <ul>
-        {chores.map(chore => (
+        {filteredChores.map(chore => (
           <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex items-center">
             <Checkbox
               checked={chore.done}
@@ -30,14 +43,11 @@ function ChoreList({ chores, familyMembers, selectedMember, toggleChoreDone, upd
                   ).join(', ')})
                 </span>
               )}
-              {chore.startDate && (
+              {chore.rrule && (
                 <span className="ml-2 text-sm text-gray-500">
-                  Start: {new Date(chore.startDate).toLocaleDateString()}
+                  (Recurring)
                 </span>
               )}
-              <span className="ml-2 text-sm text-gray-500">
-                {formatRepeatInfo(chore)}
-              </span>
             </span>
             <Dialog>
               <DialogTrigger asChild>
