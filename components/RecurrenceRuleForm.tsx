@@ -1,21 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { RRule, Frequency, Weekday } from 'rrule';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 
-const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const daysOfWeek = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
 type DayOfWeek = typeof daysOfWeek[number];
 
-interface RRule {
-  freq: 'DAILY' | 'WEEKLY' | 'MONTHLY';
-  interval: number;
-  byweekday?: DayOfWeek[];
-  bymonthday?: number[];
-}
-
 interface RecurrenceRuleFormProps {
-  onSave: (rule: RRule | null) => void;
+  onSave: (rule: string | null) => void;
 }
 
 const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave }) => {
@@ -34,20 +28,21 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave }) => {
       return;
     }
 
-    const rrule: RRule = {
-      freq: frequency.toUpperCase() as RRule['freq'],
+    const rruleOptions: RRule.Options = {
+      freq: Frequency[frequency.toUpperCase() as keyof typeof Frequency],
       interval: interval,
     };
 
     if (frequency === 'weekly' && weeklyDays.length > 0) {
-      rrule.byweekday = weeklyDays;
+      rruleOptions.byweekday = weeklyDays.map(day => RRule[day as keyof typeof RRule] as Weekday);
     }
 
     if (frequency === 'monthly' && monthlyDays.length > 0) {
-      rrule.bymonthday = monthlyDays;
+      rruleOptions.bymonthday = monthlyDays;
     }
 
-    onSave(rrule);
+    const rrule = new RRule(rruleOptions);
+    onSave(rrule.toString());
   };
 
   const handleWeeklyDayToggle = (day: DayOfWeek) => {
