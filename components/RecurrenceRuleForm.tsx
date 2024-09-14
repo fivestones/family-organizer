@@ -8,12 +8,21 @@ import { Checkbox } from "@/components/ui/checkbox";
 const daysOfWeek = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
 type DayOfWeek = typeof daysOfWeek[number];
 
+type FrequencyType = 'once' | 'daily' | 'weekly' | 'monthly';
+
 interface RecurrenceRuleFormProps {
   onSave: (rule: string | null) => void;
 }
 
+const frequencyMap: Record<FrequencyType, Frequency> = {
+  once: Frequency.DAILY,  // We'll handle this case separately
+  daily: Frequency.DAILY,
+  weekly: Frequency.WEEKLY,
+  monthly: Frequency.MONTHLY,
+};
+
 const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave }) => {
-  const [frequency, setFrequency] = useState<'once' | 'daily' | 'weekly' | 'monthly'>('daily');
+  const [frequency, setFrequency] = useState<FrequencyType>('daily');
   const [interval, setInterval] = useState(1);
   const [weeklyDays, setWeeklyDays] = useState<DayOfWeek[]>([]);
   const [monthlyDays, setMonthlyDays] = useState<number[]>([]);
@@ -29,7 +38,7 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave }) => {
     }
 
     const rruleOptions: RRule.Options = {
-      freq: Frequency[frequency.toUpperCase() as keyof typeof Frequency],
+      freq: frequencyMap[frequency],
       interval: interval,
     };
 
@@ -59,7 +68,7 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave }) => {
 
   return (
     <div className="space-y-4">
-      <RadioGroup value={frequency} onValueChange={(value: 'once' | 'daily' | 'weekly' | 'monthly') => setFrequency(value)}>
+      <RadioGroup value={frequency} onValueChange={(value: FrequencyType) => setFrequency(value)}>
         <div className="flex items-center space-x-2">
           <RadioGroupItem value="once" id="once" />
           <Label htmlFor="once">Once</Label>

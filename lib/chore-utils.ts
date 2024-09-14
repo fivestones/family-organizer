@@ -1,4 +1,4 @@
-import { RRule } from 'rrule';
+import { RRule, Frequency } from 'rrule';
 import { init, tx, id } from '@instantdb/react';
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4' //kepler.local
@@ -8,35 +8,54 @@ const db = init({
   websocketURI: "ws://kepler.local:8888/runtime/session",
 });
 
-
-export function createRRule(ruleObject) {
-  const options = {
-    freq: RRule[ruleObject.freq.toUpperCase()],
-    interval: ruleObject.interval,
-    dtstart: ruleObject.dtstart ? new Date(ruleObject.dtstart) : null,
-    until: ruleObject.until ? new Date(ruleObject.until) : null,
-  };
-
-  if (ruleObject.byweekday) {
-    options.byweekday = ruleObject.byweekday.map(day => RRule[day]);
+export function createRRule(ruleObject: Partial<RRule.Options>) {
+  if (!ruleObject || typeof ruleObject !== 'object') {
+    throw new Error('Invalid rule object provided');
   }
 
-  if (ruleObject.bymonthday) {
-    options.bymonthday = ruleObject.bymonthday;
+  const options: RRule.Options = {
+    freq: Frequency.DAILY,  // Default frequency
+    interval: 1,            // Default interval
+    ...ruleObject,
+  };
+
+  const freq = (ruleObject as any).freq;
+
+  // Handle the freq property
+  if (typeof freq === 'string') {
+    const upperFreq = freq.toUpperCase();
+    options.freq =
+      (Frequency[upperFreq as keyof typeof Frequency] as Frequency) ||
+      Frequency.DAILY;
+  } else if (typeof freq === 'number') {
+    // Ensure the number is a valid Frequency enum value
+    options.freq = Object.values(Frequency).includes(freq)
+      ? freq
+      : Frequency.DAILY;
+  } else {
+    options.freq = Frequency.DAILY;
+  }
+
+  console.log("options: ", options);
+  if (options.dtstart && !(options.dtstart instanceof Date)) {
+    console.log("the dtstart will be", new Date(options.dtstart), " from ", options.dtstart)
+    options.dtstart = new Date(options.dtstart);
+  }
+
+  if (options.until && !(options.until instanceof Date)) {
+    options.until = new Date(options.until);
   }
 
   return new RRule(options);
 }
 
-export function getNextOccurrence(rrule, after = new Date()) {
+export function getNextOccurrence(rrule: RRule, after = new Date()) {
   return rrule.after(after);
 }
 
-export function getOccurrences(rrule, start, end) {
+export function getOccurrences(rrule: RRule, start: Date, end: Date) {
   return rrule.between(start, end);
 }
-
-
 
 
 

@@ -5,6 +5,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Edit, Trash2 } from "lucide-react";
 import { createRRule, getNextOccurrence } from '@/lib/chore-utils';
+import { RRule } from 'rrule';
+import next from 'next';
 
 function ChoreList({ chores, familyMembers, selectedMember, toggleChoreDone, updateChore, deleteChore }) {
   const today = new Date();
@@ -12,14 +14,30 @@ function ChoreList({ chores, familyMembers, selectedMember, toggleChoreDone, upd
   const shouldShowChore = (chore) => {
     if (!chore.rrule) return true; // Non-recurring chores always show
 
-    const rrule = createRRule(JSON.parse(chore.rrule));
+    console.log("chore", chore);
+    console.log("chore.rrule", chore.rrule);
+        
+    // Remove surrounding quotes and "RRULE:" prefix if they exist
+    let rruleString = chore.rrule.trim();
+    if (rruleString.startsWith('"') && rruleString.endsWith('"')) {
+      rruleString = rruleString.slice(1, -1);
+    }
+    rruleString = rruleString.startsWith("RRULE:") ? rruleString.slice(6) : rruleString;
+    console.log("rrule string: ", rruleString);
+    
+    // Use RRule.fromString with the cleaned rrule string
+    const rrule = RRule.fromString(rruleString);
+    console.log("rrule: ", rrule)
     const nextOccurrence = getNextOccurrence(rrule, today);
+    console.log("nextOccurrence: ", nextOccurrence);
 
     // Show the chore if its next occurrence is today
-    return nextOccurrence && 
-           nextOccurrence.getDate() === today.getDate() &&
-           nextOccurrence.getMonth() === today.getMonth() &&
-           nextOccurrence.getFullYear() === today.getFullYear();
+    return (
+      nextOccurrence &&
+      nextOccurrence.getDate() === today.getDate() &&
+      nextOccurrence.getMonth() === today.getMonth() &&
+      nextOccurrence.getFullYear() === today.getFullYear()
+    );
   };
 
   const filteredChores = chores.filter(shouldShowChore);

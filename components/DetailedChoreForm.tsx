@@ -16,7 +16,7 @@ function DetailedChoreForm({ familyMembers, onSave }) {
       title,
       assignees: [{ id: assignee }],
       description,
-      rrule: recurrenceRule ? JSON.stringify(recurrenceRule) : null,
+      rrule: recurrenceRule || null, // Remove JSON.stringify, ensure it's a string or null
     });
   };
 

@@ -73,7 +73,7 @@ function ChoresTracker() {
         description: choreData.description || '',
         startDate: Date.now(),
         done: false,
-        rrule: choreData.rrule || null,
+        rrule: choreData.rrule || null,  // This line ensures rrule is saved as-is
       }),
       ...choreData.assignees!.map(assignee => 
         tx.chores[choreId].link({ assignees: assignee.id })
