@@ -18,6 +18,7 @@ function DetailedChoreForm({ familyMembers, onSave }) {
     let finalRrule = null;
     if (recurrenceOptions) {
       // Create a Date object with only year, month, and day
+      // This effectively creates a "floating" time zone date
       const dtstart = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
       
       // Combine the recurrence options with the start date
@@ -26,18 +27,26 @@ function DetailedChoreForm({ familyMembers, onSave }) {
         dtstart: dtstart
       };
 
-      // Create the RRule and convert it to a string
-      finalRrule = new RRule(fullOptions).toString();
+      // Create the RRule
+      const rrule = new RRule(fullOptions);
+
+      // Convert the RRule to a string, but remove the DTSTART part
+      finalRrule = rrule.toString().replace(/DTSTART:[^;T]*;?/, '');
+
+      // Prepend RRULE: to the string if it's not already there
+      if (!finalRrule.startsWith('RRULE:')) {
+        finalRrule = 'RRULE:' + finalRrule;
+      }
     }
 
     onSave({
       title,
       assignees: [{ id: assignee }],
       description,
+      startDate: startDate.toISOString().split('T')[0], // Store only the date part
       rrule: finalRrule,
     });
   };
-
 
   return (
     <div className="space-y-4">

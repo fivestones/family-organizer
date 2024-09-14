@@ -49,11 +49,24 @@ export function createRRule(ruleObject: Partial<RRule.Options>) {
   return new RRule(options);
 }
 
-export function getNextOccurrence(rrule: RRule, after = new Date()) {
+export function createRRuleWithStartDate(rruleString: string, startDateString: string): RRule {
+  const startDate = new Date(startDateString);
+  const rruleOptions = RRule.parseString(rruleString);
+  return new RRule({
+    ...rruleOptions,
+    dtstart: startDate
+  });
+}
+
+// Update getNextOccurrence
+export function getNextOccurrence(rruleString: string, startDateString: string, after = new Date()) {
+  const rrule = createRRuleWithStartDate(rruleString, startDateString);
   return rrule.after(after);
 }
 
-export function getOccurrences(rrule: RRule, start: Date, end: Date) {
+// Update getOccurrences
+export function getOccurrences(rruleString: string, startDateString: string, start: Date, end: Date) {
+  const rrule = createRRuleWithStartDate(rruleString, startDateString);
   return rrule.between(start, end);
 }
 

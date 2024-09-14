@@ -11,6 +11,8 @@ import { PlusCircle } from 'lucide-react';
 import FamilyMembersList from './FamilyMembersList';
 import ChoreList from './ChoreList';
 import DetailedChoreForm from './DetailedChoreForm';
+import DateCarousel from '@/components/ui/DateCarousel';
+import { createRRuleWithStartDate, getNextOccurrence } from '@/lib/chore-utils';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -52,6 +54,7 @@ function ChoresTracker() {
   const [newChoreTitle, setNewChoreTitle] = useState<string>('');
   const [newChoreAssignee, setNewChoreAssignee] = useState<string>('');
   const [isDetailedChoreModalOpen, setIsDetailedChoreModalOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   const { isLoading, error, data } = db.useQuery({
     familyMembers: {},
@@ -59,7 +62,7 @@ function ChoresTracker() {
       assignees: {},
     },
   });
-
+  
   if (isLoading) return <div>Loading...</div>;
   if (error) return <div>Error: {error.message}</div>;
 
@@ -122,95 +125,113 @@ function ChoresTracker() {
   const deleteChore = (choreId) => {
     db.transact([tx.chores[choreId].delete()]);
   };
+  
+  const handleDateSelect = (date: Date) => {
+    setSelectedDate(date);
+    console.log("just set the seletecDate to ", date)
+    // You might want to filter chores based on the selected date here
+  };
 
   const filteredChores = selectedMember === 'All'
     ? chores
     : chores.filter(chore => chore.assignees.some(assignee => assignee.id === selectedMember));
 
-  return (
-    <div className="flex h-screen">
-      <div className="w-1/4 bg-gray-100 p-4">
-      <FamilyMembersList
-        familyMembers={familyMembers}
-        selectedMember={selectedMember}
-        setSelectedMember={setSelectedMember}
-        addFamilyMember={addFamilyMember}
-        deleteFamilyMember={deleteFamilyMember}
-      />
-    </div>
-      <div className="w-3/4 p-4">
-      <h2 className="text-xl font-bold mb-4">
-        {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find(m => m.id === selectedMember)?.name}'s Chores`}
-      </h2>
-      <div className="mb-4">
-        <Button
-          variant={viewMode === 'list' ? 'default' : 'outline'}
-          className="mr-2"
-          onClick={() => setViewMode('list')}
-        >
-          List View
-        </Button>
-        <Button
-          variant={viewMode === 'calendar' ? 'default' : 'outline'}
-          onClick={() => setViewMode('calendar')}
-        >
-          Calendar View
-        </Button>
-      </div>
-        {viewMode === 'list' ? (
-          <>
-            <div className="flex mb-4">
-              <Input
-                placeholder="New chore title"
-                value={newChoreTitle}
-                onChange={(e) => setNewChoreTitle(e.target.value)}
-                className="mr-2"
-              />
-              <Select value={newChoreAssignee} onValueChange={setNewChoreAssignee}>
-                <SelectTrigger className="w-[180px] mr-2">
-                  <SelectValue placeholder="Assignee" />
-                </SelectTrigger>
-                <SelectContent>
-                  {familyMembers.map(member => (
-                    <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button onClick={() => addChore({ title: newChoreTitle, assignees: [{ id: newChoreAssignee } as FamilyMember] })}>
-              Add Chore
-              </Button>
-              <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="ml-2">
-                    <PlusCircle className="mr-2 h-4 w-4" /> Detailed
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Add Detailed Chore</DialogTitle>
-                  </DialogHeader>
-                  <DetailedChoreForm
-                    familyMembers={familyMembers}
-                    onSave={addChore}
-                  />
-                </DialogContent>
-              </Dialog>
-          </div>
-          <ChoreList
-            chores={filteredChores}
+    return (
+      <div className="flex h-screen">
+        <div className="w-1/4 bg-gray-100 p-4">
+          <FamilyMembersList
             familyMembers={familyMembers}
             selectedMember={selectedMember}
-            toggleChoreDone={toggleChoreDone}
-            updateChore={updateChore}
-            deleteChore={deleteChore}
+            setSelectedMember={setSelectedMember}
+            addFamilyMember={addFamilyMember}
+            deleteFamilyMember={deleteFamilyMember}
           />
-        </>
-        ) : (
-          <div>Calendar View (Not implemented)</div>
-        )}
+        </div>
+        <div className="w-3/4 p-4">
+          <h2 className="text-xl font-bold mb-4">
+            {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find(m => m.id === selectedMember)?.name}'s Chores`}
+          </h2>
+          <div className="mb-4">
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'outline'}
+              className="mr-2"
+              onClick={() => setViewMode('list')}
+            >
+              List View
+            </Button>
+            <Button
+              variant={viewMode === 'calendar' ? 'default' : 'outline'}
+              onClick={() => setViewMode('calendar')}
+            >
+              Calendar View
+            </Button>
+          </div>
+          
+          {/* DateCarousel */}
+          <div className="mb-4">
+            <DateCarousel onDateSelect={handleDateSelect} />
+          </div>
+  
+          {viewMode === 'list' ? (
+            <>
+              <div className="flex mb-4">
+                <Input
+                  placeholder="New chore title"
+                  value={newChoreTitle}
+                  onChange={(e) => setNewChoreTitle(e.target.value)}
+                  className="mr-2"
+                />
+                <Select value={newChoreAssignee} onValueChange={setNewChoreAssignee}>
+                  <SelectTrigger className="w-[180px] mr-2">
+                    <SelectValue placeholder="Assignee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {familyMembers.map(member => (
+                      <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button onClick={() => addChore({ 
+                  title: newChoreTitle, 
+                  assignees: [{ id: newChoreAssignee } as FamilyMember], 
+                  startDate: selectedDate.getTime() 
+                })}>
+                  Add Chore
+                </Button>
+                <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="ml-2">
+                      <PlusCircle className="mr-2 h-4 w-4" /> Detailed
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Add Detailed Chore</DialogTitle>
+                    </DialogHeader>
+                    <DetailedChoreForm
+                      familyMembers={familyMembers}
+                      onSave={addChore}
+                      initialDate={selectedDate}
+                    />
+                  </DialogContent>
+                </Dialog>
+              </div>
+              <ChoreList
+                chores={filteredChores}
+                familyMembers={familyMembers}
+                selectedMember={selectedMember}
+                selectedDate={selectedDate}
+                toggleChoreDone={toggleChoreDone}
+                updateChore={updateChore}
+                deleteChore={deleteChore}
+              />
+            </>
+          ) : (
+            <div>Calendar View (Not implemented)</div>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
 }
 
 function AddChoreForm({ newChoreTitle, setNewChoreTitle, newChoreAssignee, setNewChoreAssignee, addChore, familyMembers }) {
