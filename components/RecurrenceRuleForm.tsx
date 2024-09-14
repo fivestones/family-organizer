@@ -11,11 +11,11 @@ type DayOfWeek = typeof daysOfWeek[number];
 type FrequencyType = 'once' | 'daily' | 'weekly' | 'monthly';
 
 interface RecurrenceRuleFormProps {
-  onSave: (rule: string | null) => void;
+  onSave: (rule: { freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>> | null) => void;
 }
 
 const frequencyMap: Record<FrequencyType, Frequency> = {
-  once: Frequency.DAILY,  // We'll handle this case separately
+  once: Frequency.DAILY,
   daily: Frequency.DAILY,
   weekly: Frequency.WEEKLY,
   monthly: Frequency.MONTHLY,
@@ -37,7 +37,7 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave }) => {
       return;
     }
 
-    const rruleOptions: RRule.Options = {
+    const rruleOptions: { freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>> = {
       freq: frequencyMap[frequency],
       interval: interval,
     };
@@ -50,8 +50,7 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave }) => {
       rruleOptions.bymonthday = monthlyDays;
     }
 
-    const rrule = new RRule(rruleOptions);
-    onSave(rrule.toString());
+    onSave(rruleOptions);
   };
 
   const handleWeeklyDayToggle = (day: DayOfWeek) => {

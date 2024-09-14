@@ -71,9 +71,9 @@ function ChoresTracker() {
       tx.chores[choreId].update({
         title: choreData.title!,
         description: choreData.description || '',
-        startDate: Date.now(),
+        startDate: choreData.startDate || Date.now(),
         done: false,
-        rrule: choreData.rrule || null,  // This line ensures rrule is saved as-is
+        rrule: choreData.rrule || null,
       }),
       ...choreData.assignees!.map(assignee => 
         tx.chores[choreId].link({ assignees: assignee.id })
