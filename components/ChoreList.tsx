@@ -13,31 +13,25 @@ function ChoreList({ chores, familyMembers, selectedMember, toggleChoreDone, upd
 
   const shouldShowChore = (chore) => {
     if (!chore.rrule) return true; // Non-recurring chores always show
-
-    console.log("chore", chore);
-    console.log("chore.rrule", chore.rrule);
-        
+  
     // Remove surrounding quotes and "RRULE:" prefix if they exist
     let rruleString = chore.rrule.trim();
     if (rruleString.startsWith('"') && rruleString.endsWith('"')) {
       rruleString = rruleString.slice(1, -1);
     }
     rruleString = rruleString.startsWith("RRULE:") ? rruleString.slice(6) : rruleString;
-    console.log("rrule string: ", rruleString);
-    
-    // Use RRule.fromString with the cleaned rrule string
+  
     const rrule = RRule.fromString(rruleString);
-    console.log("rrule: ", rrule)
-    const nextOccurrence = getNextOccurrence(rrule, today);
-    console.log("nextOccurrence: ", nextOccurrence);
-
-    // Show the chore if its next occurrence is today
-    return (
-      nextOccurrence &&
-      nextOccurrence.getDate() === today.getDate() &&
-      nextOccurrence.getMonth() === today.getMonth() &&
-      nextOccurrence.getFullYear() === today.getFullYear()
-    );
+  
+    // Define start and end of today
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  
+    // Use rrule.between to get all occurrences today
+    const occurrencesToday = rrule.between(startOfDay, endOfDay, true);
+  
+    // Show the chore if there is at least one occurrence today
+    return occurrencesToday.length > 0;
   };
 
   const filteredChores = chores.filter(shouldShowChore);
