@@ -25,6 +25,7 @@ interface FamilyMember {
   email?: string;
 }
 
+// Updated Chore interface
 interface Chore {
   id: string;
   title: string;
@@ -33,6 +34,11 @@ interface Chore {
   done: boolean;
   rrule?: string;
   assignees: FamilyMember[];
+  rotationType: 'none' | 'daily' | 'weekly' | 'monthly';
+  assignments?: {
+    order: number;
+    familyMember: FamilyMember;
+  }[];
 }
 
 type Schema = {
@@ -60,6 +66,9 @@ function ChoresTracker() {
     familyMembers: {},
     chores: {
       assignees: {},
+      assignments: {
+        familyMember: {},
+      },
     },
   });
   
@@ -68,22 +77,43 @@ function ChoresTracker() {
 
   const { familyMembers, chores } = data;
 
+  // Updated addChore function
   const addChore = (choreData: Partial<Chore>) => {
+    console.log("in the addChore function")
     const choreId = id();
-    db.transact([
+    const transactions = [
       tx.chores[choreId].update({
         title: choreData.title!,
         description: choreData.description || '',
-        startDate: choreData.startDate || Date.now(),
+        startDate: new Date(choreData.startDate || Date.now()).toISOString(),
         done: false,
         rrule: choreData.rrule || null,
+        rotationType: choreData.rotationType || 'none',
       }),
-      ...choreData.assignees!.map(assignee => 
-        tx.chores[choreId].link({ assignees: assignee.id })
-      ),
-    ]);
-    setNewChoreTitle('');
-    setNewChoreAssignee('');
+    ];
+
+    if (choreData.rotationType !== 'none' && choreData.assignments) {
+      // Use assignments with rotation
+      choreData.assignments.forEach(assignment => {
+        const assignmentId = id();
+        transactions.push(
+          tx.choreAssignments[assignmentId].update({
+            order: assignment.order,
+            chore: choreId,
+            familyMember: assignment.familyMember.id,
+          })
+        );
+      });
+    } else if (choreData.assignees) {
+      // Link assignees directly
+      choreData.assignees.forEach(assignee => {
+        transactions.push(
+          tx.chores[choreId].link({ assignees: assignee.id })
+        );
+      });
+    }
+
+    db.transact(transactions);
     setIsDetailedChoreModalOpen(false);
   };
 

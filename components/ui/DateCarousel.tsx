@@ -3,12 +3,18 @@ import { format, addDays, subDays } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const DateCarousel = ({ onDateSelect, initialDate }) => {
-  const [selectedDate, setSelectedDate] = useState(() => {
+interface DateCarouselProps {
+  onDateSelect: (date: Date) => void;
+  initialDate?: Date; // Mark initialDate as optional
+}
+
+const DateCarousel: React.FC<DateCarouselProps> = ({ onDateSelect, initialDate }) => {
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const date = initialDate || new Date();
-    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   });
-  const [dateRange, setDateRange] = useState([]);
+
+  const [dateRange, setDateRange] = useState<Date[]>([]);
 
   useEffect(() => {
     const generateDateRange = () => {
@@ -22,15 +28,15 @@ const DateCarousel = ({ onDateSelect, initialDate }) => {
     generateDateRange();
   }, [selectedDate]);
 
-  const handleDateClick = (date) => {
-    const utcDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const handleDateClick = (date: Date) => {
+    const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
     setSelectedDate(utcDate);
     onDateSelect(utcDate);
   };
 
-  const handleNavigate = (direction) => {
+  const handleNavigate = (direction: 'prev' | 'next') => {
     const newDate = direction === 'prev' ? subDays(selectedDate, 1) : addDays(selectedDate, 1);
-    const utcNewDate = new Date(Date.UTC(newDate.getUTCFullYear(), newDate.getUTCMonth(), newDate.getUTCDate()));
+    const utcNewDate = new Date(Date.UTC(newDate.getFullYear(), newDate.getMonth(), newDate.getDate()));
     setSelectedDate(utcNewDate);
     onDateSelect(utcNewDate);
   };
@@ -41,7 +47,7 @@ const DateCarousel = ({ onDateSelect, initialDate }) => {
         <ChevronLeft className="h-4 w-4" />
       </Button>
       <div className="flex space-x-2 overflow-x-auto">
-        {dateRange.map((date, index) => {
+        {dateRange.map((date) => {
           const isSelected = date.getTime() === selectedDate.getTime();
           const isToday = date.toDateString() === new Date().toDateString();
           return (
@@ -51,7 +57,7 @@ const DateCarousel = ({ onDateSelect, initialDate }) => {
                 isSelected
                   ? 'bg-primary text-primary-foreground shadow-lg transform scale-105'
                   : 'bg-background hover:bg-secondary'
-              } ${index === 3 ? 'border-b-8 border-primary' : ''}`}
+              }`}
               onClick={() => handleDateClick(date)}
             >
               <div className={`text-sm ${isToday ? 'font-bold' : ''}`}>

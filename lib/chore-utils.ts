@@ -84,6 +84,209 @@ export function getOccurrences(rruleString: string, startDateString: string, sta
 }
 
 
+export const isChoreAssignedForPersonOnDate = async (db: any, chore: any, familyMemberId: string, date: Date) => {
+  const dateStart = new Date(date);
+  dateStart.setHours(0, 0, 0, 0);
+  const dateEnd = new Date(date);
+  dateEnd.setHours(23, 59, 59, 999);
+
+  // Check if the chore occurs on the given date
+  const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
+  const occurrences = rrule.between(dateStart, dateEnd, true);
+
+  if (occurrences.length === 0) {
+    return { assigned: false, completed: false };
+  }
+
+  let assigned = false;
+
+  if (chore.rotationType && chore.assignments && chore.assignments.length > 0) {
+    // Handle rotation
+    const startDate = new Date(chore.startDate);
+    const daysSinceStart = Math.floor((dateStart.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+
+    let rotationIndex = 0;
+    switch (chore.rotationType) {
+      case 'daily':
+        rotationIndex = daysSinceStart;
+        break;
+      case 'weekly':
+        rotationIndex = Math.floor(daysSinceStart / 7);
+        break;
+      case 'monthly':
+        rotationIndex = (dateStart.getFullYear() - startDate.getFullYear()) * 12 + (dateStart.getMonth() - startDate.getMonth());
+        break;
+      default:
+        rotationIndex = 0;
+    }
+
+    const assignedIndex = rotationIndex % chore.assignments.length;
+    const assignedPersonId = chore.assignments[assignedIndex].familyMember.id;
+    assigned = assignedPersonId === familyMemberId;
+  } else {
+    // Assigned to all assignees
+    assigned = chore.assignees.some((assignee: any) => assignee.id === familyMemberId);
+  }
+
+  if (!assigned) {
+    return { assigned: false, completed: false };
+  }
+
+  // Check if the chore has been completed by this person on this date
+  const { data } = await db.query({
+    choreCompletions: {
+      $: {
+        where: {
+          chore: chore.id,
+          completedBy: familyMemberId,
+          date: {
+            $gte: dateStart.getTime(),
+            $lte: dateEnd.getTime(),
+          },
+          completed: true,
+        },
+      },
+      id: true,
+    },
+  });
+
+  const completed = data.choreCompletions.length > 0;
+
+  return { assigned: true, completed };
+};
+
+export const getChoreAssignmentGrid = async (db: any, chore: any, startDate: Date, endDate: Date) => {
+  const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
+  const occurrences = rrule.between(startDate, endDate, true);
+
+  const { data } = await db.query({
+    choreCompletions: {
+      $: {
+        where: {
+          chore: chore.id,
+          date: {
+            $gte: startDate.getTime(),
+            $lte: endDate.getTime(),
+          },
+          completed: true,
+        },
+      },
+      date: true,
+      completedBy: {
+        id: true,
+      },
+    },
+  });
+
+  const completions = data.choreCompletions;
+
+  const dateAssignments: { [date: string]: { [memberId: string]: { assigned: boolean; completed: boolean } } } = {};
+
+  occurrences.forEach(date => {
+    const dateStr = date.toISOString().split('T')[0];
+    dateAssignments[dateStr] = {};
+
+    let assignedMembers: any[] = [];
+
+    if (chore.rotationType && chore.assignments && chore.assignments.length > 0) {
+      // Handle rotation
+      const startDate = new Date(chore.startDate);
+      const daysSinceStart = Math.floor((date.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+
+      let rotationIndex = 0;
+      switch (chore.rotationType) {
+        case 'daily':
+          rotationIndex = daysSinceStart;
+          break;
+        case 'weekly':
+          rotationIndex = Math.floor(daysSinceStart / 7);
+          break;
+        case 'monthly':
+          rotationIndex = (date.getFullYear() - startDate.getFullYear()) * 12 + (date.getMonth() - startDate.getMonth());
+          break;
+        default:
+          rotationIndex = 0;
+      }
+
+      const assignedIndex = rotationIndex % chore.assignments.length;
+      assignedMembers = [chore.assignments[assignedIndex].familyMember];
+    } else {
+      // Assigned to all assignees
+      assignedMembers = chore.assignees;
+    }
+
+    assignedMembers.forEach((assignee: any) => {
+      dateAssignments[dateStr][assignee.id] = { assigned: true, completed: false };
+    });
+  });
+
+  // Mark completed chores
+  completions.forEach((completion: any) => {
+    const date = new Date(completion.date);
+    const dateStr = date.toISOString().split('T')[0];
+    const assigneeId = completion.completedBy.id;
+    if (dateAssignments[dateStr] && dateAssignments[dateStr][assigneeId]) {
+      dateAssignments[dateStr][assigneeId].completed = true;
+    }
+  });
+
+  return dateAssignments;
+};
+
+
+export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Date, endDate: Date) => {
+  const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
+  const occurrences = rrule.between(startDate, endDate, true);
+
+  const dateAssignments: { [date: string]: { [memberId: string]: { assigned: boolean; completed: false } } } = {};
+
+  occurrences.forEach(date => {
+    const dateStr = date.toISOString().split('T')[0];
+    dateAssignments[dateStr] = {};
+
+    let assignedMembers: any[] = [];
+
+    if (chore.rotationType && chore.rotationType !== 'none' && chore.assignments && chore.assignments.length > 0) {
+      // Handle rotation
+      const startDate = new Date(chore.startDate);
+      const daysSinceStart = Math.floor((date.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+
+      let rotationIndex = 0;
+      switch (chore.rotationType) {
+        case 'daily':
+          rotationIndex = daysSinceStart;
+          break;
+        case 'weekly':
+          rotationIndex = Math.floor(daysSinceStart / 7);
+          break;
+        case 'monthly':
+          rotationIndex = (date.getFullYear() - startDate.getFullYear()) * 12 + (date.getMonth() - startDate.getMonth());
+          break;
+        default:
+          rotationIndex = 0;
+      }
+
+      if (chore.assignments.length > 0) {
+        const assignedIndex = rotationIndex % chore.assignments.length;
+        assignedMembers = [chore.assignments[assignedIndex]?.familyMember].filter(Boolean);
+      } else {
+        assignedMembers = [];
+      }
+    } else {
+      // Assigned to all assignees
+      assignedMembers = chore.assignees || [];
+    }
+
+    // Safeguard against null or undefined assignedMembers
+    if (assignedMembers.length > 0) {
+      assignedMembers.forEach((assignee: any) => {
+        dateAssignments[dateStr][assignee.id] = { assigned: true, completed: false };
+      });
+    }
+  });
+
+  return dateAssignments;
+};
 
 // ********************************************************************
 // The below functions were used for an earlier version and may or may not be useful:
