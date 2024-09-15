@@ -77,9 +77,7 @@ function ChoresTracker() {
 
   const { familyMembers, chores } = data;
 
-  // Updated addChore function
   const addChore = (choreData: Partial<Chore>) => {
-    console.log("in the addChore function")
     const choreId = id();
     const transactions = [
       tx.chores[choreId].update({
@@ -91,9 +89,8 @@ function ChoresTracker() {
         rotationType: choreData.rotationType || 'none',
       }),
     ];
-
-    if (choreData.rotationType !== 'none' && choreData.assignments) {
-      // Use assignments with rotation
+  
+    if (choreData.rotationType !== 'none' && choreData.assignments && choreData.assignments.length > 0) {
       choreData.assignments.forEach(assignment => {
         const assignmentId = id();
         transactions.push(
@@ -104,15 +101,17 @@ function ChoresTracker() {
           })
         );
       });
-    } else if (choreData.assignees) {
-      // Link assignees directly
+    } else if (choreData.assignees && choreData.assignees.length > 0) {
       choreData.assignees.forEach(assignee => {
         transactions.push(
           tx.chores[choreId].link({ assignees: assignee.id })
         );
       });
+    } else {
+      // Handle case where no assignees are selected
+      console.warn('No assignees selected for the chore.');
     }
-
+  
     db.transact(transactions);
     setIsDetailedChoreModalOpen(false);
   };

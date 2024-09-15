@@ -3,15 +3,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Switch } from '@/components/ui/switch';
+import { ChevronUp, ChevronDown } from 'lucide-react';
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import RecurrenceRuleForm from './RecurrenceRuleForm';
 import ChoreCalendarView from './ChoreCalendarView';
 import { RRule, Frequency } from 'rrule';
-import { Switch } from '@/components/ui/switch';
-import { ChevronUp, ChevronDown } from 'lucide-react';
 
 function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
   const [title, setTitle] = useState('');
-  const [assignees, setAssignees] = useState<string[]>([]); // Array of selected family member IDs
+  const [assignees, setAssignees] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState<Date>(initialDate || new Date());
   const [recurrenceOptions, setRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
@@ -22,6 +23,9 @@ function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
   useEffect(() => {
     if (useRotation) {
       setRotationOrder(assignees);
+      setRotationType('daily'); // Set default rotation type to 'daily'
+    } else {
+      setRotationType('none');
     }
   }, [assignees, useRotation]);
 
@@ -56,7 +60,7 @@ function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
     if (recurrenceOptions) {
       const rrule = new RRule({
         ...recurrenceOptions,
-        dtstart: null, // Exclude dtstart to prevent duplication
+        dtstart: null,
       });
       finalRrule = rrule.toString();
       if (!finalRrule.startsWith('RRULE:')) {
@@ -80,21 +84,30 @@ function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
     });
   };
 
+
   return (
-    <div className="space-y-4">
-      <Input
-        placeholder="Chore title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-      />
+    <div className="space-y-4 max-w-3xl mx-auto">
+      <div className="space-y-2">
+        <Label htmlFor="title">Title</Label>
+        <Input
+          id="title"
+          placeholder="Chore title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </div>
 
-      <Textarea
-        placeholder="Chore description"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-      />
+      <div className="space-y-2">
+        <Label htmlFor="description">Description</Label>
+        <Textarea
+          id="description"
+          placeholder="Chore description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
 
-      <div className="flex items-center space-x-2">
+      <div className="space-y-2">
         <Label htmlFor="startDate">Start Date</Label>
         <Input
           id="startDate"
@@ -105,16 +118,16 @@ function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
       </div>
 
       {/* Family Members Selection */}
-      <div>
+      <div className="space-y-2">
         <Label>Select Assignees:</Label>
-        <div className="flex flex-wrap">
+        <div className="flex flex-wrap gap-2">
           {familyMembers.map(member => {
             const isSelected = assignees.includes(member.id);
             return (
               <button
                 key={member.id}
                 onClick={() => handleAssigneeToggle(member.id)}
-                className={`m-1 px-2 py-1 rounded ${
+                className={`px-2 py-1 rounded ${
                   isSelected ? 'bg-blue-500 text-white' : 'bg-gray-200'
                 }`}
               >
@@ -138,55 +151,27 @@ function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
           </div>
 
           {useRotation && (
-            <>
-              <div>
-                <Label>Rotation Frequency:</Label>
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center">
-                    <input
-                      type="radio"
-                      id="rotate-daily"
-                      name="rotationFrequency"
-                      value="daily"
-                      checked={rotationType === 'daily'}
-                      onChange={() => setRotationType('daily')}
-                    />
-                    <Label htmlFor="rotate-daily" className="ml-2">
-                      Rotate Each Scheduled Day
-                    </Label>
+            <div className="mt-4 p-4 border rounded-md bg-gray-50">
+              <Label className="mb-2 block font-semibold">Rotation Frequency:</Label>
+              <RadioGroup value={rotationType} onValueChange={(value: 'daily' | 'weekly' | 'monthly') => setRotationType(value)}>
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="daily" id="rotate-daily" />
+                    <Label htmlFor="rotate-daily">Rotate Each Scheduled Day</Label>
                   </div>
-                  <div className="flex items-center">
-                    <input
-                      type="radio"
-                      id="rotate-weekly"
-                      name="rotationFrequency"
-                      value="weekly"
-                      checked={rotationType === 'weekly'}
-                      onChange={() => setRotationType('weekly')}
-                    />
-                    <Label htmlFor="rotate-weekly" className="ml-2">
-                      Rotate Weekly
-                    </Label>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="weekly" id="rotate-weekly" />
+                    <Label htmlFor="rotate-weekly">Rotate Weekly</Label>
                   </div>
-                  <div className="flex items-center">
-                    <input
-                      type="radio"
-                      id="rotate-monthly"
-                      name="rotationFrequency"
-                      value="monthly"
-                      checked={rotationType === 'monthly'}
-                      onChange={() => setRotationType('monthly')}
-                    />
-                    <Label htmlFor="rotate-monthly" className="ml-2">
-                      Rotate Monthly
-                    </Label>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="monthly" id="rotate-monthly" />
+                    <Label htmlFor="rotate-monthly">Rotate Monthly</Label>
                   </div>
                 </div>
-              </div>
+              </RadioGroup>
 
-              {/* Rotation Order */}
-              <div>
-                <Label>Rotation Order:</Label>
+              <div className="mt-4">
+                <Label className="mb-2 block">Rotation Order:</Label>
                 <div className="space-y-1">
                   {rotationOrder.map((memberId, index) => {
                     const member = familyMembers.find(m => m.id === memberId);
@@ -212,7 +197,7 @@ function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
                   })}
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
       )}
@@ -221,34 +206,36 @@ function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
 
       {/* Chore Calendar Preview */}
       {assignees.length > 0 && recurrenceOptions && (
-        <div>
-          <Label>Assignment Preview:</Label>
-          <ChoreCalendarView
-            chore={{
-              id: 'temp-id', // Temporary ID for preview purposes
-              title,
-              description,
-              startDate: startDate.toISOString(),
-              rrule: new RRule({
-                ...recurrenceOptions,
-                dtstart: startDate,
-              }).toString(),
-              rotationType: useRotation ? rotationType : 'none',
-              assignments: useRotation
-                ? rotationOrder.map((memberId, index) => ({
-                    order: index,
-                    familyMember: familyMembers.find(m => m.id === memberId),
-                  }))
-                : null,
-              assignees: !useRotation
-                ? assignees.map(id => familyMembers.find(m => m.id === id))
-                : null,
-            }}
-          />
+        <div className="space-y-2">
+          <Label className="block">Assignment Preview:</Label>
+          <div className="border rounded-md overflow-x-auto max-w-full" style={{ maxHeight: '300px' }}>
+            <ChoreCalendarView
+              chore={{
+                id: 'temp-id',
+                title,
+                description,
+                startDate: startDate.toISOString(),
+                rrule: new RRule({
+                  ...recurrenceOptions,
+                  dtstart: startDate,
+                }).toString(),
+                rotationType: useRotation ? rotationType : 'none',
+                assignments: useRotation
+                  ? rotationOrder.map((memberId, index) => ({
+                      order: index,
+                      familyMember: familyMembers.find(m => m.id === memberId),
+                    }))
+                  : null,
+                assignees: !useRotation
+                  ? assignees.map(id => familyMembers.find(m => m.id === id))
+                  : null,
+              }}
+            />
+          </div>
         </div>
       )}
 
-      <Button onClick={handleSave}>Save Chore</Button>
+<Button onClick={handleSave} className="w-full">Save Chore</Button>
     </div>
   );
 }

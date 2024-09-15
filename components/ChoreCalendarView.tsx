@@ -34,15 +34,22 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
     fetchData();
   }, [chore]);
 
+  const getMonthName = (date: Date) => {
+    return date.toLocaleString('default', { month: 'short' });
+  };
+
   return (
-    <div className="overflow-x-auto max-w-full">
-      <table className="min-w-max divide-y divide-gray-200">
-        <thead>
+    <div className="overflow-x-auto">
+      <table className="table-auto divide-y divide-gray-200">
+        <thead className="sticky top-0 bg-white z-10">
           <tr>
-            <th className="px-2 py-1 text-left bg-gray-100 sticky left-0 z-10">Name</th>
-            {dates.map(date => (
-              <th key={date.toISOString()} className="px-2 py-1 text-center bg-gray-100">
-                {date.getMonth() + 1}/{date.getDate()}
+          <th className="w-24 px-2 py-1 text-left bg-gray-100 sticky left-0 z-20">Name</th>
+            {dates.map((date, index) => (
+              <th key={date.toISOString()} className="min-2-[2.5rem] px-1 py-1 text-center bg-gray-100">
+                {(index === 0 || date.getDate() === 1) && (
+                  <div className="text-xs font-semibold">{getMonthName(date)}</div>
+                )}
+                <div className="text-sm">{date.getDate()}</div>
               </th>
             ))}
           </tr>
@@ -50,13 +57,13 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
         <tbody>
           {familyMembers.map(member => (
             <tr key={member.id}>
-              <td className="px-2 py-1 bg-gray-50 sticky left-0 z-10">{member.name}</td>
+              <td className="w-24 px-2 py-1 bg-gray-50 sticky left-0 z-10 truncate">{member.name}</td>
               {dates.map(date => {
                 const dateStr = date.toISOString().split('T')[0];
                 const assignment = dateAssignments[dateStr] && dateAssignments[dateStr][member.id];
 
                 return (
-                  <td key={date.toISOString()} className="px-2 py-1 text-center">
+                  <td key={date.toISOString()} className="w-10 px-1 py-1 text-center">
                     {assignment && assignment.assigned ? (
                       <span
                         className={`inline-block w-2 h-2 rounded-full ${
