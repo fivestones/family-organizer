@@ -51,11 +51,24 @@ export function createRRule(ruleObject: Partial<RRule.Options>) {
 
 export function createRRuleWithStartDate(rruleString: string, startDateString: string): RRule {
   const startDate = new Date(startDateString);
-  const rruleOptions = RRule.parseString(rruleString);
-  return new RRule({
-    ...rruleOptions,
-    dtstart: startDate
-  });
+  
+  // Remove any potential 'RRULE:' prefix
+  const cleanRruleString = rruleString.replace(/^RRULE:/, '');
+
+  try {
+    const rruleOptions = RRule.parseString(cleanRruleString);
+    return new RRule({
+      ...rruleOptions,
+      dtstart: startDate
+    });
+  } catch (error) {
+    console.error('Error parsing RRULE:', error);
+    // Return a default daily RRULE if parsing fails
+    return new RRule({
+      freq: RRule.DAILY,
+      dtstart: startDate
+    });
+  }
 }
 
 // Update getNextOccurrence

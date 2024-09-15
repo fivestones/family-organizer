@@ -7,33 +7,24 @@ import { Label } from "@/components/ui/label";
 import RecurrenceRuleForm from './RecurrenceRuleForm';
 import { RRule, Frequency } from 'rrule';
 
-function DetailedChoreForm({ familyMembers, onSave }) {
+function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
   const [title, setTitle] = useState('');
   const [assignee, setAssignee] = useState('');
   const [description, setDescription] = useState('');
-  const [startDate, setStartDate] = useState<Date>(new Date());
+  const [startDate, setStartDate] = useState<Date>(initialDate || new Date());
   const [recurrenceOptions, setRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
 
   const handleSave = () => {
     let finalRrule = null;
     if (recurrenceOptions) {
-      // Create a Date object with only year, month, and day
-      // This effectively creates a "floating" time zone date
-      const dtstart = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-      
-      // Combine the recurrence options with the start date
-      const fullOptions: RRule.Options = {
+      // Create the RRule without including the start date
+      const rrule = new RRule({
         ...recurrenceOptions,
-        dtstart: dtstart
-      };
+        dtstart: null // Set to null to exclude from the string representation
+      });
 
-      // Create the RRule
-      const rrule = new RRule(fullOptions);
-
-      // Convert the RRule to a string, but remove the DTSTART part
-      finalRrule = rrule.toString().replace(/DTSTART:[^;T]*;?/, '');
-
-      // Prepend RRULE: to the string if it's not already there
+      // Get the string representation and ensure it starts with 'RRULE:'
+      finalRrule = rrule.toString();
       if (!finalRrule.startsWith('RRULE:')) {
         finalRrule = 'RRULE:' + finalRrule;
       }

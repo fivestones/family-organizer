@@ -1,13 +1,12 @@
-import React from 'react';
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Edit, Trash2 } from "lucide-react";
 import { RRule } from 'rrule';
+import { createRRuleWithStartDate } from '@/lib/chore-utils';
 
 function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggleChoreDone, updateChore, deleteChore }) {
-  // Ensure selectedDate is a valid UTC Date object
   const safeSelectedDate = selectedDate instanceof Date && !isNaN(selectedDate.getTime()) 
     ? new Date(Date.UTC(selectedDate.getUTCFullYear(), selectedDate.getUTCMonth(), selectedDate.getUTCDate()))
     : new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
@@ -20,38 +19,24 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
 
   const shouldShowChore = (chore) => {
     if (!chore.rrule) {
-      // For non-recurring chores, convert the chore's start date to UTC
       const choreDate = new Date(chore.startDate);
-      const utcChoreDate = new Date(Date.UTC(choreDate.getUTCFullYear(), choreDate.getUTCMonth(), choreDate.getUTCDate()));
-      return isSameDay(utcChoreDate, safeSelectedDate);
+      return isSameDay(choreDate, safeSelectedDate);
     }
 
-    // For recurring chores
-    let rruleString = chore.rrule.trim();
-    if (rruleString.startsWith('"') && rruleString.endsWith('"')) {
-      rruleString = rruleString.slice(1, -1);
+    try {
+      const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
+
+      const selectedDayStart = new Date(safeSelectedDate);
+      const selectedDayEnd = new Date(safeSelectedDate);
+      selectedDayEnd.setUTCDate(selectedDayEnd.getUTCDate() + 1);
+
+      const occurrences = rrule.between(selectedDayStart, selectedDayEnd, true);
+
+      return occurrences.some(date => isSameDay(date, safeSelectedDate));
+    } catch (error) {
+      console.error(`Error processing RRULE for chore ${chore.id}:`, error);
+      return false;
     }
-    rruleString = rruleString.startsWith("RRULE:") ? rruleString.slice(6) : rruleString;
-
-    const rrule = RRule.fromString(rruleString);
-
-    // Convert chore start date to UTC
-    const choreStartDate = new Date(chore.startDate);
-    const utcChoreStartDate = new Date(Date.UTC(
-      choreStartDate.getUTCFullYear(),
-      choreStartDate.getUTCMonth(),
-      choreStartDate.getUTCDate()
-    ));
-    rrule.options.dtstart = utcChoreStartDate;
-
-    // Check for occurrences on the selected date
-    const selectedDayStart = new Date(safeSelectedDate);
-    const selectedDayEnd = new Date(safeSelectedDate);
-    selectedDayEnd.setUTCDate(selectedDayEnd.getUTCDate() + 1);
-
-    const occurrences = rrule.between(selectedDayStart, selectedDayEnd, true);
-
-    return occurrences.some(date => isSameDay(date, safeSelectedDate));
   };
 
   const filteredChores = chores.filter(shouldShowChore);
