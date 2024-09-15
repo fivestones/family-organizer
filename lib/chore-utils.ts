@@ -100,28 +100,11 @@ export const isChoreAssignedForPersonOnDate = async (db: any, chore: any, family
 
   let assigned = false;
 
-  if (chore.rotationType && chore.assignments && chore.assignments.length > 0) {
+  if (chore.rotationType && chore.rotationType !== 'none' && chore.assignments && chore.assignments.length > 0) {
     // Handle rotation
-    const startDate = new Date(chore.startDate);
-    const daysSinceStart = Math.floor((dateStart.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
-
-    let rotationIndex = 0;
-    switch (chore.rotationType) {
-      case 'daily':
-        rotationIndex = daysSinceStart;
-        break;
-      case 'weekly':
-        rotationIndex = Math.floor(daysSinceStart / 7);
-        break;
-      case 'monthly':
-        rotationIndex = (dateStart.getFullYear() - startDate.getFullYear()) * 12 + (dateStart.getMonth() - startDate.getMonth());
-        break;
-      default:
-        rotationIndex = 0;
-    }
-
-    const assignedIndex = rotationIndex % chore.assignments.length;
-    const assignedPersonId = chore.assignments[assignedIndex].familyMember.id;
+    const rotationIndex = getRotationIndex(new Date(chore.startDate), dateStart, chore.rotationType, rrule);
+    const assignmentIndex = rotationIndex % chore.assignments.length;
+    const assignedPersonId = chore.assignments[assignmentIndex].familyMember.id;
     assigned = assignedPersonId === familyMemberId;
   } else {
     // Assigned to all assignees
@@ -233,6 +216,28 @@ export const getChoreAssignmentGrid = async (db: any, chore: any, startDate: Dat
   return dateAssignments;
 };
 
+const getRotationIndex = (
+  startDate: Date, 
+  currentDate: Date, 
+  rotationType: string, 
+  rrule: RRule
+): number => {
+  switch (rotationType) {
+    case 'daily':
+      // For daily rotation, count the number of occurrences up to the current date
+      const occurrences = rrule.between(startDate, currentDate, true);
+      return occurrences.length - 1; // Subtract 1 because we want 0-based index
+    case 'weekly':
+      const weeksDiff = Math.floor((currentDate.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      return weeksDiff;
+    case 'monthly':
+      const monthsDiff = (currentDate.getFullYear() - startDate.getFullYear()) * 12 + 
+                         (currentDate.getMonth() - startDate.getMonth());
+      return monthsDiff;
+    default:
+      return 0;
+  }
+};
 
 export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Date, endDate: Date) => {
   const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
@@ -240,38 +245,16 @@ export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Dat
 
   const dateAssignments: { [date: string]: { [memberId: string]: { assigned: boolean; completed: false } } } = {};
 
-  occurrences.forEach(date => {
+  occurrences.forEach((date, index) => {
     const dateStr = date.toISOString().split('T')[0];
     dateAssignments[dateStr] = {};
 
     let assignedMembers: any[] = [];
 
     if (chore.rotationType && chore.rotationType !== 'none' && chore.assignments && chore.assignments.length > 0) {
-      // Handle rotation
-      const startDate = new Date(chore.startDate);
-      const daysSinceStart = Math.floor((date.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
-
-      let rotationIndex = 0;
-      switch (chore.rotationType) {
-        case 'daily':
-          rotationIndex = daysSinceStart;
-          break;
-        case 'weekly':
-          rotationIndex = Math.floor(daysSinceStart / 7);
-          break;
-        case 'monthly':
-          rotationIndex = (date.getFullYear() - startDate.getFullYear()) * 12 + (date.getMonth() - startDate.getMonth());
-          break;
-        default:
-          rotationIndex = 0;
-      }
-
-      if (chore.assignments.length > 0) {
-        const assignedIndex = rotationIndex % chore.assignments.length;
-        assignedMembers = [chore.assignments[assignedIndex]?.familyMember].filter(Boolean);
-      } else {
-        assignedMembers = [];
-      }
+      const rotationIndex = getRotationIndex(new Date(chore.startDate), date, chore.rotationType, rrule);
+      const assignmentIndex = rotationIndex % chore.assignments.length;
+      assignedMembers = [chore.assignments[assignmentIndex]?.familyMember].filter(Boolean);
     } else {
       // Assigned to all assignees
       assignedMembers = chore.assignees || [];
@@ -287,6 +270,7 @@ export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Dat
 
   return dateAssignments;
 };
+
 
 // ********************************************************************
 // The below functions were used for an earlier version and may or may not be useful:
