@@ -86,3 +86,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+.table-container {
+  overflow-x: auto;
+}
+
+th {
+  position: relative;
+  /* Ensure the sticky element is relative to the th */
+}
+
+.sticky-month-name {
+  position: sticky;
+  left: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  background: inherit; /* Maintain background consistency */
+}

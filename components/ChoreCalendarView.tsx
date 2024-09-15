@@ -4,6 +4,7 @@ import { createRRuleWithStartDate, getChoreAssignmentGridFromChore } from '@/lib
 const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
   const [dateAssignments, setDateAssignments] = useState<any>({});
   const [dates, setDates] = useState<Date[]>([]);
+  const [months, setMonths] = useState<{ key: string; monthName: string; dates: Date[]; colStart: number; colEnd: number }[]>([]);
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
 
   useEffect(() => {
@@ -27,6 +28,29 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
       }
       setDates(datesArray);
 
+      // Group dates into months
+      const monthMap = new Map<string, { key: string; monthName: string; dates: Date[]; colStart: number; colEnd: number }>();
+      let colIndex = 2; // Start from 2 to account for the "Name" column
+      datesArray.forEach(date => {
+        const monthKey = date.getFullYear() + '-' + date.getMonth();
+        let month = monthMap.get(monthKey);
+        if (!month) {
+          month = {
+            key: monthKey,
+            monthName: date.toLocaleString('default', { month: 'short' }),
+            dates: [],
+            colStart: colIndex,
+            colEnd: colIndex,
+          };
+          monthMap.set(monthKey, month);
+        }
+        month.dates.push(date);
+        month.colEnd = colIndex;
+        colIndex++;
+      });
+      const months = Array.from(monthMap.values());
+      setMonths(months);
+
       // Get family members
       setFamilyMembers(chore.assignments ? chore.assignments.map((a: any) => a.familyMember) : chore.assignees);
     };
@@ -34,21 +58,40 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
     fetchData();
   }, [chore]);
 
-  const getMonthName = (date: Date) => {
-    return date.toLocaleString('default', { month: 'short' });
-  };
-
   return (
     <div className="overflow-x-auto">
-      <table className="w-full table-auto divide-y divide-gray-200">
+      <table className="w-full table-auto divide-y divide-gray-200 relative">
         <thead className="bg-gray-50">
           <tr>
-            <th className="px-2 py-1 text-left bg-gray-100 sticky left-0 z-20">Name</th>
-            {dates.map((date, index) => (
+            <th
+              className="px-2 py-1 text-left bg-gray-100 sticky left-0 z-20"
+              rowSpan={2}
+            >
+              Name
+            </th>
+            {months.map(month => (
+              <th
+                key={month.key}
+                className="px-1 py-1 bg-gray-100 min-w-[2rem] relative"
+                colSpan={month.dates.length}
+              >
+                <div
+                  className="text-xs font-semibold text-left bg-gray-100"
+                  style={{
+                    position: 'sticky',
+                    left: '0',
+                    minWidth: 'fit-content',
+                    zIndex: 10,
+                  }}
+                >
+                  {month.monthName}
+                </div>
+              </th>
+            ))}
+          </tr>
+          <tr>
+            {dates.map(date => (
               <th key={date.toISOString()} className="px-1 py-1 text-center bg-gray-100 min-w-[2rem]">
-                {(index === 0 || date.getDate() === 1) && (
-                  <div className="text-xs font-semibold">{getMonthName(date)}</div>
-                )}
                 <div className="text-sm">{date.getDate()}</div>
               </th>
             ))}
