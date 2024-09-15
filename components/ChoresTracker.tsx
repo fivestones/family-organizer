@@ -91,6 +91,7 @@ function ChoresTracker() {
     ];
   
     if (choreData.rotationType !== 'none' && choreData.assignments && choreData.assignments.length > 0) {
+      // Use assignments with rotation
       choreData.assignments.forEach(assignment => {
         const assignmentId = id();
         transactions.push(
@@ -102,6 +103,7 @@ function ChoresTracker() {
         );
       });
     } else if (choreData.assignees && choreData.assignees.length > 0) {
+      // Link assignees directly
       choreData.assignees.forEach(assignee => {
         transactions.push(
           tx.chores[choreId].link({ assignees: assignee.id })
