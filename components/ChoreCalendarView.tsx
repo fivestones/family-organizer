@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { createRRuleWithStartDate, getChoreAssignmentGridFromChore } from '@/lib/chore-utils';
+import { createRRuleWithStartDate, getChoreAssignmentGridFromChore, toUTCDate } from '@/lib/chore-utils';
 
 const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
   const [dateAssignments, setDateAssignments] = useState<any>({});
@@ -10,12 +10,15 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
   useEffect(() => {
     const fetchData = async () => {
       // Generate date range for the next 3 months
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setMonth(endDate.getMonth() + 3);
+      const startDate = toUTCDate(new Date());
+      const endDate = toUTCDate(new Date());
+      endDate.setUTCMonth(endDate.getUTCMonth() + 3);
+
+      // Ensure chore.startDate is a UTC Date object
+      const choreStartDate = toUTCDate(chore.startDate);
 
       // Get assignments from the chore object
-      const assignments = await getChoreAssignmentGridFromChore(chore, startDate, endDate);
+      const assignments = await getChoreAssignmentGridFromChore(chore, choreStartDate, endDate);
 
       setDateAssignments(assignments);
 
@@ -23,8 +26,8 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
       const datesArray = [];
       let currentDate = new Date(startDate);
       while (currentDate <= endDate) {
-        datesArray.push(new Date(currentDate));
-        currentDate.setDate(currentDate.getDate() + 1);
+        datesArray.push(toUTCDate(currentDate));
+        currentDate.setUTCDate(currentDate.getUTCDate() + 1);
       }
       setDates(datesArray);
 
@@ -32,7 +35,7 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
       const monthMap = new Map<string, { key: string; monthName: string; dates: Date[]; colStart: number; colEnd: number }>();
       let colIndex = 2; // Start from 2 to account for the "Name" column
       datesArray.forEach(date => {
-        const monthKey = date.getFullYear() + '-' + date.getMonth();
+        const monthKey = `${date.getUTCFullYear()}-${date.getUTCMonth()}`;
         let month = monthMap.get(monthKey);
         if (!month) {
           month = {

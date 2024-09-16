@@ -49,8 +49,14 @@ export function createRRule(ruleObject: Partial<RRule.Options>) {
   return new RRule(options);
 }
 
+// Add this new utility function
+export function toUTCDate(date: Date | string | number): Date {
+  const d = new Date(date);
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+
 export function createRRuleWithStartDate(rruleString: string, startDateString: string): RRule {
-  const startDate = new Date(startDateString);
+  const startDate = toUTCDate(startDateString);
   
   // Remove any potential 'RRULE:' prefix
   const cleanRruleString = rruleString.replace(/^RRULE:/, '');
@@ -70,6 +76,7 @@ export function createRRuleWithStartDate(rruleString: string, startDateString: s
     });
   }
 }
+
 
 // Update getNextOccurrence
 export function getNextOccurrence(rruleString: string, startDateString: string, after = new Date()) {
