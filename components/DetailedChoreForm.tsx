@@ -9,12 +9,16 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import RecurrenceRuleForm from './RecurrenceRuleForm';
 import ChoreCalendarView from './ChoreCalendarView';
 import { RRule, Frequency } from 'rrule';
+import { toUTCDate } from '@/lib/chore-utils';
 
 function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
   const [title, setTitle] = useState('');
   const [assignees, setAssignees] = useState<string[]>([]);
   const [description, setDescription] = useState('');
-  const [startDate, setStartDate] = useState<Date>(initialDate || new Date());
+  const [startDate, setStartDate] = useState<Date>(() => {
+    // Explicitly create a new Date object for today's date in UTC
+    return toUTCDate(initialDate || new Date());
+  });
   const [recurrenceOptions, setRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
   const [rotationType, setRotationType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
   const [rotationOrder, setRotationOrder] = useState<string[]>([]);

@@ -247,30 +247,32 @@ const getRotationIndex = (
 };
 
 export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Date, endDate: Date) => {
-  const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
-  const occurrences = rrule.between(startDate, endDate, true);
+  const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate); //first we make an rrule including the start date (which isn't included in our database)
+  const occurrences = rrule.between(startDate, endDate, true); // find out how many times the chore occurs between the start and end dates
 
+  //initialize an empty object of the type that will hold dates, and for each dates family members, and for each family member whether or not they have been assigned the chore and whether or not they have completed it
   const dateAssignments: { [date: string]: { [memberId: string]: { assigned: boolean; completed: false } } } = {};
 
-  occurrences.forEach((date, index) => {
-    const dateStr = date.toISOString().split('T')[0];
-    dateAssignments[dateStr] = {};
+  // loop through each occurrence of the chore
+  occurrences.forEach((date, index) => { //loop through each occurrence, each time having date be the date of the chore occurrence in question, and index being its index
+    const dateStr = date.toISOString().split('T')[0]; // get a YYYY-MM-DD string date for the date we are dealing with
+    dateAssignments[dateStr] = {}; // initialize the object for this particular date in the dateAssignments object
 
-    let assignedMembers: any[] = [];
+    let assignedMembers: any[] = []; // initialize assignedMembers as an empty array of any type
 
-    if (chore.rotationType && chore.rotationType !== 'none' && chore.assignments && chore.assignments.length > 0) {
-      const rotationIndex = getRotationIndex(new Date(chore.startDate), date, chore.rotationType, rrule);
-      const assignmentIndex = rotationIndex % chore.assignments.length;
-      assignedMembers = [chore.assignments[assignmentIndex]?.familyMember].filter(Boolean);
+    if (chore.rotationType && chore.rotationType !== 'none' && chore.assignments && chore.assignments.length > 0) { // if the chore has a rotation and assignments
+      const rotationIndex = getRotationIndex(new Date(chore.startDate), date, chore.rotationType, rrule); // get a rotation index number; for daily rotations this will just be the number of times the chore has been due by the current date (e.g., for a daily chore started 10 days ago it will be 11; for an every other day chore started 8 days ago it will be 4). For weekly it's how many weeks have gone by, and for monthly it's how many months have gone by.
+      const assignmentIndex = rotationIndex % chore.assignments.length; // get the mod of rotationIndex by how many people are assigned. (e.g., for a daily rotation chore on its 16th occurrence with 3 people assigned, 16 % 3 = 1)
+      assignedMembers = [chore.assignments[assignmentIndex]?.familyMember].filter(Boolean); // add an assignee to assignedMembers, with the person who is at the assignementIndex index of the chore.assignments array (e.g., for the above example, [1], so the 2nd person in the order of those assigned)
     } else {
-      // Assigned to all assignees
-      assignedMembers = chore.assignees || [];
+      // Assigned to all assignees because there's not a rotationType or there are no chore assignments
+      assignedMembers = chore.assignees || []; // assign every one for this date (because there's no rotation) or assign no one (because no one has been assigned for this chore at all)
     }
 
     // Safeguard against null or undefined assignedMembers
     if (assignedMembers.length > 0) {
-      assignedMembers.forEach((assignee: any) => {
-        dateAssignments[dateStr][assignee.id] = { assigned: true, completed: false };
+      assignedMembers.forEach((assignee: any) => { // loop through everyone who has been assigned to this chore on this date
+        dateAssignments[dateStr][assignee.id] = { assigned: true, completed: false }; // set them to be assigned and to have not completed the chore that day
       });
     }
   });
