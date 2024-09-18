@@ -51,33 +51,23 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
       <ul>
         {chores.map(chore => (
           <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex items-center">
-            {chore.assignees.map(assignee => {
-              console.log("mapping assignees, now ", assignee)
-              // console.log(chore.completions[0].dateDue, formattedSelectedDate)
-              const completion = chore.completions?.find(
-                c => c.completedBy[0].id === assignee.id && c.dateDue === formattedSelectedDate
-              );
-              console.log("completion: ", completion)
-              return (
-                <div>(&nbsp;
-                <Checkbox
-                  key={assignee.id}
-                  checked={completion?.completed || false}
-                  onCheckedChange={() => toggleChoreDone(chore.id, assignee.id)}
-                  className="mr-2"
-                />
-                { assignee.name })&nbsp;&nbsp;
-                {/* Family member avatar with circular image or circle around their initial should be here, displayed in a small circle. */}
-                </div>
-              );
-            })}
+            <div className="flex space-x-2 mr-4">
+              {chore.assignees.map(assignee => {
+                const completion = chore.completions?.find(
+                  c => c.completedBy[0].id === assignee.id && c.dateDue === formattedSelectedDate
+                );
+                return (
+                  <ToggleableAvatar
+                    key={assignee.id}
+                    name={assignee.name}
+                    isComplete={completion?.completed || false}
+                    onToggle={() => toggleChoreDone(chore.id, assignee.id)}
+                  />
+                );
+              })}
+            </div>
             <span className="flex-grow">
               {chore.title}
-              {selectedMember === 'All' && chore.assignees && (
-                <span className="ml-2 text-sm text-gray-500">
-                  ({chore.assignees.map(assignee => assignee.name).join(', ')})
-                </span>
-              )}
               {chore.rrule && (
                 <span className="ml-2 text-sm text-gray-500">
                   (Recurring)

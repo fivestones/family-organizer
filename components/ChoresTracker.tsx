@@ -152,11 +152,11 @@ function ChoresTracker() {
   const toggleChoreDone = async (choreId: string, familyMemberId: string) => {
     const chore = chores.find(c => c.id === choreId);
     if (!chore) return;
-
+  
     const formattedDate = format(selectedDate, 'yyyy-MM-dd');
 
     const existingCompletion = chore.completions.find(
-      completion => completion.completedBy === familyMemberId &&
+      completion => completion.completedBy[0].id === familyMemberId &&
                     completion.dateDue === formattedDate
     );
 
@@ -171,7 +171,6 @@ function ChoresTracker() {
     } else {
       // Create new completion
       const newCompletionId = id();
-      console.log("newCompletionId: ", newCompletionId);
       db.transact([
         tx.choreCompletions[newCompletionId].update({
           dateDue: formattedDate,
