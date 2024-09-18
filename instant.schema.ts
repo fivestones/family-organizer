@@ -34,7 +34,10 @@ const graph = i.graph(
       order: i.number(),
     }),
     choreCompletions: i.entity({
-      date: i.number(),
+      chore: i.string(),
+      completedBy: i.string(),
+      dateDue: i.string(), // Changed from i.number() to i.string()
+      dateCompleted: i.string().optional(), // Changed from i.number().optional() to i.string().optional()
       completed: i.boolean(),
     }),
     timeOfDayDefinitions: i.entity({

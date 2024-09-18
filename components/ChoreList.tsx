@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Edit, Trash2 } from "lucide-react";
 import { RRule } from 'rrule';
 import { createRRuleWithStartDate } from '@/lib/chore-utils';
+import { format } from 'date-fns';
+import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
 
 function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggleChoreDone, updateChore, deleteChore }) {
   const safeSelectedDate = selectedDate instanceof Date && !isNaN(selectedDate.getTime()) 
@@ -40,25 +42,40 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
   };
 
   const filteredChores = chores.filter(shouldShowChore);
+  const formattedSelectedDate = format(selectedDate, 'yyyy-MM-dd');
 
+  console.log("chores: ", chores);
 
   return (
     <ScrollArea className="h-[calc(100vh-300px)]">
       <ul>
-        {filteredChores.map(chore => (
+        {chores.map(chore => (
           <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex items-center">
-            <Checkbox
-              checked={chore.done}
-              onCheckedChange={() => toggleChoreDone(chore.id)}
-              className="mr-2"
-            />
-            <span className={`flex-grow ${chore.done ? 'line-through text-gray-500' : ''}`}>
+            {chore.assignees.map(assignee => {
+              console.log("mapping assignees, now ", assignee)
+              // console.log(chore.completions[0].dateDue, formattedSelectedDate)
+              const completion = chore.completions?.find(
+                c => c.completedBy[0].id === assignee.id && c.dateDue === formattedSelectedDate
+              );
+              console.log("completion: ", completion)
+              return (
+                <div>(&nbsp;
+                <Checkbox
+                  key={assignee.id}
+                  checked={completion?.completed || false}
+                  onCheckedChange={() => toggleChoreDone(chore.id, assignee.id)}
+                  className="mr-2"
+                />
+                { assignee.name })&nbsp;&nbsp;
+                {/* Family member avatar with circular image or circle around their initial should be here, displayed in a small circle. */}
+                </div>
+              );
+            })}
+            <span className="flex-grow">
               {chore.title}
               {selectedMember === 'All' && chore.assignees && (
                 <span className="ml-2 text-sm text-gray-500">
-                  ({chore.assignees.map(assignee => 
-                    familyMembers.find(m => m.id === assignee.id)?.name
-                  ).join(', ')})
+                  ({chore.assignees.map(assignee => assignee.name).join(', ')})
                 </span>
               )}
               {chore.rrule && (

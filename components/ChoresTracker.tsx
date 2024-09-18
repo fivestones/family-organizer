@@ -13,6 +13,7 @@ import ChoreList from './ChoreList';
 import DetailedChoreForm from './DetailedChoreForm';
 import DateCarousel from '@/components/ui/DateCarousel';
 import { createRRuleWithStartDate, getNextOccurrence } from '@/lib/chore-utils';
+import { format } from 'date-fns';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -63,11 +64,18 @@ function ChoresTracker() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   const { isLoading, error, data } = db.useQuery({
-    familyMembers: {},
+    familyMembers: {
+      assignedChores: {
+        completions: {},
+      }
+    },
     chores: {
       assignees: {},
       assignments: {
         familyMember: {},
+      },
+      completions: {
+        completedBy: {}
       },
     },
   });
@@ -99,21 +107,24 @@ function ChoresTracker() {
             order: assignment.order,
             chore: choreId,
             familyMember: assignment.familyMember.id,
-          })
+          }),
+          tx.chores[choreId].link({ assignments: assignmentId }),
+          tx.familyMembers[assignment.familyMember.id].link({ choreAssignments: assignmentId })
         );
       });
     } else if (choreData.assignees && choreData.assignees.length > 0) {
       // Link assignees directly
       choreData.assignees.forEach(assignee => {
         transactions.push(
-          tx.chores[choreId].link({ assignees: assignee.id })
+          tx.chores[choreId].link({ assignees: assignee.id }),
+          tx.familyMembers[assignee.id].link({ assignedChores: choreId })
         );
       });
     } else {
       // Handle case where no assignees are selected
       console.warn('No assignees selected for the chore.');
     }
-  
+
     db.transact(transactions);
     setIsDetailedChoreModalOpen(false);
   };
@@ -138,14 +149,41 @@ function ChoresTracker() {
     }
   };
 
-  const toggleChoreDone = (choreId) => {
+  const toggleChoreDone = async (choreId: string, familyMemberId: string) => {
     const chore = chores.find(c => c.id === choreId);
-    if (chore) {
+    if (!chore) return;
+
+    const formattedDate = format(selectedDate, 'yyyy-MM-dd');
+
+    const existingCompletion = chore.completions.find(
+      completion => completion.completedBy === familyMemberId &&
+                    completion.dateDue === formattedDate
+    );
+
+    if (existingCompletion) {
+      // Update existing completion
       db.transact([
-        tx.chores[choreId].update({ done: !chore.done }),
+        tx.choreCompletions[existingCompletion.id].update({
+          completed: !existingCompletion.completed,
+          dateCompleted: !existingCompletion.completed ? format(new Date(), 'yyyy-MM-dd') : null
+        })
+      ]);
+    } else {
+      // Create new completion
+      const newCompletionId = id();
+      console.log("newCompletionId: ", newCompletionId);
+      db.transact([
+        tx.choreCompletions[newCompletionId].update({
+          dateDue: formattedDate,
+          dateCompleted: format(new Date(), 'yyyy-MM-dd'),
+          completed: true
+        }),
+        tx.chores[choreId].link({ completions: newCompletionId }),
+        tx.familyMembers[familyMemberId].link({ completedChores: newCompletionId })
       ]);
     }
   };
+
 
   const updateChore = (choreId, updatedChore) => {
     db.transact([
@@ -159,8 +197,7 @@ function ChoresTracker() {
   
   const handleDateSelect = (date: Date) => {
     setSelectedDate(date);
-    console.log("just set the seletecDate to ", date)
-    // You might want to filter chores based on the selected date here
+    console.log("just set the selectedDate to ", date);
   };
 
   const filteredChores = selectedMember === 'All'
