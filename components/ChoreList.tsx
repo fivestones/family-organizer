@@ -56,10 +56,12 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
                 const completion = chore.completions?.find(
                   c => c.completedBy[0].id === assignee.id && c.dateDue === formattedSelectedDate
                 );
+                const familyMember = familyMembers.find(fm => fm.id === assignee.id);
                 return (
                   <ToggleableAvatar
                     key={assignee.id}
                     name={assignee.name}
+                    photoUrl={familyMember?.photoUrl}
                     isComplete={completion?.completed || false}
                     onToggle={() => toggleChoreDone(chore.id, assignee.id)}
                   />

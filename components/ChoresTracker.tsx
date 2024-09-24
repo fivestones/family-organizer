@@ -14,6 +14,7 @@ import DetailedChoreForm from './DetailedChoreForm';
 import DateCarousel from '@/components/ui/DateCarousel';
 import { createRRuleWithStartDate, getNextOccurrence } from '@/lib/chore-utils';
 import { format } from 'date-fns';
+import { useToast } from "@/components/ui/use-toast";
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -62,6 +63,7 @@ function ChoresTracker() {
   const [newChoreAssignee, setNewChoreAssignee] = useState<string>('');
   const [isDetailedChoreModalOpen, setIsDetailedChoreModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const { toast } = useToast();
 
   const { isLoading, error, data } = db.useQuery({
     familyMembers: {
@@ -129,16 +131,29 @@ function ChoresTracker() {
     setIsDetailedChoreModalOpen(false);
   };
 
-  const addFamilyMember = (name, email) => {
+  const addFamilyMember = async (name, email, photoUrl) => {
     if (name) {
       const memberId = id();
-      const memberData: Partial<FamilyMember> = { name };
+      const memberData: Partial<FamilyMember> = { name, photoUrl };
       if (email) {
         memberData.email = email;
       }
-      db.transact([
-        tx.familyMembers[memberId].update(memberData),
-      ]);
+      try {
+        await db.transact([
+          tx.familyMembers[memberId].update(memberData),
+        ]);
+        toast({
+          title: "Success",
+          description: "Family member added successfully.",
+        });
+      } catch (error) {
+        console.error('Error adding family member:', error);
+        toast({
+          title: "Error",
+          description: "Failed to add family member. Please try again.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -212,6 +227,7 @@ function ChoresTracker() {
             setSelectedMember={setSelectedMember}
             addFamilyMember={addFamilyMember}
             deleteFamilyMember={deleteFamilyMember}
+            db={db}
           />
         </div>
         <div className="w-3/4 p-4">

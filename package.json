@@ -9,6 +9,7 @@
     "@dnd-kit/core": "^6.1.0",
     "@hello-pangea/dnd": "^16.6.0",
     "@instantdb/react": "^0.12.30",
+    "@radix-ui/react-toast": "^1.2.1",
     "@radix-ui/themes": "^3.1.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",

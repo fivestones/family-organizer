@@ -1,24 +1,52 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { PlusCircle, Trash2 } from 'lucide-react';
+import { PlusCircle, Trash2, Upload } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { useToast } from "@/components/ui/use-toast";
 
-function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, addFamilyMember, deleteFamilyMember }) {
+function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, addFamilyMember, deleteFamilyMember, db }) {
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberPhoto, setNewMemberPhoto] = useState<File | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
+  const { toast } = useToast();
 
-  const handleAddMember = () => {
+  const handleAddMember = async () => {
     if (newMemberName) {
-      addFamilyMember(newMemberName, newMemberEmail || null); // Pass null if email is empty
+      let photoUrl = '';
+      if (newMemberPhoto) {
+        const fileName = `family-members/${Date.now()}-${newMemberPhoto.name}`;
+        try {
+          await db.storage.upload(fileName, newMemberPhoto);
+          photoUrl = await db.storage.getDownloadUrl(fileName);
+        } catch (error) {
+          console.error('Error uploading photo:', error);
+          toast({
+            title: "Error",
+            description: "Failed to upload photo. Please try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      addFamilyMember(newMemberName, newMemberEmail || null, photoUrl);
       setNewMemberName('');
       setNewMemberEmail('');
+      setNewMemberPhoto(null);
       setIsAddMemberOpen(false);
+    }
+  };
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setNewMemberPhoto(e.target.files[0]);
     }
   };
 
@@ -50,6 +78,15 @@ function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, a
               className="w-full justify-start mr-2"
               onClick={() => setSelectedMember(member.id)}
             >
+              <Avatar className="h-8 w-8 mr-2">
+                {member.photoUrl ? (
+                  <AvatarImage src={member.photoUrl} alt={member.name} />
+                ) : (
+                  <AvatarFallback>
+                    {member.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                  </AvatarFallback>
+                )}
+              </Avatar>
               {member.name}
             </Button>
             {isEditMode && (
@@ -97,6 +134,24 @@ function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, a
                 onChange={(e) => setNewMemberEmail(e.target.value)}
                 className="col-span-3"
               />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="photo" className="text-right">
+                Photo
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="photo"
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoChange}
+                  className="hidden"
+                />
+                <Label htmlFor="photo" className="cursor-pointer flex items-center justify-center w-full h-10 px-4 py-2 bg-white text-black border border-gray-300 rounded-md hover:bg-gray-100">
+                  <Upload className="mr-2 h-4 w-4" />
+                  {newMemberPhoto ? newMemberPhoto.name : 'Choose photo'}
+                </Label>
+              </div>
             </div>
           </div>
           <Button onClick={handleAddMember} disabled={!newMemberName}>Add Member</Button>

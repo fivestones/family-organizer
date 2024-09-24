@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Toggle } from '@/components/ui/toggle';
 
-const ToggleableAvatar = ({ name, isComplete, onToggle }) => {
+const ToggleableAvatar = ({ name, photoUrl, isComplete, onToggle }) => {
   const initials = name
     .split(' ')
     .map(n => n[0])
@@ -19,7 +19,11 @@ const ToggleableAvatar = ({ name, isComplete, onToggle }) => {
         isComplete ? 'border-2 border-green-500' : 'border-2 border-amber-500'
       }`}>
         <Avatar className="h-8 w-8">
-          <AvatarFallback>{initials}</AvatarFallback>
+          {photoUrl ? (
+            <AvatarImage src={photoUrl} alt={name} />
+          ) : (
+            <AvatarFallback>{initials}</AvatarFallback>
+          )}
         </Avatar>
       </div>
     </Toggle>
