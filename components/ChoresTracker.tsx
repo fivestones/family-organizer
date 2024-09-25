@@ -89,6 +89,7 @@ function ChoresTracker() {
 
   const addChore = (choreData: Partial<Chore>) => {
     const choreId = id();
+    console.log("choreId: ", choreId);
     const transactions = [
       tx.chores[choreId].update({
         title: choreData.title!,
@@ -107,8 +108,6 @@ function ChoresTracker() {
         transactions.push(
           tx.choreAssignments[assignmentId].update({
             order: assignment.order,
-            chore: choreId,
-            familyMember: assignment.familyMember.id,
           }),
           tx.chores[choreId].link({ assignments: assignmentId }),
           tx.familyMembers[assignment.familyMember.id].link({ choreAssignments: assignmentId })
