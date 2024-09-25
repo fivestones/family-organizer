@@ -1,14 +1,15 @@
+import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Edit, Trash2 } from "lucide-react";
-import { RRule } from 'rrule';
 import { createRRuleWithStartDate } from '@/lib/chore-utils';
 import { format } from 'date-fns';
 import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
+import DetailedChoreForm from './DetailedChoreForm';
 
 function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggleChoreDone, updateChore, deleteChore }) {
+  const [editingChore, setEditingChore] = useState(null);
   const safeSelectedDate = selectedDate instanceof Date && !isNaN(selectedDate.getTime()) 
     ? new Date(Date.UTC(selectedDate.getUTCFullYear(), selectedDate.getUTCMonth(), selectedDate.getUTCDate()))
     : new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
@@ -44,29 +45,38 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
   const filteredChores = chores.filter(shouldShowChore);
   const formattedSelectedDate = format(selectedDate, 'yyyy-MM-dd');
 
-  console.log("chores: ", chores);
+  const handleEditChore = (chore) => {
+    setEditingChore(chore);
+  };
+
+  const handleUpdateChore = (updatedChore) => {
+    updateChore(editingChore.id, updatedChore);
+    setEditingChore(null);
+  };
 
   return (
     <ScrollArea className="h-[calc(100vh-300px)]">
       <ul>
-        {chores.map(chore => (
+        {filteredChores.map(chore => (
           <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex items-center">
             <div className="flex space-x-2 mr-4">
-              {chore.assignees.map(assignee => {
-                const completion = chore.completions?.find(
-                  c => c.completedBy[0].id === assignee.id && c.dateDue === formattedSelectedDate
-                );
-                const familyMember = familyMembers.find(fm => fm.id === assignee.id);
-                return (
-                  <ToggleableAvatar
-                    key={assignee.id}
-                    name={assignee.name}
-                    photoUrl={familyMember?.photoUrl}
-                    isComplete={completion?.completed || false}
-                    onToggle={() => toggleChoreDone(chore.id, assignee.id)}
-                  />
-                );
-              })}
+              {chore.assignees
+                .filter(assignee => selectedMember === 'All' || assignee.id === selectedMember)
+                .map(assignee => {
+                  const completion = chore.completions?.find(
+                    c => c.completedBy[0].id === assignee.id && c.dateDue === formattedSelectedDate
+                  );
+                  const familyMember = familyMembers.find(fm => fm.id === assignee.id);
+                  return (
+                    <ToggleableAvatar
+                      key={assignee.id}
+                      name={assignee.name}
+                      photoUrl={familyMember?.photoUrl}
+                      isComplete={completion?.completed || false}
+                      onToggle={() => toggleChoreDone(chore.id, assignee.id)}
+                    />
+                  );
+                })}
             </div>
             <span className="flex-grow">
               {chore.title}
@@ -76,23 +86,30 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
                 </span>
               )}
             </span>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <Edit className="h-4 w-4" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                {/* Placeholder for ChoreDetailView */}
-                <div>Chore Detail View (Not implemented)</div>
-              </DialogContent>
-            </Dialog>
+            <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)}>
+              <Edit className="h-4 w-4" />
+            </Button>
             <Button variant="ghost" size="icon" onClick={() => deleteChore(chore.id)}>
               <Trash2 className="h-4 w-4" />
             </Button>
           </li>
         ))}
       </ul>
+      <Dialog open={editingChore !== null} onOpenChange={() => setEditingChore(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Chore</DialogTitle>
+          </DialogHeader>
+          {editingChore && (
+            <DetailedChoreForm
+              familyMembers={familyMembers}
+              onSave={handleUpdateChore}
+              initialChore={editingChore}
+              initialDate={selectedDate}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </ScrollArea>
   );
 }

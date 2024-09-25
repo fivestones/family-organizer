@@ -11,18 +11,33 @@ import ChoreCalendarView from './ChoreCalendarView';
 import { RRule, Frequency } from 'rrule';
 import { toUTCDate } from '@/lib/chore-utils';
 
-function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
+function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initialDate }) {
   const [title, setTitle] = useState('');
   const [assignees, setAssignees] = useState<string[]>([]);
   const [description, setDescription] = useState('');
-  const [startDate, setStartDate] = useState<Date>(() => {
-    // Explicitly create a new Date object for today's date in UTC
-    return toUTCDate(initialDate || new Date());
-  });
+  const [startDate, setStartDate] = useState<Date>(toUTCDate(initialDate || new Date()));
   const [recurrenceOptions, setRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
   const [rotationType, setRotationType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
   const [rotationOrder, setRotationOrder] = useState<string[]>([]);
   const [useRotation, setUseRotation] = useState(false);
+
+  useEffect(() => {
+    if (initialChore) {
+      setTitle(initialChore.title);
+      setAssignees(initialChore.assignees.map(a => a.id));
+      setDescription(initialChore.description || '');
+      setStartDate(toUTCDate(new Date(initialChore.startDate)));
+      if (initialChore.rrule) {
+        const rrule = RRule.fromString(initialChore.rrule);
+        setRecurrenceOptions(rrule.options);
+      }
+      setRotationType(initialChore.rotationType);
+      setUseRotation(initialChore.rotationType !== 'none');
+      if (initialChore.assignments) {
+        setRotationOrder(initialChore.assignments.map(a => a.familyMember.id));
+      }
+    }
+  }, [initialChore]);
 
   useEffect(() => {
     if (useRotation) {
@@ -239,7 +254,9 @@ function DetailedChoreForm({ familyMembers, onSave, initialDate }) {
         </div>
       )}
 
-<Button onClick={handleSave} className="w-full">Save Chore</Button>
+      <Button onClick={handleSave} className="w-full">
+        {initialChore ? 'Update Chore' : 'Save Chore'}
+      </Button>
     </div>
   );
 }
