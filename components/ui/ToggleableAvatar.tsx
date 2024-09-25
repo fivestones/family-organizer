@@ -3,6 +3,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Toggle } from '@/components/ui/toggle';
 
 const ToggleableAvatar = ({ name, photoUrl, isComplete, onToggle }) => {
+  console.log("name: ", name)
   const initials = name
     .split(' ')
     .map(n => n[0])

@@ -246,6 +246,50 @@ const getRotationIndex = (
   }
 };
 
+const isSameDay = (date1: Date, date2: Date) => {
+  return date1.getUTCFullYear() === date2.getUTCFullYear() &&
+         date1.getUTCMonth() === date2.getUTCMonth() &&
+         date1.getUTCDate() === date2.getUTCDate();
+};
+
+export const getAssignedMembersForChoreOnDate = (chore, date) => {
+  const choreDate = new Date(chore.startDate);
+  if (!chore.rrule) {
+    if (isSameDay(choreDate, date)) {
+      return chore.assignees || [];
+    } else {
+      return [];
+    }
+  }
+
+  try {
+    const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
+
+    const selectedDayStart = new Date(date);
+    selectedDayStart.setHours(0, 0, 0, 0);
+    const selectedDayEnd = new Date(selectedDayStart);
+    selectedDayEnd.setDate(selectedDayEnd.getDate() + 1);
+
+    const occurrences = rrule.between(selectedDayStart, selectedDayEnd, true);
+
+    if (occurrences.length === 0) {
+      return [];
+    }
+
+    if (chore.rotationType && chore.rotationType !== 'none' && chore.assignments && chore.assignments.length > 0) {
+      const rotationIndex = getRotationIndex(new Date(chore.startDate), date, chore.rotationType, rrule);
+      const assignmentIndex = rotationIndex % chore.assignments.length;
+      const assignedMember = chore.assignments[assignmentIndex]?.familyMember.filter(Boolean);
+      return assignedMember ? assignedMember : "";
+    } else {
+      return chore.assignees || [];
+    }
+  } catch (error) {
+    console.error(`Error processing RRULE for chore ${chore.id}:`, error);
+    return [];
+  }
+};
+
 export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Date, endDate: Date) => {
   const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate); //first we make an rrule including the start date (which isn't included in our database)
   const occurrences = rrule.between(startDate, endDate, true); // find out how many times the chore occurs between the start and end dates

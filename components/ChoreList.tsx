@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Edit, Trash2 } from "lucide-react";
-import { createRRuleWithStartDate } from '@/lib/chore-utils';
+import { createRRuleWithStartDate, getAssignedMembersForChoreOnDate, toUTCDate } from '@/lib/chore-utils';
 import { format } from 'date-fns';
 import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
 import DetailedChoreForm from './DetailedChoreForm';
@@ -57,43 +57,47 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
   return (
     <ScrollArea className="h-[calc(100vh-300px)]">
       <ul>
-        {filteredChores.map(chore => (
-          <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex items-center">
-            <div className="flex space-x-2 mr-4">
-              {chore.assignees
-                .filter(assignee => selectedMember === 'All' || assignee.id === selectedMember)
-                .map(assignee => {
-                  const completion = chore.completions?.find(
-                    c => c.completedBy[0].id === assignee.id && c.dateDue === formattedSelectedDate
-                  );
-                  const familyMember = familyMembers.find(fm => fm.id === assignee.id);
-                  return (
-                    <ToggleableAvatar
-                      key={assignee.id}
-                      name={assignee.name}
-                      photoUrl={familyMember?.photoUrl}
-                      isComplete={completion?.completed || false}
-                      onToggle={() => toggleChoreDone(chore.id, assignee.id)}
-                    />
-                  );
-                })}
-            </div>
-            <span className="flex-grow">
-              {chore.title}
-              {chore.rrule && (
-                <span className="ml-2 text-sm text-gray-500">
-                  (Recurring)
-                </span>
-              )}
-            </span>
-            <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)}>
-              <Edit className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => deleteChore(chore.id)}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </li>
-        ))}
+        {filteredChores.map(chore => {
+          const assignedMembers = getAssignedMembersForChoreOnDate(chore, safeSelectedDate);
+          console.log("assignedMembers: ", assignedMembers)
+          return (
+            <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex items-center">
+              <div className="flex space-x-2 mr-4">
+                {assignedMembers
+                  .filter(assignee => selectedMember === 'All' || assignee.id === selectedMember)
+                  .map(assignee => {
+                    const completion = chore.completions?.find(
+                      c => c.completedBy[0].id === assignee.id && c.dateDue === formattedSelectedDate
+                    );
+                    const familyMember = familyMembers.find(fm => fm.id === assignee.id);
+                    return (
+                      <ToggleableAvatar
+                        key={assignee.id}
+                        name={assignee.name}
+                        photoUrl={familyMember?.photoUrl}
+                        isComplete={completion?.completed || false}
+                        onToggle={() => toggleChoreDone(chore.id, assignee.id)}
+                      />
+                    );
+                  })}
+              </div>
+              <span className="flex-grow">
+                {chore.title}
+                {chore.rrule && (
+                  <span className="ml-2 text-sm text-gray-500">
+                    (Recurring)
+                  </span>
+                )}
+              </span>
+              <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)}>
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => deleteChore(chore.id)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </li>
+          );
+        })}
       </ul>
       <Dialog open={editingChore !== null} onOpenChange={() => setEditingChore(null)}>
         <DialogContent>
