@@ -278,8 +278,9 @@ export const getAssignedMembersForChoreOnDate = (chore, date) => {
 
     if (chore.rotationType && chore.rotationType !== 'none' && chore.assignments && chore.assignments.length > 0) {
       const rotationIndex = getRotationIndex(new Date(chore.startDate), date, chore.rotationType, rrule);
-      const assignmentIndex = rotationIndex % chore.assignments.length;
-      const assignedMember = chore.assignments[assignmentIndex]?.familyMember.filter(Boolean);
+      const sortedAssignments = [...chore.assignments].sort((a, b) => a.order - b.order);
+      const assignmentIndex = rotationIndex % sortedAssignments.length;
+      const assignedMember = sortedAssignments[assignmentIndex]?.familyMember;
       return assignedMember ? assignedMember : "";
     } else {
       return chore.assignees || [];
@@ -306,8 +307,9 @@ export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Dat
 
     if (chore.rotationType && chore.rotationType !== 'none' && chore.assignments && chore.assignments.length > 0) { // if the chore has a rotation and assignments
       const rotationIndex = getRotationIndex(new Date(chore.startDate), date, chore.rotationType, rrule); // get a rotation index number; for daily rotations this will just be the number of times the chore has been due by the current date (e.g., for a daily chore started 10 days ago it will be 11; for an every other day chore started 8 days ago it will be 4). For weekly it's how many weeks have gone by, and for monthly it's how many months have gone by.
+      const sortedAssignments = [...chore.assignments].sort((a, b) => a.order - b.order); // sort the assignees by the order they were placed in in the database
       const assignmentIndex = rotationIndex % chore.assignments.length; // get the mod of rotationIndex by how many people are assigned. (e.g., for a daily rotation chore on its 16th occurrence with 3 people assigned, 16 % 3 = 1)
-      assignedMembers = [chore.assignments[assignmentIndex]?.familyMember].filter(Boolean); // add an assignee to assignedMembers, with the person who is at the assignementIndex index of the chore.assignments array (e.g., for the above example, [1], so the 2nd person in the order of those assigned)
+      assignedMembers = [sortedAssignments[assignmentIndex]?.familyMember].filter(Boolean); // add an assignee to assignedMembers, with the person who is at the assignementIndex index of the chore.assignments array (e.g., for the above example, [1], so the 2nd person in the order of those assigned)
     } else {
       // Assigned to all assignees because there's not a rotationType or there are no chore assignments
       assignedMembers = chore.assignees || []; // assign every one for this date (because there's no rotation) or assign no one (because no one has been assigned for this chore at all)

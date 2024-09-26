@@ -9,6 +9,8 @@ import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
 import DetailedChoreForm from './DetailedChoreForm';
 
 function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggleChoreDone, updateChore, deleteChore }) {
+  console.log("chores :", chores)
+  
   const [editingChore, setEditingChore] = useState(null);
   const safeSelectedDate = selectedDate instanceof Date && !isNaN(selectedDate.getTime()) 
     ? new Date(Date.UTC(selectedDate.getUTCFullYear(), selectedDate.getUTCMonth(), selectedDate.getUTCDate()))
@@ -42,8 +44,26 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
     }
   };
 
-  const filteredChores = chores.filter(shouldShowChore);
+  const filteredChores = chores.filter(chore => {
+    if (!shouldShowChore(chore)) return false;
+  
+    // Get the assigned members for the chore on the selected date
+    const assignedMembers = getAssignedMembersForChoreOnDate(chore, safeSelectedDate);
+  
+    console.log("assignedMembers: ", assignedMembers)
+    // If 'All' is selected, include the chore
+    if (selectedMember === 'All') {
+      return true;
+    } else {
+      // Check if the selected member is assigned to this chore on the selected date
+      return assignedMembers.some(assignee => assignee.id === selectedMember);
+    }
+  });
+  
   const formattedSelectedDate = format(selectedDate, 'yyyy-MM-dd');
+
+  console.log("filteredChores: ", filteredChores)
+  console.log("chores: ", chores)
 
   const handleEditChore = (chore) => {
     setEditingChore(chore);
