@@ -26,6 +26,7 @@ interface FamilyMember {
   id: string;
   name: string;
   email?: string;
+  photoUrl?: string; // Add this line
 }
 
 // Updated Chore interface

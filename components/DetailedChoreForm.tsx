@@ -33,8 +33,10 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
       }
       setRotationType(initialChore.rotationType);
       setUseRotation(initialChore.rotationType !== 'none');
+      console.log("initialChore: ", initialChore)
+      console.log("initialChore.assignments: ", initialChore.assignments)
       if (initialChore.assignments) {
-        setRotationOrder(initialChore.assignments.map(a => a.familyMember.id));
+        setRotationOrder(initialChore.assignments.map(a => a.familyMember[0].id));
       }
     }
   }, [initialChore]);
@@ -103,7 +105,8 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
     });
   };
 
-
+  console.log("rotationOrder: ", rotationOrder)
+  console.log("useRotation: ", useRotation)
   return (
     <div className="space-y-4 w-full max-w-md mx-auto">
       <div className="space-y-2">

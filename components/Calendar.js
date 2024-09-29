@@ -6,7 +6,7 @@ import NepaliDate from 'nepali-date-converter';
 import AddEventForm from './AddEvent';
 import { Dialog, DialogContent } from "../components/ui/dialog"
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { EB_Garamond } from 'next/font/google';
+import localFont from 'next/font/local';
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4' //kepler.local
 const db = init({
@@ -15,10 +15,9 @@ const db = init({
   websocketURI: "ws://kepler.local:8888/runtime/session",
 });
 
-const ebGaramond = EB_Garamond({
+const ebGaramond = localFont({
+  src: '../public/fonts/EBGaramond-Regular.ttf',
   weight: '400',
-  subsets: ['latin'],
-  style: 'normal',
   display: 'swap',
 });
 
