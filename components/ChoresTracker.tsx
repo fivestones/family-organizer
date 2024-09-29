@@ -26,7 +26,7 @@ interface FamilyMember {
   id: string;
   name: string;
   email?: string;
-  photoUrl?: string; // Add this line
+  photoUrl?: string;
 }
 
 // Updated Chore interface
@@ -108,17 +108,18 @@ function ChoresTracker() {
   
     if (choreData.rotationType !== 'none' && choreData.assignments && choreData.assignments.length > 0) {
       // Use assignments with rotation
-      choreData.assignments.forEach(assignment => {
+      choreData.assignments.forEach((assignment, index) => {
         const assignmentId = id();
         transactions.push(
           tx.choreAssignments[assignmentId].update({
-            order: assignment.order,
+            order: assignment.order ?? index,
           }),
           tx.chores[choreId].link({ assignments: assignmentId }),
           tx.familyMembers[assignment.familyMember.id].link({ choreAssignments: assignmentId })
         );
       });
-    } else if (choreData.assignees && choreData.assignees.length > 0) {
+    }
+    if (choreData.assignees && choreData.assignees.length > 0) {
       // Link assignees directly
       choreData.assignees.forEach(assignee => {
         transactions.push(
@@ -130,7 +131,7 @@ function ChoresTracker() {
       // Handle case where no assignees are selected
       console.warn('No assignees selected for the chore.');
     }
-
+  
     db.transact(transactions);
     setIsDetailedChoreModalOpen(false);
   };

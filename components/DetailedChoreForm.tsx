@@ -21,41 +21,94 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
   const [rotationOrder, setRotationOrder] = useState<string[]>([]);
   const [useRotation, setUseRotation] = useState(false);
 
+  console.log("Component rendered");
+
   useEffect(() => {
+    console.log("DetailedChoreForm useEffect triggered");
+    console.log("initialChore:", initialChore);
+    
     if (initialChore) {
       setTitle(initialChore.title);
-      setAssignees(initialChore.assignees.map(a => a.id));
       setDescription(initialChore.description || '');
       setStartDate(toUTCDate(new Date(initialChore.startDate)));
+      
       if (initialChore.rrule) {
         const rrule = RRule.fromString(initialChore.rrule);
         setRecurrenceOptions(rrule.options);
       }
+      
+      const isRotatingChore = initialChore.rotationType !== 'none';
+      console.log("Is rotating chore:", isRotatingChore);
+      console.log("Rotation type:", initialChore.rotationType);
+      
+      setUseRotation(isRotatingChore);
       setRotationType(initialChore.rotationType);
-      setUseRotation(initialChore.rotationType !== 'none');
-      console.log("initialChore: ", initialChore)
-      console.log("initialChore.assignments: ", initialChore.assignments)
-      if (initialChore.assignments) {
-        setRotationOrder(initialChore.assignments.map(a => a.familyMember[0].id));
+      
+      if (isRotatingChore && initialChore.assignments) {
+        console.log("Rotating chore assignments:", initialChore.assignments);
+        const rotationIds = initialChore.assignments
+          .filter(assignment => assignment.familyMember)
+          .map(assignment => assignment.familyMember.id);
+        console.log("Rotation IDs:", rotationIds);
+        setRotationOrder(rotationIds);
+        const assigneeIds = initialChore.assignees.map(a => a.id);
+        setAssignees(assigneeIds);
+        console.log("Set assignees for rotating chore:", rotationIds);
+      } else if (!isRotatingChore && initialChore.assignees) {
+        console.log("Non-rotating chore assignees:", initialChore.assignees);
+        const assigneeIds = initialChore.assignees.map(a => a.id);
+        setAssignees(assigneeIds);
+        console.log("Set assignees for non-rotating chore:", assigneeIds);
       }
     }
   }, [initialChore]);
 
+
   useEffect(() => {
-    if (useRotation) {
+    console.log("assignees/useRotation effect triggered", { assignees, useRotation });
+    if (useRotation && assignees.length > 0) {
+      console.log("Setting rotationOrder from assignees:", assignees);
       setRotationOrder(assignees);
-      setRotationType('daily'); // Set default rotation type to 'daily'
-    } else {
+      setRotationType('daily');
+    } else if (!useRotation) {
+      console.log("Setting rotationType to 'none'");
       setRotationType('none');
     }
+    // We're not setting rotationOrder to an empty array if assignees is empty
   }, [assignees, useRotation]);
 
+  useEffect(() => {
+    console.log("Current state:", { 
+      title, 
+      assignees,
+      description, 
+      startDate, 
+      recurrenceOptions, 
+      rotationType, 
+      rotationOrder, 
+      useRotation 
+    });
+  });
+
   const handleAssigneeToggle = (memberId: string) => {
-    setAssignees(prev =>
-      prev.includes(memberId)
-        ? prev.filter(id => id !== memberId)
-        : [...prev, memberId]
-    );
+    if (useRotation) {
+      setRotationOrder(prev => 
+        prev.includes(memberId)
+          ? prev.filter(id => id !== memberId)
+          : [...prev, memberId]
+      );
+      setAssignees(prev => 
+        prev.includes(memberId)
+          ? prev.filter(id => id !== memberId)
+          : [...prev, memberId]
+      );
+    } else {
+      setAssignees(prev =>
+        prev.includes(memberId)
+          ? prev.filter(id => id !== memberId)
+          : [...prev, memberId]
+      );
+    }
   };
 
   const moveAssigneeUp = (index: number) => {
@@ -107,6 +160,12 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
 
   console.log("rotationOrder: ", rotationOrder)
   console.log("useRotation: ", useRotation)
+  console.log("The array of rotations and family members: ", useRotation
+    ? rotationOrder.map((memberId, index) => ({
+        order: index,
+        familyMember: familyMembers.find(m => m.id === memberId),
+      }))
+    : null,)
   return (
     <div className="space-y-4 w-full max-w-md mx-auto">
       <div className="space-y-2">
@@ -227,7 +286,7 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
       <RecurrenceRuleForm onSave={setRecurrenceOptions} />
 
       {/* Chore Calendar Preview */}
-      {assignees.length > 0 && recurrenceOptions && (
+      {(assignees.length > 0 || (useRotation && rotationOrder.length > 0)) && recurrenceOptions && (
         <div className="space-y-2">
           <Label className="block">Assignment Preview:</Label>
           <div className="border rounded-md overflow-x-auto max-w-full" style={{ maxHeight: '300px' }}>

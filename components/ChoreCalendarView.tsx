@@ -7,8 +7,12 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
   const [months, setMonths] = useState<{ key: string; monthName: string; dates: Date[]; colStart: number; colEnd: number }[]>([]);
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
 
+  console.log("in ChoreCalendarView.tsx")
+  console.log("chore: ", chore)
   useEffect(() => {
     const fetchData = async () => {
+      console.log("ChoreCalendarView fetchData called");
+      console.log("Chore data:", chore);
       // Generate date range for the next 3 months
       const startDate = toUTCDate(new Date());
       const endDate = toUTCDate(new Date());
@@ -55,11 +59,22 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
       setMonths(months);
 
       // Get family members
-      setFamilyMembers(chore.assignments ? chore.assignments.map((a: any) => a.familyMember) : chore.assignees);
+      const familyMembersArray = chore.assignments
+        ? chore.assignments
+            .filter(a => a && a.familyMember)
+            .map((a: any) => {
+              console.log("Assignment:", a);
+              return a.familyMember;
+            })
+        : (chore.assignees || []).filter(Boolean);
+      
+      console.log("Family members array:", familyMembersArray);
+      setFamilyMembers(familyMembersArray);
     };
 
     fetchData();
   }, [chore]);
+
 
   return (
     <div className="overflow-x-auto">
@@ -101,27 +116,32 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
-          {familyMembers.map(member => (
-            <tr key={member.id}>
-              <td className="px-2 py-1 bg-gray-50 sticky left-0 z-10 whitespace-nowrap">{member.name}</td>
-              {dates.map(date => {
-                const dateStr = date.toISOString().split('T')[0];
-                const assignment = dateAssignments[dateStr] && dateAssignments[dateStr][member.id];
+          {familyMembers.map((member, index) => {
+            console.log("Rendering row for family member:", member);
+            return (
+              <tr key={member?.id || `unknown-${index}`}>
+                <td className="px-2 py-1 bg-gray-50 sticky left-0 z-10 whitespace-nowrap">
+                  {member?.name || `Unknown Member ${index + 1}`}
+                </td>
+                {dates.map(date => {
+                  const dateStr = date.toISOString().split('T')[0];
+                  const assignment = dateAssignments[dateStr] && dateAssignments[dateStr][member.id];
 
-                return (
-                  <td key={date.toISOString()} className="px-1 py-1 text-center">
-                    {assignment && assignment.assigned ? (
-                      <span
-                        className={`inline-block w-2 h-2 rounded-full ${
-                          assignment.completed ? 'bg-green-500' : 'bg-red-500'
-                        }`}
-                      ></span>
-                    ) : null}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+                  return (
+                    <td key={date.toISOString()} className="px-1 py-1 text-center">
+                      {assignment && assignment.assigned ? (
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${
+                            assignment.completed ? 'bg-green-500' : 'bg-red-500'
+                          }`}
+                        ></span>
+                      ) : null}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
