@@ -9,6 +9,25 @@ const inter = localFont({
   display: 'swap',
 });
 
+// Import local Inter font
+const interBold = localFont({
+  src: '../public/fonts/Inter_18pt-Bold.ttf',
+  weight: '400',  // You can change this based on the weights you're using
+  display: 'swap',
+});
+// Import local Inter font
+const interItalic = localFont({
+  src: '../public/fonts/Inter_18pt-Italic.ttf',
+  weight: '400',  // You can change this based on the weights you're using
+  display: 'swap',
+});
+// Import local Inter font
+const interBoldItalic = localFont({
+  src: '../public/fonts/Inter_18pt-BoldItalic.ttf',
+  weight: '400',  // You can change this based on the weights you're using
+  display: 'swap',
+});
+
 // Import local EB Garamond font
 const ebGaramond = localFont({
   src: '../public/fonts/EBGaramond-Regular.ttf',
@@ -28,7 +47,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.className} ${ebGaramond.className}`}>
+      <body className={`${inter.className}`}>
         {children}
       </body>
     </html>

@@ -19,7 +19,7 @@ const DateCarousel: React.FC<DateCarouselProps> = ({ onDateSelect, initialDate }
   useEffect(() => {
     const generateDateRange = () => {
       const range = [];
-      for (let i = -3; i <= 3; i++) {
+      for (let i = -4; i <= 4; i++) {
         range.push(addDays(selectedDate, i));
       }
       setDateRange(range);
@@ -60,10 +60,10 @@ const DateCarousel: React.FC<DateCarouselProps> = ({ onDateSelect, initialDate }
               }`}
               onClick={() => handleDateClick(date)}
             >
-              <div className={`text-sm ${isToday ? 'font-bold' : ''}`}>
+              <div className={`text-sm ${isToday ? 'interBold' : ''}`}>
                 {format(date, 'EEE')}
               </div>
-              <div className={`text-2xl ${isToday ? 'font-bold' : ''}`}>
+              <div className={`text-2xl ${isToday ? 'interBold' : ''}`}>
                 {format(date, 'd')}
               </div>
             </div>
