@@ -13,7 +13,14 @@ This is the code for our family's organizer
     * Associate To dos with a particular person
     * Regular lists
 * Meal plan
+    * Connections to mealie for recipes and meal planning
 * Family chores/rewards tracking
+    * See all chores with avatars for which person/people are assigned
+    * See chores due for calandar view
+    * Set multiple assignees for a chore, and to have it optionally alternate between the assignees
+    * Set auto repeats for chores with simple or complicated repeat patterns, using rrule rules
+    * Set relative value of a chore for rewards/allowance calculations
+    * Keep track of rewards/money accounts per person
 * Dashboard view for keyboardless/mouseless usage
 * Photo stream
 * Extension-capible
@@ -22,7 +29,7 @@ This is the code for our family's organizer
     * Current family hymn/song of the week
     * Kid home school/homework tracker
         * With each item tagged for whether they can do it alone or only with a parent
-
+    * Etc
 * Offline capibile, fast
     * Uses instantdb.com in the background for synching
 * iOS and web clients
@@ -33,6 +40,9 @@ This is the code for our family's organizer
 
 ## Features implemented
 
-* Rudimentary calendar that doesn't let you add or remove items or sync.
+* Calendar, most features working. Add or remove items. view calendar ok multi-month view
+* Chore assignment and tracking
+* Instant sync between clients
+* Local-first architecture
 
 We'll see how far I get!
