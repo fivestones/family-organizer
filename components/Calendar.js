@@ -261,10 +261,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
   let lastNepaliMonth = null; // To keep track of the last displayed Nepali month
   let isYearSet = false; // Flag to check if the year has been displayed
   let isNepaliYearSet = false; // Flag to check if the Nepali year has been displayed
-  let displayNepaliMonthName = false;
+  let displayNepaliMonthName = false; //set to false, since we don't usually want to display it for any given day. We'll set it to true for days where it is the first day of the Nepali month
   let shouldDisplayBothYears = false;
   let shouldDisplayYear = false;
-  let shouldDisplayNepaliYear = false;
+  let shouldDisplayNepaliYear = true;
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
@@ -332,7 +332,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
 
                 // Determine if we should display the Nepali month in this cell
                 if (displayBS) {
+                  var displayNepaliMonthName = false;
+                  console.log("nepaliDate.getMonth(): ", nepaliDate.getMonth());
+                  console.log("lastNepaliMonth.getMonth(): ", lastNepaliMonth.getMonth());
                   if (nepaliDate.getMonth() !== lastNepaliMonth.getMonth()) {
+                      console.log("This is the first day of the month")
                       displayNepaliMonthName = true; // We started a new Nepali month, so display the month name
                     } else if (lastNepaliMonth || nepaliDate.getMonth() === lastNepaliMonth.getMonth()) {
                       displayNepaliMonthName = false; // Make sure not to show the Nepali month if we displayed it yesterday
@@ -354,7 +358,9 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                   }
                 });
                 //   console.log(dayItems);
-
+                console.log("displayNepaliMonthName: ", displayNepaliMonthName);
+                console.log("displayMonthName: ", displayMonthName);
+                
                 return (
                   <Droppable droppableId={dateStr} key={dateStr}>
                     {(provided, snapshot) => (
