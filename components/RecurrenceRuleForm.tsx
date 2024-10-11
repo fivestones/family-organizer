@@ -12,6 +12,7 @@ type FrequencyType = 'once' | 'daily' | 'weekly' | 'monthly';
 
 interface RecurrenceRuleFormProps {
   onSave: (rule: { freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>> | null) => void;
+  initialOptions?: { freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>;
 }
 
 const frequencyMap: Record<FrequencyType, Frequency> = {
@@ -21,11 +22,39 @@ const frequencyMap: Record<FrequencyType, Frequency> = {
   monthly: Frequency.MONTHLY,
 };
 
-const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave }) => {
-  const [frequency, setFrequency] = useState<FrequencyType>('daily');
-  const [interval, setInterval] = useState(1);
-  const [weeklyDays, setWeeklyDays] = useState<DayOfWeek[]>([]);
-  const [monthlyDays, setMonthlyDays] = useState<number[]>([]);
+const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initialOptions }) => {
+  const [frequency, setFrequency] = useState<FrequencyType>(() => {
+    if (!initialOptions) return 'daily';
+    switch (initialOptions.freq) {
+      case Frequency.DAILY:
+        return 'daily';
+      case Frequency.WEEKLY:
+        return 'weekly';
+      case Frequency.MONTHLY:
+        return 'monthly';
+      default:
+        return 'once';
+    }
+  });
+
+  const [interval, setInterval] = useState(() => initialOptions?.interval || 1);
+
+  const [weeklyDays, setWeeklyDays] = useState<DayOfWeek[]>(() => {
+    if (initialOptions?.byweekday) {
+      const weekdays = Array.isArray(initialOptions.byweekday)
+        ? initialOptions.byweekday
+        : [initialOptions.byweekday];
+      return weekdays.map(weekday => weekday.toString().slice(0, 2).toUpperCase() as DayOfWeek);
+    }
+    return [];
+  });
+
+  const [monthlyDays, setMonthlyDays] = useState<number[]>(() => {
+    if (initialOptions?.bymonthday) {
+      return Array.isArray(initialOptions.bymonthday) ? initialOptions.bymonthday : [initialOptions.bymonthday];
+    }
+    return [];
+  });
 
   useEffect(() => {
     handleSave();

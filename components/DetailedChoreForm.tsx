@@ -283,7 +283,10 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
         </div>
       )}
 
-      <RecurrenceRuleForm onSave={setRecurrenceOptions} />
+      <RecurrenceRuleForm
+        onSave={setRecurrenceOptions}
+        initialOptions={recurrenceOptions}
+      />
 
       {/* Chore Calendar Preview */}
       {(assignees.length > 0 || (useRotation && rotationOrder.length > 0)) && recurrenceOptions && (

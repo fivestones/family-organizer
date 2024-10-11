@@ -203,74 +203,72 @@ function ChoresTracker() {
     }
   };
 
-  const updateChore = async (choreId, updatedChore) => {
-    try {
-      const transactions = [
-        tx.chores[choreId].update({
-          title: updatedChore.title,
-          description: updatedChore.description,
-          startDate: updatedChore.startDate,
-          rrule: updatedChore.rrule,
-          rotationType: updatedChore.rotationType,
-        }),
-      ];
-  
-      // Remove existing assignments and assignees using existing data
-      const existingChore = data.chores.find(c => c.id === choreId);
-  
-      if (existingChore) {
-        // Remove assignments
-        existingChore.assignments?.forEach(assignment => {
-          transactions.push(tx.choreAssignments[assignment.id].delete());
-        });
-  
-        // Remove assignees
-        existingChore.assignees?.forEach(assignee => {
-          transactions.push(tx.chores[choreId].unlink({ assignees: assignee.id }));
-        });
-      }
-  
-      // Add new assignments or assignees
-      if (
-        updatedChore.rotationType !== 'none' &&
-        updatedChore.assignments &&
-        updatedChore.assignments.length > 0
-      ) {
-        updatedChore.assignments.forEach((assignment, index) => {
-          const assignmentId = id();
-          transactions.push(
-            tx.choreAssignments[assignmentId].update({
-              order: index,
-              chore: choreId,
-              familyMember: assignment.familyMember.id,
-            }),
-            tx.chores[choreId].link({ assignments: assignmentId }),
-            tx.familyMembers[assignment.familyMember.id].link({ choreAssignments: assignmentId })
-          );
-        });
-      } else if (updatedChore.assignees && updatedChore.assignees.length > 0) {
-        updatedChore.assignees.forEach(assignee => {
-          transactions.push(
-            tx.chores[choreId].link({ assignees: assignee.id }),
-            tx.familyMembers[assignee.id].link({ assignedChores: choreId })
-          );
-        });
-      }
-  
-      await db.transact(transactions);
-  
-      toast({
-        title: "Success",
-        description: "Chore updated successfully.",
+const updateChore = async (choreId, updatedChore) => {
+  try {
+    const transactions = [
+      tx.chores[choreId].update({
+        title: updatedChore.title,
+        description: updatedChore.description,
+        startDate: updatedChore.startDate,
+        rrule: updatedChore.rrule,
+        rotationType: updatedChore.rotationType,
+      }),
+    ];
+
+    // Remove existing assignments and assignees using existing data
+    const existingChore = data.chores.find(c => c.id === choreId);
+
+    if (existingChore) {
+      // Remove assignments
+      existingChore.assignments?.forEach(assignment => {
+        transactions.push(tx.choreAssignments[assignment.id].delete());
       });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update chore. Please try again.",
-        variant: "destructive",
+
+      // Remove assignees
+      existingChore.assignees?.forEach(assignee => {
+        transactions.push(tx.chores[choreId].unlink({ assignees: assignee.id }));
       });
     }
-  };
+
+    // Add new assignments or assignees
+    if (
+      updatedChore.rotationType !== 'none' &&
+      updatedChore.assignments &&
+      updatedChore.assignments.length > 0
+    ) {
+      updatedChore.assignments.forEach((assignment, index) => {
+        const assignmentId = id();
+        transactions.push(
+          tx.choreAssignments[assignmentId].update({
+            order: index,
+          }),
+          tx.chores[choreId].link({ assignments: assignmentId }),
+          tx.familyMembers[assignment.familyMember.id].link({ choreAssignments: assignmentId })
+        );
+      });
+    } else if (updatedChore.assignees && updatedChore.assignees.length > 0) {
+      updatedChore.assignees.forEach(assignee => {
+        transactions.push(
+          tx.chores[choreId].link({ assignees: assignee.id }),
+          tx.familyMembers[assignee.id].link({ assignedChores: choreId })
+        );
+      });
+    }
+
+    await db.transact(transactions);
+
+    toast({
+      title: "Success",
+      description: "Chore updated successfully.",
+    });
+  } catch (error) {
+    toast({
+      title: "Error",
+      description: "Failed to update chore. Please try again.",
+      variant: "destructive",
+    });
+  }
+};
 
   const deleteChore = (choreId) => {
     db.transact([tx.chores[choreId].delete()]);
