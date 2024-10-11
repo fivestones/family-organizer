@@ -246,13 +246,18 @@ const updateChore = async (choreId, updatedChore) => {
           tx.familyMembers[assignment.familyMember.id].link({ choreAssignments: assignmentId })
         );
       });
-    } else if (updatedChore.assignees && updatedChore.assignees.length > 0) {
+    }
+
+    // Always link assignees
+    if (updatedChore.assignees && updatedChore.assignees.length > 0) {
       updatedChore.assignees.forEach(assignee => {
         transactions.push(
           tx.chores[choreId].link({ assignees: assignee.id }),
           tx.familyMembers[assignee.id].link({ assignedChores: choreId })
         );
       });
+    } else {
+      console.warn('No assignees selected for the chore.');
     }
 
     await db.transact(transactions);
