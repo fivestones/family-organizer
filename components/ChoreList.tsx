@@ -9,7 +9,6 @@ import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
 import DetailedChoreForm from './DetailedChoreForm';
 
 function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggleChoreDone, updateChore, deleteChore }) {
-  console.log("chores :", chores)
   
   const [editingChore, setEditingChore] = useState(null);
   const safeSelectedDate = selectedDate instanceof Date && !isNaN(selectedDate.getTime()) 
@@ -50,7 +49,6 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
     // Get the assigned members for the chore on the selected date
     const assignedMembers = getAssignedMembersForChoreOnDate(chore, safeSelectedDate);
   
-    console.log("assignedMembers: ", assignedMembers)
     // If 'All' is selected, include the chore
     if (selectedMember === 'All') {
       return true;
@@ -61,9 +59,6 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
   });
   
   const formattedSelectedDate = format(selectedDate, 'yyyy-MM-dd');
-
-  console.log("filteredChores: ", filteredChores)
-  console.log("chores: ", chores)
 
   const handleEditChore = (chore) => {
     setEditingChore(chore);
@@ -79,7 +74,6 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
       <ul>
         {filteredChores.map(chore => {
           const assignedMembers = getAssignedMembersForChoreOnDate(chore, safeSelectedDate);
-          console.log("assignedMembers: ", assignedMembers)
           return (
             <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex items-center">
               <div className="flex space-x-2 mr-4">

@@ -94,7 +94,6 @@ function ChoresTracker() {
 
   const addChore = (choreData: Partial<Chore>) => {
     const choreId = id();
-    console.log("choreId: ", choreId);
     const transactions = [
       tx.chores[choreId].update({
         title: choreData.title!,

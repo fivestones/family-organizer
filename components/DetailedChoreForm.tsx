@@ -8,7 +8,7 @@ import { ChevronUp, ChevronDown } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import RecurrenceRuleForm from './RecurrenceRuleForm';
 import ChoreCalendarView from './ChoreCalendarView';
-import { RRule, Frequency } from 'rrule';
+import { RRule, Frequency, rrulestr } from 'rrule';
 import { toUTCDate } from '@/lib/chore-utils';
 
 function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initialDate }) {
@@ -21,57 +21,60 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
   const [rotationOrder, setRotationOrder] = useState<string[]>([]);
   const [useRotation, setUseRotation] = useState(false);
 
-  console.log("Component rendered");
-
   useEffect(() => {
-    console.log("DetailedChoreForm useEffect triggered");
-    console.log("initialChore:", initialChore);
-    
     if (initialChore) {
       setTitle(initialChore.title);
       setDescription(initialChore.description || '');
       setStartDate(toUTCDate(new Date(initialChore.startDate)));
-      
+  
       if (initialChore.rrule) {
-        const rrule = RRule.fromString(initialChore.rrule);
+        const options = RRule.parseString(initialChore.rrule);
+
+
+
+        const rrule = new RRule(options);
+
+        // Filter out default time values if they were not explicitly provided
+        if (!('byhour' in options)) rrule.options.byhour = null;
+        if (!('byminute' in options)) rrule.options.byminute = null;
+        if (!('bysecond' in options)) rrule.options.bysecond = null;
+        if (!('wkst' in options)) rrule.options.wkst = null;
+
+        // const rrule = rrulestr(initialChore.rrule);
+  
+        // Clean up the options to remove unwanted properties
+        const { freq, interval, byweekday, bymonthday, count, until, wkst } = rrule.options;
+        const cleanedOptions = { freq, interval, byweekday, bymonthday, count, until, wkst };
+  
         setRecurrenceOptions(rrule.options);
+      } else {
+        setRecurrenceOptions(null);
       }
-      
+
       const isRotatingChore = initialChore.rotationType !== 'none';
-      console.log("Is rotating chore:", isRotatingChore);
-      console.log("Rotation type:", initialChore.rotationType);
-      
       setUseRotation(isRotatingChore);
       setRotationType(initialChore.rotationType);
-      
+  
       if (isRotatingChore && initialChore.assignments) {
-        console.log("Rotating chore assignments:", initialChore.assignments);
         const rotationIds = initialChore.assignments
           .filter(assignment => assignment.familyMember)
           .map(assignment => assignment.familyMember.id);
-        console.log("Rotation IDs:", rotationIds);
         setRotationOrder(rotationIds);
         const assigneeIds = initialChore.assignees.map(a => a.id);
         setAssignees(assigneeIds);
-        console.log("Set assignees for rotating chore:", rotationIds);
       } else if (!isRotatingChore && initialChore.assignees) {
-        console.log("Non-rotating chore assignees:", initialChore.assignees);
         const assigneeIds = initialChore.assignees.map(a => a.id);
         setAssignees(assigneeIds);
-        console.log("Set assignees for non-rotating chore:", assigneeIds);
       }
     }
   }, [initialChore]);
 
 
   useEffect(() => {
-    console.log("assignees/useRotation effect triggered", { assignees, useRotation });
     if (useRotation && assignees.length > 0) {
-      console.log("Setting rotationOrder from assignees:", assignees);
       setRotationOrder(assignees);
       setRotationType('daily');
     } else if (!useRotation) {
-      console.log("Setting rotationType to 'none'");
       setRotationType('none');
     }
     // We're not setting rotationOrder to an empty array if assignees is empty
@@ -158,14 +161,6 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
     });
   };
 
-  console.log("rotationOrder: ", rotationOrder)
-  console.log("useRotation: ", useRotation)
-  console.log("The array of rotations and family members: ", useRotation
-    ? rotationOrder.map((memberId, index) => ({
-        order: index,
-        familyMember: familyMembers.find(m => m.id === memberId),
-      }))
-    : null,)
   return (
     <div className="space-y-4 w-full max-w-md mx-auto">
       <div className="space-y-2">

@@ -7,12 +7,8 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
   const [months, setMonths] = useState<{ key: string; monthName: string; dates: Date[]; colStart: number; colEnd: number }[]>([]);
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
 
-  console.log("in ChoreCalendarView.tsx")
-  console.log("chore: ", chore)
   useEffect(() => {
     const fetchData = async () => {
-      console.log("ChoreCalendarView fetchData called");
-      console.log("Chore data:", chore);
       // Generate date range for the next 3 months
       const startDate = toUTCDate(new Date());
       const endDate = toUTCDate(new Date());
@@ -63,12 +59,10 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
         ? chore.assignments
             .filter(a => a && a.familyMember)
             .map((a: any) => {
-              console.log("Assignment:", a);
               return a.familyMember;
             })
         : (chore.assignees || []).filter(Boolean);
       
-      console.log("Family members array:", familyMembersArray);
       setFamilyMembers(familyMembersArray);
     };
 
@@ -117,7 +111,6 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {familyMembers.map((member, index) => {
-            console.log("Rendering row for family member:", member);
             return (
               <tr key={member?.id || `unknown-${index}`}>
                 <td className="px-2 py-1 bg-gray-50 sticky left-0 z-10 whitespace-nowrap">

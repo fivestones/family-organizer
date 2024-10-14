@@ -116,18 +116,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
       return;
     }
 
-    console.log('Drag ended:', { source, destination, draggableId });
-
     const event = calendarItems.find(item => item.id === draggableId);
 
     const sourceDate = parseISO(source.droppableId);
-    console.log("sourceDate: " + sourceDate);
     const destinationDate = parseISO(destination.droppableId);
-    console.log("destinationDate: " + destinationDate);
     const daysDifference = differenceInDays(destinationDate, sourceDate);
-    // const daysDifference = Math.round((destinationDate - sourceDate) / (1000 * 60 * 60 * 24));
-    console.log("daysDifference: " + daysDifference)
-
 
     let newStartDate, newEndDate;
 
@@ -333,10 +326,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                 // Determine if we should display the Nepali month in this cell
                 if (displayBS) {
                   var displayNepaliMonthName = false;
-                  console.log("nepaliDate.getMonth(): ", nepaliDate.getMonth());
-                  console.log("lastNepaliMonth.getMonth(): ", lastNepaliMonth.getMonth());
                   if (nepaliDate.getMonth() !== lastNepaliMonth.getMonth()) {
-                      console.log("This is the first day of the month")
                       displayNepaliMonthName = true; // We started a new Nepali month, so display the month name
                     } else if (lastNepaliMonth || nepaliDate.getMonth() === lastNepaliMonth.getMonth()) {
                       displayNepaliMonthName = false; // Make sure not to show the Nepali month if we displayed it yesterday
@@ -358,8 +348,6 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                   }
                 });
                 //   console.log(dayItems);
-                console.log("displayNepaliMonthName: ", displayNepaliMonthName);
-                console.log("displayMonthName: ", displayMonthName);
                 
                 return (
                   <Droppable droppableId={dateStr} key={dateStr}>

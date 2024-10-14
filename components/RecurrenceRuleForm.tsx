@@ -23,8 +23,12 @@ const frequencyMap: Record<FrequencyType, Frequency> = {
 };
 
 const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initialOptions }) => {
+
   const [frequency, setFrequency] = useState<FrequencyType>(() => {
-    if (!initialOptions) return 'daily';
+
+    if (initialOptions === undefined) return 'daily'; // New chore, default to 'daily'
+    if (initialOptions === null) return 'once'; // Existing chore with no recurrence
+    
     switch (initialOptions.freq) {
       case Frequency.DAILY:
         return 'daily';
@@ -36,6 +40,31 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
         return 'once';
     }
   });
+
+
+  // Update frequency when initialOptions change
+  useEffect(() => {
+    console.log("initialOptions changed: ", initialOptions);
+    if (initialOptions === undefined) {
+      setFrequency('daily');
+    } else if (initialOptions === null) {
+      setFrequency('once');
+    } else {
+      switch (initialOptions.freq) {
+        case Frequency.DAILY:
+          setFrequency('daily');
+          break;
+        case Frequency.WEEKLY:
+          setFrequency('weekly');
+          break;
+        case Frequency.MONTHLY:
+          setFrequency('monthly');
+          break;
+        default:
+          setFrequency('once');
+      }
+    }
+  }, [initialOptions]);
 
   const [interval, setInterval] = useState(() => initialOptions?.interval || 1);
 

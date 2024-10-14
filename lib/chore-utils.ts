@@ -36,9 +36,7 @@ export function createRRule(ruleObject: Partial<RRule.Options>) {
     options.freq = Frequency.DAILY;
   }
 
-  console.log("options: ", options);
   if (options.dtstart && !(options.dtstart instanceof Date)) {
-    console.log("the dtstart will be", new Date(options.dtstart), " from ", options.dtstart)
     options.dtstart = new Date(options.dtstart);
   }
 
