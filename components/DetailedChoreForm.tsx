@@ -28,25 +28,24 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
       setStartDate(toUTCDate(new Date(initialChore.startDate)));
   
       if (initialChore.rrule) {
-        const options = RRule.parseString(initialChore.rrule);
-
-
-
-        const rrule = new RRule(options);
-
-        // Filter out default time values if they were not explicitly provided
-        if (!('byhour' in options)) rrule.options.byhour = null;
-        if (!('byminute' in options)) rrule.options.byminute = null;
-        if (!('bysecond' in options)) rrule.options.bysecond = null;
-        if (!('wkst' in options)) rrule.options.wkst = null;
-
-        // const rrule = rrulestr(initialChore.rrule);
+        try {
+          const options = RRule.parseString(initialChore.rrule);
+          console.log("options right after they are created: ", options)
+          const rrule = new RRule(options);
   
-        // Clean up the options to remove unwanted properties
-        const { freq, interval, byweekday, bymonthday, count, until, wkst } = rrule.options;
-        const cleanedOptions = { freq, interval, byweekday, bymonthday, count, until, wkst };
+          // Filter out default time values if they were not explicitly provided
+          if (!('byhour' in options)) rrule.options.byhour = null;
+          if (!('byminute' in options)) rrule.options.byminute = null;
+          if (!('bysecond' in options)) rrule.options.bysecond = null;
+          if (!('wkst' in options)) rrule.options.wkst = null;
+          if (!('byweekday' in options)) rrule.options.byweekday = null;
   
-        setRecurrenceOptions(rrule.options);
+          console.log("Parsed RRule options:", rrule.options);
+          setRecurrenceOptions(rrule.options);
+        } catch (error) {
+          console.error("Error parsing RRule:", error);
+          setRecurrenceOptions(null);
+        }
       } else {
         setRecurrenceOptions(null);
       }
@@ -135,13 +134,22 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
   const handleSave = () => {
     let finalRrule = null;
     if (recurrenceOptions) {
-      const rrule = new RRule({
-        ...recurrenceOptions,
-        dtstart: null,
-      });
-      finalRrule = rrule.toString();
-      if (!finalRrule.startsWith('RRULE:')) {
-        finalRrule = 'RRULE:' + finalRrule;
+      try {
+        console.log("Creating RRule with options:", recurrenceOptions);
+        const rrule = new RRule({
+          ...recurrenceOptions,
+          dtstart: null,
+        });
+        finalRrule = rrule.toString();
+        if (!finalRrule.startsWith('RRULE:')) {
+          finalRrule = 'RRULE:' + finalRrule;
+        }
+        console.log("Created RRule:", finalRrule);
+      } catch (error) {
+        console.error("Error creating RRule:", error);
+        console.log("Current recurrenceOptions:", recurrenceOptions);
+        // Handle the error, perhaps by showing a message to the user
+        return;
       }
     }
 
@@ -279,7 +287,10 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
       )}
 
       <RecurrenceRuleForm
-        onSave={setRecurrenceOptions}
+        onSave={(options) => {
+          console.log("Received options from RecurrenceRuleForm:", options);
+          setRecurrenceOptions(options);
+        }}
         initialOptions={recurrenceOptions}
       />
 
@@ -294,10 +305,17 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
                 title,
                 description,
                 startDate: startDate.toISOString(),
-                rrule: new RRule({
-                  ...recurrenceOptions,
-                  dtstart: startDate,
-                }).toString(),
+                rrule: (() => {
+                  try {
+                    return new RRule({
+                      ...recurrenceOptions,
+                      dtstart: startDate,
+                    }).toString();
+                  } catch (error) {
+                    console.error("Error creating RRule for preview:", error);
+                    return '';
+                  }
+                })(),
                 rotationType: useRotation ? rotationType : 'none',
                 assignments: useRotation
                   ? rotationOrder.map((memberId, index) => ({

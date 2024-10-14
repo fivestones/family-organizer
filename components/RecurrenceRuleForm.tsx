@@ -23,12 +23,10 @@ const frequencyMap: Record<FrequencyType, Frequency> = {
 };
 
 const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initialOptions }) => {
-
   const [frequency, setFrequency] = useState<FrequencyType>(() => {
-
     if (initialOptions === undefined) return 'daily'; // New chore, default to 'daily'
     if (initialOptions === null) return 'once'; // Existing chore with no recurrence
-    
+
     switch (initialOptions.freq) {
       case Frequency.DAILY:
         return 'daily';
@@ -40,8 +38,8 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
         return 'once';
     }
   });
-
-
+  
+  
   // Update when initialOptions change
   useEffect(() => {
     console.log("initialOptions changed: ", initialOptions);
@@ -90,7 +88,17 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
       const weekdays = Array.isArray(initialOptions.byweekday)
         ? initialOptions.byweekday
         : [initialOptions.byweekday];
-      return weekdays.map(weekday => weekday.toString().slice(0, 2).toUpperCase() as DayOfWeek);
+      return weekdays.map(weekday => {
+        if (typeof weekday === 'number') {
+          const dayCodes: DayOfWeek[] = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+          return dayCodes[weekday];
+        } else if (weekday instanceof Weekday) {
+          return weekday.toString().slice(0, 2).toUpperCase() as DayOfWeek;
+        } else {
+          console.warn('Unexpected type in byweekday:', weekday);
+          return null;
+        }
+      }).filter(Boolean) as DayOfWeek[];
     }
     return [];
   });
@@ -102,9 +110,13 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
     return [];
   });
 
+  // Update when initialOptions change
   useEffect(() => {
-    handleSave();
-  }, [frequency, interval, weeklyDays, monthlyDays]);
+    if (initialOptions) {
+      // Similar initialization logic as above
+      // Update state only if initialOptions have changed
+    }
+  }, [initialOptions]);
 
   const handleSave = () => {
     if (frequency === 'once') {
@@ -128,22 +140,36 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
     onSave(rruleOptions);
   };
 
+  const handleFrequencyChange = (value: FrequencyType) => {
+    setFrequency(value);
+    handleSave();
+  };
+
+  const handleIntervalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInterval(parseInt(e.target.value) || 1);
+    handleSave();
+  };
+
   const handleWeeklyDayToggle = (day: DayOfWeek) => {
-    setWeeklyDays(prev => 
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
-    );
+    setWeeklyDays(prev => {
+      const newDays = prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day];
+      return newDays;
+    });
+    handleSave();
   };
 
   const handleMonthlyDayToggle = (day: number) => {
-    setMonthlyDays(prev => 
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
-    );
+    setMonthlyDays(prev => {
+      const newDays = prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day];
+      return newDays;
+    });
+    handleSave();
   };
 
   return (
     <div className="space-y-4">
-      <RadioGroup value={frequency} onValueChange={(value: FrequencyType) => setFrequency(value)}>
-        <div className="flex items-center space-x-2">
+      <RadioGroup value={frequency} onValueChange={handleFrequencyChange}>
+      <div className="flex items-center space-x-2">
           <RadioGroupItem value="once" id="once" />
           <Label htmlFor="once">Once</Label>
         </div>
@@ -168,7 +194,7 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
             id="interval"
             type="number"
             value={interval}
-            onChange={(e) => setInterval(parseInt(e.target.value))}
+            onChange={handleIntervalChange}
             className="w-16"
             min={1}
           />
@@ -194,7 +220,7 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
         </div>
       )}
 
-      {frequency === 'monthly' && (
+{frequency === 'monthly' && (
         <div className="space-y-2">
           <Label>Repeat on day:</Label>
           <div className="grid grid-cols-7 gap-2">
