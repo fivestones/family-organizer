@@ -42,7 +42,7 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
   });
 
 
-  // Update frequency when initialOptions change
+  // Update when initialOptions change
   useEffect(() => {
     console.log("initialOptions changed: ", initialOptions);
     if (initialOptions === undefined) {
@@ -62,6 +62,23 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
           break;
         default:
           setFrequency('once');
+      }
+      setInterval(initialOptions.interval || 1);
+
+      if (initialOptions.byweekday) {
+        const weekdays = Array.isArray(initialOptions.byweekday)
+          ? initialOptions.byweekday
+          : [initialOptions.byweekday];
+        const days = weekdays.map(weekday => weekday.toString().slice(0,2).toUpperCase() as DayOfWeek);
+        console.log("initialOptions.byweekday is True, and we are about to setWeeklyDays. days: ", days);
+        setWeeklyDays(days);
+      }
+
+      if (initialOptions.bymonthday) {
+        const monthdays = Array.isArray(initialOptions.bymonthday)
+          ? initialOptions.bymonthday
+          : [initialOptions.bymonthday];
+        setMonthlyDays(monthdays);
       }
     }
   }, [initialOptions]);
