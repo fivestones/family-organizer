@@ -33,9 +33,9 @@ const freqMapReverse = {
 const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initialOptions }) => {
   // Initialize state using useState initializers
   const [frequency, setFrequency] = useState<FrequencyType>(() => {
-    return initialOptions?.freq !== undefined
+    return initialOptions?.freq !== undefined // Default to 'daily' for new chores, otherwise show once, daily, weekly, or monthly as per initialOptions of pre-exisiting chore
       ? freqMapReverse[initialOptions.freq] || 'once'
-      : 'daily'; // Default to 'daily' for new chores
+      : 'once'; 
   });
 
   const [interval, setInterval] = useState(() => initialOptions?.interval || 1);

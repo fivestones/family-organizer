@@ -24,17 +24,23 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
   const [recurrenceOptions, setRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
 
   const [initialRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(() => {
-    if (initialChore && initialChore.rrule) {
-      try {
-        const options = RRule.parseString(initialChore.rrule);
-        const rrule = new RRule(options);
-        return rrule.options;
-      } catch (error) {
-        console.error('Error parsing RRule:', error);
+    if (initialChore) {
+      if (initialChore.rrule) {
+        // Parse the existing rrule
+        try {
+          const options = RRule.parseString(initialChore.rrule);
+          const rrule = new RRule(options);
+          return rrule.options;
+        } catch (error) {
+          console.error('Error parsing RRule:', error);
+          return null;
+        }
+      } else {
+        // Chore is set to "once" (no recurrence)
         return null;
       }
     } else {
-      // Default to daily recurrence when creating a new chore
+      // Creating a new chore; default to daily recurrence
       return { freq: Frequency.DAILY, interval: 1 };
     }
   });
