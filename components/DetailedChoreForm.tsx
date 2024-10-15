@@ -56,6 +56,14 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
         try {
           const options = RRule.parseString(initialChore.rrule);
           const rrule = new RRule(options);
+          // Filter out default time values if they were not explicitly provided
+          if (!('byhour' in options)) rrule.options.byhour = null;
+          if (!('byminute' in options)) rrule.options.byminute = null;
+          if (!('bysecond' in options)) rrule.options.bysecond = null;
+          if (!('wkst' in options)) rrule.options.wkst = null;
+          // if (!('byweekday' in options)) rrule.options.byweekday = null;
+  
+          console.log("Parsed RRule options:", rrule.options);
           setRecurrenceOptions(rrule.options);
         } catch (error) {
           console.error("Error parsing RRule:", error);
