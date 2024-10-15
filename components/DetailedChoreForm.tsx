@@ -16,31 +16,40 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
   const [assignees, setAssignees] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState<Date>(toUTCDate(initialDate || new Date()));
-  const [recurrenceOptions, setRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
   const [rotationType, setRotationType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
   const [rotationOrder, setRotationOrder] = useState<string[]>([]);
   const [useRotation, setUseRotation] = useState(false);
+
+  // Initialize recurrenceOptions and initialRecurrenceOptions
+  const [recurrenceOptions, setRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
+
+  const [initialRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(() => {
+    if (initialChore && initialChore.rrule) {
+      try {
+        const options = RRule.parseString(initialChore.rrule);
+        const rrule = new RRule(options);
+        return rrule.options;
+      } catch (error) {
+        console.error('Error parsing RRule:', error);
+        return null;
+      }
+    } else {
+      // Default to daily recurrence when creating a new chore
+      return { freq: Frequency.DAILY, interval: 1 };
+    }
+  });
 
   useEffect(() => {
     if (initialChore) {
       setTitle(initialChore.title);
       setDescription(initialChore.description || '');
       setStartDate(toUTCDate(new Date(initialChore.startDate)));
-  
+
+      // Set the initial recurrence options
       if (initialChore.rrule) {
         try {
           const options = RRule.parseString(initialChore.rrule);
-          console.log("options right after they are created: ", options)
           const rrule = new RRule(options);
-  
-          // Filter out default time values if they were not explicitly provided
-          if (!('byhour' in options)) rrule.options.byhour = null;
-          if (!('byminute' in options)) rrule.options.byminute = null;
-          if (!('bysecond' in options)) rrule.options.bysecond = null;
-          if (!('wkst' in options)) rrule.options.wkst = null;
-          if (!('byweekday' in options)) rrule.options.byweekday = null;
-  
-          console.log("Parsed RRule options:", rrule.options);
           setRecurrenceOptions(rrule.options);
         } catch (error) {
           console.error("Error parsing RRule:", error);
@@ -53,7 +62,7 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
       const isRotatingChore = initialChore.rotationType !== 'none';
       setUseRotation(isRotatingChore);
       setRotationType(initialChore.rotationType);
-  
+
       if (isRotatingChore && initialChore.assignments) {
         const rotationIds = initialChore.assignments
           .filter(assignment => assignment.familyMember)
@@ -65,8 +74,11 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
         const assigneeIds = initialChore.assignees.map(a => a.id);
         setAssignees(assigneeIds);
       }
+    } else {
+      // For new chores, set the default recurrence options
+      setRecurrenceOptions(initialRecurrenceOptions);
     }
-  }, [initialChore]);
+  }, [initialChore, initialRecurrenceOptions]);
 
 
   useEffect(() => {
@@ -94,12 +106,12 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
 
   const handleAssigneeToggle = (memberId: string) => {
     if (useRotation) {
-      setRotationOrder(prev => 
+      setRotationOrder(prev =>
         prev.includes(memberId)
           ? prev.filter(id => id !== memberId)
           : [...prev, memberId]
       );
-      setAssignees(prev => 
+      setAssignees(prev =>
         prev.includes(memberId)
           ? prev.filter(id => id !== memberId)
           : [...prev, memberId]
@@ -135,7 +147,6 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
     let finalRrule = null;
     if (recurrenceOptions) {
       try {
-        console.log("Creating RRule with options:", recurrenceOptions);
         const rrule = new RRule({
           ...recurrenceOptions,
           dtstart: null,
@@ -144,10 +155,8 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
         if (!finalRrule.startsWith('RRULE:')) {
           finalRrule = 'RRULE:' + finalRrule;
         }
-        console.log("Created RRule:", finalRrule);
       } catch (error) {
         console.error("Error creating RRule:", error);
-        console.log("Current recurrenceOptions:", recurrenceOptions);
         // Handle the error, perhaps by showing a message to the user
         return;
       }
@@ -291,7 +300,7 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
           console.log("Received options from RecurrenceRuleForm:", options);
           setRecurrenceOptions(options);
         }}
-        initialOptions={recurrenceOptions}
+        initialOptions={initialRecurrenceOptions}
       />
 
       {/* Chore Calendar Preview */}
