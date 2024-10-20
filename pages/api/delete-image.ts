@@ -5,19 +5,24 @@ import path from 'path';
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
-    const { url } = req.body;
-    if (url) {
-      const filename = url.split('/uploads/')[1];
-      const filepath = path.join(process.cwd(), 'public', 'uploads', filename);
-      fs.unlink(filepath, (err) => {
-        if (err) {
-          console.error('Error deleting file:', err);
-          return res.status(500).json({ message: 'Error deleting file' });
+    const { urls } = req.body;
+    if (urls) {
+      const sizes = [64, 320, 1200];
+      sizes.forEach((size) => {
+        const filename = urls[size];
+        if (filename) {
+          const filepath = path.join(process.cwd(), 'public', 'uploads', filename);
+          fs.unlink(filepath, (err) => {
+            if (err) {
+              console.error('Error deleting file:', err);
+              // Do not return, try to delete all files
+            }
+          });
         }
-        res.status(200).json({ message: 'File deleted' });
       });
+      res.status(200).json({ message: 'Files deleted' });
     } else {
-      res.status(400).json({ message: 'No URL provided' });
+      res.status(400).json({ message: 'No URLs provided' });
     }
   } else {
     res.status(405).json({ message: 'Method not allowed' });
