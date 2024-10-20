@@ -88,7 +88,7 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
                       <ToggleableAvatar
                         key={assignee.id}
                         name={assignee.name}
-                        photoUrl={familyMember?.photoUrl}
+                        photoUrls={familyMember?.photoUrls}
                         isComplete={completion?.completed || false}
                         onToggle={() => toggleChoreDone(chore.id, assignee.id)}
                       />

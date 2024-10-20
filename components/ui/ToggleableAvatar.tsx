@@ -1,13 +1,16 @@
+// components/ui/ToggleableAvatar.tsx
 import React from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Toggle } from '@/components/ui/toggle';
 
-const ToggleableAvatar = ({ name, photoUrl, isComplete, onToggle }) => {
+const ToggleableAvatar = ({ name, photoUrls, isComplete, onToggle }) => {
   const initials = name
     .split(' ')
-    .map(n => n[0])
+    .map((n) => n[0])
     .join('')
     .toUpperCase();
+
+  const photoUrl64 = photoUrls?.[64];
 
   return (
     <Toggle
@@ -15,12 +18,14 @@ const ToggleableAvatar = ({ name, photoUrl, isComplete, onToggle }) => {
       onPressedChange={onToggle}
       className="p-0 data-[state=on]:bg-transparent data-[state=off]:bg-transparent"
     >
-      <div className={`rounded-full p-1 transition-colors duration-200 ${
-        isComplete ? 'border-2 border-green-500' : 'border-2 border-amber-500'
-      }`}>
+      <div
+        className={`rounded-full p-1 transition-colors duration-200 ${
+          isComplete ? 'border-2 border-green-500' : 'border-2 border-amber-500'
+        }`}
+      >
         <Avatar className="h-8 w-8">
-          {photoUrl ? (
-            <AvatarImage src={photoUrl} alt={name} />
+          {photoUrl64 ? (
+            <AvatarImage src={'uploads/' + photoUrl64} alt={name} />
           ) : (
             <AvatarFallback>{initials}</AvatarFallback>
           )}

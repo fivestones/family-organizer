@@ -26,7 +26,12 @@ interface FamilyMember {
   id: string;
   name: string;
   email?: string;
-  photoUrl?: string;
+  photoUrl?: string; // Legacy support if needed
+  photoUrls?: {
+    64: string;
+    320: string;
+    1200: string;
+  };
 }
 
 // Updated Chore interface
@@ -135,34 +140,86 @@ function ChoresTracker() {
     setIsDetailedChoreModalOpen(false);
   };
 
-  const addFamilyMember = async (name, email, photoUrl) => {
+  const addFamilyMember = async (name, email, photoFile) => {
     if (name) {
-      const memberId = id();
-      const memberData: Partial<FamilyMember> = { name, photoUrl };
-      if (email) {
-        memberData.email = email;
+      let photoUrls: { 64: string; 320: string; 1200: string } = {
+        64: '',
+        320: '',
+        1200: '',
+      };  
+  
+      if (photoFile) {
+        const formData = new FormData();
+        formData.append('file', photoFile);
+  
+        try {
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          });
+  
+          if (!response.ok) {
+            throw new Error('Failed to upload photo');
+          }
+  
+          const data = await response.json();
+          
+          // Ensure that the response contains the expected properties
+          photoUrls = {
+            64: data.photoUrls[64] || '',
+            320: data.photoUrls[320] || '',
+            1200: data.photoUrls[1200] || '',
+          };
+        } catch (error) {
+          console.error('Error uploading photo:', error);
+          toast({
+            title: 'Error',
+            description: 'Failed to upload photo. Please try again.',
+            variant: 'destructive',
+          });
+          return; // Stop if the upload fails
+        }
       }
+  
+      const memberId = id();
+      const memberData: Partial<FamilyMember> = {
+        name,
+        email: email || '',
+        photoUrls, // Store the entire photoUrls JSON object
+      };
+  
       try {
-        await db.transact([
-          tx.familyMembers[memberId].update(memberData),
-        ]);
+        await db.transact([tx.familyMembers[memberId].update(memberData)]);
         toast({
-          title: "Success",
-          description: "Family member added successfully.",
+          title: 'Success',
+          description: 'Family member added successfully.',
         });
       } catch (error) {
         console.error('Error adding family member:', error);
         toast({
-          title: "Error",
-          description: "Failed to add family member. Please try again.",
-          variant: "destructive",
+          title: 'Error',
+          description: 'Failed to add family member. Please try again.',
+          variant: 'destructive',
         });
       }
     }
   };
 
-  const deleteFamilyMember = (memberId) => {
-    db.transact([tx.familyMembers[memberId].delete()]);
+  const deleteFamilyMember = async (memberId) => {
+    // Fetch the family member to get the photo URL
+    const member = familyMembers.find((m) => m.id === memberId);
+    if (member && member.photoUrl) {
+      try {
+        await fetch('/api/delete-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: member.photoUrl }),
+        });
+      } catch (error) {
+        console.error('Error deleting photo:', error);
+      }
+    }
+    await db.transact([tx.familyMembers[memberId].delete()]);
     if (selectedMember === memberId) {
       setSelectedMember('All');
     }

@@ -8,6 +8,7 @@ import { PlusCircle, Trash2, Upload } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from "@/components/ui/use-toast";
+import Cropper from 'react-easy-crop';
 
 function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, addFamilyMember, deleteFamilyMember, db }) {
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
@@ -17,29 +18,26 @@ function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, a
   const [isEditMode, setIsEditMode] = useState(false);
   const { toast } = useToast();
 
+  // Add state variables for cropping images
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  const [croppedImage, setCroppedImage] = useState(null);
+  const [imageSrc, setImageSrc] = useState(null);
+
   const handleAddMember = async () => {
     if (newMemberName) {
-      let photoUrl = '';
-      if (newMemberPhoto) {
-        const fileName = `family-members/${Date.now()}-${newMemberPhoto.name}`;
-        try {
-          await db.storage.upload(fileName, newMemberPhoto);
-          photoUrl = await db.storage.getDownloadUrl(fileName);
-        } catch (error) {
-          console.error('Error uploading photo:', error);
-          toast({
-            title: "Error",
-            description: "Failed to upload photo. Please try again.",
-            variant: "destructive",
-          });
-          return;
-        }
+      let photoFile = null;
+      if (croppedImage) {
+        photoFile = croppedImage;
       }
-
-      addFamilyMember(newMemberName, newMemberEmail || null, photoUrl);
+      // Pass photoFile to addFamilyMember
+      addFamilyMember(newMemberName, newMemberEmail || null, photoFile);
+      // Reset states
       setNewMemberName('');
       setNewMemberEmail('');
-      setNewMemberPhoto(null);
+      setImageSrc(null);
+      setCroppedImage(null);
       setIsAddMemberOpen(false);
     }
   };
@@ -48,6 +46,75 @@ function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, a
     if (e.target.files && e.target.files[0]) {
       setNewMemberPhoto(e.target.files[0]);
     }
+  };
+
+  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      const imageDataUrl = await readFile(file);
+      setImageSrc(imageDataUrl);
+    }
+  };
+  
+  const readFile = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.addEventListener('load', () => resolve(reader.result as string));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const onCropComplete = (croppedArea, croppedAreaPixels) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  };
+  
+  const showCroppedImage = async () => {
+    try {
+      const croppedImage = await getCroppedImg(imageSrc, croppedAreaPixels);
+      setCroppedImage(croppedImage);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+  
+  const getCroppedImg = (imageSrc, pixelCrop): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.src = imageSrc;
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+  
+        const maxSize = 1200;
+        const scale = maxSize / Math.max(pixelCrop.width, pixelCrop.height);
+        const canvasWidth = pixelCrop.width * scale;
+        const canvasHeight = pixelCrop.height * scale;
+  
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+  
+        ctx.drawImage(
+          image,
+          pixelCrop.x,
+          pixelCrop.y,
+          pixelCrop.width,
+          pixelCrop.height,
+          0,
+          0,
+          canvasWidth,
+          canvasHeight
+        );
+  
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            return reject(new Error('Canvas is empty'));
+          }
+          const file = new File([blob], 'cropped_image.png', { type: 'image/png' });
+          resolve(file);
+        }, 'image/png');
+      };
+      image.onerror = (error) => reject(error);
+    });
   };
 
   return (
@@ -79,8 +146,8 @@ function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, a
               onClick={() => setSelectedMember(member.id)}
             >
               <Avatar className="h-8 w-8 mr-2">
-                {member.photoUrl ? (
-                  <AvatarImage src={member.photoUrl} alt={member.name} />
+                {member.photoUrls ? (
+                  <AvatarImage src={'uploads/' + member.photoUrls[64]} alt={member.name} />
                 ) : (
                   <AvatarFallback>
                     {member.name.split(' ').map(n => n[0]).join('').toUpperCase()}
@@ -139,19 +206,38 @@ function FamilyMembersList({ familyMembers, selectedMember, setSelectedMember, a
               <Label htmlFor="photo" className="text-right">
                 Photo
               </Label>
-              <div className="col-span-3">
-                <Input
-                  id="photo"
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePhotoChange}
-                  className="hidden"
-                />
-                <Label htmlFor="photo" className="cursor-pointer flex items-center justify-center w-full h-10 px-4 py-2 bg-white text-black border border-gray-300 rounded-md hover:bg-gray-100">
-                  <Upload className="mr-2 h-4 w-4" />
-                  {newMemberPhoto ? newMemberPhoto.name : 'Choose photo'}
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="photo" className="text-right">
+                  Photo
                 </Label>
+                <div className="col-span-3">
+                  <Input
+                    id="photo"
+                    type="file"
+                    accept="image/*"
+                    onChange={onFileChange}
+                  />
+                </div>
               </div>
+
+              {imageSrc && (
+                <div className="relative w-full h-64">
+                  <Cropper
+                    image={imageSrc}
+                    crop={crop}
+                    zoom={zoom}
+                    aspect={1}
+                    cropShape="round"
+                    showGrid={false}
+                    onCropChange={setCrop}
+                    onZoomChange={setZoom}
+                    onCropComplete={onCropComplete}
+                  />
+                  <div className="flex justify-center mt-2">
+                    <Button onClick={showCroppedImage}>Crop Image</Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <Button onClick={handleAddMember} disabled={!newMemberName}>Add Member</Button>
