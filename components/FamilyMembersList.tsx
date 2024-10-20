@@ -52,6 +52,7 @@ function FamilyMembersList({
   const handleAddMember = async () => {
     if (newMemberName) {
       let photoFile = null;
+      let photoUrls = null;
       if (imageSrc && croppedAreaPixels) {
         try {
           photoFile = await getCroppedImg(imageSrc, croppedAreaPixels);
@@ -166,52 +167,50 @@ function FamilyMembersList({
 
   const handleUpdateMember = async () => {
     if (editMemberName) {
-      let photoFile = null;
-      if (editImageSrc && editCroppedAreaPixels) {
-        try {
-          photoFile = await getCroppedImg(editImageSrc, editCroppedAreaPixels);
-        } catch (e) {
-          console.error(e);
-        }
-      }
-
       const updates = {
         name: editMemberName,
         email: editMemberEmail || '',
       };
-
-      if (photoFile) {
-        // User uploaded a new photo
-        // Delete the old photo if exists
+  
+      // If 'Remove Photo' is checked, delete the photo first
+      if (removePhoto) {
+        console.log("Removing photo");
         const member = familyMembers.find((m) => m.id === editingMember.id);
         if (member && member.photoUrls) {
           try {
-            await fetch('/api/delete-image', {
+            const result = await fetch('/api/delete-image', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ urls: member.photoUrls }),
             });
+            console.log(
+              'JSON.stringify({urls: member.photoUrls }): ',
+              JSON.stringify({ urls: member.photoUrls })
+            );
+            console.log('Delete image result: ', result);
           } catch (error) {
             console.error('Error deleting photo:', error);
           }
         }
-
-        // Upload the new photo
-        const formData = new FormData();
-        formData.append('file', photoFile);
-
+        updates.photoUrls = null; // Set photo URLs to null if removed
+      } else if (editImageSrc && editCroppedAreaPixels) {
+        // If 'Remove Photo' is not checked, upload new photo if provided
+        console.log('Uploading new photo');
         try {
+          const photoFile = await getCroppedImg(editImageSrc, editCroppedAreaPixels);
+  
+          const formData = new FormData();
+          formData.append('file', photoFile);
+  
           const response = await fetch('/api/upload', {
             method: 'POST',
             body: formData,
           });
-
-          if (!response.ok) {
-            throw new Error('Failed to upload photo');
-          }
-
+  
+          if (!response.ok) throw new Error('Failed to upload photo');
+  
           const data = await response.json();
-
+  
           updates.photoUrls = {
             64: data.photoUrls[64] || '',
             320: data.photoUrls[320] || '',
@@ -224,26 +223,10 @@ function FamilyMembersList({
             description: 'Failed to upload photo. Please try again.',
             variant: 'destructive',
           });
-          return;
+          return; // Stop execution if upload fails
         }
-      } else if (removePhoto) {
-        // User wants to remove the existing photo
-        const member = familyMembers.find((m) => m.id === editingMember.id);
-        if (member && member.photoUrls) {
-          try {
-            await fetch('/api/delete-image', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ urls: member.photoUrls }),
-            });
-          } catch (error) {
-            console.error('Error deleting photo:', error);
-          }
-        }
-
-        updates.photoUrls = null;
       }
-
+  
       try {
         await db.transact([tx.familyMembers[editingMember.id].update(updates)]);
         toast({
@@ -258,7 +241,7 @@ function FamilyMembersList({
           variant: 'destructive',
         });
       }
-
+  
       // Reset states
       setEditingMember(null);
       setEditMemberName('');
@@ -420,6 +403,7 @@ function FamilyMembersList({
             <DialogTitle>Edit Family Member</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {/* Name Field */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-name" className="text-right">
                 Name
@@ -431,6 +415,8 @@ function FamilyMembersList({
                 className="col-span-3"
               />
             </div>
+
+            {/* Email Field */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="edit-email" className="text-right">
                 Email (optional)
@@ -443,7 +429,9 @@ function FamilyMembersList({
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
+
+            {/* Photo Input and Cropping */}
+            <div className="grid grid-cols-4 items-start gap-4">
               <Label htmlFor="edit-photo" className="text-right">
                 Photo
               </Label>
@@ -472,7 +460,7 @@ function FamilyMembersList({
                 )}
                 {!editImageSrc && editingMember?.photoUrls && (
                   <div className="mt-4">
-                    <Avatar className="h-32 w-32">
+                    <Avatar className="h-16 w-16">
                       <AvatarImage
                         src={'uploads/' + editingMember.photoUrls[320]}
                         alt={editingMember.name}
@@ -482,8 +470,10 @@ function FamilyMembersList({
                 )}
               </div>
             </div>
+
+            {/* Remove Photo Checkbox */}
             {editingMember?.photoUrls && (
-              <div className="flex items-center col-span-4">
+              <div className="flex items-center">
                 <Checkbox
                   id="remove-photo"
                   checked={removePhoto}
@@ -495,6 +485,8 @@ function FamilyMembersList({
               </div>
             )}
           </div>
+
+          {/* Save Button */}
           <Button onClick={handleUpdateMember} disabled={!editMemberName}>
             Save Member
           </Button>
