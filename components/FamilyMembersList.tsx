@@ -167,7 +167,7 @@ function FamilyMembersList({
 
   const handleUpdateMember = async () => {
     if (editMemberName) {
-      const updates = {
+      const updates: { [key: string]: any } = {
         name: editMemberName,
         email: editMemberEmail || '',
       };
@@ -183,13 +183,15 @@ function FamilyMembersList({
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ urls: member.photoUrls }),
             });
+
             console.log(
               'JSON.stringify({urls: member.photoUrls }): ',
               JSON.stringify({ urls: member.photoUrls })
             );
-            console.log('Delete image result: ', result);
+
+            setRemovePhoto(false);
           } catch (error) {
-            console.error('Error deleting photo:', error);
+            console.error('Error deleting photo: ', error);
           }
         }
         updates.photoUrls = null; // Set photo URLs to null if removed
@@ -278,7 +280,7 @@ function FamilyMembersList({
           All
         </Button>
         {familyMembers.map((member) => (
-          <div key={member.id} className="flex items-center mb-2 space-y-4">
+          <div key={member.id} className="flex items-center mb-7">
             <Button
               variant={selectedMember === member.id ? 'default' : 'ghost'}
               className="w-full justify-start mr-2"

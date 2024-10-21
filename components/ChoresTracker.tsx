@@ -182,12 +182,10 @@ function ChoresTracker() {
       email: email || '',
     };
   
-    console.log("photoUrls: ", photoUrls)
     // Only add photoUrls if it is not null (i.e., a photo was uploaded)
     if (photoUrls) {
       memberData.photoUrls = photoUrls;
     }
-    console.log("memberData: ", memberData)
   
     try {
       await db.transact([tx.familyMembers[memberId].update(memberData)]);

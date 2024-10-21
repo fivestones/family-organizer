@@ -63,7 +63,6 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
           if (!('wkst' in options)) rrule.options.wkst = null;
           // if (!('byweekday' in options)) rrule.options.byweekday = null;
   
-          console.log("Parsed RRule options:", rrule.options);
           setRecurrenceOptions(rrule.options);
         } catch (error) {
           console.error("Error parsing RRule:", error);
@@ -311,7 +310,6 @@ function DetailedChoreForm({ familyMembers, onSave, initialChore = null, initial
 
       <RecurrenceRuleForm
         onSave={(options) => {
-          console.log("Received options from RecurrenceRuleForm:", options);
           setRecurrenceOptions(options);
         }}
         initialOptions={initialRecurrenceOptions}
