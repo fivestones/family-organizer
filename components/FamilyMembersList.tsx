@@ -278,13 +278,13 @@ function FamilyMembersList({
           All
         </Button>
         {familyMembers.map((member) => (
-          <div key={member.id} className="flex items-center mb-2">
+          <div key={member.id} className="flex items-center mb-2 space-y-4">
             <Button
               variant={selectedMember === member.id ? 'default' : 'ghost'}
               className="w-full justify-start mr-2"
               onClick={() => setSelectedMember(member.id)}
             >
-              <Avatar className="h-8 w-8 mr-2">
+              <Avatar className="h-12 w-12 mr-2">
                 {member.photoUrls ? (
                   <AvatarImage
                     src={'uploads/' + member.photoUrls[64]}
