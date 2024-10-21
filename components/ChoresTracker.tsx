@@ -140,68 +140,68 @@ function ChoresTracker() {
     setIsDetailedChoreModalOpen(false);
   };
 
-  const addFamilyMember = async (name, email, photoFile) => {
-    if (name) {
-      let photoUrls: { 64: string; 320: string; 1200: string } = {
-        64: '',
-        320: '',
-        1200: '',
-      };  
+  const addFamilyMember = async (name: string, email: string | null, photoFile: File | null) => {
+    if (!name) return;
   
-      if (photoFile) {
-        const formData = new FormData();
-        formData.append('file', photoFile);
+    let photoUrls: { 64?: string; 320?: string; 1200?: string } | null = null;
   
-        try {
-          const response = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData,
-          });
-  
-          if (!response.ok) {
-            throw new Error('Failed to upload photo');
-          }
-  
-          const data = await response.json();
-          
-          // Ensure that the response contains the expected properties
-          photoUrls = {
-            64: data.photoUrls[64] || '',
-            320: data.photoUrls[320] || '',
-            1200: data.photoUrls[1200] || '',
-          };
-        } catch (error) {
-          console.error('Error uploading photo:', error);
-          toast({
-            title: 'Error',
-            description: 'Failed to upload photo. Please try again.',
-            variant: 'destructive',
-          });
-          return; // Stop if the upload fails
-        }
-      }
-  
-      const memberId = id();
-      const memberData: Partial<FamilyMember> = {
-        name,
-        email: email || '',
-        photoUrls, // Store the entire photoUrls JSON object
-      };
+    if (photoFile) {
+      const formData = new FormData();
+      formData.append('file', photoFile);
   
       try {
-        await db.transact([tx.familyMembers[memberId].update(memberData)]);
-        toast({
-          title: 'Success',
-          description: 'Family member added successfully.',
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
         });
+  
+        if (!response.ok) throw new Error('Failed to upload photo');
+  
+        const data = await response.json();
+  
+        // Ensure that the response contains the expected properties
+        photoUrls = {
+          64: data.photoUrls[64] || '',
+          320: data.photoUrls[320] || '',
+          1200: data.photoUrls[1200] || '',
+        };
       } catch (error) {
-        console.error('Error adding family member:', error);
+        console.error('Error uploading photo:', error);
         toast({
           title: 'Error',
-          description: 'Failed to add family member. Please try again.',
+          description: 'Failed to upload photo. Please try again.',
           variant: 'destructive',
         });
+        return; // Stop execution if upload fails
       }
+    }
+  
+    const memberId = id();
+    const memberData: Partial<FamilyMember> = {
+      name,
+      email: email || '',
+    };
+  
+    console.log("photoUrls: ", photoUrls)
+    // Only add photoUrls if it is not null (i.e., a photo was uploaded)
+    if (photoUrls) {
+      memberData.photoUrls = photoUrls;
+    }
+    console.log("memberData: ", memberData)
+  
+    try {
+      await db.transact([tx.familyMembers[memberId].update(memberData)]);
+      toast({
+        title: 'Success',
+        description: 'Family member added successfully.',
+      });
+    } catch (error) {
+      console.error('Error adding family member:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to add family member. Please try again.',
+        variant: 'destructive',
+      });
     }
   };
 
