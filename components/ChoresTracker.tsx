@@ -28,9 +28,9 @@ interface FamilyMember {
   email?: string;
   photoUrl?: string; // Legacy support if needed
   photoUrls?: {
-    64: string;
-    320: string;
-    1200: string;
+    64?: string;
+    320?: string;
+    1200?: string;
   };
 }
 

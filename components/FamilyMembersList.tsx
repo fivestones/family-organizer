@@ -371,7 +371,7 @@ function FamilyMembersList({
                   onChange={onFileChange}
                 />
                 {imageSrc && (
-                  <div className="relative w-full h-64 mt-4">
+                  <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
                     <Cropper
                       image={imageSrc}
                       crop={crop}
@@ -382,7 +382,6 @@ function FamilyMembersList({
                       onCropChange={setCrop}
                       onZoomChange={setZoom}
                       onCropComplete={onCropComplete}
-                      containerStyle={{ height: '300px' }}
                     />
                   </div>
                 )}
@@ -445,7 +444,7 @@ function FamilyMembersList({
                   onChange={onEditFileChange}
                 />
                 {editImageSrc && (
-                  <div className="relative w-full h-64 mt-4">
+                  <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
                     <Cropper
                       image={editImageSrc}
                       crop={editCrop}
@@ -456,7 +455,6 @@ function FamilyMembersList({
                       onCropChange={setEditCrop}
                       onZoomChange={setEditZoom}
                       onCropComplete={onEditCropComplete}
-                      containerStyle={{ height: '300px' }}
                     />
                   </div>
                 )}
@@ -479,7 +477,7 @@ function FamilyMembersList({
                 <Checkbox
                   id="remove-photo"
                   checked={removePhoto}
-                  onCheckedChange={setRemovePhoto}
+                  onCheckedChange={(checked) => setRemovePhoto(checked === true)}
                 />
                 <Label htmlFor="remove-photo" className="ml-2">
                   Remove existing photo
