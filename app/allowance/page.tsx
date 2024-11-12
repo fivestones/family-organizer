@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { init } from '@instantdb/react';
 import FamilyMembersList from '@/components/FamilyMembersList';
 import AllowanceTracker from '@/components/AllowanceTracker';
+import AllowanceDepositForm from '@/components/AllowanceDepositForm';
+import AllowanceBalance from '@/components/AllowanceBalance';
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4';
 const db = init({
@@ -15,6 +17,7 @@ const db = init({
 export default function AllowancePage() {
   const [selectedMember, setSelectedMember] = useState<string>('All');
 
+  // Fetch family members using db.useQuery in the main component
   const { isLoading, error, data } = db.useQuery({
     familyMembers: {
       assignedChores: {},
@@ -27,6 +30,7 @@ export default function AllowancePage() {
   if (error) return <div>Error: {error.message}</div>;
 
   const { familyMembers } = data;
+  const familyMember = familyMembers.find(m => m.id === selectedMember);
 
   return (
     <div className="flex h-screen">
@@ -36,11 +40,9 @@ export default function AllowancePage() {
           selectedMember={selectedMember}
           setSelectedMember={setSelectedMember}
           addFamilyMember={async (name, email, photoFile) => {
-            // Implementation will be added later
             console.log('Adding family member:', { name, email, photoFile });
           }}
           deleteFamilyMember={async (memberId) => {
-            // Implementation will be added later
             console.log('Deleting family member:', memberId);
           }}
           db={db}
@@ -50,12 +52,20 @@ export default function AllowancePage() {
         <h2 className="text-xl font-bold mb-4">
           {selectedMember === 'All' 
             ? 'All Allowances' 
-            : `${familyMembers.find(m => m.id === selectedMember)?.name}'s Allowances`}
+            : `${familyMember?.name}'s Allowances`}
         </h2>
-        {selectedMember !== 'All' && (
-          <AllowanceTracker 
-            familyMember={familyMembers.find(m => m.id === selectedMember)}
-          />
+        {selectedMember !== 'All' && familyMember && (
+          <>
+            <AllowanceTracker familyMember={familyMember} />
+            <AllowanceBalance
+              familyMember={familyMember}
+              db={db}
+            />
+            <AllowanceDepositForm 
+              familyMember={familyMember}
+              db={db} 
+            />
+          </>
         )}
       </div>
     </div>
