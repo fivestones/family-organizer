@@ -1,6 +1,4 @@
 'use client'
-
-// components/AllowanceDepositForm.tsx
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +14,20 @@ const AllowanceDepositForm: React.FC<AllowanceDepositFormProps> = ({ familyMembe
   const [amount, setAmount] = useState('');
   const { toast } = useToast();
 
+  // Query to get the current allowance data
+  const { data } = db.useQuery({
+    familyMembers: {
+      $: {
+        where: {
+          id: familyMember.id
+        }
+      },
+      allowance: {
+      }
+    }
+  });
+  console.log("familyMember with allowance data: ", data)
+
   const handleDeposit = async () => {
     const depositAmount = parseFloat(amount);
     if (isNaN(depositAmount)) {
@@ -27,48 +39,64 @@ const AllowanceDepositForm: React.FC<AllowanceDepositFormProps> = ({ familyMembe
       return;
     }
 
-    // Initialize or use existing allowance data without querying the database
-    const allowanceId = familyMember.allowance?.id || id();
+    const currentAllowance = data?.familyMembers?.[0]?.allowance?.[0];
+    const currentTotal = currentAllowance?.totalAmount || 0;
+    
+    try {
+      const transactions = [];
+      let allowanceId;
 
-    if (!familyMember.allowance) {
-      await db.transact([
-        tx.allowance[allowanceId].update({
-          totalAmount: 0,
+      if (!currentAllowance) {
+        // If no allowance exists, create a new one
+        allowanceId = id();
+        transactions.push(
+          tx.allowance[allowanceId].update({
+            totalAmount: depositAmount,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            currency: 'USD',
+          }),
+          tx.familyMembers[familyMember.id].link({ allowance: allowanceId }),
+        );
+      } else {
+        // Update existing allowance
+        allowanceId = currentAllowance.id;
+        transactions.push(
+          tx.allowance[allowanceId].update({
+            totalAmount: currentTotal + depositAmount,
+            updatedAt: new Date().toISOString(),
+          })
+        );
+      }
+
+      // Always create a transaction record
+      const transactionId = id();
+      transactions.push(
+        tx.allowanceTransactions[transactionId].update({
+          amount: depositAmount,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          currency: 'USD', // Adjust currency as needed
+          currency: 'USD',
+          transactionType: 'deposit',
         }),
-        tx.familyMember[familyMember.id].link({ allowance: allowanceId }),
-      ]);
+        tx.allowance[allowanceId].link({ allowanceTransactions: transactionId })
+      );
+
+      await db.transact(transactions);
+
+      setAmount('');
+      toast({
+        title: 'Deposit Successful',
+        description: `Deposited $${depositAmount.toFixed(2)} to ${familyMember.name}'s allowance.`,
+      });
+    } catch (error) {
+      console.error('Error processing deposit:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to process deposit. Please try again.',
+        variant: 'destructive',
+      });
     }
-
-    // Create a new transaction and link it to the allowance
-    const transactionId = id();
-    await db.transact([
-      tx.allowanceTransactions[transactionId].update({
-        amount: depositAmount,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        currency: 'USD', // Adjust currency as needed
-        transactionType: 'deposit',
-      }),
-      tx.allowance[allowanceId].link({ allowanceTransactions: transactionId }),
-    ]);
-
-    // Update the totalAmount in allowance
-    const currentTotal = familyMember.allowance?.totalAmount || 0;
-    await db.transact([
-      tx.allowance[allowanceId].update({
-        totalAmount: currentTotal + depositAmount,
-        updatedAt: new Date().toISOString(),
-      }),
-    ]);
-
-    setAmount('');
-    toast({
-      title: 'Deposit Successful',
-      description: `Deposited $${depositAmount.toFixed(2)} to ${familyMember.name}'s allowance.`,
-    });
   };
 
   return (
