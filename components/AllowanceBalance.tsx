@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 
 interface AllowanceData {
+  id: string;
   totalAmount: number;
   currency: string;
 }
@@ -11,9 +12,8 @@ interface AllowanceBalanceProps {
     id: string;
     name: string;
   };
-  db: any; // We'll use any for now, but you could create a proper type for the db
+  db: any;
 }
-
 
 const AllowanceBalance: React.FC<AllowanceBalanceProps> = ({ familyMember, db }) => {
   const { data } = db.useQuery({
@@ -22,40 +22,50 @@ const AllowanceBalance: React.FC<AllowanceBalanceProps> = ({ familyMember, db })
         where: {
           familyMember: familyMember.id
         }
-      },
-      // totalAmount: true,
-      // currency: true
+      }
     }
   });
 
-  console.log("data from query to get allowance of familymember ", familyMember.name, " with id ", familyMember.id, ": ", data);
-
-
-  // Explicitly type and transform the allowance data
-  const allowance: AllowanceData = {
-    totalAmount: data?.allowance?.[0]?.totalAmount ?? 0,
-    currency: data?.allowance?.[0]?.currency ?? 'USD'
-  };
-
   const formatCurrency = (amount: number, currency: string = 'USD'): string => {
-    if (amount === undefined || amount === null) return '$0.00';
+    if (amount === undefined || amount === null) {
+      return currency === 'USD' ? '$0.00' : 'रू 0';
+    }
     
+    if (currency === 'NPR') {
+      return `रू ${new Intl.NumberFormat('en-IN').format(amount)}`;
+    }
+
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency
     }).format(amount);
   };
 
+  // Filter out any null or undefined allowances and sort by currency
+  const allowances: AllowanceData[] = (data?.allowance || [])
+    .filter(a => a && a.totalAmount !== undefined && a.currency)
+    .sort((a, b) => a.currency.localeCompare(b.currency));
+
   return (
     <Card className="mb-6">
       <CardContent className="pt-6">
         <div className="text-center">
-          <div className="text-sm font-medium text-muted-foreground">
+          <div className="text-sm font-medium text-muted-foreground mb-2">
             Current Balance
           </div>
-          <div className="text-3xl font-bold mt-1">
-            {formatCurrency(allowance.totalAmount, allowance.currency)}
-          </div>
+          {allowances.length === 0 ? (
+            <div className="text-3xl font-bold mt-1">
+              No balance
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {allowances.map((allowance) => (
+                <div key={allowance.id} className="text-3xl font-bold">
+                  {formatCurrency(allowance.totalAmount, allowance.currency)}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
