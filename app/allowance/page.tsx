@@ -56,7 +56,7 @@ export default function AllowancePage() {
         </h2>
         {selectedMember !== 'All' && familyMember && (
           <>
-            <AllowanceTracker familyMember={familyMember} />
+            {/* <AllowanceTracker familyMember={familyMember} /> */}
             <AllowanceBalance
               familyMember={familyMember}
               db={db}
