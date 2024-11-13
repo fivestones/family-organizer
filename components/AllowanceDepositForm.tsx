@@ -41,6 +41,17 @@ const AllowanceDepositForm = ({ familyMember, db }) => {
     }
   }, [enabledCurrencies, selectedCurrency]);
 
+  const getCurrencySymbol = (currency: string): string => {
+    switch (currency) {
+      case 'USD':
+        return '$';
+      case 'NPR':
+        return 'रू';
+      default:
+        return '';
+    }
+  };
+
   const handleDeposit = async () => {
     const depositAmount = parseFloat(amount);
     if (isNaN(depositAmount)) {
@@ -118,11 +129,13 @@ const AllowanceDepositForm = ({ familyMember, db }) => {
   };
 
   const formatCurrency = (value: number, currency: string): string => {
-    const formatter = new Intl.NumberFormat('en-US', {
+    if (currency === 'NPR') {
+      return `रू ${value}`;
+    }
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency
-    });
-    return formatter.format(value);
+    }).format(value);
   };
 
   return (
@@ -137,12 +150,9 @@ const AllowanceDepositForm = ({ familyMember, db }) => {
             onChange={(e) => setAmount(e.target.value)}
             className="pl-7"
           />
-          {enabledCurrencies.length === 1 ? (
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500">
-              {enabledCurrencies[0] === 'USD' ? '$' : 
-               enabledCurrencies[0] === 'NPR' ? 'रू' : ''}
-            </span>
-          ) : null}
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500">
+            {getCurrencySymbol(enabledCurrencies.length === 1 ? enabledCurrencies[0] : selectedCurrency)}
+          </span>
         </div>
         
         {enabledCurrencies.length > 1 && (
