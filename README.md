@@ -2,6 +2,21 @@
 
 This is the code for our family's organizer
 
+
+## Features implemented
+
+* Calendar, most features working. Add or remove items. view calendar ok multi-month view
+    * Optionally show either/both Gregorian and Bikram Samvat calendars
+* Chore assignment and tracking
+    * See all chores with avatars for which person/people are assigned
+    * See chores due for calandar view
+    * Set multiple assignees for a chore, and to have it optionally alternate between the assignees
+    * Set auto repeats for chores with simple or complicated repeat patterns, using rrule rules
+* Instant sync between clients
+* Local-first architecture
+* Beginnings of allowance tracking, in multiple currencies
+
+
 ## Features planned
 
 * Calendar
@@ -12,13 +27,10 @@ This is the code for our family's organizer
 * To do list
     * Associate To dos with a particular person
     * Regular lists
+    * *Maybe to dos are just a specific kind of chore, which only has one occurance?*
 * Meal plan
-    * Connections to mealie for recipes and meal planning
+    * Connections to mealie (or another self-hosted recipe app) for recipes and meal planning
 * Family chores/rewards tracking
-    * See all chores with avatars for which person/people are assigned
-    * See chores due for calandar view
-    * Set multiple assignees for a chore, and to have it optionally alternate between the assignees
-    * Set auto repeats for chores with simple or complicated repeat patterns, using rrule rules
     * Set relative value of a chore for rewards/allowance calculations
     * Keep track of rewards/money accounts per person
 * Dashboard view for keyboardless/mouseless usage
@@ -38,11 +50,41 @@ This is the code for our family's organizer
 * Connect to Immage photo server for photostream
 
 
-## Features implemented
-
-* Calendar, most features working. Add or remove items. view calendar ok multi-month view
-* Chore assignment and tracking
-* Instant sync between clients
-* Local-first architecture
-
 We'll see how far I get!
+
+
+
+# Setup
+Not tested, but might work:
+* Clone this repo
+* Clone the instantdb repo
+* Set up the instantdb server
+`cd instant/server`
+`make docker-compose`
+Check that the instantdb server is running: at localhost:8888 you should see "Welcome to Instant's Backend!".
+* Set up the instantdb client
+In a new terminal window,
+```
+cd instant/client
+corepack enable
+pnpm i
+make dev
+```
+If you are doing this after the first time, just do `npm run dev`
+Check localhost:3000 in a browser, should see the instandb.com website.
+In devtools, go to console. Enter `localStorage.setItem('devBackend', true);` so that the client (localhost:3000) connects to the local instantdb server (instead of the instantdb.com one).
+* Sign in to instantdb
+Maybe not strictly necessary to use this app, but good for dev purposes.
+At localhost:3000, click login.
+Enter your email address. It won't send an email, but the same email will be used for the username.
+Look in the terminal window where the server was started, should see `postmark/send-disabled` somewhere, with the contents of the email, and a 6 digit code. Enter this.
+    If you have already logged in in the past and are trying to log in again, it won't show the code. To find it:
+        `docker ps` and find the name of the docker container that is running the postgres database
+        `docker exec -it server-postgres-1 /bin/bash` to get into the docker container
+        `psql -U instant -d instant` to get into the postgres database
+        `SELECT * FROM instant_user_magic_codes ORDER BY created_at DESC LIMIT 5;` and you should see the current date with a code
+        Enter the code in the website
+* Start the family-organizer app
+`cd family-organizer`
+`npm dev run`
+go to localhost:3001 or whichever port it was launched with.
