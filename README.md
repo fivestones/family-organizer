@@ -59,32 +59,32 @@ Not tested, but might work:
 * Clone this repo
 * Clone the instantdb repo
 * Set up the instantdb server
-`cd instant/server`
-`make docker-compose`
-Check that the instantdb server is running: at localhost:8888 you should see "Welcome to Instant's Backend!".
+    * `cd instant/server`
+    * `make docker-compose`
+    * Check that the instantdb server is running: at localhost:8888 you should see "Welcome to Instant's Backend!".
 * Set up the instantdb client
-In a new terminal window,
+    * In a new terminal window,
 ```
 cd instant/client
 corepack enable
 pnpm i
 make dev
 ```
-If you are doing this after the first time, just do `npm run dev`
-Check localhost:3000 in a browser, should see the instandb.com website.
-In devtools, go to console. Enter `localStorage.setItem('devBackend', true);` so that the client (localhost:3000) connects to the local instantdb server (instead of the instantdb.com one).
+    * If you are doing this after the first time, just do `npm run dev`
+    * Check localhost:3000 in a browser, should see the instandb.com website.
+    * In devtools, go to console. Enter `localStorage.setItem('devBackend', true);` so that the client (localhost:3000) connects to the local instantdb server (instead of the instantdb.com one).
 * Sign in to instantdb
-Maybe not strictly necessary to use this app, but good for dev purposes.
-At localhost:3000, click login.
-Enter your email address. It won't send an email, but the same email will be used for the username.
-Look in the terminal window where the server was started, should see `postmark/send-disabled` somewhere, with the contents of the email, and a 6 digit code. Enter this.
-    If you have already logged in in the past and are trying to log in again, it won't show the code. To find it:
-        `docker ps` and find the name of the docker container that is running the postgres database
-        `docker exec -it server-postgres-1 /bin/bash` to get into the docker container
-        `psql -U instant -d instant` to get into the postgres database
-        `SELECT * FROM instant_user_magic_codes ORDER BY created_at DESC LIMIT 5;` and you should see the current date with a code
-        Enter the code in the website
+    * Maybe not strictly necessary to use this app, but good for dev purposes.
+    * At localhost:3000, click login.
+    * Enter your email address. It won't send an email, but the same email will be used for the username.
+    * Look in the terminal window where the server was started, should see `postmark/send-disabled` somewhere, with the contents of the email, and a 6 digit code. Enter this.
+        * If you have already logged in in the past and are trying to log in again, it won't show the code. To find it:
+            * `docker ps` and find the name of the docker container that is running the postgres database
+            * `docker exec -it server-postgres-1 /bin/bash` to get into the docker container
+            * `psql -U instant -d instant` to get into the postgres database
+            * `SELECT * FROM instant_user_magic_codes ORDER BY created_at DESC LIMIT 5;` and you should see the current date with a code
+        * Enter the code in the website
 * Start the family-organizer app
-`cd family-organizer`
-`npm dev run`
-go to localhost:3001 or whichever port it was launched with.
+    * `cd family-organizer`
+    * `npm dev run`
+    * go to localhost:3001 or whichever port it was launched with.
