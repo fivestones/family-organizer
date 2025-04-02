@@ -64,12 +64,10 @@ Not tested, but might work:
     * Check that the instantdb server is running: at localhost:8888 you should see "Welcome to Instant's Backend!".
 * Set up the instantdb client
     * In a new terminal window,
-```
-cd instant/client
-corepack enable
-pnpm i
-make dev
-```
+        * `cd instant/client`
+        * `corepack enable`
+        * `pnpm i`
+        * `make dev`
     * If you are doing this after the first time, just do `npm run dev`
     * Check localhost:3000 in a browser, should see the instandb.com website.
     * In devtools, go to console. Enter `localStorage.setItem('devBackend', true);` so that the client (localhost:3000) connects to the local instantdb server (instead of the instantdb.com one).
