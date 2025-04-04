@@ -1,103 +1,146 @@
-import { i } from '@instantdb/core';
+// Docs: https://www.instantdb.com/docs/modeling-data
 
-const INSTANT_APP_ID = 'af77353a-0a48-455f-b892-010232a052b4';
+import { i } from '@instantdb/react';
 
-const graph = i.graph(
-  INSTANT_APP_ID,
-  {
-    familyMembers: i.entity({
-      name: i.string(),
-      email: i.string().unique().indexed(),
-      // Add other family member attributes here
+const _schema = i.schema({
+  // We inferred 33 attributes!
+  // Take a look at this schema, and if everything looks good,
+  // run `push schema` again to enforce the types.
+  entities: {
+    $files: i.entity({
+      path: i.string().unique().indexed(),
+      url: i.string(),
     }),
-    chores: i.entity({
-      title: i.string(),
+    $users: i.entity({
+      email: i.string().unique().indexed(),
+    }),
+    allowance: i.entity({
+      createdAt: i.string(),
+      currency: i.string(),
+      totalAmount: i.number(),
+      updatedAt: i.string(),
+    }),
+    allowanceEnvelopes: i.entity({
+      amount: i.any(),
+      currency: i.any(),
+      description: i.any(),
+      name: i.any(),
+    }),
+    allowanceTransactions: i.entity({
+      amount: i.number(),
+      createdAt: i.string(),
+      currency: i.string(),
+      transactionType: i.string(),
+      updatedAt: i.string(),
+    }),
+    calendarItems: i.entity({
+      dayOfMonth: i.number().indexed(),
       description: i.string(),
-      imageUrl: i.string(),
-      area: i.string(),
-      startDate: i.number(),
-      endDate: i.number().optional(),
-      recurrenceRule: i.string(),
-      dueTimes: i.json<string[]>(),
-      rotationType: i.string(),
-      allowExtraDays: i.boolean(),
-      isPaused: i.boolean(),
-      rewardType: i.string(),
-      difficultyRating: i.number().optional(),
-      rewardAmount: i.number().optional(),
-      canCompleteInAdvance: i.boolean(),
-      advanceCompletionLimit: i.string(),
-      canCompletePast: i.boolean(),
-      pastCompletionLimit: i.string(),
+      endDate: i.string(),
+      isAllDay: i.boolean(),
+      month: i.number().indexed(),
+      startDate: i.string(),
+      title: i.string(),
+      year: i.number().indexed(),
     }),
     choreAssignments: i.entity({
       order: i.number(),
     }),
     choreCompletions: i.entity({
-      chore: i.string(),
-      completedBy: i.string(),
-      dateDue: i.string(), // Changed from i.number() to i.string()
-      dateCompleted: i.string().optional(), // Changed from i.number().optional() to i.string().optional()
       completed: i.boolean(),
+      dateCompleted: i.string(),
+      dateDue: i.string(),
     }),
-    timeOfDayDefinitions: i.entity({
+    chores: i.entity({
+      advanceCompletionLimit: i.any(),
+      allowExtraDays: i.any(),
+      area: i.any(),
+      canCompleteInAdvance: i.any(),
+      canCompletePast: i.any(),
+      description: i.string(),
+      difficultyRating: i.any(),
+      done: i.boolean(),
+      dueTimes: i.any(),
+      endDate: i.any(),
+      imageUrl: i.any(),
+      isPaused: i.any(),
+      pastCompletionLimit: i.any(),
+      recurrenceRule: i.any(),
+      rewardAmount: i.any(),
+      rewardType: i.any(),
+      rotationType: i.string(),
+      rrule: i.string(),
+      startDate: i.any(),
+      title: i.string(),
+    }),
+    familyMembers: i.entity({
+      email: i.string().indexed(),
       name: i.string(),
-      time: i.string(),
+      photoUrl: i.string(),
+      photoUrls: i.json(),
     }),
-    "calendarItems": i.entity({
-      "dayOfMonth": i.any().indexed(),
-      "description": i.any(),
-      "endDate": i.any(),
-      "isAllDay": i.any(),
-      "month": i.any().indexed(),
-      "startDate": i.any(),
-      "title": i.any(),
-      "year": i.any().indexed(),
+    goals: i.entity({
+      createdAt: i.any(),
+      title: i.any(),
     }),
-    "goals": i.entity({
-      "createdAt": i.any(),
-      "title": i.any(),
+    messages: i.entity({
+      createdAt: i.any(),
+      text: i.any(),
+      updatedAt: i.any(),
     }),
-    "messages": i.entity({
-      "createdAt": i.any(),
-      "text": i.any(),
-      "updatedAt": i.any(),
+    settings: i.entity({
+      name: i.string(),
+      value: i.string(),
     }),
-    "test": i.entity({
-  
+    test: i.entity({}),
+    timeOfDayDefinitions: i.entity({
+      name: i.any(),
+      time: i.any(),
     }),
-    "todos": i.entity({
-      "createdAt": i.any(),
-      "done": i.any(),
-      "text": i.any(),
+    todos: i.entity({
+      createdAt: i.any(),
+      done: i.boolean(),
+      text: i.any(),
     }),
   },
-  {
-    familyMemberChores: {
+  links: {
+    allowanceFamilyMember: {
       forward: {
+        on: 'allowance',
+        has: 'one',
+        label: 'familyMember',
+      },
+      reverse: {
         on: 'familyMembers',
         has: 'many',
-        label: 'assignedChores',
-      },
-      reverse: {
-        on: 'chores',
-        has: 'many',
-        label: 'assignees',
+        label: 'allowance',
       },
     },
-    choreAssignmentOrder: {
+    allowanceEnvelopesAllowance: {
       forward: {
-        on: 'chores',
-        has: 'many',
-        label: 'assignments',
+        on: 'allowanceEnvelopes',
+        has: 'one',
+        label: 'allowance',
       },
       reverse: {
-        on: 'choreAssignments',
-        has: 'one',
-        label: 'chore',
+        on: 'allowance',
+        has: 'many',
+        label: 'allowanceEnvelopes',
       },
     },
-    assignmentFamilyMember: {
+    allowanceTransactionsAllowance: {
+      forward: {
+        on: 'allowanceTransactions',
+        has: 'many',
+        label: 'allowance',
+      },
+      reverse: {
+        on: 'allowance',
+        has: 'many',
+        label: 'allowanceTransactions',
+      },
+    },
+    choreAssignmentsFamilyMember: {
       forward: {
         on: 'choreAssignments',
         has: 'one',
@@ -109,7 +152,19 @@ const graph = i.graph(
         label: 'choreAssignments',
       },
     },
-    choreCompletions: {
+    choresAssignments: {
+      forward: {
+        on: 'chores',
+        has: 'many',
+        label: 'assignments',
+      },
+      reverse: {
+        on: 'choreAssignments',
+        has: 'one',
+        label: 'chore',
+      },
+    },
+    choresCompletions: {
       forward: {
         on: 'chores',
         has: 'many',
@@ -121,7 +176,19 @@ const graph = i.graph(
         label: 'chore',
       },
     },
-    familyMemberCompletions: {
+    familyMembersAssignedChores: {
+      forward: {
+        on: 'familyMembers',
+        has: 'many',
+        label: 'assignedChores',
+      },
+      reverse: {
+        on: 'chores',
+        has: 'many',
+        label: 'assignees',
+      },
+    },
+    familyMembersCompletedChores: {
       forward: {
         on: 'familyMembers',
         has: 'many',
@@ -133,7 +200,14 @@ const graph = i.graph(
         label: 'completedBy',
       },
     },
-  }
-);
+  },
+  rooms: {},
+});
 
-export default graph;
+// This helps Typescript display nicer intellisense
+type _AppSchema = typeof _schema;
+interface AppSchema extends _AppSchema {}
+const schema: AppSchema = _schema;
+
+export type { AppSchema };
+export default schema;

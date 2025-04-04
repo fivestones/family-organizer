@@ -60,6 +60,8 @@ Not tested, but might work:
 * Clone the instantdb repo
 * Set up the instantdb server
     * `cd instant/server`
+    * May need to add AWS_REGION, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY in the docker-compose-dev.yml file for the server, just set dummy values
+        * see https://github.com/instantdb/instant/issues/617
     * `make docker-compose`
     * Check that the instantdb server is running: at localhost:8888 you should see "Welcome to Instant's Backend!".
 * Set up the instantdb client
@@ -86,3 +88,7 @@ Not tested, but might work:
     * `cd family-organizer`
     * `npm dev run`
     * go to localhost:3001 or whichever port it was launched with.
+
+
+### How I got the instant.schema.ts file from the database
+`npx instant-cli pull` should do it, but it wasn't working to login to the locally hosted instantdb backend. `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli login` and then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli pull` should work, but the login only took me to https://instantdb.com/login. Maybe my version of instant-cli was out of date. I tried a bunch of ways, and finally what worked was to cd into the instant/client directory (from where I did git clone of the instantdb repo), then `pnpm install` (which probably isn't needed since I had done that to run the client web interface already), then cd packages/cli, then `pnpm dev`, then in a new browser, `cd instant/client/packages/cli` and then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI=http://localhost:8888 node dist/index.js login` which brought me to the localhost:3000 client instance for login, then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI=http://localhost:8888 node dist/index.js pull` which walked me through using the instantdb to write a schema to instant.schema.ts (and perms to instant.perms.ts).
