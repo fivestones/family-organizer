@@ -16,6 +16,7 @@ import { createRRuleWithStartDate, getNextOccurrence } from '@/lib/chore-utils';
 import { format } from 'date-fns';
 import { useToast } from "@/components/ui/use-toast";
 import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
+import AllowanceBalance from '@/components/AllowanceBalance';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -91,7 +92,7 @@ function ChoresTracker() {
       },
     },
   });
-  
+
   if (isLoading) return <div>Loading...</div>;
   if (error) return <div>Error: {error.message}</div>;
 
@@ -135,7 +136,7 @@ function ChoresTracker() {
       // Handle case where no assignees are selected
       console.warn('No assignees selected for the chore.');
     }
-  
+    
     db.transact(transactions);
     setIsDetailedChoreModalOpen(false);
   };
@@ -347,8 +348,9 @@ const updateChore = async (choreId, updatedChore) => {
   });
 
   return (
-    <div className="flex h-screen">
-      <div className="w-1/4 bg-gray-100 p-4">
+    <div className="min-h-screen flex">
+      {/* left sidebar */}
+      <div className="w-1/4 bg-gray-100 p-4 flex-shrink-0">
         <FamilyMembersList
           familyMembers={familyMembers}
           selectedMember={selectedMember}
@@ -358,10 +360,14 @@ const updateChore = async (choreId, updatedChore) => {
           db={db}
         />
       </div>
-      <div className="w-3/4 p-4">
-        <h2 className="text-xl font-bold mb-4">
+
+      {/* right content area */}
+      <div className="w-3/4 p-4 flex flex-col h-screen space-y-4"> {/* h-screen on Right Panel: Sets a fixed boundary for the right panel based on the viewport height. Content exceeding this won't cause page scroll if overflow is handled internally. */}
+        <h2 className="text-xl font-bold">
           {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find(m => m.id === selectedMember)?.name}'s Chores`}
         </h2>
+
+        {/* toggle buttons */}
         <div className="mb-4">
           <Button
             variant={viewMode === 'list' ? 'default' : 'outline'}
@@ -383,9 +389,11 @@ const updateChore = async (choreId, updatedChore) => {
           <DateCarousel onDateSelect={handleDateSelect} />
         </div>
 
+        {/* Chores and allowance */}
         {viewMode === 'list' ? (
-          <>
-            <div className="flex mb-4">
+          <div className="flex flex-col gap-4 grow min-h-0"> {/* grow on Parent Containers: The grow utility (equivalent to flex-grow: 1;) tells a flex item to take up any available free space in its parent along the main axis (which is vertical here because of flex-col). We apply this progressively to the containers that should expand. */}
+            {/* min-h-0: This is crucial when using grow on containers that might have tall content. By default, a flex item's minimum size is its intrinsic content size. min-h-0 overrides this, allowing the item to shrink below its content size if necessary, which is essential for the grow property to distribute space correctly and for overflow/scrolling to work reliably within the item. */}
+            <div className="flex mb-4 flex-shrink-0">
               <Input
                 placeholder="New chore title"
                 value={newChoreTitle}
@@ -427,16 +435,27 @@ const updateChore = async (choreId, updatedChore) => {
                 </DialogContent>
               </Dialog>
             </div>
-            <ChoreList
-              chores={filteredChores}
-              familyMembers={familyMembers}
-              selectedMember={selectedMember}
-              selectedDate={selectedDate}
-              toggleChoreDone={toggleChoreDone}
-              updateChore={updateChore}
-              deleteChore={deleteChore}
-            />
-          </>
+            <div className="flex flex-col gap-6 grow min-h-0">
+              <ChoreList
+                chores={filteredChores}
+                familyMembers={familyMembers}
+                selectedMember={selectedMember}
+                selectedDate={selectedDate}
+                toggleChoreDone={toggleChoreDone}
+                updateChore={updateChore}
+                deleteChore={deleteChore}
+              />
+              {selectedMember !== 'All' && (
+                <div className="flex-shrink-0">
+                  <h3 className="text-lg font-semibold mb-2 text-gray-700">Current Allowance</h3>
+                  <AllowanceBalance
+                    familyMember={familyMembers.find(m => m.id === selectedMember)}
+                    db={db}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         ) : (
           <div>Calendar View (Not implemented)</div>
         )}

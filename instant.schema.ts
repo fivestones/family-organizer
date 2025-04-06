@@ -14,24 +14,30 @@ const _schema = i.schema({
     $users: i.entity({
       email: i.string().unique().indexed(),
     }),
-    allowance: i.entity({
+    allowance: i.entity({//got rid of currency (it's in the envelopes), and maybe the entire allowance namespace is defunct now. Maybe it will be useful for other stuff later.
       createdAt: i.string(),
-      currency: i.string(),
+      //currency: i.string(),
       totalAmount: i.number(),
       updatedAt: i.string(),
     }),
     allowanceEnvelopes: i.entity({
-      amount: i.any(),
-      currency: i.any(),
-      description: i.any(),
-      name: i.any(),
+      name: i.string(), // Name of the envelope (e.g., "Savings", "Spending", "Games")
+      // Store balances as a JSON object mapping currency codes to amounts
+      // e.g., { "USD": 10.50, "NPR": 1500 }
+      balances: i.json().indexed(),
+      isDefault: i.boolean().indexed().optional(), // Flag for the special 'Default' envelope
+      description: i.string().optional(),
+      // Link to the family member this envelope belongs to
     }),
     allowanceTransactions: i.entity({
       amount: i.number(),
-      createdAt: i.string(),
+      createdAt: i.string().indexed(),
       currency: i.string(),
       transactionType: i.string(),
       updatedAt: i.string(),
+      description: i.string().optional(), // Optional description for the transaction
+      // Link to the source envelope (for transfers)
+      // Link to the destination envelope
     }),
     calendarItems: i.entity({
       dayOfMonth: i.number().indexed(),
@@ -112,10 +118,11 @@ const _schema = i.schema({
       },
       reverse: {
         on: 'familyMembers',
-        has: 'many',
+        has: 'one',
         label: 'allowance',
       },
     },
+
     allowanceEnvelopesAllowance: {
       forward: {
         on: 'allowanceEnvelopes',
@@ -199,6 +206,25 @@ const _schema = i.schema({
         has: 'one',
         label: 'completedBy',
       },
+    },
+    // Link between a family member and their envelopes
+    familyMemberEnvelopes: {
+      forward: { on: 'allowanceEnvelopes', has: 'one', label: 'familyMember' },
+      reverse: { on: 'familyMembers', has: 'many', label: 'allowanceEnvelopes' },
+    },
+    // Link transactions to the envelope they affect
+    envelopeTransactions: {
+        forward: { on: 'allowanceTransactions', has: 'one', label: 'envelope' },
+        reverse: { on: 'allowanceEnvelopes', has: 'many', label: 'transactions' },
+    },
+    // Optional: If transactions need to reference source/destination for transfers
+    transactionSource: {
+        forward: { on: 'allowanceTransactions', has: 'one', label: 'sourceEnvelope' },
+        reverse: { on: 'allowanceEnvelopes', has: 'many', label: 'outgoingTransfers'}
+    },
+     transactionDestination: {
+        forward: { on: 'allowanceTransactions', has: 'one', label: 'destinationEnvelope' },
+        reverse: { on: 'allowanceEnvelopes', has: 'many', label: 'incomingTransfers'}
     },
   },
   rooms: {},
