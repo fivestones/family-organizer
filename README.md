@@ -15,6 +15,32 @@ This is the code for our family's organizer
 * Instant sync between clients
 * Local-first architecture
 * Beginnings of allowance tracking, in multiple currencies
+    * Each family member can have multiple envelopes
+    * Can deposit funds
+    * Can transfer funds between envelopes
+* Offline capibile, fast
+    * Uses instantdb.com in the background for synching
+
+
+To do:
+    * Need a way to withdraw/spend money from your account
+    * Transfer to other person
+    * Show total current allowance
+    * change default envelope
+        * Set up rules for deposits (ordered list of amounts and percentages (e.g., first $2 in env A, then of the remainder [20% in env B and 80% in env C]))
+    * show accurate currency symbol for rupees at least
+    * Show the total amount in one given currency, if you changed it over today
+    * envelopes can have a savings goal amount
+    * Show a full transaction list
+        * Show a graph next to the list; if there is a savings goal amount for envelopes this should be incorporated somehow. Maybe if it is a graph of just one envelope (or each envelope is shown in a different color, with the total amount in its own color)
+    * Add value to chores (1 to 10 or maybe 1 to 100); then have an allowance; base the allowance payout amount on the weighted values of the chores which have been marked done during the given period
+        * Chores can be part of the normal allowance (required to be able to get 100% of the allowance amount for you), or can be up for grabs with a given amount attached
+    * Set up a way to auto-deposit or click to deposit chore money
+    * Maybe: if working in stars or some other non-money currency, could have a list somewhere of prizes that could be gotten with certain numbers of stars (e.g., 10 stars for a small candy; 100 stars to watch a show, 50 stars to play a video game for 30 minutes);
+        * Also maybe: costs for
+    * Separate kid's page which doesn't allow deposits
+    * Integrate the familyMemberDetail page into the main page somewhere, or have it come up with a button click from a family member's chore list
+    * Future: Use the envelope allowance system to create a multi-currency envelope-based budgeting system ynab-style
 
 
 ## Features planned
@@ -42,10 +68,8 @@ This is the code for our family's organizer
     * Kid home school/homework tracker
         * With each item tagged for whether they can do it alone or only with a parent
     * Etc
-* Offline capibile, fast
-    * Uses instantdb.com in the background for synching
 * iOS and web clients
-* Two-way sync with Google calendar and apple calendar
+* Two-way sync with Google calendar and apple calendar or cal dav servers
 * Touch screen capable
 * Connect to Immage photo server for photostream
 
