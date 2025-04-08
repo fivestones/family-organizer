@@ -7,10 +7,10 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2 } from "lucide-react";
 // --- Import Components ---
-import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem';
-import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
-import TransferFundsForm from '@/components/allowance/TransferFundsForm';
-import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog';
+import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem'; // [cite: 95]
+import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm'; // [cite: 95]
+import TransferFundsForm from '@/components/allowance/TransferFundsForm'; // [cite: 96]
+import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog'; // [cite: 96]
 // --- Import Utilities ---
 import {
     depositToSpecificEnvelope,
@@ -20,28 +20,28 @@ import {
     formatBalances,
     // Import the UnitDefinition type
     UnitDefinition
-} from '@/lib/currency-utils';
+} from '@/lib/currency-utils'; // [cite: 97, 98]
 
 
 interface MemberAllowanceDetailProps {
     memberId: string | null;
 }
 
-const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4';
-const db = init({
+const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4'; // [cite: 99]
+const db = init({ // [cite: 99]
   appId: APP_ID,
   apiURI: "http://kepler.local:8888",
   websocketURI: "ws://kepler.local:8888/runtime/session",
 });
 
 // Define props for the component
-interface MemberAllowanceDetailProps {
-    memberId: string;
+interface MemberAllowanceDetailProps { // [cite: 101]
+    memberId: string; // [cite: 102]
 }
 
-export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetailProps) {
-    const { toast } = useToast();
-    const hasInitializedEnvelope = useRef(false);
+export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetailProps) { // [cite: 102]
+    const { toast } = useToast(); // [cite: 103]
+    const hasInitializedEnvelope = useRef(false); // [cite: 104]
 
     // --- State for Modals & Actions ---
     const [isAddModalOpen, setIsAddModalOpen] = useState(false); // [cite: 105]
@@ -59,27 +59,22 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     const [isDepositing, setIsDepositing] = useState(false); // [cite: 115]
 
     // --- Fetch Member Data AND Unit Definitions ---
-    const { isLoading, error, data } = db.useQuery({
-        // Fetch family member and their envelopes
+    const { isLoading, error, data } = db.useQuery({ // [cite: 116]
         familyMembers: {
             $: { where: { id: memberId! } },
             allowanceEnvelopes: {}
         },
-        // **** NEW: Fetch all unit definitions ****
-        unitDefinitions: {}
-    }); // [cite: 116] // Added unitDefinitions query
+        unitDefinitions: {} // Fetch unit definitions
+    });
 
-    const member = data?.familyMembers?.[0];
-    const envelopes: Envelope[] = member?.allowanceEnvelopes || [];
-    // **** NEW: Extract unit definitions, provide default empty array ****
-    const unitDefinitions: UnitDefinition[] = data?.unitDefinitions || [];
-    const isLastEnvelope = envelopes.length === 1;
+    const member = data?.familyMembers?.[0]; // [cite: 117]
+    const envelopes: Envelope[] = member?.allowanceEnvelopes || []; // [cite: 118]
+    const unitDefinitions: UnitDefinition[] = data?.unitDefinitions || []; // [cite: 118]
+    const isLastEnvelope = envelopes.length === 1; // [cite: 119]
 
 
     // --- Calculate Total Balances ---
-    // This useMemo doesn't need unitDefinitions directly,
-    // but formatBalances called later will.
-    const totalBalances = useMemo(() => {
+    const totalBalances = useMemo(() => { // [cite: 119]
         const totals: { [currency: string]: number } = {};
         envelopes.forEach(envelope => {
             if (envelope.balances) {
@@ -89,7 +84,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
             }
         });
         return totals;
-    }, [envelopes]); // Depends only on envelopes so recalculate only when envelopes data c
+    }, [envelopes]);
 
     // --- Effect for Initial Envelope ---
     useEffect(() => {
@@ -246,16 +241,13 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
 
     // --- Render Logic ---
-    if (!memberId) return null;
-    if (!db) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Initializing...</div>;
-    // Combine loading states if needed, or rely on overall isLoading
-    if (isLoading) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Loading allowance...</div>;
-    if (error || !member) {
-        console.error("Error loading member data:", error);
-        return <div className="p-4 text-red-600">Error loading allowance details for this member.</div>;
+    if (!memberId) return null; // [cite: 173]
+    if (!db) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Initializing...</div>; // [cite: 174]
+    if (isLoading) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Loading allowance...</div>; // [cite: 175]
+    if (error || !member) { // [cite: 176]
+        console.error("Error loading member data:", error); // [cite: 176]
+        return <div className="p-4 text-red-600">Error loading allowance details for this member.</div>; // [cite: 177]
     }
-    // Could add specific error check for unitDefinitions if desired:
-    // if (!data?.unitDefinitions) { /* handle missing definitions */ }
 
 
     return (
@@ -264,7 +256,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
             {/* Deposit Section */}
              <section className="p-4 border rounded-md">
-             <h3 className="text-lg font-semibold mb-3">Add to Allowance (Default Envelope)</h3>
+                <h3 className="text-lg font-semibold mb-3">Add to Allowance (Default Envelope)</h3>
                  <form onSubmit={handleDeposit} className="space-y-3"> {/* [cite: 129] */}
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                          <div>
@@ -315,7 +307,6 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                  <h3 className="text-lg font-semibold mb-2">Total Balance</h3>
                  {Object.keys(totalBalances).length > 0 ? (
                     <p className="text-lg font-medium">
-                        {/* **** UPDATED: Pass unitDefinitions to formatBalances **** */}
                         {formatBalances(totalBalances, unitDefinitions)}
                     </p>
                  ) : (
@@ -324,29 +315,25 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
             </section>
 
             {/* Envelopes Section */}
-            <section>
+            <section> {/* [cite: 192] */}
                  <div className="flex justify-between items-center mb-3">
                      <h3 className="text-lg font-semibold">Envelopes</h3>
-                     <Button onClick={handleAddClick} size="sm">+ Add Envelope</Button>
+                     <Button onClick={handleAddClick} size="sm">+ Add Envelope</Button> {/* [cite: 193] */}
                  </div>
                  {envelopes.length === 0 && !isLoading && (
                     <p className="text-muted-foreground itallic">No envelopes created yet. The initial 'Savings' envelope should appear after a refresh.</p> // [cite: 193]
                  )}
                  <div>
-                     {/* NOTE: EnvelopeItem currently calls formatBalances internally.
-                         For consistent formatting using unitDefinitions, EnvelopeItem
-                         will also need to be updated either to accept unitDefinitions
-                         or to receive a pre-formatted balance string from here.
-                         For now, only the Total Balance above uses the new logic.
-                     */}
-                     {envelopes.map(envelope => (
+                     {envelopes.map(envelope => ( // [cite: 194]
                         <EnvelopeItem
                             key={envelope.id}
-                            envelope={envelope}
-                            isLastEnvelope={isLastEnvelope}
-                            onEdit={handleEditClick}
-                            onTransfer={handleTransferClick}
-                            onDelete={handleDeleteClick}
+                            envelope={envelope} // [cite: 195]
+                            isLastEnvelope={isLastEnvelope} // [cite: 195]
+                            // **** UPDATED: Pass unitDefinitions down ****
+                            unitDefinitions={unitDefinitions}
+                            onEdit={handleEditClick} // [cite: 195]
+                            onTransfer={handleTransferClick} // [cite: 196]
+                            onDelete={handleDeleteClick} // [cite: 196]
                         />
                     ))}
                  </div>
