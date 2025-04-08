@@ -1,21 +1,21 @@
 // components/allowance/MemberAllowanceDetail.tsx
 import { init, tx, id } from '@instantdb/react';
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'; // Added React import
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Check, ChevronsUpDown } from "lucide-react"; // Added Combobox icons
+import { Loader2, Check, ChevronsUpDown } from "lucide-react";
 
 // --- Shadcn UI Imports for Combobox ---
-import { cn } from "@/lib/utils"; // Assuming you have this utility
+import { cn } from "@/lib/utils";
 import {
     Command,
     CommandEmpty,
     CommandGroup,
     CommandInput,
     CommandItem,
-    CommandList, // Import CommandList
+    CommandList,
   } from "@/components/ui/command";
   import {
     Popover,
@@ -28,8 +28,7 @@ import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem';
 import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
 import TransferFundsForm from '@/components/allowance/TransferFundsForm';
 import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog';
-// **** NEW: Import DefineUnitForm ****
-import DefineUnitForm from '@/components/allowance/DefineUnitForm'; // Adjust path if needed
+import DefineUnitForm from '@/components/allowance/DefineUnitForm';
 
 // --- Import Utilities ---
 import {
@@ -38,7 +37,7 @@ import {
     transferFunds,
     deleteEnvelope,
     formatBalances,
-    UnitDefinition // Ensure UnitDefinition is exported from currency-utils
+    UnitDefinition
 } from '@/lib/currency-utils';
 
 
@@ -62,7 +61,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     const { toast } = useToast();
     const hasInitializedEnvelope = useRef(false);
 
-    // --- State for Modals & Actions ---
+    // --- State ---
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -70,19 +69,15 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     const [envelopeToEdit, setEnvelopeToEdit] = useState<Envelope | null>(null);
     const [transferSourceEnvelopeId, setTransferSourceEnvelopeId] = useState<string | null>(null);
     const [envelopeToDelete, setEnvelopeToDelete] = useState<Envelope | null>(null);
-    // **** NEW: State for Define Unit Modal ****
     const [isDefineUnitModalOpen, setIsDefineUnitModalOpen] = useState(false);
-
-    // --- State for Forms ---
     const [depositAmount, setDepositAmount] = useState('');
-    const [depositCurrency, setDepositCurrency] = useState('USD'); // Default or maybe ''
+    const [depositCurrency, setDepositCurrency] = useState('USD'); // State now holds typed or selected value
     const [depositDescription, setDepositDescription] = useState('');
     const [isDepositing, setIsDepositing] = useState(false);
-    // **** NEW: State for Combobox Popover ****
     const [isCurrencyPopoverOpen, setIsCurrencyPopoverOpen] = useState(false);
 
 
-    // --- Fetch Member Data AND Unit Definitions ---
+    // --- Data Fetching ---
     const { isLoading, error, data } = db.useQuery({
         familyMembers: {
             $: { where: { id: memberId! } },
@@ -97,8 +92,9 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     const isLastEnvelope = envelopes.length === 1;
 
 
-    // --- Generate Currency List for Combobox ---
+    // --- Generate Currency Options ---
     const currencyOptions = useMemo(() => {
+        // ... (same logic as before to generate options list) ...
         const codes = new Set<string>();
         // Add codes from definitions
         unitDefinitions.forEach(def => codes.add(def.code.toUpperCase()));
@@ -112,8 +108,6 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
         if (!codes.has('USD')) codes.add('USD');
 
         const sortedCodes = Array.from(codes).sort();
-
-        // Add the special item
         return [
             ...sortedCodes.map(code => ({ value: code, label: code })),
             { value: '__DEFINE_NEW__', label: 'Define New Unit...' }
@@ -175,44 +169,40 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
             toast({ title: "Invalid Amount", variant: "destructive" });
             return;
         }
-        // **** NEW: Check if depositCurrency is set ****
-        if (!depositCurrency || depositCurrency === '__DEFINE_NEW__') {
-             toast({ title: "Invalid Currency", description:"Please select or define a currency/unit.", variant: "destructive" });
+        // **** UPDATED: Validate typed currency format ****
+        const finalDepositCurrency = depositCurrency.trim().toUpperCase();
+        if (!finalDepositCurrency || finalDepositCurrency === '__DEFINE_NEW__' || finalDepositCurrency.length > 3) { // Allow up to 3 chars
+             toast({ title: "Invalid Currency", description:"Please select, define, or type a valid currency code (max 3 letters).", variant: "destructive" });
              return;
         }
-
-
-        const defaultEnvelope = envelopes.find(env => env.isDefault);
+        // Proceed with deposit using finalDepositCurrency
+        // ... (rest of deposit logic using finalDepositCurrency) ...
+         const defaultEnvelope = envelopes.find(env => env.isDefault);
         if (!defaultEnvelope) {
              toast({ title: "Deposit Failed", description: "Default envelope not found.", variant: "destructive" });
             return;
         }
 
-        setIsDepositing(true);
-        try {
-            await depositToSpecificEnvelope(
-                db,
-                defaultEnvelope.id,
-                defaultEnvelope.balances || {},
-                amount,
-                depositCurrency, // Use state value
-                depositDescription.trim()
-            );
-            toast({ title: "Success", description: `Deposited ${depositCurrency} ${amount}` });
-            // Reset form fields
-            setDepositAmount('');
-            // Keep currency or reset? Maybe keep last used. setDepositCurrency('USD');
-            setDepositDescription('');
-        } catch (err: any) {
-            console.error("Failed to deposit:", err);
-            toast({ title: "Deposit Failed", description: err.message, variant: "destructive" });
-        } finally {
-            setIsDepositing(false);
-        }
+         setIsDepositing(true);
+         try {
+             await depositToSpecificEnvelope(
+                 db, defaultEnvelope.id, defaultEnvelope.balances || {}, amount,
+                 finalDepositCurrency, // Use validated code
+                 depositDescription.trim()
+             );
+             toast({ title: "Success", description: `Deposited ${finalDepositCurrency} ${amount}` });
+             setDepositAmount('');
+             // setDepositCurrency('USD'); // Reset or keep?
+             setDepositDescription('');
+         } catch (err: any) {
+             console.error("Failed to deposit:", err);
+             toast({ title: "Deposit Failed", description: err.message, variant: "destructive" });
+         } finally {
+             setIsDepositing(false);
+         }
     };
-
-    // Modal Triggers
-    const handleAddClick = () => setIsAddModalOpen(true); // [cite: 145]
+    // --- Other Handlers ---
+    const handleAddClick = () => setIsAddModalOpen(true);
     const handleEditClick = useCallback((envelopeId: string) => {
         const envelope = envelopes.find(e => e.id === envelopeId);
         if (envelope) {
@@ -297,19 +287,15 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
     // **** NEW: Handler for when a unit is defined ****
     const handleUnitDefined = (newCode: string) => {
-        setIsDefineUnitModalOpen(false); // Close the define modal
-        setDepositCurrency(newCode); // Set the deposit currency to the new code
-        // Optional: Trigger refetch if reactivity isn't immediate for the list
-        // refetch();
+        setIsDefineUnitModalOpen(false);
+        setDepositCurrency(newCode); // Set state to the newly defined code
     };
 
+
     // --- Render Logic ---
-    if (!memberId) return null; // [cite: 173]
-    if (!db) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Initializing...</div>; // [cite: 174]
-    if (isLoading) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Loading allowance...</div>; // [cite: 175]
-    if (error || !member) { // [cite: 176]
-        console.error("Error loading member data:", error); // [cite: 176]
-        return <div className="p-4 text-red-600">Error loading allowance details for this member.</div>; // [cite: 177]
+    if (!memberId || !db || isLoading || error || !member) {
+        // Simplified loading/error display
+        return <div className="p-4">{isLoading ? 'Loading...' : 'Error loading details.'}</div>;
     }
 
 
@@ -319,7 +305,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
             {/* Deposit Section */}
              <section className="p-4 border rounded-md">
-                <h3 className="text-lg font-semibold mb-3">Add to Allowance (Default Envelope)</h3>
+                <h3 className="text-lg font-semibold mb-3">Add to Allowance</h3>
                 <form onSubmit={handleDeposit} className="space-y-3">
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                          {/* Amount Input */}
@@ -335,27 +321,41 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                                  required
                              />
                          </div>
-                         {/* **** NEW: Currency Combobox **** */}
+
+                         {/* **** UPDATED: Currency Combobox - Input value bound to state **** */}
                          <div>
-                             <Label htmlFor="deposit-currency">Currency/Unit</Label>
+                             <Label htmlFor="deposit-currency-input">Currency/Unit</Label> {/* Changed label association */}
                              <Popover open={isCurrencyPopoverOpen} onOpenChange={setIsCurrencyPopoverOpen}>
                                 <PopoverTrigger asChild>
-                                    <Button
-                                    variant="outline"
-                                    role="combobox"
-                                    aria-expanded={isCurrencyPopoverOpen}
-                                    className="w-full justify-between"
-                                    >
-                                    {depositCurrency
-                                        ? currencyOptions.find((opt) => opt.value === depositCurrency)?.label
-                                        : "Select unit..."}
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    {/* Button still reflects state, but input below drives it */}
+                                    <Button variant="outline" role="combobox" aria-expanded={isCurrencyPopoverOpen} className="w-full justify-between">
+                                        {depositCurrency && depositCurrency !== '__DEFINE_NEW__' ? depositCurrency : "Select or type unit..."}
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
-                                    <Command>
-                                        <CommandInput placeholder="Search unit..." />
-                                         <CommandList> {/* Added CommandList for scrolling */}
+                                    <Command
+                                        // Filter based on the main depositCurrency state
+                                        filter={(value, search) => {
+                                            // Default filter or custom if needed
+                                            if (value === '__DEFINE_NEW__') return 1; // Always show define new
+                                            return value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+                                        }}
+                                    >
+                                        <CommandInput
+                                            id="deposit-currency-input" // ID for label
+                                            placeholder="Type or select..."
+                                            value={depositCurrency === '__DEFINE_NEW__' ? '' : depositCurrency} // Show state value in input
+                                            // **** UPDATED: Update state on input change ****
+                                            onValueChange={(search) => {
+                                                // Allow typing up to 3 chars, uppercase
+                                                const upperSearch = search.toUpperCase();
+                                                if (upperSearch.length <= 3) {
+                                                    setDepositCurrency(upperSearch);
+                                                }
+                                            }}
+                                            />
+                                         <CommandList>
                                             <CommandEmpty>No unit found.</CommandEmpty>
                                             <CommandGroup>
                                                 {currencyOptions.map((option) => (
@@ -363,25 +363,19 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                                                     key={option.value}
                                                     value={option.value}
                                                     onSelect={(currentValue) => {
-                                                        // ** DEBUGGING STEP: Log the value when selected **
-                                                        console.log("Selected value:", currentValue);
-                                                        
-                                                        if (currentValue === '__DEFINE_NEW__') {
-                                                            console.log("Define New Unit selected, setting modal open to true.");
-                                                            setIsDefineUnitModalOpen(true); // Open define modal
+                                                        if (currentValue === '__define_new__') {
+                                                            // Clear input before opening modal? Optional.
+                                                            // setDepositCurrency('');
+                                                            setIsDefineUnitModalOpen(true);
                                                         } else {
-                                                            setDepositCurrency(currentValue === depositCurrency ? "" : currentValue.toUpperCase()); // Set selected currency
+                                                            // Set currency from selection, overriding typed value
+                                                            setDepositCurrency(currentValue.toUpperCase());
                                                         }
                                                         setIsCurrencyPopoverOpen(false); // Close popover
                                                     }}
-                                                    className={option.value === '__DEFINE_NEW__' ? 'font-bold text-blue-600' : ''} // Highlight special item
+                                                    className={option.value === '__DEFINE_NEW__' ? 'font-bold text-blue-600' : ''}
                                                 >
-                                                    <Check
-                                                    className={cn(
-                                                        "mr-2 h-4 w-4",
-                                                        depositCurrency === option.value ? "opacity-100" : "opacity-0"
-                                                    )}
-                                                    />
+                                                    <Check className={cn("mr-2 h-4 w-4", depositCurrency === option.value ? "opacity-100" : "opacity-0")} />
                                                     {option.label}
                                                 </CommandItem>
                                                 ))}
@@ -411,7 +405,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
              {/* Total Allowance Display */}
             <section className="p-4 border rounded-md bg-muted/50">
-                {/* ... Total balance display using formatBalances(totalBalances, unitDefinitions) ... */}
+                 {/* ... total balance ... */}
                  <h3 className="text-lg font-semibold mb-2">Total Balance</h3>
                  {Object.keys(totalBalances).length > 0 ? (
                     <p className="text-lg font-medium">
@@ -429,7 +423,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                      <h3 className="text-lg font-semibold">Envelopes</h3>
                      <Button onClick={handleAddClick} size="sm">+ Add Envelope</Button>
                  </div>
-                 {envelopes.length === 0 && !isLoading && ( <p>...</p> )}
+                  {envelopes.length === 0 && !isLoading && ( <p>...</p> )}
                  <div>
                      {envelopes.map(envelope => (
                         <EnvelopeItem
