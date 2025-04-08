@@ -286,7 +286,7 @@ export const depositToSpecificEnvelope = async (db: any, envelopeId: string, cur
       tx.allowanceEnvelopes[envelopeId].update({ balances: updatedBalances }),
       tx.allowanceTransactions[transactionId].update({
           amount: amount, currency: currency, transactionType: 'deposit',
-          envelope: envelopeId, destinationEnvelope: envelopeId, sourceEnvelope: null,
+          envelope: envelopeId, destinationEnvelope: envelopeId, //sourceEnvelope: null,
           description: description, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       })
   ]);
