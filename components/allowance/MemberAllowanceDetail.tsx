@@ -9,7 +9,7 @@ import { Loader2 } from "lucide-react"; // For loading indicators
 
 // --- Import Components ---
 import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem'; // Import the updated component and type
-// import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm'; // Placeholder
+import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
 // import TransferFundsForm from '@/components/allowance/TransferFundsForm'; // Placeholder
 // import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog'; // Placeholder for deletion confirmation/selection
 
@@ -17,8 +17,6 @@ import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem'; // Import th
 import {
     depositToSpecificEnvelope, // [cite: 325]
     createInitialSavingsEnvelope, // [cite: 308]
-    createAdditionalEnvelope, // [cite: 312]
-    updateEnvelopeName, // [cite: 358]
     transferFunds, // [cite: 330]
     deleteEnvelope, // [cite: 342]
     // You might need setDefaultEnvelope separately if not handled within delete flow [cite: 317]
@@ -38,13 +36,12 @@ const db = init({
 
 // --- Import Child/Modal Components (Create these) ---
 // import EnvelopeList from '@/components/allowance/EnvelopeList';
-// import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
 // import TransferFundsForm from '@/components/allowance/TransferFundsForm';
 // import SelectDefaultEnvelopeDialog from '@/components/allowance/SelectDefaultEnvelopeDialog';
 
 // Define props for the component
 interface MemberAllowanceDetailProps {
-    memberId: string; // Accept memberId as a prop
+    memberId: string; // `memberId: string | null;`? Accept memberId as a prop
 }
 
 export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetailProps) {
@@ -76,10 +73,11 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
         }
     });
 
-    console.log("data:", data);
+    // console.log("data:", data);
 
     const member = data?.familyMembers?.[0];
     const envelopes: Envelope[] = member?.allowanceEnvelopes || []; // [cite: 422]
+    //change below to `const isLastEnvelope = envelopes.length === 1;` ?
     const isLastEnvelope = data.familyMembers[0].allowanceEnvelopes.length === 1; // Calculate if only one envelope exists
 
     console.log("data:", data);
@@ -185,28 +183,29 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     
     // --- Modal Submit Handlers (Implement these within your Modal components or pass them down) ---
 
-    const handleAddEnvelopeSubmit = async (name: string) => {
-        if (!db || !memberId || !name.trim()) return;
-        try {
-            await createAdditionalEnvelope(db, memberId, name); // [cite: 312]
-            toast({ title: "Success", description: `Envelope '${name}' created.` });
-            setIsAddModalOpen(false);
-        } catch (err: any) {
-            toast({ title: "Error", description: err.message, variant: "destructive" });
-        }
-    };
+    // the below two (handleAddEnvelopeSubmit and handleEditEnvelopeSubmit) are handled within AndEditEnvelopeForm
+    // const handleAddEnvelopeSubmit = async (name: string) => {
+    //     if (!db || !memberId || !name.trim()) return;
+    //     try {
+    //         await createAdditionalEnvelope(db, memberId, name); // [cite: 312]
+    //         toast({ title: "Success", description: `Envelope '${name}' created.` });
+    //         setIsAddModalOpen(false);
+    //     } catch (err: any) {
+    //         toast({ title: "Error", description: err.message, variant: "destructive" });
+    //     }
+    // };
 
-    const handleEditEnvelopeSubmit = async (newName: string) => {
-        if (!db || !envelopeToEdit || !newName.trim()) return;
-        try {
-            await updateEnvelopeName(db, envelopeToEdit.id, newName); // [cite: 358]
-            toast({ title: "Success", description: `Envelope renamed to '${newName}'.` });
-            setIsEditModalOpen(false);
-            setEnvelopeToEdit(null);
-        } catch (err: any) {
-            toast({ title: "Error", description: err.message, variant: "destructive" });
-        }
-    };
+    // const handleEditEnvelopeSubmit = async (newName: string) => {
+    //     if (!db || !envelopeToEdit || !newName.trim()) return;
+    //     try {
+    //         await updateEnvelopeName(db, envelopeToEdit.id, newName); // [cite: 358]
+    //         toast({ title: "Success", description: `Envelope renamed to '${newName}'.` });
+    //         setIsEditModalOpen(false);
+    //         setEnvelopeToEdit(null);
+    //     } catch (err: any) {
+    //         toast({ title: "Error", description: err.message, variant: "destructive" });
+    //     }
+    // };
 
      const handleTransferSubmit = async (amount: number, currency: string, destinationEnvelopeId: string) => {
         if (!db || !transferSourceEnvelopeId || !destinationEnvelopeId || amount <= 0) return;
@@ -328,15 +327,32 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
              </section>
 
             {/* --- Modals (Render conditionally based on state) --- */}
-            {/* Example Placeholder - Replace with your actual Shadcn Dialogs/Modals */}
-            {/*
+
             <AddEditEnvelopeForm
-                isOpen={isAddModalOpen || isEditModalOpen}
-                onClose={() => { setIsAddModalOpen(false); setIsEditModalOpen(false); setEnvelopeToEdit(null); }}
-                onSubmit={isEditModalOpen ? handleEditEnvelopeSubmit : handleAddEnvelopeSubmit}
-                initialData={envelopeToEdit} // Pass null for Add, envelope data for Edit
+                db={db} // Pass db instance
+                isOpen={isAddModalOpen || isEditModalOpen} // Control based on state // [cite: 116, 117]
+                onClose={() => { // Combine close logic // [cite: 117, 118]
+                    setIsAddModalOpen(false);
+                    setIsEditModalOpen(false);
+                    setEnvelopeToEdit(null); // Reset edit state // [cite: 118]
+                }}
+                // onSubmit prop is removed as the form handles its own submission
+                initialData={envelopeToEdit} // Pass data for editing // [cite: 119]
+                memberId={memberId} // Pass memberId for creation
             />
 
+            {/* Placeholder for TransferFundsForm */}
+            {/* <TransferFundsForm ... /> */} {/* [cite: 119, 120] */}
+            {isTransferModalOpen && <div className='p-4 my-2 border rounded bg-secondary'> Transfer Funds Modal Placeholder (From: {transferSourceEnvelopeId}) <Button variant="ghost" size="sm" onClick={()=>setIsTransferModalOpen(false)}>Close</Button></div>} {/* [cite: 124] */}
+
+
+            {/* Placeholder for DeleteEnvelopeDialog */}
+            {/* <DeleteEnvelopeDialog ... /> */} {/* [cite: 121, 122, 123] */}
+            {isDeleteModalOpen && <div className='p-4 my-2 border rounded bg-secondary'> Delete Confirmation Modal Placeholder (Deleting: {envelopeToDelete?.name}) <Button variant="ghost" size="sm" onClick={()=>setIsDeleteModalOpen(false)}>Close</Button></div>} {/* [cite: 124] */}
+
+
+            {/* Example Placeholders - Replace with your actual Shadcn Dialogs/Modals */}
+            {/*
             <TransferFundsForm
                 isOpen={isTransferModalOpen}
                 onClose={() => { setIsTransferModalOpen(false); setTransferSourceEnvelopeId(null); }}
@@ -355,13 +371,6 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                  db={db} // May need db if dialog fetches data itself
              />
             */}
-             {/* Simple Example using basic state for demonstration: */}
-             {isAddModalOpen && <div className='p-4 my-2 border rounded bg-secondary'> Add Envelope Modal Placeholder (State: Open) <Button variant="ghost" size="sm" onClick={()=>setIsAddModalOpen(false)}>Close</Button></div>}
-             {isEditModalOpen && <div className='p-4 my-2 border rounded bg-secondary'> Edit Envelope Modal Placeholder (Editing: {envelopeToEdit?.name}) <Button variant="ghost" size="sm" onClick={()=>setIsEditModalOpen(false)}>Close</Button></div>}
-             {isTransferModalOpen && <div className='p-4 my-2 border rounded bg-secondary'> Transfer Funds Modal Placeholder (From: {transferSourceEnvelopeId}) <Button variant="ghost" size="sm" onClick={()=>setIsTransferModalOpen(false)}>Close</Button></div>}
-             {isDeleteModalOpen && <div className='p-4 my-2 border rounded bg-secondary'> Delete Confirmation Modal Placeholder (Deleting: {envelopeToDelete?.name}) <Button variant="ghost" size="sm" onClick={()=>setIsDeleteModalOpen(false)}>Close</Button></div>}
-
-
         </div>
     );
 }
