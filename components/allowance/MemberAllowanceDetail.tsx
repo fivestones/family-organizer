@@ -1,27 +1,26 @@
 // components/allowance/MemberAllowanceDetail.tsx
 import { init, tx, id } from '@instantdb/react';
-import { useState, useEffect, useRef, useCallback } from 'react';
+// Make sure useMemo is imported from React
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2 } from "lucide-react";
-
 // --- Import Components ---
 import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem';
 import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
-// **** IMPORT THE NEW COMPONENTS ****
 import TransferFundsForm from '@/components/allowance/TransferFundsForm';
 import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog';
-
 // --- Import Utilities ---
 import {
     depositToSpecificEnvelope,
     createInitialSavingsEnvelope,
-    transferFunds, // [cite: 62]
-    deleteEnvelope, // [cite: 62]
-    // You might need setDefaultEnvelope separately if not handled within delete flow
-} from '@/lib/currency-utils'; // [cite: 62]
+    transferFunds,
+    deleteEnvelope,
+    // Import formatBalances to use for the total display
+    formatBalances,
+} from '@/lib/currency-utils'; // [cite: 97, 368]
 
 
 interface MemberAllowanceDetailProps {
@@ -35,47 +34,54 @@ const db = init({
   websocketURI: "ws://kepler.local:8888/runtime/session",
 });
 
-// --- Import Child/Modal Components (Create these) ---
-// import EnvelopeList from '@/components/allowance/EnvelopeList';
-// import TransferFundsForm from '@/components/allowance/TransferFundsForm';
-// import SelectDefaultEnvelopeDialog from '@/components/allowance/SelectDefaultEnvelopeDialog';
-
 // Define props for the component
 interface MemberAllowanceDetailProps {
-    memberId: string; // `memberId: string | null;`? Accept memberId as a prop
+    memberId: string;
 }
 
 export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetailProps) {
-    const { toast } = useToast(); // [cite: 68]
-    const hasInitializedEnvelope = useRef(false); // [cite: 68]
+    const { toast } = useToast(); // [cite: 103]
+    const hasInitializedEnvelope = useRef(false); // [cite: 104]
 
     // --- State for Modals & Actions ---
-    const [isAddModalOpen, setIsAddModalOpen] = useState(false); // [cite: 69]
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false); // [cite: 69]
-    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false); // [cite: 70]
-    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false); // [cite: 70]
-    const [envelopeToEdit, setEnvelopeToEdit] = useState<Envelope | null>(null); // [cite: 70]
-    const [transferSourceEnvelopeId, setTransferSourceEnvelopeId] = useState<string | null>(null); // [cite: 71]
-    const [envelopeToDelete, setEnvelopeToDelete] = useState<Envelope | null>(null); // [cite: 71]
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false); // [cite: 105]
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false); // [cite: 106]
+    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false); // [cite: 107]
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false); // [cite: 108]
+    const [envelopeToEdit, setEnvelopeToEdit] = useState<Envelope | null>(null); // [cite: 109]
+    const [transferSourceEnvelopeId, setTransferSourceEnvelopeId] = useState<string | null>(null); // [cite: 110]
+    const [envelopeToDelete, setEnvelopeToDelete] = useState<Envelope | null>(null); // [cite: 111]
 
     // --- State for Forms ---
-    const [depositAmount, setDepositAmount] = useState(''); // [cite: 72]
-    const [depositCurrency, setDepositCurrency] = useState('USD'); // [cite: 72]
-    const [depositDescription, setDepositDescription] = useState(''); // [cite: 72]
-    const [isDepositing, setIsDepositing] = useState(false); // [cite: 72]
+    const [depositAmount, setDepositAmount] = useState(''); // [cite: 112]
+    const [depositCurrency, setDepositCurrency] = useState('USD'); // [cite: 113]
+    const [depositDescription, setDepositDescription] = useState(''); // [cite: 114]
+    const [isDepositing, setIsDepositing] = useState(false); // [cite: 115]
 
     // --- Fetch Member Data (including envelopes) ---
     const { isLoading, error, data } = db.useQuery({
         familyMembers: {
             $: { where: { id: memberId! } },
-            allowanceEnvelopes: {}
+            allowanceEnvelopes: {} // Fetch all envelopes for the member
         }
-    }); // [cite: 73, 74]
+    }); // [cite: 116]
 
-    const member = data?.familyMembers?.[0]; // [cite: 75]
-    const envelopes: Envelope[] = member?.allowanceEnvelopes || []; // [cite: 75]
-    const isLastEnvelope = envelopes.length === 1; // Derived state [cite: 76] - Adjusted from original cite
+    const member = data?.familyMembers?.[0]; // [cite: 117]
+    const envelopes: Envelope[] = member?.allowanceEnvelopes || []; // [cite: 118]
+    const isLastEnvelope = envelopes.length === 1; // [cite: 119]
 
+    // --- **** NEW: Calculate Total Balances **** ---
+    const totalBalances = useMemo(() => {
+        const totals: { [currency: string]: number } = {};
+        envelopes.forEach(envelope => {
+            if (envelope.balances) { // [cite: 250]
+                Object.entries(envelope.balances).forEach(([currency, amount]) => {
+                    totals[currency] = (totals[currency] || 0) + amount;
+                });
+            }
+        });
+        return totals;
+    }, [envelopes]); // Recalculate only when envelopes data changes
 
     // --- Effect for Initial Envelope ---
     useEffect(() => {
@@ -147,8 +153,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     };
 
     // Modal Triggers
-    const handleAddClick = () => setIsAddModalOpen(true); // [cite: 97]
-
+    const handleAddClick = () => setIsAddModalOpen(true); // [cite: 145]
     const handleEditClick = useCallback((envelopeId: string) => {
         const envelope = envelopes.find(e => e.id === envelopeId);
         if (envelope) {
@@ -233,12 +238,12 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
 
     // --- Render Logic ---
-    if (!memberId) return null; // [cite: 123]
-    if (!db) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Initializing...</div>; // [cite: 124]
-    if (isLoading) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Loading allowance...</div>; // [cite: 125]
+    if (!memberId) return null; // [cite: 173]
+    if (!db) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Initializing...</div>; // [cite: 174]
+    if (isLoading) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Loading allowance...</div>; // [cite: 175]
     if (error || !member) {
-        console.error("Error loading member data:", error); // [cite: 127]
-        return <div className="p-4 text-red-600">Error loading allowance details for this member.</div>; // [cite: 127]
+        console.error("Error loading member data:", error); // [cite: 176]
+        return <div className="p-4 text-red-600">Error loading allowance details for this member.</div>; // [cite: 177]
     }
 
     return (
@@ -247,7 +252,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
             {/* Deposit Section */}
              <section className="p-4 border rounded-md">
-                <h3 className="text-lg font-semibold mb-3">Add to Allowance (Default Envelope)</h3>
+             <h3 className="text-lg font-semibold mb-3">Add to Allowance (Default Envelope)</h3>
                  <form onSubmit={handleDeposit} className="space-y-3"> {/* [cite: 129] */}
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                          <div>
@@ -291,76 +296,79 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                          : 'Deposit Funds'} {/* [cite: 141] */}
                     </Button>
                 </form>
-            </section>
+             </section>
 
+             {/* **** NEW: Total Allowance Display **** */}
+            <section className="p-4 border rounded-md bg-muted/50">
+                 <h3 className="text-lg font-semibold mb-2">Total Balance</h3>
+                 {Object.keys(totalBalances).length > 0 ? (
+                    <p className="text-lg font-medium">
+                        {formatBalances(totalBalances)} {/* Use the utility here [cite: 368] */}
+                    </p>
+                 ) : (
+                    <p className="text-muted-foreground italic">No funds available yet.</p>
+                 )}
+            </section>
 
             {/* Envelopes Section */}
             <section>
                  <div className="flex justify-between items-center mb-3">
                      <h3 className="text-lg font-semibold">Envelopes</h3>
-                     <Button onClick={handleAddClick} size="sm">+ Add Envelope</Button> {/* [cite: 142] */}
+                     <Button onClick={handleAddClick} size="sm">+ Add Envelope</Button> {/* [cite: 192] */}
                  </div>
                  {envelopes.length === 0 && !isLoading && (
-                    <p className="text-muted-foreground itallic">No envelopes created yet. The initial 'Savings' envelope should appear shortly.</p> // [cite: 143]
+                    <p className="text-muted-foreground itallic">No envelopes created yet. The initial 'Savings' envelope should appear shortly.</p> // [cite: 193]
                  )}
                  <div>
-                    {envelopes.map(envelope => (
+                     {envelopes.map(envelope => (
                         <EnvelopeItem
                             key={envelope.id}
-                            envelope={envelope} // [cite: 145]
-                            isLastEnvelope={isLastEnvelope} // [cite: 145]
-                            onEdit={handleEditClick} // [cite: 145]
-                            onTransfer={handleTransferClick} // [cite: 146]
-                            onDelete={handleDeleteClick} // [cite: 146]
+                            envelope={envelope} // [cite: 194]
+                            isLastEnvelope={isLastEnvelope} // [cite: 195]
+                            onEdit={handleEditClick} // [cite: 195]
+                            onTransfer={handleTransferClick} // [cite: 196]
+                            onDelete={handleDeleteClick} // [cite: 196]
                         />
                     ))}
                  </div>
              </section>
 
-            {/* --- Modals --- */}
-
+             {/* --- Modals --- */}
             <AddEditEnvelopeForm
                 db={db}
-                isOpen={isAddModalOpen || isEditModalOpen} // [cite: 148]
+                isOpen={isAddModalOpen || isEditModalOpen} // [cite: 198]
                 onClose={() => {
-                    setIsAddModalOpen(false);
-                    setIsEditModalOpen(false); // [cite: 149]
-                    setEnvelopeToEdit(null);
-                }} // [cite: 148, 149]
-                initialData={envelopeToEdit} // [cite: 149]
-                memberId={memberId} // [cite: 149]
+                    setIsAddModalOpen(false); // [cite: 199]
+                    setIsEditModalOpen(false); // [cite: 199]
+                    setEnvelopeToEdit(null); // [cite: 200]
+                 }}
+                initialData={envelopeToEdit} // [cite: 200]
+                memberId={memberId} // [cite: 200]
              />
 
-            {/* **** USE THE ACTUAL TransferFundsForm **** */}
             <TransferFundsForm
-                db={db}
+                 db={db} // [cite: 201]
                 isOpen={isTransferModalOpen}
                 onClose={() => {
-                    setIsTransferModalOpen(false);
-                    setTransferSourceEnvelopeId(null);
+                    setIsTransferModalOpen(false); // [cite: 202]
+                    setTransferSourceEnvelopeId(null); // [cite: 202]
                  }}
-                onSubmit={handleTransferSubmit} // Pass the handler
+                onSubmit={handleTransferSubmit}
                 sourceEnvelopeId={transferSourceEnvelopeId}
                 allEnvelopes={envelopes}
             />
 
-            {/* **** USE THE ACTUAL DeleteEnvelopeDialog **** */}
             <DeleteEnvelopeDialog
-                 db={db}
+                  db={db} // [cite: 203]
                  isOpen={isDeleteModalOpen}
                  onClose={() => {
-                    setIsDeleteModalOpen(false);
-                    setEnvelopeToDelete(null);
+                    setIsDeleteModalOpen(false); // [cite: 204]
+                    setEnvelopeToDelete(null); // [cite: 204]
                  }}
-                 onConfirm={handleDeleteConfirm} // Pass the handler
+                 onConfirm={handleDeleteConfirm}
                  envelopeToDelete={envelopeToDelete}
                  allEnvelopes={envelopes}
             />
-
-            {/* Remove the old placeholders */}
-            {/* {isTransferModalOpen && <div className='p-4 my-2 border rounded bg-secondary'> Transfer Funds Modal Placeholder...</div>} */}
-            {/* {isDeleteModalOpen && <div className='p-4 my-2 border rounded bg-secondary'> Delete Confirmation Modal Placeholder...</div>} */}
-
         </div>
     );
 }
