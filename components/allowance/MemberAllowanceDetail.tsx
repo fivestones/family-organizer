@@ -1,6 +1,5 @@
 // components/allowance/MemberAllowanceDetail.tsx
 import { init, tx, id } from '@instantdb/react';
-// Make sure useMemo is imported from React
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,9 +17,10 @@ import {
     createInitialSavingsEnvelope,
     transferFunds,
     deleteEnvelope,
-    // Import formatBalances to use for the total display
     formatBalances,
-} from '@/lib/currency-utils'; // [cite: 97, 368]
+    // Import the UnitDefinition type
+    UnitDefinition
+} from '@/lib/currency-utils';
 
 
 interface MemberAllowanceDetailProps {
@@ -40,8 +40,8 @@ interface MemberAllowanceDetailProps {
 }
 
 export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetailProps) {
-    const { toast } = useToast(); // [cite: 103]
-    const hasInitializedEnvelope = useRef(false); // [cite: 104]
+    const { toast } = useToast();
+    const hasInitializedEnvelope = useRef(false);
 
     // --- State for Modals & Actions ---
     const [isAddModalOpen, setIsAddModalOpen] = useState(false); // [cite: 105]
@@ -58,30 +58,38 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     const [depositDescription, setDepositDescription] = useState(''); // [cite: 114]
     const [isDepositing, setIsDepositing] = useState(false); // [cite: 115]
 
-    // --- Fetch Member Data (including envelopes) ---
+    // --- Fetch Member Data AND Unit Definitions ---
     const { isLoading, error, data } = db.useQuery({
+        // Fetch family member and their envelopes
         familyMembers: {
             $: { where: { id: memberId! } },
-            allowanceEnvelopes: {} // Fetch all envelopes for the member
-        }
-    }); // [cite: 116]
+            allowanceEnvelopes: {}
+        },
+        // **** NEW: Fetch all unit definitions ****
+        unitDefinitions: {}
+    }); // [cite: 116] // Added unitDefinitions query
 
-    const member = data?.familyMembers?.[0]; // [cite: 117]
-    const envelopes: Envelope[] = member?.allowanceEnvelopes || []; // [cite: 118]
-    const isLastEnvelope = envelopes.length === 1; // [cite: 119]
+    const member = data?.familyMembers?.[0];
+    const envelopes: Envelope[] = member?.allowanceEnvelopes || [];
+    // **** NEW: Extract unit definitions, provide default empty array ****
+    const unitDefinitions: UnitDefinition[] = data?.unitDefinitions || [];
+    const isLastEnvelope = envelopes.length === 1;
 
-    // --- **** NEW: Calculate Total Balances **** ---
+
+    // --- Calculate Total Balances ---
+    // This useMemo doesn't need unitDefinitions directly,
+    // but formatBalances called later will.
     const totalBalances = useMemo(() => {
         const totals: { [currency: string]: number } = {};
         envelopes.forEach(envelope => {
-            if (envelope.balances) { // [cite: 250]
+            if (envelope.balances) {
                 Object.entries(envelope.balances).forEach(([currency, amount]) => {
                     totals[currency] = (totals[currency] || 0) + amount;
                 });
             }
         });
         return totals;
-    }, [envelopes]); // Recalculate only when envelopes data changes
+    }, [envelopes]); // Depends only on envelopes so recalculate only when envelopes data c
 
     // --- Effect for Initial Envelope ---
     useEffect(() => {
@@ -238,13 +246,17 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
 
     // --- Render Logic ---
-    if (!memberId) return null; // [cite: 173]
-    if (!db) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Initializing...</div>; // [cite: 174]
-    if (isLoading) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Loading allowance...</div>; // [cite: 175]
+    if (!memberId) return null;
+    if (!db) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Initializing...</div>;
+    // Combine loading states if needed, or rely on overall isLoading
+    if (isLoading) return <div className="p-4 flex justify-center items-center"><Loader2 className="h-6 w-6 animate-spin" />&nbsp;Loading allowance...</div>;
     if (error || !member) {
-        console.error("Error loading member data:", error); // [cite: 176]
-        return <div className="p-4 text-red-600">Error loading allowance details for this member.</div>; // [cite: 177]
+        console.error("Error loading member data:", error);
+        return <div className="p-4 text-red-600">Error loading allowance details for this member.</div>;
     }
+    // Could add specific error check for unitDefinitions if desired:
+    // if (!data?.unitDefinitions) { /* handle missing definitions */ }
+
 
     return (
         <div className="p-4 space-y-6 border rounded-lg mt-4 bg-card text-card-foreground">
@@ -298,12 +310,13 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                 </form>
              </section>
 
-             {/* **** NEW: Total Allowance Display **** */}
+             {/* Total Allowance Display */}
             <section className="p-4 border rounded-md bg-muted/50">
                  <h3 className="text-lg font-semibold mb-2">Total Balance</h3>
                  {Object.keys(totalBalances).length > 0 ? (
                     <p className="text-lg font-medium">
-                        {formatBalances(totalBalances)} {/* Use the utility here [cite: 368] */}
+                        {/* **** UPDATED: Pass unitDefinitions to formatBalances **** */}
+                        {formatBalances(totalBalances, unitDefinitions)}
                     </p>
                  ) : (
                     <p className="text-muted-foreground italic">No funds available yet.</p>
@@ -314,20 +327,26 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
             <section>
                  <div className="flex justify-between items-center mb-3">
                      <h3 className="text-lg font-semibold">Envelopes</h3>
-                     <Button onClick={handleAddClick} size="sm">+ Add Envelope</Button> {/* [cite: 192] */}
+                     <Button onClick={handleAddClick} size="sm">+ Add Envelope</Button>
                  </div>
                  {envelopes.length === 0 && !isLoading && (
-                    <p className="text-muted-foreground itallic">No envelopes created yet. The initial 'Savings' envelope should appear shortly.</p> // [cite: 193]
+                    <p className="text-muted-foreground itallic">No envelopes created yet. The initial 'Savings' envelope should appear after a refresh.</p> // [cite: 193]
                  )}
                  <div>
+                     {/* NOTE: EnvelopeItem currently calls formatBalances internally.
+                         For consistent formatting using unitDefinitions, EnvelopeItem
+                         will also need to be updated either to accept unitDefinitions
+                         or to receive a pre-formatted balance string from here.
+                         For now, only the Total Balance above uses the new logic.
+                     */}
                      {envelopes.map(envelope => (
                         <EnvelopeItem
                             key={envelope.id}
-                            envelope={envelope} // [cite: 194]
-                            isLastEnvelope={isLastEnvelope} // [cite: 195]
-                            onEdit={handleEditClick} // [cite: 195]
-                            onTransfer={handleTransferClick} // [cite: 196]
-                            onDelete={handleDeleteClick} // [cite: 196]
+                            envelope={envelope}
+                            isLastEnvelope={isLastEnvelope}
+                            onEdit={handleEditClick}
+                            onTransfer={handleTransferClick}
+                            onDelete={handleDeleteClick}
                         />
                     ))}
                  </div>

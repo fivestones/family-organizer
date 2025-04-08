@@ -39,6 +39,18 @@ const _schema = i.schema({
       // Link to the source envelope (for transfers)
       // Link to the destination envelope
     }),
+    // unitDefinitions ****
+    // Stores overrides or definitions for non-standard units
+    unitDefinitions: i.entity({
+      code: i.string().unique().indexed(),   // e.g., "NPR", "STARS", "VIDMIN"
+      name: i.string(),                    // e.g., "Nepalese Rupee", "Star Points", "Video Game Minutes"
+      symbol: i.string(),                  // e.g., "रु", "⭐", "Min"
+      isMonetary: i.boolean().indexed(),   // true for NPR, false for STARS/VIDMIN
+      // Formatting options:
+      symbolPlacement: i.string().optional(), // 'before' or 'after' (default: 'before' for monetary, 'after' for non-monetary?)
+      symbolSpacing: i.boolean().optional(),  // true = space (⭐ 10), false = no space ($10) (default: true for 'after', false for 'before'?)
+      decimalPlaces: i.number().optional(),   // e.g., 0, 2. null/undefined could mean 'auto' or default based on isMonetary.
+    }),
     calendarItems: i.entity({
       dayOfMonth: i.number().indexed(),
       description: i.string(),

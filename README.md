@@ -31,6 +31,7 @@ To do:
     * show accurate currency symbol for rupees at least
     * Show the total amount in one given currency, if you changed it over today
     * envelopes can have a savings goal amount
+    * Make a default "Savings" envelope when adding a family member
     * Show a full transaction list
         * Show a graph next to the list; if there is a savings goal amount for envelopes this should be incorporated somehow. Maybe if it is a graph of just one envelope (or each envelope is shown in a different color, with the total amount in its own color)
     * Add value to chores (1 to 10 or maybe 1 to 100); then have an allowance; base the allowance payout amount on the weighted values of the chores which have been marked done during the given period
