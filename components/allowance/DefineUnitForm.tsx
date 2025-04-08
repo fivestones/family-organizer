@@ -1,16 +1,16 @@
-// **NEW FILE:** components/allowance/DefineUnitForm.tsx
+// components/allowance/DefineUnitForm.tsx
 import React, { useState, useEffect, FormEvent } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch"; // For boolean flags
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"; // For dropdowns like placement/decimals
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -137,114 +137,123 @@ const DefineUnitForm: React.FC<DefineUnitFormProps> = ({
   }
 
   return (
+    // Increase modal width using sm:max-w-lg or sm:max-w-xl
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-lg"> {/* <-- Increased width */}
         <DialogHeader>
           <DialogTitle>Define New Currency/Unit</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
-          <div className="grid gap-4 py-4">
-            {/* Code (e.g., STARS, VIDMIN) */}
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="unit-code" className="text-right">Code*</Label>
+          {/* Use spacing utilities (space-y-4) instead of grid for overall layout */}
+          <div className="space-y-4 py-4">
+
+            {/* Code (Label above Input) */}
+            <div className="grid w-full items-center gap-1.5">
+              <Label htmlFor="unit-code">Code*</Label>
               <Input
                 id="unit-code"
                 value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())} // Auto-uppercase
-                className="col-span-3"
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
                 placeholder="e.g., STARS (unique)"
                 required
                 disabled={isSubmitting}
               />
             </div>
 
-            {/* Name (e.g., Star Points) */}
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="unit-name" className="text-right">Name*</Label>
+            {/* Name (Label above Input) */}
+            <div className="grid w-full items-center gap-1.5">
+              <Label htmlFor="unit-name">Name*</Label>
               <Input
                 id="unit-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="col-span-3"
                 placeholder="e.g., Star Points"
                 required
                 disabled={isSubmitting}
               />
             </div>
 
-            {/* Symbol (e.g., ⭐) */}
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="unit-symbol" className="text-right">Symbol</Label>
+            {/* Symbol (Label above Input) */}
+            <div className="grid w-full items-center gap-1.5">
+              <Label htmlFor="unit-symbol">Symbol</Label>
               <Input
                 id="unit-symbol"
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value)}
-                className="col-span-3"
                 placeholder="e.g., ⭐, Pts, Min (optional)"
                 disabled={isSubmitting}
               />
             </div>
 
-             {/* Is Monetary? */}
-             <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="unit-ismonetary" className="text-right">Is Monetary?</Label>
-                <div className="col-span-3 flex items-center">
-                     <Switch
-                        id="unit-ismonetary"
-                        checked={isMonetary}
-                        onCheckedChange={setIsMonetary}
-                        disabled={isSubmitting}
-                    />
-                </div>
+             {/* Is Monetary? (Flex layout for label and switch) */}
+             <div className="flex items-center justify-between space-x-2 pt-2">
+                <Label htmlFor="unit-ismonetary" className="flex flex-col space-y-1">
+                    <span>Is Monetary?</span>
+                    <span className="font-normal leading-snug text-muted-foreground">
+                        Is this regular money (USD, EUR) or a point/custom unit?
+                    </span>
+                 </Label>
+                 <Switch
+                    id="unit-ismonetary"
+                    checked={isMonetary}
+                    onCheckedChange={setIsMonetary}
+                    disabled={isSubmitting}
+                />
              </div>
 
-            {/* --- Formatting Options --- */}
-            <h4 className="col-span-4 text-sm font-medium text-muted-foreground mt-2">Formatting (Optional)</h4>
+            {/* --- Formatting Options Section --- */}
+            <div className="space-y-4 pt-4 border-t">
+                <h4 className="text-sm font-medium text-muted-foreground">Formatting (Optional Defaults)</h4>
 
-            {/* Symbol Placement */}
-            <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="unit-placement" className="text-right">Symbol Placement</Label>
-                <Select
-                    value={placement}
-                    onValueChange={(value: 'before' | 'after') => setPlacement(value)}
-                    disabled={isSubmitting}
-                >
-                    <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder="Default (Before=$, After=Pts)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="before">Before Amount (e.g., $10)</SelectItem>
-                        <SelectItem value="after">After Amount (e.g., 10 Pts)</SelectItem>
-                    </SelectContent>
-                </Select>
-            </div>
+                {/* Symbol Placement */}
+                <div className="grid w-full items-center gap-1.5">
+                    <Label htmlFor="unit-placement">Symbol Placement</Label>
+                    <Select
+                        value={placement}
+                        onValueChange={(value: 'before' | 'after') => setPlacement(value)}
+                        disabled={isSubmitting}
+                        name="unit-placement" // Add name for accessibility/forms if needed
+                    >
+                        <SelectTrigger>
+                            <SelectValue placeholder="Default" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="before">Before Amount (e.g., $10)</SelectItem>
+                            <SelectItem value="after">After Amount (e.g., 10 Pts)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                     <p className="text-xs text-muted-foreground">Default: Before for monetary, After for non-monetary.</p>
+                </div>
 
-             {/* Symbol Spacing */}
-             <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="unit-spacing" className="text-right">Use Space?</Label>
-                 <div className="col-span-3 flex items-center">
+                {/* Symbol Spacing */}
+                <div className="flex items-center justify-between space-x-2">
+                    <Label htmlFor="unit-spacing" className="flex flex-col space-y-1">
+                        <span>Space Between Symbol & Amount?</span>
+                         <span className="font-normal leading-snug text-muted-foreground">
+                            (Default: No space if symbol before, Space if symbol after)
+                         </span>
+                    </Label>
                     <Switch
                         id="unit-spacing"
-                        checked={useSpace}
+                        checked={useSpace === undefined ? false : useSpace} // Provide a controlled default visually
                         onCheckedChange={setUseSpace}
                         disabled={isSubmitting}
                     />
-                     <span className="ml-2 text-xs text-muted-foreground"> (Default: No space if symbol before, Space if symbol after)</span>
                 </div>
-             </div>
 
 
-            {/* Decimal Places */}
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="unit-decimals" className="text-right">Decimal Places</Label>
-              <Input
-                id="unit-decimals"
-                value={decimals}
-                onChange={(e) => setDecimals(e.target.value)}
-                className="col-span-3"
-                placeholder="e.g., 0, 2, or 'auto' (default)"
-                disabled={isSubmitting}
-              />
+                {/* Decimal Places */}
+                <div className="grid w-full items-center gap-1.5">
+                  <Label htmlFor="unit-decimals">Decimal Places</Label>
+                  <Input
+                    id="unit-decimals"
+                    value={decimals}
+                    onChange={(e) => setDecimals(e.target.value)}
+                    placeholder="e.g., 0, 2, or 'auto'"
+                    disabled={isSubmitting}
+                  />
+                   <p className="text-xs text-muted-foreground">Default: 2 for monetary, 0 for non-monetary. 'auto' uses decimals only if needed.</p>
+                </div>
             </div>
 
           </div>
