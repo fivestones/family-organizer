@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Check, ChevronsUpDown } from "lucide-react";
+import { Loader2, Check, ChevronsUpDown, MinusCircle, Users } from "lucide-react"; // Added new icons
 
 // --- Shadcn UI Imports ---
 import { cn } from "@/lib/utils";
@@ -26,9 +26,11 @@ import {
 // --- Import Components ---
 import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem';
 import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
-import TransferFundsForm from '@/components/allowance/TransferFundsForm';
+import TransferFundsForm from '@/components/allowance/TransferFundsForm'; // Intra-member transfer
 import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog';
 import DefineUnitForm from '@/components/allowance/DefineUnitForm';
+// **** NEW: Import WithdrawForm ****
+import WithdrawForm from '@/components/allowance/WithdrawForm'; // Adjust path if needed
 
 // --- Import Utilities ---
 import {
@@ -37,7 +39,9 @@ import {
     transferFunds,
     deleteEnvelope,
     formatBalances,
-    UnitDefinition
+    UnitDefinition,
+    // **** NEW: Import withdraw function ****
+    withdrawFromEnvelope
 } from '@/lib/currency-utils';
 
 
@@ -70,6 +74,8 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     const [transferSourceEnvelopeId, setTransferSourceEnvelopeId] = useState<string | null>(null);
     const [envelopeToDelete, setEnvelopeToDelete] = useState<Envelope | null>(null);
     const [isDefineUnitModalOpen, setIsDefineUnitModalOpen] = useState(false);
+    // **** NEW: State for Withdraw Modal ****
+    const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
     const [depositAmount, setDepositAmount] = useState('');
     const [depositCurrency, setDepositCurrency] = useState('USD'); // The actual selected/final currency
     const [depositDescription, setDepositDescription] = useState('');
@@ -233,6 +239,36 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
         }
     }, [envelopes, isLastEnvelope, toast]); // Added isLastEnvelope and toast dependencies // [cite: 100]
 
+    // **** NEW: Handler for Withdraw Button Click ****
+    const handleWithdrawClick = () => {
+        // Ensure there's an envelope to withdraw from before opening
+        if (!envelopes || envelopes.length === 0) {
+                toast({ title: "Action Denied", description: "You need at least one envelope to withdraw funds.", variant: "destructive" });
+                return;
+        }
+        setIsWithdrawModalOpen(true);
+    };
+
+    // **** NEW: Handler for Withdraw Form Submission ****
+        const handleWithdrawSubmit = async (envelopeId: string, amount: number, currency: string) => {
+        const envelopeToWithdrawFrom = envelopes.find(e => e.id === envelopeId);
+
+        if (!envelopeToWithdrawFrom) {
+            toast({ title: "Error", description: "Could not find the specified envelope.", variant: "destructive" });
+            return; // Or throw?
+        }
+
+        try {
+            // Description could be added to WithdrawForm if needed
+            await withdrawFromEnvelope(db, envelopeToWithdrawFrom, amount, currency);
+            toast({ title: "Success", description: "Withdrawal successful." });
+            setIsWithdrawModalOpen(false); // Close modal on success
+        } catch (err: any) {
+                console.error("Withdrawal failed:", err);
+                toast({ title: "Withdrawal Failed", description: err.message || "Could not process withdrawal.", variant: "destructive" });
+                // Keep modal open on error
+        }
+    };
     // --- Modal Submit Handlers ---
     const handleTransferSubmit = async (amount: number, currency: string, destinationEnvelopeId: string) => {
          // Basic validation moved to form, but keep checks here too
@@ -428,10 +464,13 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                 </form>
             </section>
 
-             {/* Total Allowance Display */}
+             {/* Total Allowance Display & Actions */}
             <section className="p-4 border rounded-md bg-muted/50">
-                 {/* ... total balance ... */}
-                 <h3 className="text-lg font-semibold mb-2">Total Balance</h3>
+                 {/* Use Flexbox for layout */}
+                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    {/* Balance Display */}
+                    <div>
+                        <h3 className="text-lg font-semibold mb-1 md:mb-0">Total Balance</h3>
                  {Object.keys(totalBalances).length > 0 ? (
                     <p className="text-lg font-medium">
                         {formatBalances(totalBalances, unitDefinitions)}
@@ -439,6 +478,17 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                  ) : (
                     <p className="text-muted-foreground italic">No funds available yet.</p>
                  )}
+                    </div>
+                    {/* Action Buttons */}
+                    <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                        <Button variant="outline" onClick={handleWithdrawClick}>
+                           <MinusCircle className="mr-2 h-4 w-4" /> Withdraw
+                        </Button>
+                         <Button variant="outline" onClick={() => alert('Transfer to Person - Not Implemented Yet')}>
+                            <Users className="mr-2 h-4 w-4" /> Transfer to Person
+                        </Button>
+                    </div>
+                 </div>
             </section>
 
             {/* Envelopes Section */}
@@ -507,6 +557,16 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                 onClose={() => setIsDefineUnitModalOpen(false)}
                 onUnitDefined={handleUnitDefined} // Pass the callback
             />
+            {/* **** NEW: Withdraw Modal **** */}
+            <WithdrawForm
+                db={db}
+                isOpen={isWithdrawModalOpen}
+                onClose={() => setIsWithdrawModalOpen(false)}
+                onSubmit={handleWithdrawSubmit} // Pass the handler
+                memberEnvelopes={envelopes}
+                unitDefinitions={unitDefinitions}
+            />
+            
         </div>
     );
 }

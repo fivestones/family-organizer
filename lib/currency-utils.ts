@@ -474,3 +474,67 @@ export const updateEnvelopeName = async (db: any, envelopeId: string, newName: s
       tx.allowanceEnvelopes[envelopeId].update({ name: trimmedName })
   ]);
 };
+
+/**
+ * Withdraws funds from a specific envelope.
+ * @param db - InstantDB instance
+ * @param envelope - The envelope object to withdraw from (must include current balances)
+ * @param amount - Amount to withdraw (must be positive)
+ * @param currency - Currency code of the withdrawal
+ * @param description - Optional description for the transaction log
+ * @throws Will throw an error if amount is invalid or insufficient funds.
+ */
+export const withdrawFromEnvelope = async (
+  db: any,
+  envelope: Envelope, // Pass the full envelope object
+  amount: number,
+  currency: string,
+  description: string = "Withdrawal"
+) => {
+if (amount <= 0) {
+  throw new Error("Withdrawal amount must be positive.");
+}
+if (!envelope || !envelope.balances) {
+  throw new Error("Invalid envelope data provided.");
+}
+
+const upperCaseCurrency = currency.toUpperCase();
+const currentBalance = envelope.balances[upperCaseCurrency] || 0;
+
+if (currentBalance < amount) {
+  throw new Error(`Insufficient ${upperCaseCurrency} funds in ${envelope.name}. Available: ${currentBalance}, Tried: ${amount}`);
+}
+
+// Calculate new balance
+const newBalance = currentBalance - amount;
+const updatedBalances = { ...envelope.balances };
+
+// Remove currency from balances if zero, otherwise update it
+if (newBalance === 0) {
+  delete updatedBalances[upperCaseCurrency];
+} else {
+  updatedBalances[upperCaseCurrency] = newBalance;
+}
+
+// Create transaction record
+const transactionId = id();
+const withdrawalTransaction = tx.allowanceTransactions[transactionId].update({
+    amount: -amount, // Store withdrawal as negative amount for consistency? Or use type field only. Using negative here.
+    currency: upperCaseCurrency,
+    transactionType: 'withdrawal',
+    envelope: envelope.id, // Link to the envelope it affected
+    // sourceEnvelope: envelope.id, // Could arguably be source
+    // destinationEnvelope: null, // No destination
+    description: description,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+});
+
+// Perform transaction
+await db.transact([
+  tx.allowanceEnvelopes[envelope.id].update({ balances: updatedBalances }),
+  withdrawalTransaction
+]);
+
+console.log(`Withdrew ${upperCaseCurrency} ${amount} from envelope ${envelope.id}`);
+};
