@@ -250,7 +250,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     };
 
     // **** NEW: Handler for Withdraw Form Submission ****
-        const handleWithdrawSubmit = async (envelopeId: string, amount: number, currency: string) => {
+    const handleWithdrawSubmit = async (envelopeId: string, amount: number, currency: string, description?: string) => {
         const envelopeToWithdrawFrom = envelopes.find(e => e.id === envelopeId);
 
         if (!envelopeToWithdrawFrom) {
@@ -259,8 +259,8 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
         }
 
         try {
-            // Description could be added to WithdrawForm if needed
-            await withdrawFromEnvelope(db, envelopeToWithdrawFrom, amount, currency);
+            // Pass values to the utility function
+            await withdrawFromEnvelope(db, envelopeToWithdrawFrom, amount, currency, description);
             toast({ title: "Success", description: "Withdrawal successful." });
             setIsWithdrawModalOpen(false); // Close modal on success
         } catch (err: any) {
@@ -566,7 +566,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                 memberEnvelopes={envelopes}
                 unitDefinitions={unitDefinitions}
             />
-            
+
         </div>
     );
 }
