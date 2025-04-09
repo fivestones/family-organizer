@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2, Check, ChevronsUpDown } from "lucide-react";
 
-// --- Shadcn UI Imports for Combobox ---
+// --- Shadcn UI Imports ---
 import { cn } from "@/lib/utils";
 import {
     Command,
@@ -71,10 +71,13 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     const [envelopeToDelete, setEnvelopeToDelete] = useState<Envelope | null>(null);
     const [isDefineUnitModalOpen, setIsDefineUnitModalOpen] = useState(false);
     const [depositAmount, setDepositAmount] = useState('');
-    const [depositCurrency, setDepositCurrency] = useState('USD'); // State now holds typed or selected value
+    const [depositCurrency, setDepositCurrency] = useState('USD'); // The actual selected/final currency
     const [depositDescription, setDepositDescription] = useState('');
     const [isDepositing, setIsDepositing] = useState(false);
     const [isCurrencyPopoverOpen, setIsCurrencyPopoverOpen] = useState(false);
+    // **** NEW: State for the popover input field & selection tracking ****
+    const [currencySearchInput, setCurrencySearchInput] = useState('');
+    const itemSelectedRef = useRef(false); // Track if selection happened via mouse/keyboard
 
 
     // --- Data Fetching ---
@@ -171,11 +174,11 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
         }
         // **** UPDATED: Validate typed currency format ****
         const finalDepositCurrency = depositCurrency.trim().toUpperCase();
-        if (!finalDepositCurrency || finalDepositCurrency === '__DEFINE_NEW__' || finalDepositCurrency.length > 3) { // Allow up to 3 chars
-             toast({ title: "Invalid Currency", description:"Please select, define, or type a valid currency code (max 3 letters).", variant: "destructive" });
+        if (!finalDepositCurrency || finalDepositCurrency === '__DEFINE_NEW__') {
+             toast({ title: "Invalid Currency", description:"Please select or define a currency/unit.", variant: "destructive" });
              return;
         }
-        // Proceed with deposit using finalDepositCurrency
+
         // ... (rest of deposit logic using finalDepositCurrency) ...
          const defaultEnvelope = envelopes.find(env => env.isDefault);
         if (!defaultEnvelope) {
@@ -202,6 +205,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
          }
     };
     // --- Other Handlers ---
+    // ... (AddClick, EditClick, TransferClick, DeleteClick, TransferSubmit, DeleteConfirm) ...
     const handleAddClick = () => setIsAddModalOpen(true);
     const handleEditClick = useCallback((envelopeId: string) => {
         const envelope = envelopes.find(e => e.id === envelopeId);
@@ -285,10 +289,11 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
         }
     };
 
-    // **** NEW: Handler for when a unit is defined ****
-    const handleUnitDefined = (newCode: string) => {
-        setIsDefineUnitModalOpen(false);
-        setDepositCurrency(newCode); // Set state to the newly defined code
+
+    const handleUnitDefined = (newCode: string) => { //
+        setIsDefineUnitModalOpen(false); //
+        setDepositCurrency(newCode); // Set actual state
+        setCurrencySearchInput(newCode); // Also update input visually
     };
 
 
@@ -301,6 +306,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
     return (
         <div className="p-4 space-y-6 border rounded-lg mt-4 bg-card text-card-foreground">
+            {/* ... Header ... */}
             <h2 className="text-xl font-bold">Allowance for {member.name}</h2>
 
             {/* Deposit Section */}
@@ -322,38 +328,56 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                              />
                          </div>
 
-                         {/* **** UPDATED: Currency Combobox - Input value bound to state **** */}
+                         {/* **** UPDATED: Currency Combobox **** */}
                          <div>
-                             <Label htmlFor="deposit-currency-input">Currency/Unit</Label> {/* Changed label association */}
-                             <Popover open={isCurrencyPopoverOpen} onOpenChange={setIsCurrencyPopoverOpen}>
+                             <Label htmlFor="deposit-currency-input">Currency/Unit</Label>
+                             <Popover
+                                open={isCurrencyPopoverOpen}
+                                // ** UPDATED: onOpenChange logic **
+                                onOpenChange={(open) => {
+                                    setIsCurrencyPopoverOpen(open);
+                                    if (open) {
+                                        // Clear search input when opening
+                                        setCurrencySearchInput('');
+                                        itemSelectedRef.current = false;
+                                    } else {
+                                        // Popover closed: If no item was selected via click/enter,
+                                        // consider using the typed value.
+                                        if (!itemSelectedRef.current) {
+                                             const typedValue = currencySearchInput.trim().toUpperCase();
+                                             // Basic check: Is it non-empty, not the special value,
+                                             // AND either 3 letters OR already known in options?
+                                             const isValidCode = /^[A-Z]{3}$/.test(typedValue); // Common 3-letter case
+                                             const isKnownOption = currencyOptions.some(opt => opt.value === typedValue);
+
+                                             if (typedValue && typedValue !== '__DEFINE_NEW__' && (isValidCode || isKnownOption)) {
+                                                console.log("Using typed value:", typedValue)
+                                                setDepositCurrency(typedValue);
+                                             }
+                                             // Else: maybe revert to previous depositCurrency or do nothing,
+                                             // letting the trigger button show the last valid state.
+                                        }
+                                    }
+                                }}
+                             >
                                 <PopoverTrigger asChild>
-                                    {/* Button still reflects state, but input below drives it */}
-                                    <Button variant="outline" role="combobox" aria-expanded={isCurrencyPopoverOpen} className="w-full justify-between">
-                                        {depositCurrency && depositCurrency !== '__DEFINE_NEW__' ? depositCurrency : "Select or type unit..."}
+                                    <Button variant="outline" role="combobox" className="w-full justify-between">
+                                        {/* Display the main depositCurrency state */}
+                                        {depositCurrency && depositCurrency !== '__DEFINE_NEW__'
+                                            ? depositCurrency
+                                            : "Select or type unit..."}
                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
-                                    <Command
-                                        // Filter based on the main depositCurrency state
-                                        filter={(value, search) => {
-                                            // Default filter or custom if needed
-                                            if (value === '__DEFINE_NEW__') return 1; // Always show define new
-                                            return value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
-                                        }}
-                                    >
+                                    <Command>
                                         <CommandInput
-                                            id="deposit-currency-input" // ID for label
+                                            id="deposit-currency-input"
                                             placeholder="Type or select..."
-                                            value={depositCurrency === '__DEFINE_NEW__' ? '' : depositCurrency} // Show state value in input
-                                            // **** UPDATED: Update state on input change ****
-                                            onValueChange={(search) => {
-                                                // Allow typing up to 3 chars, uppercase
-                                                const upperSearch = search.toUpperCase();
-                                                if (upperSearch.length <= 3) {
-                                                    setDepositCurrency(upperSearch);
-                                                }
-                                            }}
+                                            // ** UPDATED: Bind value to currencySearchInput **
+                                            value={currencySearchInput}
+                                            // ** UPDATED: Update search input state **
+                                            onValueChange={setCurrencySearchInput}
                                             />
                                          <CommandList>
                                             <CommandEmpty>No unit found.</CommandEmpty>
@@ -362,14 +386,15 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                                                 <CommandItem
                                                     key={option.value}
                                                     value={option.value}
+                                                    // ** UPDATED: onSelect logic **
                                                     onSelect={(currentValue) => {
-                                                        if (currentValue === '__define_new__') {
-                                                            // Clear input before opening modal? Optional.
-                                                            // setDepositCurrency('');
+                                                        itemSelectedRef.current = true; // Mark selection happened
+                                                        if (currentValue === '__DEFINE_NEW__') {
                                                             setIsDefineUnitModalOpen(true);
                                                         } else {
-                                                            // Set currency from selection, overriding typed value
-                                                            setDepositCurrency(currentValue.toUpperCase());
+                                                            const finalValue = currentValue.toUpperCase();
+                                                            setDepositCurrency(finalValue); // Set main state
+                                                            setCurrencySearchInput(finalValue); // Update input visual
                                                         }
                                                         setIsCurrencyPopoverOpen(false); // Close popover
                                                     }}
