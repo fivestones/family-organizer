@@ -17,20 +17,21 @@ This is the code for our family's organizer
 * Beginnings of allowance tracking, in multiple currencies
     * Each family member can have multiple envelopes
     * Can deposit funds
-    * Can transfer funds between envelopes
+    * Can transfer funds between envelopes, withdraw money, delete envelopes, show totals
 * Offline capibile, fast
-    * Uses instantdb.com in the background for synching
+    * Uses instantdb.com in the background for syncing
 
 
 To do:
-    * Need a way to withdraw/spend money from your account
-    * Transfer to other person
-    * Show total current allowance
-    * change default envelope
+    * Need a way to withdraw/spend money from your account - done
+    * Transfer to other person - button done, needs to be implemented
+    * Show total current allowance - done
+    * Change default envelope
         * Set up rules for deposits (ordered list of amounts and percentages (e.g., first $2 in env A, then of the remainder [20% in env B and 80% in env C]))
-    * show accurate currency symbol for rupees at least
-    * Show the total amount in one given currency, if you changed it over today
-    * envelopes can have a savings goal amount
+    * Show accurate currency symbol for rupees at least - done
+    * Show the total amount in one given currency, if you changed all your money to that currency today
+        * This will only compute the total for the given currency for monetary curriencies (e.g., if you have $ and euros and stars, it can give you your total in $ and stars)
+    * Envelopes can have a savings goal amount
     * Make a default "Savings" envelope when adding a family member
     * Show a full transaction list
         * Show a graph next to the list; if there is a savings goal amount for envelopes this should be incorporated somehow. Maybe if it is a graph of just one envelope (or each envelope is shown in a different color, with the total amount in its own color)
@@ -38,10 +39,13 @@ To do:
         * Chores can be part of the normal allowance (required to be able to get 100% of the allowance amount for you), or can be up for grabs with a given amount attached
     * Set up a way to auto-deposit or click to deposit chore money
     * Maybe: if working in stars or some other non-money currency, could have a list somewhere of prizes that could be gotten with certain numbers of stars (e.g., 10 stars for a small candy; 100 stars to watch a show, 50 stars to play a video game for 30 minutes);
-        * Also maybe: costs for
+        * Also maybe: costs for [...forgot what I was thinking here]
     * Separate kid's page which doesn't allow deposits
+        * Or just show deposits only if parent mode has been activated with a password
     * Integrate the familyMemberDetail page into the main page somewhere, or have it come up with a button click from a family member's chore list
     * Future: Use the envelope allowance system to create a multi-currency envelope-based budgeting system ynab-style
+    * Convert into PWA so it can be used fully offline
+    * Future: convert into react native for iOS app
 
 
 ## Features planned
@@ -59,7 +63,7 @@ To do:
     * Connections to mealie (or another self-hosted recipe app) for recipes and meal planning
 * Family chores/rewards tracking
     * Set relative value of a chore for rewards/allowance calculations
-    * Keep track of rewards/money accounts per person
+    * Keep track of rewards/money accounts per person - done
 * Dashboard view for keyboardless/mouseless usage
 * Photo stream
 * Extension-capible
