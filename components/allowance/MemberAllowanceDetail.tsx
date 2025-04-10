@@ -5,48 +5,50 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Check, ChevronsUpDown, MinusCircle, Users } from "lucide-react"; // Added new icons
+import { Loader2, Check, ChevronsUpDown, MinusCircle, Users } from "lucide-react";
 
 // --- Shadcn UI Imports ---
 import { cn } from "@/lib/utils";
-import {
-    Command,
-    CommandEmpty,
-    CommandGroup,
-    CommandInput,
-    CommandItem,
-    CommandList,
-  } from "@/components/ui/command";
-  import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-  } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 // --- Import Components ---
 import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem';
 import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
-import TransferFundsForm from '@/components/allowance/TransferFundsForm'; // Intra-member transfer
+import TransferFundsForm from '@/components/allowance/TransferFundsForm'; // From envelope to envelope of the same person
 import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog';
 import DefineUnitForm from '@/components/allowance/DefineUnitForm';
-// **** NEW: Import WithdrawForm ****
-import WithdrawForm from '@/components/allowance/WithdrawForm'; // Adjust path if needed
+import WithdrawForm from '@/components/allowance/WithdrawForm';
+// **** NEW: Import TransferToPersonForm ****
+import TransferToPersonForm from '@/components/allowance/TransferToPersonForm'; // Adjust path if needed
 
 // --- Import Utilities ---
 import {
     depositToSpecificEnvelope,
     createInitialSavingsEnvelope,
-    transferFunds,
+    transferFunds, // Renaming this might be good later (e.g., transferFundsIntraMember)
     deleteEnvelope,
     formatBalances,
     UnitDefinition,
-    // **** NEW: Import withdraw function ****
-    withdrawFromEnvelope
+    withdrawFromEnvelope,
+    // **** NEW: Import transferFundsToPerson and getDefaultEnvelope ****
+    transferFundsToPerson,
+    // getDefaultEnvelope // Utility to find the recipient's default envelope; no longer needed, since it's done in the TransferToPersonForm.tsx
 } from '@/lib/currency-utils';
 
+import { Envelope } from '@/components/EnvelopeItem'; // Import Envelope type if needed
 
+
+// Minimal interface for family members passed down
+interface BasicFamilyMember {
+    id: string;
+    name: string;
+}
+
+// **** UPDATED: Add allFamilyMembers to props ****
 interface MemberAllowanceDetailProps {
-    memberId: string | null;
+    memberId: string; // Changed from string | null previously? Ensure consistency.
+    allFamilyMembers: BasicFamilyMember[]; // Added prop
 }
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4';
@@ -61,7 +63,7 @@ interface MemberAllowanceDetailProps { // [cite: 101]
     memberId: string; // [cite: 102]
 }
 
-export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetailProps) {
+export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: MemberAllowanceDetailProps) { // <-- Destructure new prop
     const { toast } = useToast();
     const hasInitializedEnvelope = useRef(false);
 
@@ -74,19 +76,23 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     const [transferSourceEnvelopeId, setTransferSourceEnvelopeId] = useState<string | null>(null);
     const [envelopeToDelete, setEnvelopeToDelete] = useState<Envelope | null>(null);
     const [isDefineUnitModalOpen, setIsDefineUnitModalOpen] = useState(false);
-    // **** NEW: State for Withdraw Modal ****
     const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
+     // **** NEW: State for Transfer to Person Modal ****
+    const [isTransferToPersonModalOpen, setIsTransferToPersonModalOpen] = useState(false);
+
+
+    // ... (form states) ...
     const [depositAmount, setDepositAmount] = useState('');
     const [depositCurrency, setDepositCurrency] = useState('USD'); // The actual selected/final currency
     const [depositDescription, setDepositDescription] = useState('');
     const [isDepositing, setIsDepositing] = useState(false);
     const [isCurrencyPopoverOpen, setIsCurrencyPopoverOpen] = useState(false);
-    // **** NEW: State for the popover input field & selection tracking ****
     const [currencySearchInput, setCurrencySearchInput] = useState('');
     const itemSelectedRef = useRef(false); // Track if selection happened via mouse/keyboard
 
 
-    // --- Data Fetching ---
+    // --- Data Fetching (unitDefinitions still needed locally) ---
+    // No need to fetch allFamilyMembers here, it's passed as a prop
     const { isLoading, error, data } = db.useQuery({
         familyMembers: {
             $: { where: { id: memberId! } },
@@ -249,6 +255,82 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
         setIsWithdrawModalOpen(true);
     };
 
+     // **** NEW: Handler for Transfer to Person Button Click ****
+     const handleTransferToPersonClick = () => {
+         const otherMembers = allFamilyMembers.filter(m => m.id !== memberId);
+         if (!otherMembers || otherMembers.length === 0) {
+              toast({ title: "Action Denied", description: "No other family members available to transfer to.", variant: "destructive" });
+              return;
+         }
+         if (!envelopes || envelopes.length === 0) {
+              toast({ title: "Action Denied", description: "You need at least one envelope with funds to initiate a transfer.", variant: "destructive" });
+              return;
+         }
+         setIsTransferToPersonModalOpen(true);
+     };
+
+    // --- Modal Submit Handlers & Callbacks ---
+    const handleTransferSubmit = async (amount: number, currency: string, destinationEnvelopeId: string) => {
+        // Basic validation moved to form, but keep checks here too
+        if (!db || !transferSourceEnvelopeId || !destinationEnvelopeId || amount <= 0) return; // [cite: 112]
+
+       const sourceEnvelope = envelopes.find(e => e.id === transferSourceEnvelopeId); // [cite: 113]
+       const destinationEnvelope = envelopes.find(e => e.id === destinationEnvelopeId); // [cite: 113]
+
+       if (!sourceEnvelope || !destinationEnvelope) {
+           toast({ title: "Error", description: "Could not find source or destination envelope.", variant: "destructive" }); // [cite: 114]
+           return; // [cite: 115]
+       }
+
+       // More robust validation before calling utility
+       const sourceBalance = sourceEnvelope.balances?.[currency] ?? 0;
+       if (amount > sourceBalance) {
+            toast({
+               title: "Transfer Failed",
+               description: `Insufficient ${currency} funds in ${sourceEnvelope.name}.`,
+               variant: "destructive",
+            });
+            return;
+       }
+
+       try {
+           await transferFunds(db, sourceEnvelope, destinationEnvelope, amount, currency); // [cite: 116]
+           toast({ title: "Success", description: "Funds transferred." }); // [cite: 116, 117]
+           setIsTransferModalOpen(false); // [cite: 117]
+           setTransferSourceEnvelopeId(null); // [cite: 117]
+       } catch (err: any) {
+           toast({ title: "Transfer Failed", description: err.message, variant: "destructive" }); // [cite: 118]
+           // Don't close modal on error? Or handle within form? Decide on desired UX.
+       }
+   };
+
+   const handleDeleteConfirm = async (transferTargetId: string, newDefaultId: string | null) => {
+       if (!db || !envelopeToDelete || !transferTargetId) return; // [cite: 119]
+       // Added check: prevent deletion if it's the last one (belt-and-suspenders)
+       if (envelopes.length <= 1) {
+            toast({ title: "Delete Failed", description: "Cannot delete the last envelope.", variant: "destructive" });
+            setIsDeleteModalOpen(false);
+            setEnvelopeToDelete(null);
+            return;
+       }
+
+       try {
+           await deleteEnvelope(db, envelopes, envelopeToDelete.id, transferTargetId, newDefaultId); // [cite: 120]
+           toast({ title: "Success", description: `Envelope '${envelopeToDelete.name}' deleted.` }); // [cite: 121]
+           setIsDeleteModalOpen(false); // [cite: 121]
+           setEnvelopeToDelete(null); // [cite: 121]
+       } catch (err: any) {
+           toast({ title: "Delete Failed", description: err.message, variant: "destructive" }); // [cite: 122]
+           // Consider keeping modal open on failure?
+       }
+   };
+
+
+    const handleUnitDefined = (newCode: string) => { //
+       setIsDefineUnitModalOpen(false); //
+       setDepositCurrency(newCode); // Set actual state
+       setCurrencySearchInput(newCode); // Also update input visually
+    };
     // **** NEW: Handler for Withdraw Form Submission ****
     const handleWithdrawSubmit = async (envelopeId: string, amount: number, currency: string, description?: string) => {
         const envelopeToWithdrawFrom = envelopes.find(e => e.id === envelopeId);
@@ -269,67 +351,34 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                 // Keep modal open on error
         }
     };
-    // --- Modal Submit Handlers ---
-    const handleTransferSubmit = async (amount: number, currency: string, destinationEnvelopeId: string) => {
-         // Basic validation moved to form, but keep checks here too
-         if (!db || !transferSourceEnvelopeId || !destinationEnvelopeId || amount <= 0) return; // [cite: 112]
 
-        const sourceEnvelope = envelopes.find(e => e.id === transferSourceEnvelopeId); // [cite: 113]
-        const destinationEnvelope = envelopes.find(e => e.id === destinationEnvelopeId); // [cite: 113]
-
-        if (!sourceEnvelope || !destinationEnvelope) {
-            toast({ title: "Error", description: "Could not find source or destination envelope.", variant: "destructive" }); // [cite: 114]
-            return; // [cite: 115]
-        }
-
-        // More robust validation before calling utility
-        const sourceBalance = sourceEnvelope.balances?.[currency] ?? 0;
-        if (amount > sourceBalance) {
-             toast({
-                title: "Transfer Failed",
-                description: `Insufficient ${currency} funds in ${sourceEnvelope.name}.`,
-                variant: "destructive",
-             });
+    // **** NEW: Handler for TransferToPersonForm Submission ****
+    const handleTransferToPersonSubmit = async (
+        sourceEnvelopeId: string,
+        // Receive the full destination envelope object
+        destinationDefaultEnvelope: Envelope,
+        amount: number,
+        currency: string,
+        description?: string
+    ) => {
+        const sourceEnvelope = envelopes.find(e => e.id === sourceEnvelopeId);
+        if (!sourceEnvelope) {
+             toast({ title: "Error", description: "Source envelope not found.", variant: "destructive" });
              return;
         }
 
         try {
-            await transferFunds(db, sourceEnvelope, destinationEnvelope, amount, currency); // [cite: 116]
-            toast({ title: "Success", description: "Funds transferred." }); // [cite: 116, 117]
-            setIsTransferModalOpen(false); // [cite: 117]
-            setTransferSourceEnvelopeId(null); // [cite: 117]
+             // **** Use the passed destinationDefaultEnvelope directly ****
+             await transferFundsToPerson(db, sourceEnvelope, destinationDefaultEnvelope, amount, currency, description);
+
+             toast({ title: "Success", description: "Funds transferred successfully." });
+             setIsTransferToPersonModalOpen(false); // Close modal on success
+
         } catch (err: any) {
-            toast({ title: "Transfer Failed", description: err.message, variant: "destructive" }); // [cite: 118]
-            // Don't close modal on error? Or handle within form? Decide on desired UX.
+            console.error("Transfer to person failed:", err);
+            toast({ title: "Transfer Failed", description: err.message || "Could not complete transfer.", variant: "destructive" });
+            // Keep modal open on error
         }
-    };
-
-    const handleDeleteConfirm = async (transferTargetId: string, newDefaultId: string | null) => {
-        if (!db || !envelopeToDelete || !transferTargetId) return; // [cite: 119]
-        // Added check: prevent deletion if it's the last one (belt-and-suspenders)
-        if (envelopes.length <= 1) {
-             toast({ title: "Delete Failed", description: "Cannot delete the last envelope.", variant: "destructive" });
-             setIsDeleteModalOpen(false);
-             setEnvelopeToDelete(null);
-             return;
-        }
-
-        try {
-            await deleteEnvelope(db, envelopes, envelopeToDelete.id, transferTargetId, newDefaultId); // [cite: 120]
-            toast({ title: "Success", description: `Envelope '${envelopeToDelete.name}' deleted.` }); // [cite: 121]
-            setIsDeleteModalOpen(false); // [cite: 121]
-            setEnvelopeToDelete(null); // [cite: 121]
-        } catch (err: any) {
-            toast({ title: "Delete Failed", description: err.message, variant: "destructive" }); // [cite: 122]
-            // Consider keeping modal open on failure?
-        }
-    };
-
-
-    const handleUnitDefined = (newCode: string) => { //
-        setIsDefineUnitModalOpen(false); //
-        setDepositCurrency(newCode); // Set actual state
-        setCurrencySearchInput(newCode); // Also update input visually
     };
 
 
@@ -343,7 +392,7 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
     return (
         <div className="p-4 space-y-6 border rounded-lg mt-4 bg-card text-card-foreground">
             {/* ... Header ... */}
-            <h2 className="text-xl font-bold">Allowance for {member.name}</h2>
+             <h2 className="text-xl font-bold">Allowance for {member.name}</h2>
 
             {/* Deposit Section */}
              <section className="p-4 border rounded-md">
@@ -466,7 +515,6 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
 
              {/* Total Allowance Display & Actions */}
             <section className="p-4 border rounded-md bg-muted/50">
-                 {/* Use Flexbox for layout */}
                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     {/* Balance Display */}
                     <div>
@@ -481,12 +529,9 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                     </div>
                     {/* Action Buttons */}
                     <div className="flex flex-col sm:flex-row gap-2 shrink-0">
-                        <Button variant="outline" onClick={handleWithdrawClick}>
-                           <MinusCircle className="mr-2 h-4 w-4" /> Withdraw
-                        </Button>
-                         <Button variant="outline" onClick={() => alert('Transfer to Person - Not Implemented Yet')}>
-                            <Users className="mr-2 h-4 w-4" /> Transfer to Person
-                        </Button>
+                        <Button variant="outline" onClick={handleWithdrawClick}> <MinusCircle className="mr-2 h-4 w-4" /> Withdraw </Button>
+                         {/* **** UPDATED: Added onClick handler **** */}
+                        <Button variant="outline" onClick={handleTransferToPersonClick}> <Users className="mr-2 h-4 w-4" /> Transfer to Person </Button>
                     </div>
                  </div>
             </section>
@@ -566,6 +611,18 @@ export default function MemberAllowanceDetail({ memberId }: MemberAllowanceDetai
                 memberEnvelopes={envelopes}
                 unitDefinitions={unitDefinitions}
             />
+
+             {/* **** NEW: Transfer to Person Modal **** */}
+             <TransferToPersonForm
+                db={db}
+                isOpen={isTransferToPersonModalOpen}
+                onClose={() => setIsTransferToPersonModalOpen(false)}
+                onSubmit={handleTransferToPersonSubmit} // Pass the new handler
+                sourceMemberId={memberId} // Pass current member's ID
+                allFamilyMembers={allFamilyMembers} // Pass the list from props
+                sourceMemberEnvelopes={envelopes} // Pass current member's envelopes
+                unitDefinitions={unitDefinitions} // Pass definitions
+             />
 
         </div>
     );

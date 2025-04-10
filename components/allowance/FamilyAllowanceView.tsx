@@ -2,7 +2,7 @@
 'use client'; // Needed for hooks like useState, useEffect, useQuery
 
 import React, { useState, useEffect } from 'react';
-import { init, tx, id } from '@instantdb/react'; // Import InstantDB hooks
+import { init, tx, id } from '@instantdb/react'; // Import InstantDB hooks [cite: 67]
 
 // Import the child components
 import FamilyMembersList from '@/components/FamilyMembersList'; // Your existing component
@@ -22,10 +22,10 @@ export default function FamilyAllowanceView() {
     // Initialize with null or potentially 'All' depending on FamilyMembersList's default behavior
     const [selectedMemberId, setSelectedMemberId] = useState<string | null | 'All'>(null);
 
-    // Fetch all family members for the list
-    // Adjust query as needed (e.g., add sorting)
-    const { isLoading: isLoadingMembers, error: errorMembers, data: membersData } = db.useQuery({
-        familyMembers: {}
+    // Fetch all family members
+    // Do we need to sort
+    const { isLoading: isLoadingMembers, error: errorMembers, data: membersData } = db.useQuery({ // [cite: 71]
+        familyMembers: {} // Fetch all members - adjust if you need sorting/filtering
     });
 
     // --- Placeholder functions for adding/deleting members ---
@@ -55,46 +55,44 @@ export default function FamilyAllowanceView() {
     // --- End Placeholder functions ---
 
 
-    if (isLoadingMembers) {
-        return <div className="p-4">Loading family members...</div>;
+    if (isLoadingMembers) { // [cite: 82]
+        return <div className="p-4">Loading family members...</div>; // [cite: 82]
     }
 
-    if (errorMembers) {
-        console.error("Error fetching family members:", errorMembers);
-        return <div className="p-4 text-red-600">Could not load family members.</div>;
+    if (errorMembers) { // [cite: 83]
+        console.error("Error fetching family members:", errorMembers); // [cite: 84]
+        return <div className="p-4 text-red-600">Could not load family members.</div>; // [cite: 84]
     }
 
     const familyMembers = membersData?.familyMembers || [];
 
     return (
-        // Using CSS Grid for layout (adjust columns/gap as needed)
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4"> {/* [cite: 85] */}
 
             {/* Column 1: Family Member List */}
-            <div className="md:col-span-1 border rounded-lg p-4 bg-card">
+            <div className="md:col-span-1 border rounded-lg p-4 bg-card"> {/* [cite: 86] */}
                 <FamilyMembersList
-                    familyMembers={familyMembers}
-                    selectedMember={selectedMemberId}
-                    // Use the state setter directly as the prop expected by your component
-                    setSelectedMember={setSelectedMemberId}
-                    // Pass down the add/delete handlers
-                    addFamilyMember={handleAddFamilyMember}
-                    deleteFamilyMember={handleDeleteFamilyMember}
-                    db={db} // Pass the db instance
+                    familyMembers={familyMembers} // [cite: 86]
+                    selectedMember={selectedMemberId} // [cite: 87]
+                    setSelectedMember={setSelectedMemberId} // [cite: 87]
+                    addFamilyMember={handleAddFamilyMember} // [cite: 87]
+                    deleteFamilyMember={handleDeleteFamilyMember} // [cite: 87]
+                    db={db} // [cite: 87]
                  />
             </div>
 
             {/* Column 2: Member Allowance Details (Conditional) */}
-            <div className="md:col-span-2">
-                {/*
-                    Render MemberAllowanceDetail only if a specific member ID is selected.
-                    Handle the 'All' case if your FamilyMembersList uses it.
-                */}
-                {(selectedMemberId && selectedMemberId !== 'All') ? (
-                    <MemberAllowanceDetail memberId={selectedMemberId} />
+            <div className="md:col-span-2"> {/* [cite: 88] */}
+                {(selectedMemberId && selectedMemberId !== 'All') ? ( // [cite: 89]
+                    <MemberAllowanceDetail
+                        memberId={selectedMemberId} // [cite: 90]
+                        // **** NEW: Pass all family members down ****
+                        allFamilyMembers={familyMembers}
+                    />
                 ) : (
-                    <div className="p-4 border rounded-lg bg-muted text-muted-foreground h-full flex items-center justify-center min-h-[200px]">
-                        <p>Select a family member to view their allowance details.</p>
+                    // Placeholder when no member is selected
+                    <div className="p-4 border rounded-lg bg-muted text-muted-foreground h-full flex items-center justify-center min-h-[200px]"> {/* [cite: 90] */}
+                        <p>Select a family member to view their allowance details.</p> {/* [cite: 90] */}
                     </div>
                 )}
             </div>

@@ -538,3 +538,105 @@ await db.transact([
 
 console.log(`Withdrew ${upperCaseCurrency} ${amount} from envelope ${envelope.id}`);
 };
+
+/**
+ * Transfers funds from a source envelope to a destination envelope (potentially belonging to a different member).
+ * Assumes destinationEnvelope is fetched and provided (e.g., recipient's default envelope).
+ * @param db - InstantDB instance
+ * @param sourceEnvelope - The source envelope object (must include current balances & ID)
+ * @param destinationEnvelope - The destination envelope object (must include current balances & ID)
+ * @param amount - Amount to transfer (must be positive)
+ * @param currency - Currency code of the transfer
+ * @param description - Optional description for the transaction log
+ * @throws Will throw an error if amount is invalid, envelopes are invalid, or insufficient funds.
+ */
+export const transferFundsToPerson = async (
+  db: any,
+  sourceEnvelope: Envelope,
+  destinationEnvelope: Envelope,
+  amount: number,
+  currency: string,
+  description?: string // Allow optional description
+) => {
+if (amount <= 0) {
+  throw new Error("Transfer amount must be positive.");
+}
+if (!sourceEnvelope || !sourceEnvelope.balances || !sourceEnvelope.id) {
+  throw new Error("Invalid source envelope data provided.");
+}
+ if (!destinationEnvelope || !destinationEnvelope.balances || !destinationEnvelope.id) {
+  throw new Error("Invalid destination envelope data provided.");
+}
+if (sourceEnvelope.id === destinationEnvelope.id) {
+  // Use the existing intra-member transfer function for this case if needed
+  throw new Error("Source and destination envelopes cannot be the same. Use regular transfer for intra-member moves.");
+}
+
+const upperCaseCurrency = currency.toUpperCase();
+const sourceCurrentBalance = sourceEnvelope.balances[upperCaseCurrency] || 0;
+
+if (sourceCurrentBalance < amount) {
+  throw new Error(`Insufficient ${upperCaseCurrency} funds in source envelope (${sourceEnvelope.name}). Available: ${sourceCurrentBalance}, Tried: ${amount}`);
+}
+
+// Calculate new balances
+const sourceNewBalance = sourceCurrentBalance - amount;
+const updatedSourceBalances = { ...sourceEnvelope.balances };
+if (sourceNewBalance === 0) {
+  delete updatedSourceBalances[upperCaseCurrency];
+} else {
+  updatedSourceBalances[upperCaseCurrency] = sourceNewBalance;
+}
+
+const destinationCurrentBalance = destinationEnvelope.balances[upperCaseCurrency] || 0;
+const destinationNewBalance = destinationCurrentBalance + amount;
+const updatedDestinationBalances = { ...destinationEnvelope.balances, [upperCaseCurrency]: destinationNewBalance };
+
+// Create transaction records
+const transactionIdOut = id();
+const transactionIdIn = id();
+const transferDesc = description || `Transfer to ${destinationEnvelope.name}`; // Default description if none provided
+
+// Transaction for the sender
+const transferOutTransaction = tx.allowanceTransactions[transactionIdOut].update({
+    amount: -amount, // Negative amount for outgoing
+    currency: upperCaseCurrency,
+    transactionType: 'transfer-out-person', // Specific type for inter-person transfer
+    envelope: sourceEnvelope.id, // Envelope the transaction is logged against
+    sourceEnvelope: sourceEnvelope.id, // Source of funds
+    destinationEnvelope: destinationEnvelope.id, // Destination of funds
+    description: transferDesc,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    // Consider adding sourceMemberId and destinationMemberId if schema supports/needs it
+});
+
+// Transaction for the receiver
+const transferInTransaction = tx.allowanceTransactions[transactionIdIn].update({
+    amount: amount, // Positive amount for incoming
+    currency: upperCaseCurrency,
+    transactionType: 'transfer-in-person', // Specific type for inter-person transfer
+    envelope: destinationEnvelope.id, // Envelope the transaction is logged against
+    sourceEnvelope: sourceEnvelope.id, // Source of funds
+    destinationEnvelope: destinationEnvelope.id, // Destination of funds
+    description: transferDesc,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    // Consider adding sourceMemberId and destinationMemberId if schema supports/needs it
+});
+
+
+// Perform transaction
+await db.transact([
+  // Update source envelope balance
+  tx.allowanceEnvelopes[sourceEnvelope.id].update({ balances: updatedSourceBalances }),
+  // Update destination envelope balance
+  tx.allowanceEnvelopes[destinationEnvelope.id].update({ balances: updatedDestinationBalances }),
+  // Log the outgoing transaction
+  transferOutTransaction,
+  // Log the incoming transaction
+  transferInTransaction
+]);
+
+console.log(`Transferred ${upperCaseCurrency} ${amount} from envelope ${sourceEnvelope.id} to ${destinationEnvelope.id}`);
+};
