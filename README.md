@@ -14,10 +14,11 @@ This is the code for our family's organizer
     * Set auto repeats for chores with simple or complicated repeat patterns, using rrule rules
 * Instant sync between clients
 * Local-first architecture
-* Beginnings of allowance tracking, in multiple currencies
+* llowance tracking, in multiple currencies
     * Each family member can have multiple envelopes
     * Can deposit funds
     * Can transfer funds between envelopes, withdraw money, delete envelopes, show totals
+    * View a transaction history
 * Offline capibile, fast
     * Uses instantdb.com in the background for syncing
 
@@ -26,7 +27,7 @@ This is the code for our family's organizer
 * Need a way to withdraw/spend money from your account - done
 * Transfer to other person - done
 * Show total current allowance - done
-* Change default envelope
+* Change default envelope - done
     * Set up rules for deposits (ordered list of amounts and percentages (e.g., first $2 in env A, then of the remainder [20% in env B and 80% in env C]))
 * Show accurate currency symbol for rupees at least - done
 * Show the total amount in one given currency, if you changed all your money to that currency today
@@ -34,7 +35,7 @@ This is the code for our family's organizer
 * Envelopes can have a savings goal amount
 * Make a default "Savings" envelope when adding a family member
 * Show the current total allowance for each person in the familyMembersList next to their name
-* Show a full transaction list
+* Show a full transaction list - in progress
     * Show a graph next to the list; if there is a savings goal amount for envelopes this should be incorporated somehow. Maybe if it is a graph of just one envelope (or each envelope is shown in a different color, with the total amount in its own color)
 * Add value to chores (1 to 10 or maybe 1 to 100); then have an allowance; base the allowance payout amount on the weighted values of the chores which have been marked done during the given period
     * Chores can be part of the normal allowance (required to be able to get 100% of the allowance amount for you), or can be up for grabs with a given amount attached

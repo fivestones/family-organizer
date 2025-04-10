@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Check, ChevronsUpDown, MinusCircle, Users } from "lucide-react";
-
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Loader2, Check, ChevronsUpDown, MinusCircle, Users, History } from "lucide-react"; // Add History icon
 // --- Shadcn UI Imports ---
 import { cn } from "@/lib/utils";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -19,8 +19,9 @@ import TransferFundsForm from '@/components/allowance/TransferFundsForm'; // Fro
 import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog';
 import DefineUnitForm from '@/components/allowance/DefineUnitForm';
 import WithdrawForm from '@/components/allowance/WithdrawForm';
-// **** NEW: Import TransferToPersonForm ****
-import TransferToPersonForm from '@/components/allowance/TransferToPersonForm'; // Adjust path if needed
+import TransferToPersonForm from '@/components/allowance/TransferToPersonForm';
+// **** NEW: Import TransactionHistoryView ****
+import TransactionHistoryView from '@/components/allowance/TransactionHistoryView'; // Adjust path if needed
 
 // --- Import Utilities ---
 import {
@@ -35,9 +36,6 @@ import {
     transferFundsToPerson,
     // getDefaultEnvelope // Utility to find the recipient's default envelope; no longer needed, since it's done in the TransferToPersonForm.tsx
 } from '@/lib/currency-utils';
-
-import { Envelope } from '@/components/EnvelopeItem'; // Import Envelope type if needed
-
 
 // Minimal interface for family members passed down
 interface BasicFamilyMember {
@@ -80,6 +78,8 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
      // **** NEW: State for Transfer to Person Modal ****
     const [isTransferToPersonModalOpen, setIsTransferToPersonModalOpen] = useState(false);
 
+    // **** NEW: State to toggle between Allowance Details and Transactions ****
+    const [showingTransactions, setShowingTransactions] = useState(false);
 
     // ... (form states) ...
     const [depositAmount, setDepositAmount] = useState('');
@@ -169,11 +169,25 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
                     }); // [cite: 80, 81]
                    hasInitializedEnvelope.current = false; // Allow retry if failed // [cite: 82]
                 });
-        } else {
-           hasInitializedEnvelope.current = true; // [cite: 84]
-        }
-    }, [memberId, db, isLoading, data, error, toast, member]); // Added member dependency
-
+            } else if (member && member.allowanceEnvelopes && member.allowanceEnvelopes.length > 0) {
+                // Ensure there's always a default if envelopes exist but none is marked
+                 const hasDefault = member.allowanceEnvelopes.some((env: Envelope) => env.isDefault);
+                 if (!hasDefault) {
+                     console.warn(`Member ${memberId} has envelopes but no default. Setting first one as default.`);
+                     hasInitializedEnvelope.current = true; // prevent loop
+                     setDefaultEnvelope(db, member.allowanceEnvelopes, member.allowanceEnvelopes[0].id)
+                         .then(() => toast({ title: "Default Set", description: `Set '${member.allowanceEnvelopes[0].name}' as default.`}))
+                         .catch(err => {
+                             console.error("Failed to set default envelope automatically:", err);
+                             toast({ title: "Error", description: err.message || "Could not set default envelope.", variant: "destructive" });
+                             hasInitializedEnvelope.current = false; // Allow retry
+                         });
+                 } else {
+                    hasInitializedEnvelope.current = true; // Envelopes exist and have a default
+                 }
+             }
+         }, [memberId, db, isLoading, data, error, toast, member]); // Added member dependency
+    
     // --- Event Handlers ---
     const handleDeposit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -269,6 +283,11 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
          setIsTransferToPersonModalOpen(true);
      };
 
+    // **** NEW: Handler to show transactions ****
+    const handleShowTransactionsClick = () => {
+        setShowingTransactions(true);
+    };
+   
     // --- Modal Submit Handlers & Callbacks ---
     const handleTransferSubmit = async (amount: number, currency: string, destinationEnvelopeId: string) => {
         // Basic validation moved to form, but keep checks here too
@@ -383,21 +402,51 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
 
 
     // --- Render Logic ---
-    if (!memberId || !db || isLoading || error || !member) {
-        // Simplified loading/error display
-        return <div className="p-4">{isLoading ? 'Loading...' : 'Error loading details.'}</div>;
+    if (!memberId || !db) return <div className="p-4">Error: Missing required data.</div>;
+    if (isLoading) return <div className="p-4">Loading allowance details...</div>;
+    if (error) return <div className="p-4 text-red-600">Error loading details: {error.message}</div>;
+    if (!member) return <div className="p-4 text-muted-foreground">Member details not found.</div>;
+
+
+    // **** NEW: Conditional Rendering ****
+    if (showingTransactions) {
+        return (
+             <div className="h-full"> {/* Ensure container takes height */}
+                 <TransactionHistoryView
+                     db={db}
+                     mode="member"
+                     familyMemberId={memberId}
+                     unitDefinitions={unitDefinitions}
+                     onClose={() => setShowingTransactions(false)} // Set state back to false
+                 />
+             </div>
+        );
     }
 
-
+    // --- Original Allowance Detail View ---
     return (
-        <div className="p-4 space-y-6 border rounded-lg mt-4 bg-card text-card-foreground">
-            {/* ... Header ... */}
+        // Use h-full and flex/flex-col if needed to ensure height consistency
+        <div className="p-4 space-y-6 border rounded-lg bg-card text-card-foreground h-full flex flex-col">
+             {/* Header Section */}
+             <div className="flex justify-between items-center pb-4 border-b">
              <h2 className="text-xl font-bold">Allowance for {member.name}</h2>
+                 {/* **** NEW: Show Transactions Button **** */}
+                 <Button variant="outline" size="sm" onClick={handleShowTransactionsClick}>
+                     <History className="mr-2 h-4 w-4" />
+                     View History
+                 </Button>
+             </div>
+
+
+            {/* Wrap content in a flex-grow ScrollArea if content might overflow */}
+            <ScrollArea className="flex-grow">
+                 <div className="space-y-6 p-1"> {/* Add padding inside scroll area if needed */}
 
             {/* Deposit Section */}
              <section className="p-4 border rounded-md">
                 <h3 className="text-lg font-semibold mb-3">Add to Allowance</h3>
                 <form onSubmit={handleDeposit} className="space-y-3">
+                    {/* ... deposit form inputs ... */}
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                          {/* Amount Input */}
                          <div>
@@ -543,7 +592,7 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
                      <h3 className="text-lg font-semibold">Envelopes</h3>
                      <Button onClick={handleAddClick} size="sm">+ Add Envelope</Button>
                  </div>
-                  {envelopes.length === 0 && !isLoading && ( <p>...</p> )}
+                          {envelopes.length === 0 && !isLoading && ( <p className='text-muted-foreground italic'>No envelopes created yet.</p> )}
                  <div>
                      {envelopes.map(envelope => (
                         <EnvelopeItem
@@ -558,6 +607,9 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
                     ))}
                  </div>
             </section>
+                </div>{/* End inner padding div */}
+             </ScrollArea> {/* End ScrollArea */}
+
 
              {/* --- Modals --- */}
              <AddEditEnvelopeForm
@@ -596,7 +648,6 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
                  envelopeToDelete={envelopeToDelete}
                  allEnvelopes={envelopes}
             />
-            {/* **** NEW: Define Unit Modal **** */}
             <DefineUnitForm
                 db={db}
                 isOpen={isDefineUnitModalOpen}
