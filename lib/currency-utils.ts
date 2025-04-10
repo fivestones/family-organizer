@@ -259,66 +259,81 @@ export const createInitialSavingsEnvelope = async (db: any, familyMemberId: stri
 }
 
 /**
- * Creates an additional envelope. Assumes checks (like duplicate name) might be done beforehand or handled by schema constraints.
+ * Creates an additional envelope, optionally setting it as default.
+ * Note: Setting as default requires a subsequent call to `setDefaultEnvelope`.
  * @param db - InstantDB instance
  * @param familyMemberId - ID of the family member
  * @param name - Name for the new envelope
+ * @param isDefault - Whether this envelope should be the default
+ * @returns The ID of the newly created envelope.
  */
-export const createAdditionalEnvelope = async (db: any, familyMemberId: string, name: string) => {
+export const createAdditionalEnvelope = async (db: any, familyMemberId: string, name: string, isDefault: boolean) => {
   if (!name || name.trim().length === 0) {
       throw new Error("Envelope name cannot be empty.");
   }
-  // Note: Duplicate name check using useQuery was removed.
-  // Rely on schema constraints or perform check in the component if needed.
   const newEnvelopeId = id();
   await db.transact([
       tx.allowanceEnvelopes[newEnvelopeId].update({
           name: name.trim(),
           balances: {},
-          isDefault: false,
+          // Set the initial default status directly here
+          isDefault: isDefault,
           familyMember: familyMemberId,
       }),
   ]);
-  return newEnvelopeId;
+  console.log(`Created envelope ${newEnvelopeId} with name '${name}' and isDefault=${isDefault}`);
+  return newEnvelopeId; // Return the new ID
 };
 
 /**
- * Sets a specific envelope as the default. Needs the list of current envelopes.
+ * Sets a specific envelope as the default. Ensures any previously default envelope is unset.
  * @param db - InstantDB instance
  * @param envelopes - Array of current envelope objects for the member (fetched in component)
  * @param newDefaultEnvelopeId - ID of the envelope to set as default
  */
-export const setDefaultEnvelope = async (db: any, envelopes: any[], newDefaultEnvelopeId: string) => {
-  // Logic now uses the passed 'envelopes' array instead of querying
+export const setDefaultEnvelope = async (db: any, envelopes: Envelope[], newDefaultEnvelopeId: string) => {
+  console.log(`Attempting to set default: ${newDefaultEnvelopeId}. Current envelopes:`, envelopes);
   const transactions: any[] = [];
-  let foundNewDefault = false;
+  let currentDefaultId: string | null = null;
+  let newDefaultExists = false;
 
-  envelopes.forEach((env: any) => {
+  envelopes.forEach((env: Envelope) => { // Use Envelope type
       if (env.id === newDefaultEnvelopeId) {
-          foundNewDefault = true;
-          if (!env.isDefault) {
-              transactions.push(tx.allowanceEnvelopes[env.id].update({ isDefault: true }));
-          }
+           newDefaultExists = true;
+           // If it's the target AND it's not already default, mark it for update
+           if (!env.isDefault) {
+               console.log(`Marking ${env.id} to become default.`);
+               transactions.push(tx.allowanceEnvelopes[env.id].update({ isDefault: true }));
+           } else {
+                console.log(`${env.id} is already default.`);
+           }
       } else if (env.isDefault) {
+           // If it's NOT the target, but IS currently default, mark it to be unset
+           console.log(`Marking old default ${env.id} to be unset.`);
+           currentDefaultId = env.id; // Keep track of the one we are unsetting
            transactions.push(tx.allowanceEnvelopes[env.id].update({ isDefault: false }));
       }
   });
 
-  if (!foundNewDefault) {
-      // Check if the target envelope exists within the provided array
-       const targetExists = envelopes.some(e => e.id === newDefaultEnvelopeId);
-       if (!targetExists) {
-           throw new Error(`Envelope ${newDefaultEnvelopeId} not found in the provided list for the member.`);
-       }
-       // If it exists but wasn't default before, add the update transaction
+   // Handle case where the newDefaultEnvelopeId wasn't in the original list (e.g., just created)
+   if (!newDefaultExists) {
+       console.log(`New default ${newDefaultEnvelopeId} was not in the initial list, marking for update.`);
        transactions.push(tx.allowanceEnvelopes[newDefaultEnvelopeId].update({ isDefault: true }));
-  }
+       // We still need to ensure the old default (if one exists) is unset.
+       // The loop above should have already added the transaction to unset the currentDefaultId if it exists.
+   }
+
 
   if (transactions.length > 0) {
+      console.log("Executing transactions:", transactions);
       await db.transact(transactions);
-  } else if (!foundNewDefault) {
-       // This condition might be redundant now due to the check above
-       throw new Error(`Could not find envelope ${newDefaultEnvelopeId} to set as default.`);
+      console.log("Default envelope transaction successful.");
+  } else if (newDefaultExists && envelopes.find(e => e.id === newDefaultEnvelopeId)?.isDefault) {
+       console.log("No changes needed, target envelope is already the default.");
+  } else {
+      console.warn("Set default called, but no transactions were generated. Target ID:", newDefaultEnvelopeId);
+      // This might happen if the target ID doesn't exist, which should ideally be caught earlier.
+      // Or if the target was already default and there was no other default to unset.
   }
 };
 
@@ -459,20 +474,24 @@ export const deleteEnvelope = async (
 
 
 /**
- * Updates the name of an envelope.
+ * Updates the name and/or default status of an envelope.
+ * Note: Changing the default status requires a subsequent call to `setDefaultEnvelope`.
  * @param db - InstantDB instance
  * @param envelopeId - ID of the envelope to update
  * @param newName - The new name for the envelope
+ * @param isDefault - The new default status for the envelope
  */
-export const updateEnvelopeName = async (db: any, envelopeId: string, newName: string) => {
+export const updateEnvelope = async (db: any, envelopeId: string, newName: string, isDefault: boolean) => {
   const trimmedName = newName.trim();
   if (!trimmedName) throw new Error("Envelope name cannot be empty.");
 
-  // Note: Duplicate name check using useQuery was removed.
-  // Perform in component or rely on schema constraints.
+  console.log(`Updating envelope ${envelopeId}: name='${trimmedName}', isDefault=${isDefault}`);
   await db.transact([
-      tx.allowanceEnvelopes[envelopeId].update({ name: trimmedName })
+      // Update name and default status in one go.
+      // The subsequent call to setDefaultEnvelope will handle unsetting the *previous* default if necessary.
+      tx.allowanceEnvelopes[envelopeId].update({ name: trimmedName, isDefault: isDefault })
   ]);
+  console.log("Envelope update transaction successful.");
 };
 
 /**

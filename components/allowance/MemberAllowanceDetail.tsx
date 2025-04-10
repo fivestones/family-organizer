@@ -570,6 +570,7 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
                  }}
                 initialData={envelopeToEdit} // [cite: 200]
                 memberId={memberId} // [cite: 200]
+                allMemberEnvelopes={envelopes}
              />
 
             <TransferFundsForm

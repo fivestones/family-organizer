@@ -1,6 +1,7 @@
 import localFont from 'next/font/local';
 import type { Metadata } from "next";
 import "./globals.css";
+import { Toaster } from "@/components/ui/toaster";
 
 // Import local Inter font
 const inter = localFont({
@@ -49,6 +50,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.className}`}>
         {children}
+        <Toaster />
       </body>
     </html>
   );
