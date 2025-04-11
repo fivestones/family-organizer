@@ -24,9 +24,9 @@ interface Transaction {
   currency: string;
   transactionType: string;
   description?: string | null;
-  envelope?: { id: string; name: string; familyMember?: { id: string; name: string } };
-  sourceEnvelope?: { id: string; name: string; familyMember?: { id: string; name: string } };
-  destinationEnvelope?: { id: string; name: string; familyMember?: { id: string; name: string } };
+  envelope?: { id: string; name: string; familyMember?: { id: string; name: string } }[];
+  sourceEnvelope?: { id: string; name: string; familyMember?: { id: string; name: string } }[];
+  destinationEnvelope?: { id: string; name: string; familyMember?: { id: string; name: string } }[];
 }
 
 interface TransactionHistoryViewProps {
@@ -48,33 +48,96 @@ const formatDate = (dateString: string): string => {
   }
 };
 
-// Helper to interpret transaction details
-const getTransactionDetails = (tx: Transaction): string => {
-    switch (tx.transactionType) {
-        case 'deposit':
-            return `Deposit to ${tx.envelope?.name || 'N/A'}`;
-        case 'withdrawal':
-            return `Withdrawal from ${tx.envelope?.name || 'N/A'}`;
-        case 'transfer-in':
-            return `Transfer from ${tx.sourceEnvelope?.name || 'N/A'} to ${tx.destinationEnvelope?.name || 'N/A'}`;
-        case 'transfer-out':
-             return `Transfer from ${tx.sourceEnvelope?.name || 'N/A'} to ${tx.destinationEnvelope?.name || 'N/A'}`;
-        case 'transfer-in-person':
-            return `Transfer from ${tx.sourceEnvelope?.familyMember?.name || 'another member'} (${tx.sourceEnvelope?.name || 'N/A'})`;
-        case 'transfer-out-person':
-            return `Transfer to ${tx.destinationEnvelope?.familyMember?.name || 'another member'} (${tx.destinationEnvelope?.name || 'N/A'})`;
-        default:
-            return tx.description || tx.transactionType || 'Unknown transaction';
+// **** UPDATED Helper to interpret transaction details ****
+const getTransactionDetails = (tx: Transaction, isIntraMemberTransfer: boolean): string => {
+  // Safely access the first element [0] of potentially nested array data
+  const envelope = tx.envelope?.[0]; // Envelope directly affected
+  const srcEnv = tx.sourceEnvelope?.[0];
+  const destEnv = tx.destinationEnvelope?.[0];
+  const srcMember = srcEnv?.familyMember?.[0];
+  const destMember = destEnv?.familyMember?.[0];
+
+  // Get names with fallbacks
+  const envName = envelope?.name || '? Envelope';
+  const srcEnvName = srcEnv?.name || '? Source Env';
+  const destEnvName = destEnv?.name || '? Dest Env';
+  const srcMemberName = srcMember?.name || 'Other Member';
+  const destMemberName = destMember?.name || 'Other Member';
+
+    // Handle the combined type specifically
+    if (isIntraMemberTransfer) {
+        // Use source/dest from the 'transfer-in' record
+        return `Transfer from ${srcEnvName} to ${destEnvName}`;
     }
+
+    // Original logic for other types
+  switch (tx.transactionType) {
+      case 'deposit':
+          // Check if source info is available (e.g., if it was a transfer-in deposit)
+           if (srcMember && srcEnv) {
+               return `Deposit from ${srcMemberName} ${srcEnvName}`;
+           }
+          return `Deposit to ${envName}`; // Basic deposit
+      case 'withdrawal':
+           // Check if destination info is available (e.g. transfer-out withdrawal)
+           if (destMember && destEnv) {
+               return `Withdrawal to ${destMemberName} (${destEnvName})`;
+           }
+          return `Withdrawal from ${envName}`; // Basic withdrawal
+      case 'transfer-in': // Intra-member transfer IN
+           console.log("transfer-in");
+           console.log("tx:", tx);
+          // This type might not be used if using transfer-in-person for all receipts?
+          // Assuming it means received from same member's other envelope
+           return `Transfer from ${srcEnvName} to ${destEnvName || envName}`;
+      case 'transfer-out': // Intra-member transfer OUT
+           console.log("transfer-out");
+           console.log("tx:", tx);
+           // Assuming it means sent to same member's other envelope
+           return `Transfer from ${srcEnvName || envName} to ${destEnvName}`;
+      case 'transfer-in-person': // Received from another person
+          // Envelope receiving the funds is tx.envelope[0] or tx.destinationEnvelope[0]
+          // Source is tx.sourceEnvelope[0] (which has the source member)
+          return `Transfer from ${srcMemberName} to ${destEnvName}`; // Shows who sent it and from which of their envelopes
+      case 'transfer-out-person': // Sent to another person
+          // Envelope losing the funds is tx.envelope[0] or tx.sourceEnvelope[0]
+          // Destination is tx.destinationEnvelope[0] (which has the dest member)
+          return `Transfer to ${destMemberName}`; // Shows who received it and in which of their envelopes
+      default:
+          // Fallback using description or type
+          const fallbackDetail = tx.description || tx.transactionType || 'Unknown Transaction';
+          console.warn("Unhandled transaction type or missing details for:", tx.transactionType, tx);
+          return fallbackDetail;
+  }
 };
 
-// Helper to get transaction sign/style
-const getTransactionStyle = (tx: Transaction): { sign: string; colorClass: string } => {
-    if (tx.amount > 0) return { sign: '+', colorClass: 'text-green-600' };
-    if (tx.amount < 0) return { sign: '', colorClass: 'text-red-600' }; // Amount already negative
-    return { sign: '', colorClass: 'text-muted-foreground' }; // Zero amount?
-}
+// getTransactionStyle - check for intra-member transfer-in case
+const getTransactionStyle = (tx: Transaction, isIntraMemberTransfer: boolean): { sign: string; colorClass: string } => {
+  if (isIntraMemberTransfer) {
+      return { sign: '', colorClass: 'text-foreground' }; // Neutral style
+  }
+  // Original logic
+  if (tx.amount > 0) return { sign: '+', colorClass: 'text-green-600' };
+  if (tx.amount < 0) return { sign: '', colorClass: 'text-red-600' };
+  return { sign: '', colorClass: 'text-muted-foreground' };
+};
 
+// getDisplayTransactionType - check for intra-member transfer-in case
+const getDisplayTransactionType = (tx: Transaction, isIntraMemberTransfer: boolean): string => {
+     if (isIntraMemberTransfer) {
+        return 'Transfer';
+    }
+    // Original logic
+    switch (tx.transactionType) {
+      case 'deposit': return 'Deposit';
+      case 'withdrawal': return 'Withdrawal';
+        case 'transfer-in-person': return 'Received';
+        case 'transfer-out-person': return 'Sent';
+        // transfer-out (intra-member) is filtered
+        // transfer-in (intra-member) handled above
+        default: return tx.transactionType;
+  }
+};
 
 const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
   db,
@@ -95,7 +158,7 @@ const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
         "familyMembers": {
           "$": {
             "where": {
-              "id": "96a2e5b8-a519-4ec9-a0a8-f57e3417a4c7"
+              "id": familyMemberId
             }
           },
           "allowanceEnvelopes": {
@@ -115,12 +178,21 @@ const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
       // Fetch ALL transactions and their related envelopes/members
       // This might be performance-intensive and query structure might need adjustment
       return {
-        allowanceTransactions: {
-            $: {orderBy: {createdAt: 'desc'}}, // Order by newest first
-             createdAt: true, amount: true, currency: true, description: true, transactionType: true, id: true,
-             envelope: { id: true, name: true, familyMember: { id: true, name: true } }, // Also get member via envelope
-             sourceEnvelope: { id: true, name: true, familyMember: { id: true, name: true } },
-             destinationEnvelope: { id: true, name: true, familyMember: { id: true, name: true } }
+        "allowanceTransactions": {
+          "$": {
+            "order": {
+              "serverCreatedAt": "desc"
+            }
+          },
+          "envelope": {
+            "familyMember": {}
+          },
+          "sourceEnvelope": {
+            "familyMember": {}
+          },
+          "destinationEnvelope": {
+            "familyMember": {}
+          }
         }
       };
     }
@@ -128,30 +200,55 @@ const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
   }, [mode, familyMemberId]);
 
   const { isLoading, error, data } = db.useQuery(query, { enabled: mode === 'all' || (mode === 'member' && !!familyMemberId) });
+  console.log("data:", data);
 
-  // --- Data Processing ---
-  const transactions: Transaction[] = useMemo(() => {
+  // --- Data Processing & Filtering ---
+  const processedTransactions: Transaction[] = useMemo(() => {
     if (isLoading || error || !data) return [];
+
+    let rawTxs: Transaction[] = [];
     if (mode === 'member') {
-      // Flatten transactions from member's envelopes
-      return data.familyMembers?.[0]?.allowanceEnvelopes?.flatMap((env: any) => env.transactions || []) || [];
+      rawTxs = data.familyMembers?.[0]?.allowanceEnvelopes?.flatMap((env: any) => env.transactions || []) || [];
     } else if (mode === 'all') {
-      return data.allowanceTransactions || [];
+      rawTxs = data.allowanceTransactions || [];
     }
-    return [];
-  }, [data, isLoading, error, mode]);
+
+    let finalTxs = rawTxs;
+
+    // Only filter if in member view mode
+    if (mode === 'member' && familyMemberId) {
+        finalTxs = rawTxs.filter(tx => {
+            // Check if it's an intra-member transfer-out
+            const srcEnv = tx.sourceEnvelope?.[0];
+            const destEnv = tx.destinationEnvelope?.[0];
+            const isIntraMemberTransferOut =
+                tx.transactionType === 'transfer-out' &&
+                srcEnv?.familyMember?.[0]?.id === familyMemberId &&
+                destEnv?.familyMember?.[0]?.id === familyMemberId;
+
+            // Exclude (return false) if it IS an intra-member transfer-out
+            return !isIntraMemberTransferOut;
+        });
+    }
+
+    // Sort the results
+    finalTxs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return finalTxs;
+
+  }, [data, isLoading, error, mode, familyMemberId]);
+
 
   // Get unique currencies for the filter dropdown
   const availableCurrencies = useMemo(() => {
-    const currencies = new Set(transactions.map(tx => tx.currency));
+    const currencies = new Set(processedTransactions.map(tx => tx.currency));
     return Array.from(currencies).sort();
-  }, [transactions]);
+  }, [processedTransactions]);
 
   // Apply currency filter
   const filteredTransactions = useMemo(() => {
-    if (!filterCurrency) return transactions; // No filter applied
-    return transactions.filter(tx => tx.currency === filterCurrency);
-  }, [transactions, filterCurrency]);
+    if (!filterCurrency) return processedTransactions; // No filter applied
+    return processedTransactions.filter(tx => tx.currency === filterCurrency);
+  }, [processedTransactions, filterCurrency]);
 
   // Sort transactions by date (descending) - API might handle this via query ($orderBy)
    const sortedTransactions = useMemo(() => {
@@ -197,31 +294,54 @@ const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
         </div>
       </CardHeader>
       <CardContent className="flex-grow p-0 overflow-hidden">
-        <ScrollArea className="h-full p-4"> {/* Add padding inside ScrollArea */}
-          {sortedTransactions.length === 0 ? (
-            <p className="text-center text-muted-foreground py-10">No transactions found.</p>
+        <ScrollArea className="h-full p-4">
+          {filteredTransactions.length === 0 ? (
+            <p className="text-center text-muted-foreground py-10">No transactions found{filterCurrency ? ` for ${filterCurrency}` : ''}.</p>
           ) : (
             <ul className="space-y-4">
-              {sortedTransactions.map(tx => {
-                 const { sign, colorClass } = getTransactionStyle(tx);
-                 const details = getTransactionDetails(tx);
-                 const formattedAmount = formatBalances({ [tx.currency]: Math.abs(tx.amount) }, unitDefinitions);
+              {filteredTransactions.map(tx => {
+                 // Determine if this 'transfer-in' is the one we kept for an intra-member transfer
+                 const isIntraMemberTransfer =
+                     mode === 'member' && // Only apply in member mode
+                     tx.transactionType === 'transfer-in' &&
+                     tx.sourceEnvelope?.[0]?.familyMember?.[0]?.id === familyMemberId &&
+                     tx.destinationEnvelope?.[0]?.familyMember?.[0]?.id === familyMemberId;
+
+                 // Use the updated helper functions, passing the flag
+                 const { sign, colorClass } = getTransactionStyle(tx, isIntraMemberTransfer);
+                 const details = getTransactionDetails(tx, isIntraMemberTransfer);
+                 const displayAmount = isIntraMemberTransfer ? Math.abs(tx.amount) : tx.amount; // Use absolute only for the styled intra-member one
+                 const formattedAmountString = formatBalances({ [tx.currency]: Math.abs(displayAmount) }, unitDefinitions); // Format absolute for consistency display
+                 const displayType = getDisplayTransactionType(tx, isIntraMemberTransfer);
+
                  return (
                      <li key={tx.id} className="flex items-center space-x-4 border-b pb-3 last:border-b-0">
-                         <div className="flex-shrink-0 w-12 text-center">
-                             <span className={`text-xl font-semibold ${colorClass}`}>
-                                {sign}{formattedAmount.split(' ')[0]} {/* Show only amount part */}
+                        {/* Amount Display */}
+                         <div className="flex-shrink-0 w-24 text-right pr-2"> {/* Slightly wider, right align */}
+                             {/* **** Display the full formatted string **** */}
+                             <span className={`text-lg font-semibold ${colorClass}`}> {/* Adjusted size slightly */}
+                              {/* Show sign only if NOT the specially styled intra-member transfer */}
+                              {!isIntraMemberTransfer && tx.amount !== 0 ? (tx.amount > 0 ? '+' : '') : ''}
+                                 {formattedAmountString}
                              </span>
                               <span className="text-xs text-muted-foreground block">
                                  {tx.currency}
                              </span>
                          </div>
+                         {/* Details Display */}
                          <div className="flex-grow">
+                              {/* Use the potentially more detailed 'details' string */}
                               <p className="text-sm font-medium leading-none">{details}</p>
-                              {tx.description && <p className="text-xs text-muted-foreground pt-1">{tx.description}</p>}
+                              {/* Show explicit description only if it exists AND differs from the generated details */}
+                              {tx.description && tx.description !== details &&
+                                <p className="text-xs text-muted-foreground pt-1 italic">{tx.description}</p>
+                              }
                               <p className="text-xs text-muted-foreground pt-1">{formatDate(tx.createdAt)}</p>
                          </div>
-                          <Badge variant="outline" className="flex-shrink-0">{tx.transactionType}</Badge>
+                          {/* Transaction Type Badge */}
+                          <Badge variant="outline" className="flex-shrink-0">
+                              {displayType}
+                          </Badge>
                      </li>
                  );
               })}

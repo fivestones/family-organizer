@@ -35,7 +35,7 @@ This is the code for our family's organizer
 * Envelopes can have a savings goal amount
 * Make a default "Savings" envelope when adding a family member
 * Show the current total allowance for each person in the familyMembersList next to their name
-* Show a full transaction list - in progress
+* ~Show a full transaction list~ - done
     * Show a graph next to the list; if there is a savings goal amount for envelopes this should be incorporated somehow. Maybe if it is a graph of just one envelope (or each envelope is shown in a different color, with the total amount in its own color)
 * Add value to chores (1 to 10 or maybe 1 to 100); then have an allowance; base the allowance payout amount on the weighted values of the chores which have been marked done during the given period
     * Chores can be part of the normal allowance (required to be able to get 100% of the allowance amount for you), or can be up for grabs with a given amount attached
