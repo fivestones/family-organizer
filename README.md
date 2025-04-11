@@ -24,12 +24,12 @@ This is the code for our family's organizer
 
 
 ## To do at the moment:
-* Need a way to withdraw/spend money from your account - done
-* Transfer to other person - done
-* Show total current allowance - done
-* Change default envelope - done
+* ~Need a way to withdraw/spend money from your account~ - done
+* ~Transfer to other person~ - done
+* ~Show total current allowance~ - done
+* ~Change default envelope~ - done
     * Set up rules for deposits (ordered list of amounts and percentages (e.g., first $2 in env A, then of the remainder [20% in env B and 80% in env C]))
-* Show accurate currency symbol for rupees at least - done
+* ~Show accurate currency symbol for rupees at least~ - done
 * Show the total amount in one given currency, if you changed all your money to that currency today
     * This will only compute the total for the given currency for monetary curriencies (e.g., if you have $ and euros and stars, it can give you your total in $ and stars)
 * Envelopes can have a savings goal amount
