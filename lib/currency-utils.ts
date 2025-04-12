@@ -17,31 +17,37 @@ export interface CurrencyBalance {
   exchangeRate?: number;
 }
 
-// --- Helper to find the default envelope ---
-/**
- * Finds the default envelope for a given family member.
- * @param db - InstantDB instance
- * @param familyMemberId - ID of the family member
- * @returns The default envelope object or null if none found (should normally not happen after setup)
- */
-export const getDefaultEnvelope = async (db: any, familyMemberId: string) => {
-  const { data } = await db.useQuery({
-      allowanceEnvelopes: {
-          $: { where: { familyMember: { id: familyMemberId }, isDefault: true } },
-          id: true,
-          name: true,
-          balances: true,
-          isDefault: true,
-      }
-  });
-  if (data.allowanceEnvelopes && data.allowanceEnvelopes.length > 0) {
-      return data.allowanceEnvelopes[0];
-  }
-  // Fallback: If no default explicitly set, maybe return the oldest? Or handle error?
-  // For now, returning null, calling code needs to handle.
-  console.warn(`No default envelope found for member ${familyMemberId}`);
-  return null;
-};
+// **** NEW: Interface for cached exchange rates ****
+export interface CachedExchangeRate {
+  id: string; // InstantDB ID
+  baseCurrency: string;
+  targetCurrency: string;
+  rate: number;
+  lastFetchedTimestamp: Date; // Use Date object for easier comparison
+}
+
+// **** NEW: Interface for the result of getting a rate ****
+export interface ExchangeRateResult {
+  rate: number | null; // The rate (fromCurrency -> toCurrency)
+  source: 'cache' | 'calculated' | 'api' | 'identity' | 'unavailable';
+  needsApiFetch: boolean; // Does the component need to trigger an API fetch?
+  calculationTimestamp?: Date; // Older timestamp if calculated
+}
+
+export interface ConvertibleBalance {
+  primaryAmount: number;
+  primaryCurrency: string;
+  secondaryAmounts: {
+    amount: number;
+    currency: string;
+    exchangeRate: number;
+  }[];
+}
+
+// **** NEW: Constants ****
+const OPEN_EXCHANGE_RATES_APP_ID = 'a6175466a16c4ce3b3cdbf9fbb50cb7e';
+const EXCHANGE_RATE_CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const BASE_CURRENCY = "USD"; // API Base
 
 export interface ConvertibleBalance {
   primaryAmount: number;
@@ -88,7 +94,7 @@ export const convertCurrency = (
 
 /**
  * Formats a balance object into a readable string using unit definitions.
- * Example: { "USD": 10.50, "NPR": 1500, "STARS": 25 } => "$10.50, रु. 1,500, ⭐ 25"
+ * Example: { "USD": 10.50, "NPR": 1500, "STARS": 25 } => "$10.50, रु1500, ⭐ 25"
  * Assumes unitDefinitions data is provided.
  * @param balances - The balances object { currencyCode: amount }
  * @param unitDefinitions - An array of unit definition objects fetched from the DB.
@@ -658,4 +664,257 @@ await db.transact([
 ]);
 
 console.log(`Transferred ${upperCaseCurrency} ${amount} from envelope ${sourceEnvelope.id} to ${destinationEnvelope.id}`);
+};
+
+// --- NEW Exchange Rate Functions ---
+
+/**
+ * Fetches the latest exchange rates from Open Exchange Rates API.
+ * NOTE: This uses the web 'fetch' API. Ensure it's available in your environment.
+ * @param baseCurrency - The base currency (usually USD for free tier).
+ * @returns The API response containing rates.
+ */
+export const fetchExternalExchangeRates = async () => {
+    const url = `https://openexchangerates.org/api/latest.json?app_id=${OPEN_EXCHANGE_RATES_APP_ID}&base=${BASE_CURRENCY}`;
+  try {
+      console.log(`Workspaceing exchange rates from: ${url}`);
+      const response = await fetch(url);
+      if (!response.ok) {
+          throw new Error(`API Error (${response.status}): ${response.statusText}`);
+      }
+      const data = await response.json();
+        if (data.error) { /* handle error */ throw new Error(`API Error (${data.status}): ${data.description}`); }
+        if (!data.rates || typeof data.rates !== 'object') { throw new Error("Invalid rates data received from API."); }
+      console.log("API Response:", data);
+        return data; // Contains { base: "USD", rates: { ... }, timestamp: ... }
+  } catch (error) {
+      console.error("Failed to fetch external exchange rates:", error);
+      throw error; // Re-throw to be caught by calling function
+  }
+};
+
+const findRateInCache = (baseCurrency: string, targetCurrency: string, cachedRates: CachedExchangeRate[]): CachedExchangeRate | null => {
+  // Find the most recent valid entry for the pair
+  const rates = cachedRates
+      .filter(r => r.baseCurrency === baseCurrency && r.targetCurrency === targetCurrency)
+      .sort((a, b) => b.lastFetchedTimestamp.getTime() - a.lastFetchedTimestamp.getTime()); // Sort descending by time
+  return rates[0] || null; // Return the latest one found
+};
+
+const isRateValid = (cachedRate: CachedExchangeRate | null): boolean => {
+  if (!cachedRate) return false;
+  const now = new Date();
+  const fetchedTime = cachedRate.lastFetchedTimestamp; // Should be a Date object now
+  if (!(fetchedTime instanceof Date) || isNaN(fetchedTime.getTime())) return false; // Invalid date
+  return (now.getTime() - fetchedTime.getTime()) < EXCHANGE_RATE_CACHE_DURATION_MS;
+};
+
+/**
+* Retrieves a cached exchange rate from InstantDB for a specific target currency.
+* @param db - InstantDB instance.
+* @param targetCurrency - The target currency code (e.g., "NPR").
+* @param baseCurrency - The base currency code (e.g., "USD").
+* @returns The cached rate object { id, rate, lastFetchedTimestamp } or null if not found/error.
+*/
+export const getCachedExchangeRate = async (db: any, targetCurrency: string, baseCurrency: string = "USD"): Promise<CachedExchangeRate | null> => {
+  console.log("inside getCachedExchangeRate");
+  try {
+      const query = {
+          exchangeRates: {
+              $: {
+                  where: { baseCurrency: baseCurrency, targetCurrency: targetCurrency },
+                  limit: 1 // Expecting only one rate per pair
+              }
+          }
+      };
+      // Use queryOnce as we need the data immediately, not a subscription [cite: 129]
+      const { data, error } = await db.queryOnce(query);
+
+      if (error) {
+          console.error("Error fetching cached rate from DB:", error);
+          return null;
+      }
+
+      if (data && data.exchangeRates && data.exchangeRates.length > 0) {
+          const rateData = data.exchangeRates[0];
+          return {
+              ...rateData,
+              lastFetchedTimestamp: new Date(rateData.lastFetchedTimestamp) // Convert string to Date
+          };
+      }
+      return null; // Not found in cache
+  } catch (dbError) {
+      console.error("Database error fetching cached rate:", dbError);
+      return null;
+  }
+};
+
+/**
+ * Stores or updates multiple exchange rates in the InstantDB cache.
+ * Attempts to update existing entries if found, otherwise creates new ones.
+ * @param db - InstantDB instance.
+ * @param ratesToCache - An array of objects: { baseCurrency, targetCurrency, rate, timestamp }
+ * @param allExistingCachedRates - Pass the full list currently known to the component to find IDs.
+ */
+export const cacheExchangeRates = async (
+  db: any,
+  ratesToCache: { baseCurrency: string, targetCurrency: string, rate: number, timestamp: Date }[],
+  allExistingCachedRates: CachedExchangeRate[] // Provide existing cache to find IDs
+): Promise<void> => {
+  if (ratesToCache.length === 0) return;
+
+  const transactions: any[] = [];
+
+  for (const rateInfo of ratesToCache) {
+      if (rateInfo.baseCurrency === rateInfo.targetCurrency || typeof rateInfo.rate !== 'number') continue;
+
+      // Find if an entry for this pair *already exists* in the cache passed from the component
+      const existingRate = findRateInCache(rateInfo.baseCurrency, rateInfo.targetCurrency, allExistingCachedRates);
+
+      const rateData = {
+          baseCurrency: rateInfo.baseCurrency,
+          targetCurrency: rateInfo.targetCurrency,
+          rate: rateInfo.rate,
+          lastFetchedTimestamp: rateInfo.timestamp.toISOString(), // Store as ISO string
+      };
+
+      if (existingRate) {
+          // Update existing entry using its ID
+          console.log(`Updating cached rate for ${rateInfo.baseCurrency}->${rateInfo.targetCurrency} (ID: ${existingRate.id})`);
+          transactions.push(tx.exchangeRates[existingRate.id].update(rateData));
+      } else {
+          // Create new entry
+          const newRateId = id();
+          console.log(`Creating new cached rate for ${rateInfo.baseCurrency}->${rateInfo.targetCurrency} (ID: ${newRateId})`);
+          transactions.push(tx.exchangeRates[newRateId].update(rateData));
+      }
+  }
+
+  if (transactions.length > 0) {
+      try {
+          await db.transact(transactions);
+          console.log(`Processed ${transactions.length} cache updates/creations.`);
+      } catch (error) {
+          console.error("Failed to cache exchange rates in DB:", error);
+      }
+  }
+};
+
+/**
+ * Gets the exchange rate between two currencies. Uses cache, calculates via USD if needed,
+ * caches calculated rates, and signals if an external API fetch is required.
+ * @param db - InstantDB instance (for caching calculated rates).
+ * @param fromCurrency - The currency code to convert from (e.g., "EUR").
+ * @param toCurrency - The currency code to convert to (e.g., "NPR").
+ * @param allCachedRates - The list of ALL cached rates fetched via useQuery in the component.
+ * @returns Promise<ExchangeRateResult>
+*/
+export const getExchangeRate = async (
+    db: any,
+    fromCurrency: string,
+    toCurrency: string,
+    allCachedRates: CachedExchangeRate[]
+): Promise<ExchangeRateResult> => {
+    if (fromCurrency === toCurrency) return { rate: 1.0, source: 'identity', needsApiFetch: false };
+
+    // 1. Check cache for the direct rate (from -> to)
+    const directRateCached = findRateInCache(fromCurrency, toCurrency, allCachedRates);
+    if (isRateValid(directRateCached)) {
+        console.log(`Using valid cached direct rate ${fromCurrency}->${toCurrency}: ${directRateCached!.rate}`);
+        return { rate: directRateCached!.rate, source: 'cache', needsApiFetch: false };
+  }
+
+    // 2. Check cache for USD-based rates (USD -> from) and (USD -> to)
+    const usdToFromRateCached = findRateInCache(BASE_CURRENCY, fromCurrency, allCachedRates); // [cite: 479]
+    // *No need to look up USD->USD in cache*
+    // const usdToToRateCached = findRateInCache(BASE_CURRENCY, toCurrency, allCachedRates); // [cite: 480]
+
+// 3. Check validity of the *required* intermediate rates
+const isUsdToFromValid = isRateValid(usdToFromRateCached); // [cite: 481]
+
+// **** FIX START ****
+// Determine if the USD -> toCurrency rate is valid OR if the toCurrency IS USD itself
+let isUsdToToValid = false;
+let usdToToRateCached: CachedExchangeRate | null = null;
+if (toCurrency === BASE_CURRENCY) {
+    isUsdToToValid = true; // USD -> USD is always valid (rate 1)
+} else {
+    usdToToRateCached = findRateInCache(BASE_CURRENCY, toCurrency, allCachedRates); // Find USD -> non-USD rate
+    isUsdToToValid = isRateValid(usdToToRateCached); // Check its validity
+}
+// **** FIX END ****
+
+
+// 4. If both necessary intermediate rates are valid, calculate and cache the direct rate
+    if (isUsdToFromValid && isUsdToToValid) { // [cite: 482]
+        const rateFrom = usdToFromRateCached!.rate; // [cite: 482]
+        // Get the rate for USD -> toCurrency (it's 1.0 if toCurrency is USD)
+        const rateTo = (toCurrency === BASE_CURRENCY) ? 1.0 : usdToToRateCached!.rate; // [cite: 482]
+
+        if (rateFrom !== 0) { // Avoid division by zero
+            const calculatedRate = rateTo / rateFrom;
+            console.log(`Calculated rate ${fromCurrency}->${toCurrency} via USD: ${calculatedRate}`);
+
+            // Determine the older timestamp for the calculated rate cache entry
+            // If toCurrency is USD, we only depend on the usdToFrom timestamp
+            const calcTimestampSource1 = usdToFromRateCached!.lastFetchedTimestamp;
+            const calcTimestampSource2 = (toCurrency === BASE_CURRENCY) ? calcTimestampSource1 : usdToToRateCached!.lastFetchedTimestamp; // Use first timestamp if comparing against itself
+            const olderTimestamp = calcTimestampSource1.getTime() < calcTimestampSource2.getTime()
+                ? calcTimestampSource1
+                : calcTimestampSource2; //
+
+            // Cache the calculated direct rate async
+            cacheExchangeRates(db, [{
+                baseCurrency: fromCurrency,
+                targetCurrency: toCurrency,
+                rate: calculatedRate,
+                timestamp: olderTimestamp
+            }], allCachedRates) // Pass existing cache for potential update
+              .catch(err => console.error("Failed to cache calculated rate:", err)); // Log error but don't block
+
+            return { rate: calculatedRate, source: 'calculated', needsApiFetch: false, calculationTimestamp: olderTimestamp };
+        }
+    }
+
+    // 5. Signal that an external fetch (base USD) is needed.
+    console.log(`Rate ${fromCurrency}->${toCurrency} requires external fetch. Direct cached: ${!!directRateCached}, USD->From valid: ${isUsdToFromValid}, USD->To valid: ${isUsdToToValid}`);
+
+    // Determine which stale rate to return, if any
+    let staleRate: number | null = null;
+    if (directRateCached) {
+        staleRate = directRateCached.rate;
+        console.log("Returning stale direct rate temporarily.");
+    } else if (usdToFromRateCached && toCurrency === BASE_CURRENCY && usdToFromRateCached.rate !== 0) {
+        // Calculate stale EUR -> USD from stale USD -> EUR
+        staleRate = 1.0 / usdToFromRateCached.rate;
+        console.log("Returning stale calculated (inverse USD) rate temporarily.");
+    } else if (usdToFromRateCached && usdToToRateCached && usdToFromRateCached.rate !== 0) {
+        // Calculate stale EUR -> NPR from stale USD -> EUR and stale USD -> NPR
+        staleRate = usdToToRateCached.rate / usdToFromRateCached.rate;
+        console.log("Returning stale calculated (cross USD) rate temporarily.");
+    }
+
+    return { rate: staleRate, source: 'unavailable', needsApiFetch: true };
+};
+
+/**
+* Updates the last viewed display currency preference for a family member.
+* @param db - InstantDB instance.
+* @param familyMemberId - The ID of the family member.
+* @param currencyCode - The currency code (e.g., "USD") to store.
+*/
+export const setLastDisplayCurrencyPref = async (db: any, familyMemberId: string, currencyCode: string): Promise<void> => {
+    if (!familyMemberId) {
+         console.error("Cannot set currency preference without familyMemberId");
+         return;
+     }
+    try {
+      await db.transact([
+            tx.familyMembers[familyMemberId].update({ lastDisplayCurrency: currencyCode })
+      ]);
+      console.log(`Set last display currency for ${familyMemberId} to ${currencyCode}`);
+  } catch (error) {
+      console.error(`Failed to set currency preference for ${familyMemberId}:`, error);
+      // Handle error appropriately (e.g., show toast)
+  }
 };

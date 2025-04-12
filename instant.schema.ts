@@ -96,6 +96,13 @@ const _schema = i.schema({
       name: i.string(),
       photoUrl: i.string(),
       photoUrls: i.json(),
+      lastDisplayCurrency: i.string().optional(), // Store the code (e.g., "USD", "NPR")
+    }),
+    exchangeRates: i.entity({
+      baseCurrency: i.string().indexed(),       // e.g., "USD" (Open Exchange Rates free tier uses USD base)
+      targetCurrency: i.string().indexed(),    // e.g., "NPR"
+      rate: i.number(),                        // The exchange rate (1 base = X target)
+      lastFetchedTimestamp: i.date().indexed(), // When the rate was last fetched/updated
     }),
     goals: i.entity({
       createdAt: i.any(),

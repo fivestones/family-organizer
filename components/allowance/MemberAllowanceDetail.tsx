@@ -20,8 +20,9 @@ import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog';
 import DefineUnitForm from '@/components/allowance/DefineUnitForm';
 import WithdrawForm from '@/components/allowance/WithdrawForm';
 import TransferToPersonForm from '@/components/allowance/TransferToPersonForm';
-// **** NEW: Import TransactionHistoryView ****
-import TransactionHistoryView from '@/components/allowance/TransactionHistoryView'; // Adjust path if needed
+import TransactionHistoryView from '@/components/allowance/TransactionHistoryView';
+// **** NEW: Import CombinedBalanceDisplay ****
+import CombinedBalanceDisplay from '@/components/allowance/CombinedBalanceDisplay';
 
 // --- Import Utilities ---
 import {
@@ -29,12 +30,18 @@ import {
     createInitialSavingsEnvelope,
     transferFunds, // Renaming this might be good later (e.g., transferFundsIntraMember)
     deleteEnvelope,
-    formatBalances,
-    UnitDefinition,
     withdrawFromEnvelope,
-    // **** NEW: Import transferFundsToPerson and getDefaultEnvelope ****
     transferFundsToPerson,
-    // getDefaultEnvelope // Utility to find the recipient's default envelope; no longer needed, since it's done in the TransferToPersonForm.tsx
+    // **** NEW: Import exchange rate and preference utils ****
+    fetchExternalExchangeRates,
+    cacheExchangeRates,
+    getExchangeRate, // Async util
+    setLastDisplayCurrencyPref,
+    CachedExchangeRate, // Type for cache entries
+
+    UnitDefinition,
+    formatBalances,
+    ExchangeRateResult, // Type for rate result
 } from '@/lib/currency-utils';
 
 // Minimal interface for family members passed down
@@ -43,10 +50,11 @@ interface BasicFamilyMember {
     name: string;
 }
 
-// **** UPDATED: Add allFamilyMembers to props ****
+// Add allFamilyMembers to props
 interface MemberAllowanceDetailProps {
     memberId: string; // Changed from string | null previously? Ensure consistency.
     allFamilyMembers: BasicFamilyMember[]; // Added prop
+    allMonetaryCurrenciesInUse: string[]; // e.g., ["USD", "NPR", "EUR"] - Assume this is passed from parent
 }
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4';
@@ -61,9 +69,15 @@ interface MemberAllowanceDetailProps { // [cite: 101]
     memberId: string; // [cite: 102]
 }
 
-export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: MemberAllowanceDetailProps) { // <-- Destructure new prop
+const BASE_CURRENCY = "USD"; // API Base
+
+export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allMonetaryCurrenciesInUse = ["USD", "NPR", "EUR"]  }: MemberAllowanceDetailProps) { // <-- Destructure new prop
     const { toast } = useToast();
     const hasInitializedEnvelope = useRef(false);
+    const rateCalculationController = useRef<AbortController | null>(null); // Abort controller
+    const isFetchingApiRates = useRef(false); // Prevent concurrent API calls
+    const hasSetInitialCurrency = useRef(false); // Flag to prevent re-initializing currency
+
 
     // --- State ---
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -75,12 +89,14 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
     const [envelopeToDelete, setEnvelopeToDelete] = useState<Envelope | null>(null);
     const [isDefineUnitModalOpen, setIsDefineUnitModalOpen] = useState(false);
     const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
-     // **** NEW: State for Transfer to Person Modal ****
     const [isTransferToPersonModalOpen, setIsTransferToPersonModalOpen] = useState(false);
-
+    // **** NEW exchange rate States ****
+    const [selectedDisplayCurrency, setSelectedDisplayCurrency] = useState<string | null>(null); // e.g., "USD"
+    const [allRates, setAllRates] = useState<{ [pairKey: string]: RateInfo }>({});
+    const [isLoadingRates, setIsLoadingRates] = useState(false);   
     // **** NEW: State to toggle between Allowance Details and Transactions ****
     const [showingTransactions, setShowingTransactions] = useState(false);
-
+    
     // ... (form states) ...
     const [depositAmount, setDepositAmount] = useState('');
     const [depositCurrency, setDepositCurrency] = useState('USD'); // The actual selected/final currency
@@ -90,20 +106,36 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
     const [currencySearchInput, setCurrencySearchInput] = useState('');
     const itemSelectedRef = useRef(false); // Track if selection happened via mouse/keyboard
 
+    const [hasFetchedInitialPrefs, setHasFetchedInitialPrefs] = useState(false);
+    // **** NEW State for calculated results ****
+    const [combinedValue, setCombinedValue] = useState<number | null>(null);
+    const [tooltipLines, setTooltipLines] = useState<string[]>([]);
+    const [nonMonetaryBalances, setNonMonetaryBalances] = useState<{ [c: string]: number }>({});
+
 
     // --- Data Fetching (unitDefinitions still needed locally) ---
     // No need to fetch allFamilyMembers here, it's passed as a prop
-    const { isLoading, error, data } = db.useQuery({
+    const { isLoading: isLoadingData, error: errorData, data } = db.useQuery({
         familyMembers: {
             $: { where: { id: memberId! } },
-            allowanceEnvelopes: {}
+            allowanceEnvelopes: {},
         },
-        unitDefinitions: {}
+        unitDefinitions: {},
+        exchangeRates: {} // Fetch all cached rates
     });
-
+    
+    // --- Derived Data ---
     const member = data?.familyMembers?.[0];
     const envelopes: Envelope[] = member?.allowanceEnvelopes || [];
     const unitDefinitions: UnitDefinition[] = data?.unitDefinitions || [];
+    const allCachedRates: CachedExchangeRate[] = useMemo(() => { // Memoize processing
+        if (!data?.exchangeRates) return [];
+        return data.exchangeRates.map((r: any) => ({
+            ...r,
+            lastFetchedTimestamp: r.lastFetchedTimestamp ? new Date(r.lastFetchedTimestamp) : new Date(0), // Ensure Date, handle potential null
+        })).filter((r: any) => r.lastFetchedTimestamp instanceof Date && !isNaN(r.lastFetchedTimestamp.getTime()));
+    }, [data?.exchangeRates]);
+
     const isLastEnvelope = envelopes.length === 1;
 
 
@@ -143,17 +175,40 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
         return totals;
     }, [envelopes]);
 
-    // --- Effect for Initial Envelope ---
-    useEffect(() => {
-        if (
-            hasInitializedEnvelope.current ||
-            !db ||
-            !memberId ||
-            isLoading ||
-            !data
-        ) return; // [cite: 77]
+    // --- Helper to find first available monetary currency ---
+    const getFirstMonetaryCurrency = useCallback(() => {
+        const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def]));
+        for (const code in totalBalances) {
+            if (totalBalances[code] > 0) {
+                    const definition = unitDefMap.get(code.toUpperCase());
+                    const isMonetary = definition?.isMonetary ?? (code.length === 3);
+                    if (isMonetary) {
+                        return code;
+                    }
+            }
+        }
+        // Fallback if no monetary currency found with balance
+        const firstMonetaryDef = unitDefinitions.find(def => def.isMonetary);
+        return firstMonetaryDef?.code || "USD"; // Absolute fallback
+    }, [totalBalances, unitDefinitions]);
+    
 
-        if (member && member.allowanceEnvelopes?.length === 0) { // [cite: 78]
+    // --- Effect for Initial Setup (Envelope & Currency Pref) ---
+    useEffect(() => {
+        if (isLoadingData || !member || hasFetchedInitialPrefs) return;
+        // ... (logic to set initial selectedDisplayCurrency based on pref or default) ...
+        console.log("Initial Pref/Default currency:", member.lastDisplayCurrency);
+        let initialCurrency = member.lastDisplayCurrency;
+        if (!initialCurrency || !Object.keys(totalBalances).includes(initialCurrency)) {
+            initialCurrency = getFirstMonetaryCurrency();
+            console.log("Pref missing or invalid, using default:", initialCurrency);
+        }
+        setSelectedDisplayCurrency(initialCurrency);
+        setHasFetchedInitialPrefs(true);
+
+        // --- Initialize Default Envelope (Keep existing logic) ---
+        if (!hasInitializedEnvelope.current) {
+             if (envelopes.length === 0) {
             console.log(`Member ${memberId} has no envelopes. Calling createInitialSavingsEnvelope.`);
             hasInitializedEnvelope.current = true; // prevent loop
             createInitialSavingsEnvelope(db, memberId) // [cite: 78]
@@ -171,12 +226,12 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
                 });
             } else if (member && member.allowanceEnvelopes && member.allowanceEnvelopes.length > 0) {
                 // Ensure there's always a default if envelopes exist but none is marked
-                 const hasDefault = member.allowanceEnvelopes.some((env: Envelope) => env.isDefault);
+                const hasDefault = envelopes.some((env: Envelope) => env.isDefault);
                  if (!hasDefault) {
                      console.warn(`Member ${memberId} has envelopes but no default. Setting first one as default.`);
                      hasInitializedEnvelope.current = true; // prevent loop
-                     setDefaultEnvelope(db, member.allowanceEnvelopes, member.allowanceEnvelopes[0].id)
-                         .then(() => toast({ title: "Default Set", description: `Set '${member.allowanceEnvelopes[0].name}' as default.`}))
+                     setDefaultEnvelope(db, envelopes, envelopes[0].id) // [cite: 348]
+                     .then(() => toast({ title: "Default Set", description: `Set '${envelopes[0].name}' as default.` })) // [cite: 348]
                          .catch(err => {
                              console.error("Failed to set default envelope automatically:", err);
                              toast({ title: "Error", description: err.message || "Could not set default envelope.", variant: "destructive" });
@@ -186,8 +241,145 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
                     hasInitializedEnvelope.current = true; // Envelopes exist and have a default
                  }
              }
-         }, [memberId, db, isLoading, data, error, toast, member]); // Added member dependency
+         }
+
+    }, [isLoadingData, member, hasFetchedInitialPrefs, totalBalances, getFirstMonetaryCurrency, unitDefinitions, db, memberId, toast]); // Dependencies
     
+
+    // --- Effect to Calculate Combined Balance and Fetch Rates ---
+    useEffect(() => {
+        // Abort previous calculation if running
+        rateCalculationController.current?.abort();
+        const controller = new AbortController();
+        rateCalculationController.current = controller;
+        const signal = controller.signal;
+
+        // Don't run calculation if currency/data isn't ready
+        if (!selectedDisplayCurrency || isLoadingData || !hasFetchedInitialPrefs) {
+            setCombinedValue(null);
+            setTooltipLines([]);
+            setNonMonetaryBalances({});
+            setIsLoadingRates(false); // Not loading if we don't have the currency yet
+            return;
+        }
+
+        console.log(`Calculating combined balance for: ${selectedDisplayCurrency}`);
+        setIsLoadingRates(true);
+        setCombinedValue(null); // Reset while calculating
+        setTooltipLines([]);
+        setNonMonetaryBalances({});
+
+        const calculate = async () => {
+            let combinedTotal = 0;
+            const lines: string[] = [];
+            const nonMonetary: { [c: string]: number } = {};
+            let needsApiFetch = false;
+            const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def]));
+
+            for (const code in totalBalances) {
+                if (signal.aborted) return; // Check for abort
+                const amount = totalBalances[code];
+                if (amount === 0) continue;
+
+                const definition = unitDefMap.get(code.toUpperCase());
+                 // Determine if monetary (definition first, then fallback)
+                const isMonetary = definition?.isMonetary ?? (code.length === 3 && code.toUpperCase() !== 'STARS');
+
+                if (isMonetary) {
+                    const rateResult = await getExchangeRate(db, code, selectedDisplayCurrency, allCachedRates);
+                    if (signal.aborted) return; // Check for abort
+
+                    if (rateResult.rate !== null) {
+                        const convertedAmount = amount * rateResult.rate;
+                        combinedTotal += convertedAmount;
+
+                        // Add tooltip line based on how the rate was obtained
+                        const formattedOriginal = formatBalances({[code]: amount}, unitDefinitions);
+                        const formattedConverted = formatBalances({[selectedDisplayCurrency]: convertedAmount}, unitDefinitions);
+                        let sourceText = "";
+                        if (rateResult.source === 'identity') sourceText = `already in ${selectedDisplayCurrency}`;
+                        else if (rateResult.source === 'cache') sourceText = `from ${formattedOriginal} (cached rate)`;
+                        else if (rateResult.source === 'calculated') sourceText = `from ${formattedOriginal} (calculated rate)`;
+                        else sourceText = `from ${formattedOriginal}`; // Default if source unclear
+
+                        lines.push(`${formattedConverted} ${sourceText}`);
+
+                    } else {
+                        // Rate unavailable, add note to tooltip
+                        lines.push(`${formatBalances({[code]: amount}, unitDefinitions)} (rate to ${selectedDisplayCurrency} unavailable)`);
+                    }
+
+                    if (rateResult.needsApiFetch) {
+                        needsApiFetch = true;
+                    }
+                } else {
+                    nonMonetary[code] = amount;
+                }
+            } // end for loop
+
+            if (signal.aborted) return;
+
+            // Update state with results
+            setCombinedValue(combinedTotal);
+            setTooltipLines(lines);
+            setNonMonetaryBalances(nonMonetary);
+            console.log("Calculation complete. Combined:", combinedTotal, "Tooltips:", lines.length, "Needs Fetch:", needsApiFetch);
+
+
+            // Trigger API fetch if needed
+            if (needsApiFetch) {
+                console.log("Triggering background API fetch...");
+                //setIsLoadingRates(true); // Already true or will be handled by useQuery refresh
+                try {
+                    const apiData = await fetchExternalExchangeRates(); // Fetches USD based rates
+                     if (signal.aborted) return;
+                    if (apiData && apiData.rates) {
+                        const now = new Date();
+                        const ratesToCache = Object.entries(apiData.rates).map(([currency, rate]) => ({
+                            baseCurrency: BASE_CURRENCY,
+                            targetCurrency: currency,
+                            rate: rate as number,
+                            timestamp: now
+                        }));
+                        // Cache the fresh rates, passing *all* current rates for potential updates
+                        await cacheExchangeRates(db, ratesToCache, allCachedRates);
+                        console.log("Background fetch and cache complete.");
+                        // Let useQuery refresh trigger final state/loading changes
+                    }
+                } catch (fetchError: any) {
+                     if (fetchError.name !== 'AbortError') {
+                        console.error("Error during background rate fetch:", fetchError);
+                        toast({ title: "Error", description: "Could not update exchange rates.", variant: "destructive" });
+                         setIsLoadingRates(false); // Stop loading on error only if fetch fails
+                     } else { console.log("Background fetch aborted."); }
+                } finally {
+                     // setIsLoadingRates(false); // Let useQuery handle final loading state
+                }
+            } else {
+                 setIsLoadingRates(false);
+            }
+        };
+
+        calculate().catch(err => {
+             if (err.name !== 'AbortError') {
+                console.error("Error in calculation effect:", err);
+                setIsLoadingRates(false);
+                setCombinedValue(null); // Indicate error state
+                setTooltipLines(["Error calculating combined value."]);
+             } else {
+                 console.log("Calculation aborted.");
+             }
+        });
+
+        // Cleanup function
+        return () => {
+            console.log("Cleaning up calculation effect.");
+            controller.abort();
+        };
+
+    }, [selectedDisplayCurrency, totalBalances, unitDefinitions, allCachedRates, db, hasFetchedInitialPrefs, isLoadingData]); // Dependencies
+
+
     // --- Event Handlers ---
     const handleDeposit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -287,7 +479,17 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
     const handleShowTransactionsClick = () => {
         setShowingTransactions(true);
     };
-   
+
+    // --- **** NEW Handler to Change Display Currency **** ---
+    const handleDisplayCurrencyChange = useCallback((newCurrency: string) => {
+        if (newCurrency && newCurrency !== selectedDisplayCurrency) {
+            setSelectedDisplayCurrency(newCurrency);
+            // Store preference asynchronously
+            setLastDisplayCurrencyPref(db, memberId, newCurrency)
+                .catch(err => toast({ title: "Warning", description: "Could not save currency preference.", variant:"default" }));
+        }
+    }, [selectedDisplayCurrency, db, memberId, toast]);
+
     // --- Modal Submit Handlers & Callbacks ---
     const handleTransferSubmit = async (amount: number, currency: string, destinationEnvelopeId: string) => {
         // Basic validation moved to form, but keep checks here too
@@ -403,13 +605,13 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
 
     // --- Render Logic ---
     if (!memberId || !db) return <div className="p-4">Error: Missing required data.</div>;
-    if (isLoading) return <div className="p-4">Loading allowance details...</div>;
-    if (error) return <div className="p-4 text-red-600">Error loading details: {error.message}</div>;
+    if (isLoadingData && !member) return <div className="p-4">Loading member details...</div>; // Show loading only if member isn't available yet
+    if (errorData) return <div className="p-4 text-red-600">Error loading details: {errorData.message}</div>;
     if (!member) return <div className="p-4 text-muted-foreground">Member details not found.</div>;
 
 
-    // **** NEW: Conditional Rendering ****
-    if (showingTransactions) {
+    // --- Conditional Rendering for Transactions ---
+    if (showingTransactions) { // [cite: 418]
         return (
              <div className="h-full"> {/* Ensure container takes height */}
                  <TransactionHistoryView
@@ -564,20 +766,34 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers }: Me
 
              {/* Total Allowance Display & Actions */}
             <section className="p-4 border rounded-md bg-muted/50">
-                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                     {/* Balance Display */}
-                    <div>
-                        <h3 className="text-lg font-semibold mb-1 md:mb-0">Total Balance</h3>
-                 {Object.keys(totalBalances).length > 0 ? (
-                    <p className="text-lg font-medium">
+                    <div className="flex-grow"> {/* Allow balance display to take space */}
+                        <h3 className="text-lg font-semibold mb-1">Total Balance</h3>
+                                 {/* Use CombinedBalanceDisplay */}
+                                {selectedDisplayCurrency ? (
+                                     <CombinedBalanceDisplay
+                                        totalBalances={totalBalances}
+                                        displayCurrency={selectedDisplayCurrency}
+                                        combinedMonetaryValue={combinedValue} // Pass calculated value
+                                        nonMonetaryBalances={nonMonetaryBalances} // Pass separated balances
+                                        tooltipLines={tooltipLines} // Pass breakdown lines
+                                        unitDefinitions={unitDefinitions}
+                                        onCurrencyChange={handleDisplayCurrencyChange}
+                                        className="mt-1"
+                                        isLoading={isLoadingRates || (!hasFetchedInitialPrefs && isLoadingData)} // Combine loading states
+                                        // **** NEW: Pass all monetary currencies ****
+                                        allMonetaryCurrenciesInUse={allMonetaryCurrenciesInUse}
+                                     />
+                                ) : (
+                                     // Fallback (should only show briefly during initial load)
+                                     <p className="text-lg font-medium opacity-50">
                         {formatBalances(totalBalances, unitDefinitions)}
                     </p>
-                 ) : (
-                    <p className="text-muted-foreground italic">No funds available yet.</p>
                  )}
                     </div>
                     {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                    <div className="flex flex-col sm:flex-row gap-2 shrink-0 pt-1">
                         <Button variant="outline" onClick={handleWithdrawClick}> <MinusCircle className="mr-2 h-4 w-4" /> Withdraw </Button>
                          {/* **** UPDATED: Added onClick handler **** */}
                         <Button variant="outline" onClick={handleTransferToPersonClick}> <Users className="mr-2 h-4 w-4" /> Transfer to Person </Button>
