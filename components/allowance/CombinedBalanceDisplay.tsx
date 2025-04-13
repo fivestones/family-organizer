@@ -48,7 +48,7 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
   const isMonetary = useCallback((code: string): boolean => {
     const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def])); // [cite: 9]
     const definition = unitDefMap.get(code.toUpperCase()); // [cite: 10]
-    return definition?.isMonetary ?? (code.length === 3 && code.toUpperCase() !== 'STARS'); // [cite: 11]
+    return definition?.isMonetary ?? (code.length === 3); // [cite: 11]
   }, [unitDefinitions]);
 
   // Prepare the list for the dropdown - filter and get details

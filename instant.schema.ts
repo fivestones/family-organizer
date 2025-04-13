@@ -27,6 +27,10 @@ const _schema = i.schema({
       balances: i.json().indexed(),
       isDefault: i.boolean().indexed().optional(), // Flag for the special 'Default' envelope
       description: i.string().optional(),
+      // +++ Additions for Savings Goal +++
+      goalAmount: i.number().optional(),     // e.g., 350
+      goalCurrency: i.string().optional(),   // e.g., "USD"
+      // +++ End Additions +++
       // Link to the family member this envelope belongs to
     }),
     allowanceTransactions: i.entity({

@@ -2,6 +2,7 @@ import { tx, id } from '@instantdb/react';
 
 // Define an interface based on your unitDefinitions schema entity
 export interface UnitDefinition {
+  id: string; // Include ID
   code: string;
   name?: string | null;
   symbol?: string | null;
@@ -11,28 +12,53 @@ export interface UnitDefinition {
   decimalPlaces?: number | null;
 }
 
+// **** UPDATED Envelope interface to include goal fields ****
+export interface Envelope {
+  id: string;
+  name: string;
+  balances: { [currency: string]: number };
+  isDefault?: boolean | null;
+  // Add optional goal fields
+  goalAmount?: number | null;
+  goalCurrency?: string | null;
+  // relationships (may not be populated depending on query)
+  familyMember?: { id: string, name: string }[];
+  transactions?: any[]; // Define more strictly if needed
+  outgoingTransfers?: any[];
+  incomingTransfers?: any[];
+}
+
+
 export interface CurrencyBalance {
   amount: number;
   currency: string;
   exchangeRate?: number;
 }
 
-// **** NEW: Interface for cached exchange rates ****
+// Interface for cached exchange rates
 export interface CachedExchangeRate {
-  id: string; // InstantDB ID
+  id: string;
   baseCurrency: string;
   targetCurrency: string;
   rate: number;
   lastFetchedTimestamp: Date; // Use Date object for easier comparison
 }
 
-// **** NEW: Interface for the result of getting a rate ****
+// Interface for the result of getting a rate
 export interface ExchangeRateResult {
   rate: number | null; // The rate (fromCurrency -> toCurrency)
   source: 'cache' | 'calculated' | 'api' | 'identity' | 'unavailable';
-  needsApiFetch: boolean; // Does the component need to trigger an API fetch?
-  calculationTimestamp?: Date; // Older timestamp if calculated
+  needsApiFetch: boolean;
+  calculationTimestamp?: Date;
 }
+
+// +++ New Interface for Goal Progress Result +++
+export interface GoalProgressResult {
+  totalValueInGoalCurrency: number | null;
+  percentage: number | null;
+  errors: string[]; // To report issues like missing rates
+}
+
 
 export interface ConvertibleBalance {
   primaryAmount: number;
@@ -46,7 +72,7 @@ export interface ConvertibleBalance {
 
 // **** NEW: Constants ****
 const OPEN_EXCHANGE_RATES_APP_ID = 'a6175466a16c4ce3b3cdbf9fbb50cb7e';
-const EXCHANGE_RATE_CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const EXCHANGE_RATE_CACHE_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours; this should cause a maximum of 360 or so api calls per month to openexchangerates.org's api; we have 1000/month in the free tier
 const BASE_CURRENCY = "USD"; // API Base
 
 export interface ConvertibleBalance {
@@ -164,7 +190,7 @@ return Object.entries(balances)
       return `${formattedAmount} ${currencyCode}`; // e.g., "125.5 CustomUnit"
     }
   })
-  .join(', ');
+    .join(', ') || "Empty"; // Return "Empty" if all balances were zero
 };
 
 export const distributeAllowance = (
@@ -258,6 +284,9 @@ export const createInitialSavingsEnvelope = async (db: any, familyMemberId: stri
           balances: {},
           isDefault: true, // First one is default
           familyMember: familyMemberId,
+      // Goal fields initially null
+      goalAmount: null,
+      goalCurrency: null,
       }),
   ]);
   console.log(`Created initial Savings envelope ${newEnvelopeId} for member ${familyMemberId}`);
@@ -265,7 +294,7 @@ export const createInitialSavingsEnvelope = async (db: any, familyMemberId: stri
 }
 
 /**
- * Creates an additional envelope, optionally setting it as default.
+ * Creates an additional envelope, optionally setting it as default and adding goal info.
  * Note: Setting as default requires a subsequent call to `setDefaultEnvelope`.
  * @param db - InstantDB instance
  * @param familyMemberId - ID of the family member
@@ -273,21 +302,41 @@ export const createInitialSavingsEnvelope = async (db: any, familyMemberId: stri
  * @param isDefault - Whether this envelope should be the default
  * @returns The ID of the newly created envelope.
  */
-export const createAdditionalEnvelope = async (db: any, familyMemberId: string, name: string, isDefault: boolean) => {
+export const createAdditionalEnvelope = async (
+  db: any,
+  familyMemberId: string,
+  name: string,
+  isDefault: boolean,
+  goalAmount?: number | null,
+  goalCurrency?: string | null
+) => {
   if (!name || name.trim().length === 0) {
       throw new Error("Envelope name cannot be empty.");
   }
+  if (goalAmount !== null && goalAmount !== undefined && goalAmount <= 0) {
+    throw new Error("Goal amount must be positive if set.");
+  }
+  if ((goalAmount !== null && goalAmount !== undefined) && (!goalCurrency)) {
+      throw new Error("Goal currency must be specified if goal amount is set.");
+  }
+  if (goalCurrency && (goalAmount === null || goalAmount === undefined)) {
+      throw new Error("Goal amount must be specified if goal currency is set.");
+  }
+
+
   const newEnvelopeId = id();
   await db.transact([
       tx.allowanceEnvelopes[newEnvelopeId].update({
-          name: name.trim(),
-          balances: {},
-          // Set the initial default status directly here
-          isDefault: isDefault,
-          familyMember: familyMemberId,
+        name: name.trim(),
+        balances: {},
+        // Set the initial default status directly here
+        isDefault: isDefault,
+        familyMember: familyMemberId,
+        goalAmount: goalAmount ?? null, // Store as null if not provided
+        goalCurrency: goalCurrency ?? null,
       }),
   ]);
-  console.log(`Created envelope ${newEnvelopeId} with name '${name}' and isDefault=${isDefault}`);
+  console.log(`Created envelope ${newEnvelopeId} with name '${name}', isDefault=${isDefault}, goal=${goalCurrency || ''} ${goalAmount || ''}`);
   return newEnvelopeId; // Return the new ID
 };
 
@@ -427,7 +476,7 @@ export const transferFunds = async (db: any, fromEnvelope: any, toEnvelope: any,
  */
 export const deleteEnvelope = async (
     db: any,
-    allEnvelopes: any[],
+  allEnvelopes: Envelope[], // Use Envelope type
     envelopeToDeleteId: string,
     transferToEnvelopeId: string,
     newDefaultEnvelopeId: string | null = null
@@ -438,14 +487,14 @@ export const deleteEnvelope = async (
   // Logic uses passed 'allEnvelopes' array instead of querying
   if (!allEnvelopes || allEnvelopes.length <= 1) throw new Error("Cannot delete the last envelope.");
 
-  const envelopeToDelete = allEnvelopes.find((e: any) => e.id === envelopeToDeleteId);
-  const targetEnvelope = allEnvelopes.find((e: any) => e.id === transferToEnvelopeId);
+  const envelopeToDelete = allEnvelopes.find((e) => e.id === envelopeToDeleteId);
+  const targetEnvelope = allEnvelopes.find((e) => e.id === transferToEnvelopeId);
 
   if (!envelopeToDelete) throw new Error("Envelope to delete not found in provided list.");
   if (!targetEnvelope) throw new Error("Envelope to transfer funds to not found in provided list.");
   if (envelopeToDelete.isDefault && !newDefaultEnvelopeId) throw new Error("Must specify a new default envelope.");
   if (envelopeToDelete.isDefault && newDefaultEnvelopeId === envelopeToDeleteId) throw new Error("New default cannot be the deleted envelope.");
-  if (newDefaultEnvelopeId && !allEnvelopes.some((e: any) => e.id === newDefaultEnvelopeId)) throw new Error(`Specified new default envelope (${newDefaultEnvelopeId}) not found in list.`);
+  if (newDefaultEnvelopeId && !allEnvelopes.some((e) => e.id === newDefaultEnvelopeId)) throw new Error(`Specified new default envelope (${newDefaultEnvelopeId}) not found in list.`);
 
   const balancesToDelete = envelopeToDelete.balances || {};
   const transactions: any[] = [];
@@ -461,8 +510,16 @@ export const deleteEnvelope = async (
       const transferDesc = `Transfer from deleted envelope ${envelopeToDelete.name} to ${targetEnvelope.name}`;
       const transactionIdOut = id();
       const transactionIdIn = id();
-      transactions.push(tx.allowanceTransactions[transactionIdOut].update({ /* ... */ }));
-      transactions.push(tx.allowanceTransactions[transactionIdIn].update({ /* ... */ }));
+      transactions.push(tx.allowanceTransactions[transactionIdOut].update({
+        amount: -amount, currency: currency, transactionType: 'transfer-out',
+        envelope: envelopeToDeleteId, sourceEnvelope: envelopeToDeleteId, destinationEnvelope: transferToEnvelopeId,
+        description: transferDesc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }));
+      transactions.push(tx.allowanceTransactions[transactionIdIn].update({
+        amount: amount, currency: currency, transactionType: 'transfer-in',
+        envelope: transferToEnvelopeId, sourceEnvelope: envelopeToDeleteId, destinationEnvelope: transferToEnvelopeId,
+        description: transferDesc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }));
     }
   }
   transactions.push(tx.allowanceEnvelopes[transferToEnvelopeId].update({ balances: updatedTargetBalances }));
@@ -480,25 +537,46 @@ export const deleteEnvelope = async (
 
 
 /**
- * Updates the name and/or default status of an envelope.
+ * Updates the name, default status, and goal information of an envelope.
  * Note: Changing the default status requires a subsequent call to `setDefaultEnvelope`.
  * @param db - InstantDB instance
  * @param envelopeId - ID of the envelope to update
  * @param newName - The new name for the envelope
  * @param isDefault - The new default status for the envelope
  */
-export const updateEnvelope = async (db: any, envelopeId: string, newName: string, isDefault: boolean) => {
+export const updateEnvelope = async (
+  db: any,
+  envelopeId: string,
+  newName: string,
+  isDefault: boolean,
+  goalAmount?: number | null,
+  goalCurrency?: string | null
+) => {
   const trimmedName = newName.trim();
   if (!trimmedName) throw new Error("Envelope name cannot be empty.");
+  if (goalAmount !== null && goalAmount !== undefined && goalAmount <= 0) {
+    throw new Error("Goal amount must be positive if set.");
+  }
+  if ((goalAmount !== null && goalAmount !== undefined) && (!goalCurrency)) {
+      throw new Error("Goal currency must be specified if goal amount is set.");
+  }
+  if (goalCurrency && (goalAmount === null || goalAmount === undefined)) {
+      throw new Error("Goal amount must be specified if goal currency is set.");
+  }
 
-  console.log(`Updating envelope ${envelopeId}: name='${trimmedName}', isDefault=${isDefault}`);
+
+  console.log(`Updating envelope ${envelopeId}: name='${trimmedName}', isDefault=${isDefault}, goal=${goalCurrency || ''} ${goalAmount || ''}`);
   await db.transact([
-      // Update name and default status in one go.
-      // The subsequent call to setDefaultEnvelope will handle unsetting the *previous* default if necessary.
-      tx.allowanceEnvelopes[envelopeId].update({ name: trimmedName, isDefault: isDefault })
+    tx.allowanceEnvelopes[envelopeId].update({
+      name: trimmedName,
+      isDefault: isDefault,
+      goalAmount: goalAmount ?? null,
+      goalCurrency: goalCurrency ?? null,
+    })
   ]);
   console.log("Envelope update transaction successful.");
 };
+
 
 /**
  * Withdraws funds from a specific envelope.
@@ -620,7 +698,7 @@ const updatedDestinationBalances = { ...destinationEnvelope.balances, [upperCase
 // Create transaction records
 const transactionIdOut = id();
 const transactionIdIn = id();
-const transferDesc = description || `Transfer to ${destinationEnvelope.name}`; // Default description if none provided
+const transferDesc = description || `Transfer to ${(destinationEnvelope as any).familyMember?.[0]?.name || 'other member'} - ${destinationEnvelope.name}`; // Try to get recipient name  // this line was `const transferDesc = description || `Transfer to ${destinationEnvelope.name}`; // Default description if none provided`
 
 // Transaction for the sender
 const transferOutTransaction = tx.allowanceTransactions[transactionIdOut].update({
@@ -666,7 +744,8 @@ await db.transact([
 console.log(`Transferred ${upperCaseCurrency} ${amount} from envelope ${sourceEnvelope.id} to ${destinationEnvelope.id}`);
 };
 
-// --- NEW Exchange Rate Functions ---
+
+// --- Exchange Rate Functions ---
 
 /**
  * Fetches the latest exchange rates from Open Exchange Rates API.
@@ -717,7 +796,6 @@ const isRateValid = (cachedRate: CachedExchangeRate | null): boolean => {
 * @returns The cached rate object { id, rate, lastFetchedTimestamp } or null if not found/error.
 */
 export const getCachedExchangeRate = async (db: any, targetCurrency: string, baseCurrency: string = "USD"): Promise<CachedExchangeRate | null> => {
-  console.log("inside getCachedExchangeRate");
   try {
       const query = {
           exchangeRates: {
@@ -917,4 +995,115 @@ export const setLastDisplayCurrencyPref = async (db: any, familyMemberId: string
       console.error(`Failed to set currency preference for ${familyMemberId}:`, error);
       // Handle error appropriately (e.g., show toast)
   }
+};
+
+// --- NEW Goal Progress Calculation Function ---
+
+/**
+ * Calculates the total value of an envelope's balances in the goal currency
+ * and the percentage of the goal achieved.
+ * @param db - InstantDB instance (for caching calculated rates).
+ * @param envelope - The envelope object (must include balances, goalAmount, goalCurrency).
+ * @param unitDefinitions - Array of unit definitions.
+ * @param allCachedRates - Array of all currently cached exchange rates.
+ * @returns Promise<GoalProgressResult>
+ */
+export const calculateEnvelopeProgress = async (
+  db: any,
+  envelope: Envelope,
+  unitDefinitions: UnitDefinition[],
+  allCachedRates: CachedExchangeRate[]
+): Promise<GoalProgressResult> => {
+  const result: GoalProgressResult = {
+    totalValueInGoalCurrency: null,
+    percentage: null,
+    errors: [],
+  };
+
+  // --- Validation ---
+  if (!envelope.goalAmount || envelope.goalAmount <= 0 || !envelope.goalCurrency) {
+    result.errors.push("Envelope does not have a valid savings goal set.");
+    return result; // Cannot calculate without goal info
+  }
+  if (!envelope.balances || Object.keys(envelope.balances).length === 0) {
+      result.totalValueInGoalCurrency = 0;
+      result.percentage = 0;
+      return result; // No balances, progress is 0%
+  }
+
+  const goalCurrency = envelope.goalCurrency;
+  const goalAmount = envelope.goalAmount;
+  let totalValue = 0;
+  let needsApiFetchOverall = false; // Track if any conversion needs an API fetch
+
+  const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def]));
+
+  // --- Iterate through balances and convert ---
+  for (const [code, amount] of Object.entries(envelope.balances)) {
+    if (amount === 0) continue; // Skip zero balances
+
+    // Check if the currency is monetary
+    const definition = unitDefMap.get(code.toUpperCase());
+    const isMonetary = definition?.isMonetary ?? (code.length === 3); // Assuming non-defined 3-letter codes are monetary
+
+    if (!isMonetary) {
+      console.log(`Skipping non-monetary balance: ${code} ${amount}`);
+      continue; // Skip non-monetary balances for goal calculation
+    }
+
+    // Get exchange rate to goal currency
+    const rateResult = await getExchangeRate(db, code, goalCurrency, allCachedRates);
+
+    if (rateResult.rate !== null) {
+      totalValue += amount * rateResult.rate;
+    } else {
+      // Rate unavailable - record error but continue summing others
+      const errorMsg = `Could not find exchange rate from ${code} to ${goalCurrency}.`;
+      console.warn(errorMsg);
+      result.errors.push(errorMsg);
+      // Do not add this balance to the totalValue
+    }
+
+    // Track if any conversion triggered a need for API fetch
+    if (rateResult.needsApiFetch) {
+      needsApiFetchOverall = true;
+    }
+  } // End loop through balances
+
+  // --- Final Calculations ---
+  result.totalValueInGoalCurrency = totalValue;
+
+  if (goalAmount > 0) {
+    result.percentage = (totalValue / goalAmount) * 100;
+  } else {
+    result.percentage = 0; // Avoid division by zero if goal amount is somehow invalid
+  }
+
+  // If rates were missing, percentage might be inaccurate
+  if (result.errors.length > 0) {
+    console.warn("Goal progress calculated, but some rates were missing.");
+  }
+
+  // Optionally: trigger background fetch if needed (though the display component might handle this)
+  if (needsApiFetchOverall) {
+      console.log("Triggering background rate fetch due to goal calculation needs...");
+      fetchExternalExchangeRates()
+          .then(apiData => {
+              if (apiData && apiData.rates) {
+                  const now = new Date();
+                  const ratesToCache = Object.entries(apiData.rates).map(([currency, rate]) => ({
+                      baseCurrency: BASE_CURRENCY,
+                      targetCurrency: currency,
+                      rate: rate as number,
+                      timestamp: now
+                  }));
+                  return cacheExchangeRates(db, ratesToCache, allCachedRates);
+              }
+          })
+          .then(() => console.log("Background fetch for goal calculation complete."))
+          .catch(err => console.error("Error during background fetch for goal:", err));
+  }
+
+
+  return result;
 };

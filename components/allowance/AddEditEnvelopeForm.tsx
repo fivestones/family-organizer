@@ -1,9 +1,16 @@
 // components/allowance/AddEditEnvelopeForm.tsx
-import React, { useState, useEffect, FormEvent } from 'react';
+import React, { useState, useEffect, FormEvent, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch"; // Import Switch
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -15,9 +22,9 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2 } from "lucide-react";
 import { id, tx } from '@instantdb/react';
-import { Envelope } from '@/components/EnvelopeItem'; // Assuming Envelope type is exported
+
 // **** IMPORT UPDATED/RENAMED UTILITY FUNCTIONS ****
-import { createAdditionalEnvelope, updateEnvelope, setDefaultEnvelope } from '@/lib/currency-utils'; // Import InstantDB utilities
+import { Envelope, UnitDefinition, createAdditionalEnvelope, updateEnvelope, setDefaultEnvelope } from '@/lib/currency-utils'; // Import InstantDB utilities
 
 interface AddEditEnvelopeFormProps {
   db: any; // InstantDB instance
@@ -25,8 +32,10 @@ interface AddEditEnvelopeFormProps {
   onClose: () => void;
   initialData?: Envelope | null; // Envelope data for editing
   memberId: string; // Needed for creating envelopes
-  // **** NEW PROP: Pass all envelopes for the member ****
-  allMemberEnvelopes: Envelope[];
+  allMemberEnvelopes: Envelope[]; // Pass all envelopes for the member
+  // **** UPDATED Props: Receive unitDefinitions and the computed list ****
+  unitDefinitions: UnitDefinition[];
+  allMonetaryCurrenciesInUse: string[];
 }
 
 const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
@@ -35,14 +44,32 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
   onClose,
   initialData,
   memberId,
-  allMemberEnvelopes, // Destructure new prop
+  allMemberEnvelopes,
+  unitDefinitions,
+  allMonetaryCurrenciesInUse, // Use this for dropdown options
 }) => {
   const { toast } = useToast();
   const [envelopeName, setEnvelopeName] = useState('');
-  // **** NEW STATE for the default switch ****
   const [isDefault, setIsDefault] = useState(false);
+  const [goalAmount, setGoalAmount] = useState<string>('');
+  const [goalCurrency, setGoalCurrency] = useState<string | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isEditMode = !!initialData;
+
+  // Create a map for quick lookup of unit definition details (like symbols)
+  const unitDefMap = useMemo(() => {
+    return new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def]));
+  }, [unitDefinitions]);
+
+    // Prepare options for the goal currency dropdown using the computed list
+    const goalCurrencyOptions = useMemo(() => {
+      return allMonetaryCurrenciesInUse.map(code => {
+          const def = unitDefMap.get(code);
+          const label = def?.symbol ? `${code} (${def.symbol})` : (def?.name ? `${code} (${def.name})` : code);
+          return { value: code, label: label };
+      });
+      // No need to sort here if allMonetaryCurrenciesInUse is already sorted
+  }, [allMonetaryCurrenciesInUse, unitDefMap]);
 
   // Populate form when initialData changes (for edit mode)
   useEffect(() => {
@@ -51,13 +78,30 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
         setEnvelopeName(initialData.name);
         // **** Initialize switch based on initial data ****
         setIsDefault(initialData.isDefault ?? false);
+        // **** Populate goal fields ****
+        setGoalAmount(initialData.goalAmount ? String(initialData.goalAmount) : '');
+        setGoalCurrency(initialData.goalCurrency ?? undefined);
       } else {
         setEnvelopeName('');
         // **** Reset switch for add mode (default is false) ****
         setIsDefault(false);
+        // **** Reset goal fields ****
+        setGoalAmount('');
+        setGoalCurrency(undefined);
       }
+      setIsSubmitting(false);
     }
   }, [initialData, isEditMode, isOpen]); // Reset when modal opens/closes or data changes
+
+
+  // **** NEW Effect: Clear currency if amount is cleared ****
+  useEffect(() => {
+      // If the goal amount input is empty, automatically unset the currency
+      if (goalAmount.trim() === '') {
+          setGoalCurrency(undefined);
+      }
+  }, [goalAmount]); // Re-run only when goalAmount changes
+
 
   const handleDefaultChange = (checked: boolean) => {
     // Check if trying to turn OFF the switch WHILE editing an ALREADY default envelope
@@ -78,6 +122,9 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault(); // Prevent page reload
     const trimmedName = envelopeName.trim();
+    const parsedGoalAmount = goalAmount.trim() ? parseFloat(goalAmount) : null;
+
+    // --- Validation ---
     if (!trimmedName) {
       toast({
         title: "Validation Error",
@@ -86,7 +133,23 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
       });
       return;
     }
-    // This check might be redundant now due to the handleDefaultChange logic, but kept for safety.
+    if (parsedGoalAmount !== null && isNaN(parsedGoalAmount)) {
+      toast({ title: "Validation Error", description: "Goal amount must be a valid number.", variant: "destructive" });
+      return;
+    }
+    if (parsedGoalAmount !== null && parsedGoalAmount <= 0) {
+      toast({ title: "Validation Error", description: "Goal amount must be positive if set.", variant: "destructive" });
+      return;
+    }
+    if (parsedGoalAmount !== null && !goalCurrency) {
+       toast({ title: "Validation Error", description: "Please select a goal currency when setting an amount.", variant: "destructive" });
+       return;
+    }
+    // **** Updated check: Allow saving if amount is empty (parsedGoalAmount is null) even if currency *was* set ****
+    // The useEffect above handles clearing goalCurrency state if amount is empty.
+    // The previous validation `if (!parsedGoalAmount && goalCurrency)` is no longer needed because
+    // if `!parsedGoalAmount` is true, the `useEffect` should have already set `goalCurrency` to `undefined`.
+
     if (isEditMode && initialData?.isDefault && !isDefault && allMemberEnvelopes.length <= 1) {
          toast({
              title: "Action Denied",
@@ -99,10 +162,14 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
     setIsSubmitting(true);
 
     try {
+      // **** Pass null if the value is cleared ****
+      const finalGoalAmount = parsedGoalAmount; // parsedGoalAmount will be null if input was empty
+      const finalGoalCurrency = parsedGoalAmount === null ? null : goalCurrency; // Send null if amount is null
+
       if (isEditMode && initialData) {
         // --- UPDATE ---
         const originalIsDefault = initialData.isDefault ?? false;
-        await updateEnvelope(db, initialData.id, trimmedName, isDefault); // Use updated utility
+        await updateEnvelope(db, initialData.id, trimmedName, isDefault, finalGoalAmount, finalGoalCurrency); // pass goal info
         toast({
           title: "Success",
           description: `Envelope '${trimmedName}' updated.`,
@@ -114,7 +181,7 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
         }
       } else {
         // --- CREATE ---
-        const newEnvelopeId = await createAdditionalEnvelope(db, memberId, trimmedName, isDefault); // Pass isDefault
+        const newEnvelopeId = await createAdditionalEnvelope(db, memberId, trimmedName, isDefault, finalGoalAmount, finalGoalCurrency); // Pass goal info
         toast({
           title: "Success",
           description: `Envelope '${trimmedName}' created.`,
@@ -153,19 +220,18 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
   return (
     // **** Increase Modal Width ****
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-       {/* Changed sm:max-w-[425px] to sm:max-w-md */}
-      <DialogContent className="sm:max-w-md">
+      {/* Increased width slightly */}
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{isEditMode ? 'Edit Envelope' : 'Add New Envelope'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
-          {/* Define grid with a wider first column (e.g., 140px) */}
-           {/* Adjust '140px' as needed */}
-          <div className="grid grid-cols-[140px_1fr] items-center gap-x-4 gap-y-4 py-4">
+           {/* Using grid with slightly wider label column */}
+          <div className="grid grid-cols-[140px_1fr] items-center gap-x-4 gap-y-6 py-4"> {/* Increased gap-y */}
 
             {/* -- Row 1: Name -- */}
             <Label htmlFor="envelope-name" className="text-right">
-              Name
+              Name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="envelope-name"
@@ -196,6 +262,49 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
                     aria-label="Make this the default envelope"
                 />
             </div>
+
+             {/* -- Row 3: Goal Amount -- */}
+             <Label htmlFor="goal-amount" className="text-right">
+                Savings Goal (Optional)
+             </Label>
+              <Input
+                  id="goal-amount"
+                  type="number"
+                  value={goalAmount}
+                  // **** Use direct state update ****
+                  onChange={(e) => setGoalAmount(e.target.value)}
+                  placeholder="e.g., 500.00"
+                  step="0.01"
+                  // Allow empty string, min="0" prevents negative visually
+                  min="0"
+                  disabled={isSubmitting}
+              />
+
+               {/* -- Row 4: Goal Currency -- */}
+               <Label htmlFor="goal-currency" className="text-right">
+                  Goal Currency
+                </Label>
+                <Select
+                     value={goalCurrency} // Reflects state, which is cleared by effect if amount is empty
+                    onValueChange={setGoalCurrency}
+                    // **** Disable if amount is empty OR submitting ****
+                    disabled={isSubmitting || !goalAmount.trim()}
+                    name="goal-currency"
+                 >
+                    <SelectTrigger>
+                        {/* **** Adjust placeholder based on whether amount is set **** */}
+                        <SelectValue placeholder={!goalAmount.trim() ? "Set amount first" : "Select currency..."} />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {/* **** Map over goalCurrencyOptions **** */}
+                        {goalCurrencyOptions.map(option => (
+                           <SelectItem key={option.value} value={option.value}>
+                              {option.label} {/* Display computed label with symbol/name */}
+                            </SelectItem>
+                        ))}
+                    {goalCurrencyOptions.length === 0 && <SelectItem value="none" disabled>No monetary currencies available</SelectItem>}
+                    </SelectContent>
+                 </Select>
 
           </div>
           <DialogFooter>

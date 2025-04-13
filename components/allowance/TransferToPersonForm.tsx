@@ -84,7 +84,6 @@ useEffect(() => {
         // Find the default envelope using standard JS array find
         const defaultEnvelope = envelopes.find((env: any) => env.isDefault === true); // Use 'any' if Envelope type isn't perfectly matching raw data
         setDestinationDefaultEnvelope(defaultEnvelope || null);
-        console.log("Found default envelope:", defaultEnvelope); // Debug log
         if (!defaultEnvelope && envelopes.length > 0) {
            console.warn("Recipient has envelopes, but none marked as default.");
            // Consider adding a toast warning here?

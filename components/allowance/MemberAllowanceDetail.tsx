@@ -6,13 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Check, ChevronsUpDown, MinusCircle, Users, History } from "lucide-react"; // Add History icon
+import { Loader2, Check, ChevronsUpDown, MinusCircle, Users, History, Target } from "lucide-react"; // Added Target
 // --- Shadcn UI Imports ---
 import { cn } from "@/lib/utils";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 // --- Import Components ---
+// **** Import updated Envelope type ****
 import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem';
 import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
 import TransferFundsForm from '@/components/allowance/TransferFundsForm'; // From envelope to envelope of the same person
@@ -28,7 +29,8 @@ import CombinedBalanceDisplay from '@/components/allowance/CombinedBalanceDispla
 import {
     depositToSpecificEnvelope,
     createInitialSavingsEnvelope,
-    transferFunds, // Renaming this might be good later (e.g., transferFundsIntraMember)
+    setDefaultEnvelope, // Keep existing setDefaultEnvelope import
+    transferFunds,
     deleteEnvelope,
     withdrawFromEnvelope,
     transferFundsToPerson,
@@ -54,14 +56,15 @@ interface BasicFamilyMember {
 interface MemberAllowanceDetailProps {
     memberId: string; // Changed from string | null previously? Ensure consistency.
     allFamilyMembers: BasicFamilyMember[]; // Added prop
-    allMonetaryCurrenciesInUse: string[]; // e.g., ["USD", "NPR", "EUR"] - Assume this is passed from parent
+    allMonetaryCurrenciesInUse: string[]; // e.g., ["USD", "NPR", "EUR"] - this is passed from parent
+    unitDefinitions: UnitDefinition[]; 
 }
 
-const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4';
+const APP_ID =  process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'af77353a-0a48-455f-b892-010232a052b4';
 const db = init({
   appId: APP_ID,
-  apiURI: "http://kepler.local:8888",
-  websocketURI: "ws://kepler.local:8888/runtime/session",
+  apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || "http://kepler.local:8888",
+  websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://kepler.local:8888/runtime/session",
 });
 
 // Define props for the component
@@ -71,7 +74,13 @@ interface MemberAllowanceDetailProps { // [cite: 101]
 
 const BASE_CURRENCY = "USD"; // API Base
 
-export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allMonetaryCurrenciesInUse = ["USD", "NPR", "EUR"]  }: MemberAllowanceDetailProps) { // <-- Destructure new prop
+// **** Destructure new props ****
+export default function MemberAllowanceDetail({
+    memberId,
+    allFamilyMembers,
+    allMonetaryCurrenciesInUse, // Use received prop
+    unitDefinitions            // Use received prop
+}: MemberAllowanceDetailProps) {
     const { toast } = useToast();
     const hasInitializedEnvelope = useRef(false);
     const rateCalculationController = useRef<AbortController | null>(null); // Abort controller
@@ -92,7 +101,7 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
     const [isTransferToPersonModalOpen, setIsTransferToPersonModalOpen] = useState(false);
     // **** NEW exchange rate States ****
     const [selectedDisplayCurrency, setSelectedDisplayCurrency] = useState<string | null>(null); // e.g., "USD"
-    const [allRates, setAllRates] = useState<{ [pairKey: string]: RateInfo }>({});
+    // const [allRates, setAllRates] = useState<{ [pairKey: string]: RateInfo }>({});
     const [isLoadingRates, setIsLoadingRates] = useState(false);   
     // **** NEW: State to toggle between Allowance Details and Transactions ****
     const [showingTransactions, setShowingTransactions] = useState(false);
@@ -113,21 +122,20 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
     const [nonMonetaryBalances, setNonMonetaryBalances] = useState<{ [c: string]: number }>({});
 
 
-    // --- Data Fetching (unitDefinitions still needed locally) ---
+    // --- Data Fetching ---
+    // Query only for the specific member, their envelopes, and exchange rates
     // No need to fetch allFamilyMembers here, it's passed as a prop
     const { isLoading: isLoadingData, error: errorData, data } = db.useQuery({
         familyMembers: {
             $: { where: { id: memberId! } },
             allowanceEnvelopes: {},
         },
-        unitDefinitions: {},
         exchangeRates: {} // Fetch all cached rates
     });
     
     // --- Derived Data ---
     const member = data?.familyMembers?.[0];
-    const envelopes: Envelope[] = member?.allowanceEnvelopes || [];
-    const unitDefinitions: UnitDefinition[] = data?.unitDefinitions || [];
+    const envelopes: Envelope[] = useMemo(() => member?.allowanceEnvelopes || [], [member]);
     const allCachedRates: CachedExchangeRate[] = useMemo(() => { // Memoize processing
         if (!data?.exchangeRates) return [];
         return data.exchangeRates.map((r: any) => ({
@@ -139,7 +147,7 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
     const isLastEnvelope = envelopes.length === 1;
 
 
-    // --- Generate Currency Options ---
+  // --- Generate Currency Options for Deposit (using props) ---
     const currencyOptions = useMemo(() => {
         // ... (same logic as before to generate options list) ...
         const codes = new Set<string>();
@@ -163,7 +171,7 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
 
 
     // --- Calculate Total Balances ---
-    const totalBalances = useMemo(() => { // [cite: 119]
+  const totalBalances = useMemo(() => {
         const totals: { [currency: string]: number } = {};
         envelopes.forEach(envelope => {
             if (envelope.balances) {
@@ -199,12 +207,17 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
         // ... (logic to set initial selectedDisplayCurrency based on pref or default) ...
         console.log("Initial Pref/Default currency:", member.lastDisplayCurrency);
         let initialCurrency = member.lastDisplayCurrency;
-        if (!initialCurrency || !Object.keys(totalBalances).includes(initialCurrency)) {
+        const availableMonetaryCodes = Object.keys(totalBalances).filter(code => {
+            const def = unitDefinitions.find(ud => ud.code.toUpperCase() === code.toUpperCase());
+            return def?.isMonetary ?? (code.length === 3);
+        });
+
+        if (!initialCurrency || !allMonetaryCurrenciesInUse.includes(initialCurrency)) {
             initialCurrency = getFirstMonetaryCurrency();
             console.log("Pref missing or invalid, using default:", initialCurrency);
         }
         setSelectedDisplayCurrency(initialCurrency);
-        setHasFetchedInitialPrefs(true);
+        setHasFetchedInitialPrefs(true); // Mark pref as fetched/set
 
         // --- Initialize Default Envelope (Keep existing logic) ---
         if (!hasInitializedEnvelope.current) {
@@ -224,26 +237,25 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
                     }); // [cite: 80, 81]
                    hasInitializedEnvelope.current = false; // Allow retry if failed // [cite: 82]
                 });
-            } else if (member && member.allowanceEnvelopes && member.allowanceEnvelopes.length > 0) {
-                // Ensure there's always a default if envelopes exist but none is marked
+            } else {
                 const hasDefault = envelopes.some((env: Envelope) => env.isDefault);
                  if (!hasDefault) {
-                     console.warn(`Member ${memberId} has envelopes but no default. Setting first one as default.`);
-                     hasInitializedEnvelope.current = true; // prevent loop
-                     setDefaultEnvelope(db, envelopes, envelopes[0].id) // [cite: 348]
-                     .then(() => toast({ title: "Default Set", description: `Set '${envelopes[0].name}' as default.` })) // [cite: 348]
+                    console.warn(`Member ${memberId} has envelopes but no default. Setting first one '${envelopes[0].name}' as default.`);
+                    hasInitializedEnvelope.current = true;
+                    setDefaultEnvelope(db, envelopes, envelopes[0].id)
+                        .then(() => toast({ title: "Default Set", description: `Set '${envelopes[0].name}' as default.` }))
                          .catch(err => {
                              console.error("Failed to set default envelope automatically:", err);
                              toast({ title: "Error", description: err.message || "Could not set default envelope.", variant: "destructive" });
-                             hasInitializedEnvelope.current = false; // Allow retry
+                            hasInitializedEnvelope.current = false;
                          });
                  } else {
-                    hasInitializedEnvelope.current = true; // Envelopes exist and have a default
+                    hasInitializedEnvelope.current = true; // envelopes exist and have a default
                  }
              }
          }
 
-    }, [isLoadingData, member, hasFetchedInitialPrefs, totalBalances, getFirstMonetaryCurrency, unitDefinitions, db, memberId, toast]); // Dependencies
+   }, [isLoadingData, member, envelopes, hasFetchedInitialPrefs, allMonetaryCurrenciesInUse, getFirstMonetaryCurrency, unitDefinitions, db, memberId, toast]); // Add allMonetaryCurrenciesInUse to dependencies
     
 
     // --- Effect to Calculate Combined Balance and Fetch Rates ---
@@ -283,7 +295,7 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
 
                 const definition = unitDefMap.get(code.toUpperCase());
                  // Determine if monetary (definition first, then fallback)
-                const isMonetary = definition?.isMonetary ?? (code.length === 3 && code.toUpperCase() !== 'STARS');
+                const isMonetary = definition?.isMonetary ?? (code.length === 3);
 
                 if (isMonetary) {
                     const rateResult = await getExchangeRate(db, code, selectedDisplayCurrency, allCachedRates);
@@ -298,8 +310,8 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
                         const formattedConverted = formatBalances({[selectedDisplayCurrency]: convertedAmount}, unitDefinitions);
                         let sourceText = "";
                         if (rateResult.source === 'identity') sourceText = `already in ${selectedDisplayCurrency}`;
-                        else if (rateResult.source === 'cache') sourceText = `from ${formattedOriginal} (cached rate)`;
-                        else if (rateResult.source === 'calculated') sourceText = `from ${formattedOriginal} (calculated rate)`;
+                        else if (rateResult.source === 'cache') sourceText = `from ${formattedOriginal}`; // removed " (cached rate)" from the end of the string
+                        else if (rateResult.source === 'calculated') sourceText = `from ${formattedOriginal}`; // removed " (calculated rate)" from the edn of the string
                         else sourceText = `from ${formattedOriginal}`; // Default if source unclear
 
                         lines.push(`${formattedConverted} ${sourceText}`);
@@ -377,7 +389,7 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
             controller.abort();
         };
 
-    }, [selectedDisplayCurrency, totalBalances, unitDefinitions, allCachedRates, db, hasFetchedInitialPrefs, isLoadingData]); // Dependencies
+    }, [selectedDisplayCurrency, totalBalances, unitDefinitions, allCachedRates, db, hasFetchedInitialPrefs, isLoadingData, toast]); // Dependencies
 
 
     // --- Event Handlers ---
@@ -641,8 +653,8 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
 
 
             {/* Wrap content in a flex-grow ScrollArea if content might overflow */}
-            <ScrollArea className="flex-grow">
-                 <div className="space-y-6 p-1"> {/* Add padding inside scroll area if needed */}
+            <ScrollArea className="flex-grow -mr-4 pr-4">
+                 <div className="space-y-6 pb-4"> 
 
             {/* Deposit Section */}
              <section className="p-4 border rounded-md">
@@ -808,14 +820,19 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
                      <h3 className="text-lg font-semibold">Envelopes</h3>
                      <Button onClick={handleAddClick} size="sm">+ Add Envelope</Button>
                  </div>
-                          {envelopes.length === 0 && !isLoading && ( <p className='text-muted-foreground italic'>No envelopes created yet.</p> )}
+            {/* ... loading/empty states ... */}
+            {envelopes.length === 0 && !isLoadingData && ( <p className='text-muted-foreground italic'>No envelopes created yet.</p> )}
+            {isLoadingData && envelopes.length === 0 && ( <p className='text-muted-foreground italic'>Loading envelopes...</p> )}
                  <div>
                      {envelopes.map(envelope => (
                         <EnvelopeItem
                             key={envelope.id}
+                  db={db}
                             envelope={envelope}
                             isLastEnvelope={isLastEnvelope}
-                            unitDefinitions={unitDefinitions} // Pass definitions down
+                            unitDefinitions={unitDefinitions}
+                            // **** Pass cached rates down ****
+                            allCachedRates={allCachedRates}
                             onEdit={handleEditClick}
                             onTransfer={handleTransferClick}
                             onDelete={handleDeleteClick}
@@ -839,6 +856,9 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
                 initialData={envelopeToEdit} // [cite: 200]
                 memberId={memberId} // [cite: 200]
                 allMemberEnvelopes={envelopes}
+                // **** Pass unit definitions to Add/Edit form ****
+                unitDefinitions={unitDefinitions}
+                allMonetaryCurrenciesInUse={allMonetaryCurrenciesInUse}
              />
 
             <TransferFundsForm
@@ -851,6 +871,8 @@ export default function MemberAllowanceDetail({ memberId, allFamilyMembers, allM
                 onSubmit={handleTransferSubmit}
                 sourceEnvelopeId={transferSourceEnvelopeId}
                 allEnvelopes={envelopes}
+                // **** Pass unit definitions if needed by Transfer form for formatting ****
+                unitDefinitions={unitDefinitions}
             />
 
             <DeleteEnvelopeDialog

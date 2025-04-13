@@ -33,7 +33,7 @@ This is the code for our family's organizer
 * ~Show the total amount in one given currency, if you changed all your money to that currency today~ - done
     * ~This will only compute the total for the given currency for monetary curriencies (e.g., if you have $ and euros and stars, it can give you your total in $ and stars)~
     * Make the last chosen display currency come up next time first, per family member
-* Envelopes can have a savings goal amount
+* ~Envelopes can have a savings goal amount~ - done
 * Make a default "Savings" envelope when adding a family member
 * Show the current total allowance for each person in the familyMembersList next to their name
 * ~Show a full transaction list~ - done
@@ -126,4 +126,11 @@ Not fully tested, but might work:
 
 
 ### How I got the instant.schema.ts file from the database
+to get the schema file out of the instantdb database, cd into the base directory of the react or next.js project. Then
+`INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest login`
+Then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest pull` which will pull the data and create the instant.schema.ts file.
+Then when you have the schema file modified how you want it to be,
+`INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest push`
+
+The old way, for when I didn't know to add `@latest`:
 `npx instant-cli pull` should do it, but it wasn't working to login to the locally hosted instantdb backend. `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli login` and then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli pull` should work, but the login only took me to https://instantdb.com/login. Maybe my version of instant-cli was out of date. I tried a bunch of ways, and finally what worked was to cd into the instant/client directory (from where I did git clone of the instantdb repo), then `pnpm install` (which probably isn't needed since I had done that to run the client web interface already), then cd packages/cli, then `pnpm dev`, then in a new browser, `cd instant/client/packages/cli` and then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI=http://localhost:8888 node dist/index.js login` which brought me to the localhost:3000 client instance for login, then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI=http://localhost:8888 node dist/index.js pull` which walked me through using the instantdb to write a schema to instant.schema.ts (and perms to instant.perms.ts).
