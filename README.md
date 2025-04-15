@@ -35,7 +35,7 @@ This is the code for our family's organizer
     * Make the last chosen display currency come up next time first, per family member
 * ~Envelopes can have a savings goal amount~ - done
 * Make a default "Savings" envelope when adding a family member
-* Show the current total allowance for each person in the familyMembersList next to their name
+* ~Show the current total allowance for each person in the familyMembersList next to their name~ - done
 * ~Show a full transaction list~ - done
     * Show a graph next to the list; if there is a savings goal amount for envelopes this should be incorporated somehow. Maybe if it is a graph of just one envelope (or each envelope is shown in a different color, with the total amount in its own color)
     * Add a running total, per currency or as a combined total in a given currency
