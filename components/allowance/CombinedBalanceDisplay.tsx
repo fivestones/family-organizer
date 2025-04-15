@@ -1,9 +1,9 @@
 // components/allowance/CombinedBalanceDisplay.tsx
 import React, { useState, useCallback, useMemo } from 'react';
-import { UnitDefinition, formatBalances } from '@/lib/currency-utils'; // [cite: 2]
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"; // [cite: 2]
-import { cn } from "@/lib/utils"; // [cite: 3]
-import { Loader2, ChevronsUpDown } from 'lucide-react'; // [cite: 3]
+import { UnitDefinition, formatBalances } from '@/lib/currency-utils';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { Loader2, ChevronsUpDown } from 'lucide-react';
 // **** NEW: Import DropdownMenu components ****
 import {
   DropdownMenu,
@@ -16,43 +16,46 @@ import { Button } from "@/components/ui/button";
 
 interface CombinedBalanceDisplayProps {
   totalBalances: { [currency: string]: number }; // Original balances
-  displayCurrency: string; // Target currency
-  // **** NEW: Pass final calculated value and breakdown ****
-  combinedMonetaryValue: number | null; // Final value in displayCurrency, null if calculation pending/failed
-  nonMonetaryBalances: { [currency: string]: number }; // Separated non-monetary
-  tooltipLines: string[]; // Pre-calculated breakdown lines
+  displayCurrency?: string; // Target currency - Make optional if combined not shown
+  combinedMonetaryValue?: number | null; // Final value in displayCurrency, null if calculation pending/failed - Make optional
+  nonMonetaryBalances?: { [currency: string]: number }; // Separated non-monetary - Make optional
+  tooltipLines?: string[]; // Pre-calculated breakdown lines - Make optional
   unitDefinitions: UnitDefinition[];
   onCurrencyChange?: (currencyCode: string) => void;
   className?: string;
-  isLoading: boolean;
-  // **** NEW PROP ****
-  allMonetaryCurrenciesInUse: string[]; // All monetary codes used across app
+  isLoading: boolean; // Loading state for rates/calculation
+  allMonetaryCurrenciesInUse?: string[]; // All monetary codes used across app - Make optional
+  // **** NEW PROP to control combined balance display ****
+  showCombinedBalance?: boolean; // Defaults to true
 }
 
 const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
   totalBalances,
-  displayCurrency,
+  displayCurrency, // May be undefined if showCombinedBalance is false
   combinedMonetaryValue,
-  nonMonetaryBalances,
-  tooltipLines,
+  nonMonetaryBalances, // May be undefined if showCombinedBalance is false
+  tooltipLines, // May be undefined if showCombinedBalance is false
   unitDefinitions,
   onCurrencyChange,
   className,
-  isLoading,
-  allMonetaryCurrenciesInUse, // Destructure new prop
+  isLoading, // Represents loading state for combined calc OR just general data loading if combined is hidden
+  allMonetaryCurrenciesInUse, // May be undefined if showCombinedBalance is false
+  showCombinedBalance = true, // Default to true
 }) => {
   const [isTooltipOpen, setIsTooltipOpen] = useState(false);
   const [isCurrencyDropdownOpen, setIsCurrencyDropdownOpen] = useState(false); // For dropdown
 
   // Helper to check if a code is monetary
   const isMonetary = useCallback((code: string): boolean => {
-    const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def])); // [cite: 9]
-    const definition = unitDefMap.get(code.toUpperCase()); // [cite: 10]
-    return definition?.isMonetary ?? (code.length === 3); // [cite: 11]
+    const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def]));
+    const definition = unitDefMap.get(code.toUpperCase());
+    return definition?.isMonetary ?? (code.length === 3);
   }, [unitDefinitions]);
 
   // Prepare the list for the dropdown - filter and get details
+  // Only compute if needed (combined balance is shown)
   const dropdownCurrencyOptions = useMemo(() => {
+    if (!showCombinedBalance || !allMonetaryCurrenciesInUse) return []; // Don't compute if not shown or data missing
       const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def]));
       return allMonetaryCurrenciesInUse
           .filter(code => isMonetary(code)) // Ensure it's monetary
@@ -65,12 +68,11 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
               };
           })
           .sort((a, b) => a.code.localeCompare(b.code)); // Sort alphabetically
-  }, [allMonetaryCurrenciesInUse, unitDefinitions, isMonetary]);
-
+  }, [showCombinedBalance, allMonetaryCurrenciesInUse, unitDefinitions, isMonetary]); 
 
   const handleOriginalClick = (currencyCode: string) => {
-     if (onCurrencyChange && isMonetary(currencyCode)) { // [cite: 37]
-        onCurrencyChange(currencyCode); // [cite: 38]
+     if (onCurrencyChange && isMonetary(currencyCode)) {
+        onCurrencyChange(currencyCode);
      }
   };
 
@@ -82,64 +84,71 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
   }
 
   // --- Format Output Strings ---
-  const formattedCombinedMonetary = (combinedMonetaryValue !== null)
+  const formattedCombinedMonetary = (!combinedMonetaryValue !== null && combinedMonetaryValue != undefined)
     ? formatBalances({ [displayCurrency]: combinedMonetaryValue }, unitDefinitions)
-    : "Calculating..."; // Placeholder while loading or if failed
+    : (showCombinedBalance && isLoading) ? "Calculating..." : null; // // Show calculating only if combined is relevant
+    
+  // Format non-monetary balances (could be shown even if combined is hidden)
+  // If combinedMonetaryValue is the only thing loading, nonMonetaryBalances might still be available
+  const derivedNonMonetaryBalances = nonMonetaryBalances ?? Object.fromEntries(
+      Object.entries(totalBalances).filter(([code]) => !isMonetary(code))
+  );
+  const formattedNonMonetary = formatBalances(derivedNonMonetaryBalances, unitDefinitions);
+  const hasMonetaryBalances = Object.keys(totalBalances).some(isMonetary);
+  const hasNonMonetaryBalances = Object.keys(derivedNonMonetaryBalances).length > 0;
 
-  const formattedNonMonetary = formatBalances(nonMonetaryBalances, unitDefinitions); // [cite: 41]
-  const hasMonetaryBalances = Object.keys(totalBalances).some(isMonetary); // [cite: 41]
-  const hasNonMonetaryBalances = Object.keys(nonMonetaryBalances).length > 0; // [cite: 41]
-
-  // Determine current display currency details for the label
+  // Determine current display currency details for the label (only if combined shown)
   const currentDisplayUnitDef = useMemo(() => {
+      if (!showCombinedBalance || !displayCurrency) return null; // Don't compute if not needed
       const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def]));
       return unitDefMap.get(displayCurrency.toUpperCase());
-  }, [displayCurrency, unitDefinitions]);
-  const displayCurrencyLabelPart = currentDisplayUnitDef?.symbol
-      ? `${currentDisplayUnitDef.symbol} ${displayCurrency}` // e.g., "$ USD"
-      : displayCurrency; // Fallback to code
+  }, [showCombinedBalance, displayCurrency, unitDefinitions]); 
 
-  // **** NEW: Check if displayCurrency exists in *this member's* balances ****
-  const displayCurrencyExistsForMember = totalBalances.hasOwnProperty(displayCurrency);
+  const displayCurrencyLabelPart = showCombinedBalance ? (currentDisplayUnitDef?.symbol
+      ? `${currentDisplayUnitDef.symbol} ${displayCurrency}` // e.g., "$ USD"
+    : displayCurrency) : null; // // Fallback to code
+
+  // Check if displayCurrency exists in *this member's* balances (only relevant if combined shown)
+  const displayCurrencyExistsForMember = showCombinedBalance && displayCurrency && totalBalances.hasOwnProperty(displayCurrency); 
 
   return (
     <div className={cn("space-y-1", className)}>
        {/* Original Balances (Clickable, with adjusted highlighting) */}
-       <p className="text-lg font-medium">
+      {/* Render this section regardless of showCombinedBalance */}
+       <p className="font-medium">
           {Object.entries(totalBalances).map(([code, amount], index, arr) => {
-             const monetary = isMonetary(code);
-             // **** UPDATED Highlight Logic ****
-             const isHighlighted = monetary && code === displayCurrency && displayCurrencyExistsForMember;
-             const isClickable = monetary && !!onCurrencyChange;
-             const balanceStr = formatBalances({ [code]: amount }, unitDefinitions);
-
-             return (
-               <React.Fragment key={code}>
-                 {isClickable ? (
-                   <button
-                     onClick={() => handleOriginalClick(code)}
-                     className={cn(
-                       "hover:underline focus:underline focus:outline-none rounded px-1 py-0.5 transition-colors",
-                       isHighlighted ? "bg-primary/10 text-primary font-semibold" : "hover:bg-muted" // Use isHighlighted flag
-                      )} // [cite: 44]
-                     title={`Show total in ${code}`}
-                     disabled={isLoading} // Disable while loading
-                   >
-                     {balanceStr}
-                   </button>
-                 ) : (
-                   <span className="px-1 py-0.5">{balanceStr}</span>
-                 )}
-                 {index < arr.length - 1 && <span className="text-muted-foreground">, </span>}
-               </React.Fragment>
-             );
+              const monetary = isMonetary(code);
+              // Highlight only if combined section is shown and it's the selected display currency
+              const isHighlighted = showCombinedBalance && monetary && code === displayCurrency && displayCurrencyExistsForMember; 
+              const isClickable = monetary && !!onCurrencyChange; // Clickable if monetary and handler exists
+              const balanceStr = formatBalances({ [code]: amount }, unitDefinitions);
+              
+              return (
+                <React.Fragment key={code}>
+                  {isClickable ? (
+                    <button
+                      onClick={() => handleOriginalClick(code)}
+                      className={cn(
+                        "hover:underline focus:underline focus:outline-none rounded px-1 py-0.5 transition-colors",
+                        isHighlighted ? "bg-primary/10 text-primary font-semibold" : "hover:bg-muted" // Use isHighlighted flag
+                        )}
+                        title={showCombinedBalance ? `Show total in ${code}`: `Balance in ${code}`}
+                        disabled={isLoading && showCombinedBalance} // Disable only if combined section is loading
+                    >
+                      {balanceStr}
+                    </button>
+                  ) : (
+                    <span className="px-1 py-0.5">{balanceStr}</span>
+                  )}
+                  {index < arr.length - 1 && <span className="text-muted-foreground">, </span>}
+                </React.Fragment>
+              );
           })}
           {Object.keys(totalBalances).length === 0 && <span className="text-muted-foreground italic">No funds available yet.</span>}
        </p>
 
-       {/* Combined Balance */}
-       {/* Show combined section if there are monetary balances OR if loading */}
-       {(hasMonetaryBalances || isLoading) && (
+      {/* Combined Balance Section (Conditionally Rendered) */}
+      {showCombinedBalance && (hasMonetaryBalances || isLoading) && ( // Only show if prop is true AND monetary balances exist OR loading rates
            <div className="flex items-center space-x-1 text-sm min-h-[20px]"> {/* Reduced space-x */}
                 {/* **** UPDATED Label Structure **** */}
                 <span className="text-muted-foreground">Combined, in</span>
@@ -187,10 +196,10 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-2 text-xs" align="start">
                           <ul className="space-y-0.5">
-                                {tooltipLines.length > 0
-                                    ? tooltipLines.map((line, i) => <li key={i}>{line}</li>)
-                                    : <li>Breakdown unavailable.</li>
-                                }
+                            {(tooltipLines && tooltipLines.length > 0) 
+                              ? tooltipLines.map((line, i) => <li key={i}>{line}</li>)
+                              : <li>Breakdown unavailable.</li>
+                            }
                         </ul>
                     </PopoverContent>
                 </Popover>
@@ -206,7 +215,8 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
                 )}
            </div>
        )}
-       {/* If only non-monetary balances exist and not loading */}
+
+      {/* If ONLY non-monetary balances exist and not loading (and combined not shown or no monetary) */}
        {!hasMonetaryBalances && hasNonMonetaryBalances && !isLoading && (
             <div className="flex items-center space-x-2 text-sm">
                 <span className="text-muted-foreground">Total:</span>

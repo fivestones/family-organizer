@@ -1,5 +1,5 @@
 // components/FamilyMembersList.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -18,6 +18,37 @@ import { useToast } from '@/components/ui/use-toast';
 import Cropper from 'react-easy-crop';
 import { Checkbox } from '@/components/ui/checkbox';
 import { tx, id } from '@instantdb/react';
+// **** NEW: Import types and components ****
+import CombinedBalanceDisplay from '@/components/allowance/CombinedBalanceDisplay';
+import { UnitDefinition } from '@/lib/currency-utils';
+
+// Define FamilyMember type based on usage
+interface FamilyMember {
+    id: string;
+    name: string;
+    email?: string | null;
+    photoUrls?: {
+        '64'?: string;
+        '320'?: string;
+        '1200'?: string;
+    } | null;
+    // Add other fields if needed from the query context (ChoreList vs AllowanceView)
+}
+
+// **** NEW: Define Props ****
+interface FamilyMembersListProps {
+    familyMembers: FamilyMember[];
+    selectedMember: string | null | 'All';
+    setSelectedMember: (id: string | null | 'All') => void;
+    addFamilyMember: (name: string, email: string | null, photoFile: File | null) => Promise<void>;
+    deleteFamilyMember: (memberId: string) => Promise<void>;
+    db: any; // InstantDB instance
+    // **** NEW Props for balance display ****
+    showBalances?: boolean; // To control the feature
+    membersBalances?: { [memberId: string]: { [currency: string]: number } }; // Optional balances map
+    unitDefinitions?: UnitDefinition[]; // Optional currency definitions
+}
+
 
 function FamilyMembersList({
   familyMembers,
@@ -26,7 +57,11 @@ function FamilyMembersList({
   addFamilyMember,
   deleteFamilyMember,
   db,
-}) {
+  // **** Destructure new props ****
+  showBalances = false, // Default to false if not provided
+  membersBalances,
+  unitDefinitions = [], // Default to empty array
+}: FamilyMembersListProps) { // Add type annotation
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
@@ -40,10 +75,10 @@ function FamilyMembersList({
   const [imageSrc, setImageSrc] = useState(null);
 
   // State variables for editing members
-  const [editingMember, setEditingMember] = useState(null);
+  const [editingMember, setEditingMember] = useState<FamilyMember | null>(null); // Type annotation [cite: 780]
   const [editMemberName, setEditMemberName] = useState('');
   const [editMemberEmail, setEditMemberEmail] = useState('');
-  const [editImageSrc, setEditImageSrc] = useState(null);
+  const [editImageSrc, setEditImageSrc] = useState<string | null>(null); // Type annotation [cite: 781]
   const [editCrop, setEditCrop] = useState({ x: 0, y: 0 });
   const [editZoom, setEditZoom] = useState(1);
   const [editCroppedAreaPixels, setEditCroppedAreaPixels] = useState(null);
@@ -78,8 +113,8 @@ function FamilyMembersList({
       const file = e.target.files[0];
       const imageDataUrl = await readFile(file);
       setImageSrc(imageDataUrl);
-      setCrop({ x: 0, y: 0 }); // Reset crop
-      setZoom(1); // Reset zoom
+      setCrop({ x: 0, y: 0 }); // [cite: 790] // Reset crop
+      setZoom(1); // Reset zoom [cite: 790]
       setCroppedAreaPixels(null);
     }
   };
@@ -139,11 +174,12 @@ function FamilyMembersList({
   };
 
   // Edit member functions
-  const handleEditMember = (member) => {
+  const handleEditMember = (member: FamilyMember) => { // Type annotation [cite: 798]
     setEditingMember(member);
     setEditMemberName(member.name);
     setEditMemberEmail(member.email || '');
-    setEditImageSrc(member.photoUrls ? 'uploads/' + member.photoUrls[1200] : null);
+    // Check if photoUrls exists and has the 1200 key before accessing
+    setEditImageSrc(member.photoUrls?.[1200] ? 'uploads/' + member.photoUrls[1200] : null);
     setEditCrop({ x: 0, y: 0 });
     setEditZoom(1);
     setEditCroppedAreaPixels(null);
@@ -155,8 +191,8 @@ function FamilyMembersList({
       const file = e.target.files[0];
       const imageDataUrl = await readFile(file);
       setEditImageSrc(imageDataUrl);
-      setEditCrop({ x: 0, y: 0 }); // Reset crop
-      setEditZoom(1); // Reset zoom
+      setEditCrop({ x: 0, y: 0 }); // [cite: 802] // Reset crop
+      setEditZoom(1); // Reset zoom [cite: 802]
       setEditCroppedAreaPixels(null);
     }
   };
@@ -166,7 +202,7 @@ function FamilyMembersList({
   };
 
   const handleUpdateMember = async () => {
-    if (editMemberName) {
+    if (editMemberName && editingMember) { // Check editingMember is not null
       const updates: { [key: string]: any } = {
         name: editMemberName,
         email: editMemberEmail || '',
@@ -188,14 +224,13 @@ function FamilyMembersList({
               'JSON.stringify({urls: member.photoUrls }): ',
               JSON.stringify({ urls: member.photoUrls })
             );
-
             setRemovePhoto(false);
           } catch (error) {
             console.error('Error deleting photo: ', error);
           }
         }
-        updates.photoUrls = null; // Set photo URLs to null if removed
-      } else if (editImageSrc && editCroppedAreaPixels) {
+        updates.photoUrls = null; // [cite: 810] // Set photo URLs to null if removed
+      } else if (editImageSrc && editCroppedAreaPixels && !editImageSrc.startsWith('uploads/')) { // Check if it's a new image data URL [cite: 810]
         // If 'Remove Photo' is not checked, upload new photo if provided
         console.log('Uploading new photo');
         try {
@@ -214,9 +249,9 @@ function FamilyMembersList({
           const data = await response.json();
   
           updates.photoUrls = {
-            64: data.photoUrls[64] || '',
-            320: data.photoUrls[320] || '',
-            1200: data.photoUrls[1200] || '',
+            '64': data.photoUrls['64'] || '', // Ensure keys are strings
+            '320': data.photoUrls['320'] || '', // Ensure keys are strings
+            '1200': data.photoUrls['1200'] || '', // Ensure keys are strings
           };
         } catch (error) {
           console.error('Error uploading photo:', error);
@@ -225,8 +260,12 @@ function FamilyMembersList({
             description: 'Failed to upload photo. Please try again.',
             variant: 'destructive',
           });
-          return; // Stop execution if upload fails
+          return; // Stop execution if upload fails [cite: 820]
         }
+      }
+      // If editImageSrc exists but starts with 'uploads/', it means no new file was selected, keep existing photoUrls
+      else if (editImageSrc && editImageSrc.startsWith('uploads/')) {
+          // No change needed for photoUrls unless removePhoto was checked (handled above)
       }
   
       try {
@@ -279,17 +318,26 @@ function FamilyMembersList({
         >
           All
         </Button>
-        {familyMembers.map((member) => (
-          <div key={member.id} className="flex items-center mb-7">
+        {familyMembers.map((member) => {
+          // **** NEW: Get balances for this member ****
+          const memberBalance = showBalances ? membersBalances?.[member.id] : null;
+          const hasBalanceData = !!memberBalance && Object.keys(memberBalance).length > 0;
+
+          return (
+            <div key={member.id} className="flex items-center mb-2"> {/* [cite: 828] Reduced mb */}
+              {/* Use flex-grow on the button container */}
+              <div className="flex-grow mr-2">
             <Button
               variant={selectedMember === member.id ? 'default' : 'ghost'}
-              className="w-full justify-start mr-2"
+                    // Adjust button style for content alignment
+                    className="w-full justify-start text-left h-auto py-2" // Allow height to adjust, align text left [cite: 829]
               onClick={() => setSelectedMember(member.id)}
             >
-              <Avatar className="h-12 w-12 mr-2">
+                     <div className="flex items-center space-x-3 flex-grow"> {/* Flex container for avatar, name, and balance */}
+                       <Avatar className="h-10 w-10 flex-shrink-0"> {/* Adjusted size slightly */} 
                 {member.photoUrls ? (
                   <AvatarImage
-                    src={'uploads/' + member.photoUrls[64]}
+                             src={'uploads/' + member.photoUrls['64']} // Use string key
                     alt={member.name}
                   />
                 ) : (
@@ -302,8 +350,28 @@ function FamilyMembersList({
                   </AvatarFallback>
                 )}
               </Avatar>
-              {member.name}
+                       <span className="flex-grow font-medium">{member.name}</span> {/* Name taking available space */} 
+
+                       {/* **** NEW: Render Balance Display **** */}
+                       {showBalances && hasBalanceData && (
+                           <div className="ml-auto pl-2 flex-shrink-0 text-xs"> {/* Position to the right, prevent shrinking */}
+                               <CombinedBalanceDisplay
+                                    totalBalances={memberBalance!}
+                                    unitDefinitions={unitDefinitions}
+                                    showCombinedBalance={false} // Hide combined part
+                                    isLoading={false} // Data is already provided
+                                    className="text-right" // Align balance text right if needed
+                                    // No onCurrencyChange needed for static display
+                                    // allMonetaryCurrenciesInUse is not needed when combined is hidden
+                               />
+                           </div>
+                       )}
+                       {showBalances && !hasBalanceData && (
+                           <div className="ml-auto pl-2 flex-shrink-0 text-xs text-muted-foreground italic">No balance</div>
+                       )}
+                     </div>
             </Button>
+               </div>
             {isEditMode && (
               <>
                 <Button
@@ -323,7 +391,8 @@ function FamilyMembersList({
               </>
             )}
           </div>
-        ))}
+          )
+        })} 
       </ScrollArea>
       <Dialog open={isAddMemberOpen} onOpenChange={setIsAddMemberOpen}>
         <DialogTrigger asChild>
@@ -458,11 +527,12 @@ function FamilyMembersList({
                     />
                   </div>
                 )}
-                {!editImageSrc && editingMember?.photoUrls && (
+                {!editImageSrc && editingMember?.photoUrls &&
+                 (
                   <div className="mt-4">
                     <Avatar className="h-16 w-16">
                       <AvatarImage
-                        src={'uploads/' + editingMember.photoUrls[320]}
+                        src={'uploads/' + editingMember.photoUrls['320']} // Use string key
                         alt={editingMember.name}
                       />
                     </Avatar>

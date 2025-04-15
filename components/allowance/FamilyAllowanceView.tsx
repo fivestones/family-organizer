@@ -21,6 +21,21 @@ const db = init({
   websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://kepler.local:8888/runtime/session",
 });
 
+// Define FamilyMember type based on query
+interface FamilyMember {
+    id: string;
+    name: string;
+    email?: string | null;
+    photoUrls?: {
+        '64'?: string;
+        '320'?: string;
+        '1200'?: string;
+    } | null;
+    // Define link structure based on query
+    allowanceEnvelopes?: Envelope[]; // Optional based on query structure
+}
+
+
 export default function FamilyAllowanceView() {
     // State to track which member's details are being shown
     // Initialize with null or potentially 'All' depending on FamilyMembersList's default behavior
@@ -30,17 +45,37 @@ export default function FamilyAllowanceView() {
     const { isLoading: isLoadingAppData, error: errorAppData, data: appData } = db.useQuery({
         familyMembers: {
             // Fetch all fields for members by default
+            // We NEED allowanceEnvelopes linked here to calculate balances per member
              allowanceEnvelopes: {} // Fetch linked envelopes for calculation later
         },
-        // Fetch all envelopes separately to easily get all balances
-        allowanceEnvelopes: {},
+        // Fetch all envelopes separately to easily get all balances if needed elsewhere (or remove if redundant)
+        allowanceEnvelopes: {},// Keep this for calculating allMonetaryCurrenciesInUse
         unitDefinitions: {}
     });
 
     // --- Derived Data ---
-    const familyMembers = useMemo(() => appData?.familyMembers || [], [appData?.familyMembers]);
+    const familyMembers: FamilyMember[] = useMemo(() => appData?.familyMembers || [], [appData?.familyMembers]); // [cite: 227] // Add type annotation
     const allEnvelopes: Envelope[] = useMemo(() => appData?.allowanceEnvelopes || [], [appData?.allowanceEnvelopes]);
     const unitDefinitions: UnitDefinition[] = useMemo(() => appData?.unitDefinitions || [], [appData?.unitDefinitions]);
+
+    // **** NEW: Compute total balances per member ****
+    const membersBalances = useMemo(() => {
+        const balances: { [memberId: string]: { [currency: string]: number } } = {};
+        // Use appData.familyMembers which directly links envelopes to members
+        (appData?.familyMembers || []).forEach(member => {
+            const memberId = member.id;
+            balances[memberId] = {}; // Initialize balance object for member
+            (member.allowanceEnvelopes || []).forEach(envelope => {
+                if (envelope.balances) {
+                    Object.entries(envelope.balances).forEach(([currency, amount]) => {
+                        const upperCaseCurrency = currency.toUpperCase();
+                        balances[memberId][upperCaseCurrency] = (balances[memberId][upperCaseCurrency] || 0) + amount;
+                    });
+                }
+            });
+        });
+        return balances;
+    }, [appData?.familyMembers]); // Depend on the queried data structure
 
     // **** NEW: Compute all monetary currencies in use ****
     const allMonetaryCurrenciesInUse = useMemo(() => {
@@ -76,11 +111,8 @@ export default function FamilyAllowanceView() {
         //          }
         //      }
         //  });
-
-
         return monetaryCodes.sort(); // Sort alphabetically
     }, [allEnvelopes, unitDefinitions]);
-
 
     // --- Placeholder functions for adding/deleting members ---
     // You should replace these with your actual implementation,
@@ -109,13 +141,13 @@ export default function FamilyAllowanceView() {
     // --- End Placeholder functions ---
 
 
-    if (isLoadingAppData) { // [cite: 82]
-        return <div className="p-4">Loading family members...</div>; // [cite: 82]
+    if (isLoadingAppData) {
+        return <div className="p-4">Loading family members...</div>;
     }
 
-    if (errorAppData) { // [cite: 83]
-        console.error("Error fetching family members:", errorAppData); // [cite: 84]
-        return <div className="p-4 text-red-600">Could not load family members.</div>; // [cite: 84]
+    if (errorAppData) {
+        console.error("Error fetching family members:", errorAppData);
+        return <div className="p-4 text-red-600">Could not load family members.</div>;
     }
 
     return (
@@ -130,6 +162,10 @@ export default function FamilyAllowanceView() {
                     addFamilyMember={handleAddFamilyMember}
                     deleteFamilyMember={handleDeleteFamilyMember}
                     db={db}
+                    // **** NEW: Pass balance data ****
+                    showBalances={true} // Enable balance display
+                    membersBalances={membersBalances}
+                    unitDefinitions={unitDefinitions}
                  />
             </div>
 

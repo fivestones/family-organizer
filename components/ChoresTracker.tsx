@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react'; // Added useMemo 
 import { init, tx, id } from '@instantdb/react';
 // import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,8 @@ import { format } from 'date-fns';
 import { useToast } from "@/components/ui/use-toast";
 import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
 import AllowanceBalance from '@/components/AllowanceBalance';
+// **** NEW: Import types ****
+import { UnitDefinition, Envelope } from '@/lib/currency-utils';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -29,10 +31,12 @@ interface FamilyMember {
   email?: string;
   photoUrl?: string; // Legacy support if needed
   photoUrls?: {
-    64?: string;
-    320?: string;
-    1200?: string;
+    '64'?: string;
+    '320'?: string;
+    '1200'?: string;
   };
+  // **** NEW: Add linked allowance envelopes ****
+  allowanceEnvelopes?: Envelope[];
 }
 
 // Updated Chore interface
@@ -49,11 +53,21 @@ interface Chore {
     order: number;
     familyMember: FamilyMember;
   }[];
+  // **** Ensure completions is defined ****
+  completions?: {
+      id: string;
+      completed: boolean;
+      dateDue: string; // Assuming string based on ChoreList usage
+      completedBy: { id: string }[]; // Assuming link structure
+  }[];
 }
 
 type Schema = {
   familyMembers: FamilyMember;
   chores: Chore;
+  // **** NEW: Add other relevant namespaces if needed for balances ****
+  allowanceEnvelopes: Envelope;
+  unitDefinitions: UnitDefinition;
 }
 
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4';
@@ -62,7 +76,6 @@ const db = init<Schema>({
   apiURI: "http://kepler.local:8888",
   websocketURI: "ws://kepler.local:8888/runtime/session",
 });
-
 
 function ChoresTracker() {
   const [selectedMember, setSelectedMember] = useState<string>('All');
@@ -76,11 +89,14 @@ function ChoresTracker() {
   });
   const { toast } = useToast();
 
+  // **** UPDATED QUERY: Fetch members + linked envelopes, chores, and unit definitions ****
   const { isLoading, error, data } = db.useQuery({
     familyMembers: {
       assignedChores: {
         completions: {},
-      }
+      },
+      // **** Include allowance envelopes for balance calculation ****
+      allowanceEnvelopes: {},
     },
     chores: {
       assignees: {},
@@ -91,13 +107,39 @@ function ChoresTracker() {
         completedBy: {}
       },
     },
+    // **** Fetch unit definitions ****
+    unitDefinitions: {},
   });
+
+
+
+  // --- Derived Data ---
+  const familyMembers: FamilyMember[] = data?.familyMembers || []; // Type annotation
+  const chores: Chore[] = data?.chores || []; // Type annotation
+  const unitDefinitions: UnitDefinition[] = data?.unitDefinitions || []; // Type annotation
+
+  // **** NEW: Compute total balances per member ****
+  const membersBalances = useMemo(() => {
+      const balances: { [memberId: string]: { [currency: string]: number } } = {};
+      familyMembers.forEach(member => {
+          const memberId = member.id;
+          balances[memberId] = {}; // Initialize balance object for member
+          // Iterate through envelopes linked directly to the member in the query result
+          (member.allowanceEnvelopes || []).forEach(envelope => {
+              if (envelope.balances) {
+                  Object.entries(envelope.balances).forEach(([currency, amount]) => {
+                      const upperCaseCurrency = currency.toUpperCase();
+                      balances[memberId][upperCaseCurrency] = (balances[memberId][upperCaseCurrency] || 0) + amount;
+                  });
+              }
+          });
+      });
+      return balances;
+  }, [familyMembers]); // Recalculate when familyMembers data changes
 
   if (isLoading) return <div>Loading...</div>;
   if (error) return <div>Error: {error.message}</div>;
-
-  const { familyMembers, chores } = data;
-
+  
   const addChore = (choreData: Partial<Chore>) => {
     const choreId = id();
     const transactions = [
@@ -110,7 +152,7 @@ function ChoresTracker() {
         rotationType: choreData.rotationType || 'none',
       }),
     ];
-  
+    
     if (choreData.rotationType !== 'none' && choreData.assignments && choreData.assignments.length > 0) {
       // Use assignments with rotation
       choreData.assignments.forEach((assignment, index) => {
@@ -143,9 +185,7 @@ function ChoresTracker() {
 
   const addFamilyMember = async (name: string, email: string | null, photoFile: File | null) => {
     if (!name) return;
-  
-    let photoUrls: { 64?: string; 320?: string; 1200?: string } | null = null;
-  
+    let photoUrls: { '64'?: string; '320'?: string; '1200'?: string } | null = null; // Type annotation 
     if (photoFile) {
       const formData = new FormData();
       formData.append('file', photoFile);
@@ -162,9 +202,9 @@ function ChoresTracker() {
   
         // Ensure that the response contains the expected properties
         photoUrls = {
-          64: data.photoUrls[64] || '',
-          320: data.photoUrls[320] || '',
-          1200: data.photoUrls[1200] || '',
+          '64': data.photoUrls['64'] || '', // Use string key
+          '320': data.photoUrls['320'] || '', // Use string key
+          '1200': data.photoUrls['1200'] || '', // Use string key
         };
       } catch (error) {
         console.error('Error uploading photo:', error);
@@ -226,12 +266,12 @@ function ChoresTracker() {
 
   const toggleChoreDone = async (choreId: string, familyMemberId: string) => {
     const chore = chores.find(c => c.id === choreId);
-    if (!chore) return;
+    if (!chore || !chore.completions) return; // Check completions exist
   
     const formattedDate = format(selectedDate, 'yyyy-MM-dd');
 
     const existingCompletion = chore.completions.find(
-      completion => completion.completedBy[0].id === familyMemberId &&
+      completion => completion.completedBy?.[0]?.id === familyMemberId && // Safer access
                     completion.dateDue === formattedDate
     );
 
@@ -358,6 +398,10 @@ const updateChore = async (choreId, updatedChore) => {
           addFamilyMember={addFamilyMember}
           deleteFamilyMember={deleteFamilyMember}
           db={db}
+          // **** NEW: Pass balance data ****
+          showBalances={true} // Enable balance display
+          membersBalances={membersBalances}
+          unitDefinitions={unitDefinitions}
         />
       </div>
 
@@ -449,7 +493,7 @@ const updateChore = async (choreId, updatedChore) => {
                 <div className="flex-shrink-0">
                   <h3 className="text-lg font-semibold mb-2 text-gray-700">Current Allowance</h3>
                   <AllowanceBalance
-                    familyMember={familyMembers.find(m => m.id === selectedMember)}
+                    familyMember={familyMembers.find(m => m.id === selectedMember)!} // Add non-null assertion
                     db={db}
                   />
                 </div>
