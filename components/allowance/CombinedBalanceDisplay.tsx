@@ -129,7 +129,7 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
                     <button
                       onClick={() => handleOriginalClick(code)}
                       className={cn(
-                        "hover:underline focus:underline focus:outline-none rounded px-1 py-0.5 transition-colors",
+                        "hover:underline focus:underline focus:outline-none rounded py-0.5 transition-colors",
                         isHighlighted ? "bg-primary/10 text-primary font-semibold" : "hover:bg-muted" // Use isHighlighted flag
                         )}
                         title={showCombinedBalance ? `Show total in ${code}`: `Balance in ${code}`}
@@ -140,7 +140,7 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
                   ) : (
                     <span className="px-1 py-0.5">{balanceStr}</span>
                   )}
-                  {index < arr.length - 1 && <span className="text-muted-foreground">, </span>}
+                  {index < arr.length - 1 && <span className="text-muted-foreground ml-0">, </span>}
                 </React.Fragment>
               );
           })}
@@ -149,7 +149,7 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
 
       {/* Combined Balance Section (Conditionally Rendered) */}
       {showCombinedBalance && (hasMonetaryBalances || isLoading) && ( // Only show if prop is true AND monetary balances exist OR loading rates
-           <div className="flex items-center space-x-1 text-sm min-h-[20px]"> {/* Reduced space-x */}
+           <div className="flex items-center space-x-1 text-sm "> {/* Reduced space-x */}
                 {/* **** UPDATED Label Structure **** */}
                 <span className="text-muted-foreground">Combined, in</span>
                 {/* Dropdown Trigger Button */}
@@ -158,7 +158,7 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
                          <Button
                             variant="ghost"
                             size="sm" // Smaller size
-                            className="px-1.5 py-0.5 h-auto font-semibold hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring" // Adjust padding/height
+                            className="m-0 pl-0.5 px-0 py-0.5 h-auto font-semibold hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring" // Adjust padding/height
                             disabled={isLoading}
                             aria-label={`Change combined balance display currency, currently ${displayCurrencyLabelPart}`}
                          >
@@ -190,7 +190,7 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
                 ) : combinedMonetaryValue !== null ? (
                   <Popover open={isTooltipOpen} onOpenChange={setIsTooltipOpen}>
                       <PopoverTrigger asChild>
-                          <button className="font-semibold hover:underline focus:underline focus:outline-none rounded px-1 py-0.5 hover:bg-muted">
+                          <button className="font-semibold hover:underline focus:underline focus:outline-none rounded py-0.5 hover:bg-muted">
                               {formattedCombinedMonetary}
                           </button>
                       </PopoverTrigger>
@@ -209,7 +209,7 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
                 {/* Add non-monetary part if exists and not loading */}
                 {hasNonMonetaryBalances && !isLoading && (
                     <>
-                        <span className="text-muted-foreground">,</span>
+                        <span className="text-muted-foreground ml-0">,</span>
                         <span className="font-semibold">{formattedNonMonetary}</span>
                     </>
                 )}
@@ -217,12 +217,12 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
        )}
 
       {/* If ONLY non-monetary balances exist and not loading (and combined not shown or no monetary) */}
-       {!hasMonetaryBalances && hasNonMonetaryBalances && !isLoading && (
+       {/* {!hasMonetaryBalances && hasNonMonetaryBalances && !isLoading && (
             <div className="flex items-center space-x-2 text-sm">
                 <span className="text-muted-foreground">Total:</span>
                 <span className="font-semibold">{formattedNonMonetary}</span>
             </div>
-       )}
+       )} */}
     </div>
   );
 };
