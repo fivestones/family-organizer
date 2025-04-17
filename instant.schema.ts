@@ -1,9 +1,9 @@
 // Docs: https://www.instantdb.com/docs/modeling-data
 
-import { i } from '@instantdb/react';
+import { i } from "@instantdb/react";
 
 const _schema = i.schema({
-  // We inferred 33 attributes!
+  // We inferred 5 attributes!
   // Take a look at this schema, and if everything looks good,
   // run `push schema` again to enforce the types.
   entities: {
@@ -14,46 +14,32 @@ const _schema = i.schema({
     $users: i.entity({
       email: i.string().unique().indexed(),
     }),
-    allowance: i.entity({//got rid of currency (it's in the envelopes), and maybe the entire allowance namespace is defunct now. Maybe it will be useful for other stuff later.
-      createdAt: i.string(),
-      //currency: i.string(),
-      totalAmount: i.number(),
-      updatedAt: i.string(),
-    }),
     allowanceEnvelopes: i.entity({
-      name: i.string(), // Name of the envelope (e.g., "Savings", "Spending", "Games")
-      // Store balances as a JSON object mapping currency codes to amounts
-      // e.g., { "USD": 10.50, "NPR": 1500 }
+      amount: i.any(),
       balances: i.json().indexed(),
-      isDefault: i.boolean().indexed().optional(), // Flag for the special 'Default' envelope
-      description: i.string().optional(),
-      // +++ Additions for Savings Goal +++
-      goalAmount: i.number().optional(),     // e.g., 350
-      goalCurrency: i.string().optional(),   // e.g., "USD"
-      // +++ End Additions +++
-      // Link to the family member this envelope belongs to
+      currency: i.any(),
+      description: i.string(),
+      goalAmount: i.number(),
+      goalCurrency: i.string(),
+      isDefault: i.boolean(),
+      name: i.string(),
     }),
     allowanceTransactions: i.entity({
       amount: i.number(),
       createdAt: i.string().indexed(),
       currency: i.string(),
+      description: i.string(),
       transactionType: i.string(),
       updatedAt: i.string(),
-      description: i.string().optional(), // Optional description for the transaction
-      // Link to the source envelope (for transfers)
-      // Link to the destination envelope
     }),
-    // unitDefinitions ****
-    // Stores overrides or definitions for non-standard units
     unitDefinitions: i.entity({
-      code: i.string().unique().indexed(),   // e.g., "NPR", "STARS", "VIDMIN"
-      name: i.string(),                    // e.g., "Nepalese Rupee", "Star Points", "Video Game Minutes"
-      symbol: i.string(),                  // e.g., "रु", "⭐", "Min"
-      isMonetary: i.boolean().indexed(),   // true for NPR, false for STARS/VIDMIN
-      // Formatting options:
-      symbolPlacement: i.string().optional(), // 'before' or 'after' (default: 'before' for monetary, 'after' for non-monetary?)
-      symbolSpacing: i.boolean().optional(),  // true = space (⭐ 10), false = no space ($10) (default: true for 'after', false for 'before'?)
-      decimalPlaces: i.number().optional(),   // e.g., 0, 2. null/undefined could mean 'auto' or default based on isMonetary.
+      code: i.string().unique().indexed(),
+      decimalPlaces: i.number(),
+      isMonetary: i.boolean().indexed(),
+      name: i.string(),
+      symbol: i.string(),
+      symbolPlacement: i.string(),
+      symbolSpacing: i.boolean(),
     }),
     calendarItems: i.entity({
       dayOfMonth: i.number().indexed(),
@@ -95,36 +81,27 @@ const _schema = i.schema({
       startDate: i.any(),
       title: i.string(),
     }),
+    exchangeRates: i.entity({
+      baseCurrency: i.string().indexed(),
+      lastFetchedTimestamp: i.date().indexed(),
+      rate: i.number(),
+      targetCurrency: i.string().indexed(),
+    }),
     familyMembers: i.entity({
       email: i.string().indexed(),
+      lastDisplayCurrency: i.string(),
       name: i.string(),
       photoUrl: i.string(),
       photoUrls: i.json(),
-      lastDisplayCurrency: i.string().optional(), // Store the code (e.g., "USD", "NPR")
-    }),
-    exchangeRates: i.entity({
-      baseCurrency: i.string().indexed(),       // e.g., "USD" (Open Exchange Rates free tier uses USD base)
-      targetCurrency: i.string().indexed(),    // e.g., "NPR"
-      rate: i.number(),                        // The exchange rate (1 base = X target)
-      lastFetchedTimestamp: i.date().indexed(), // When the rate was last fetched/updated
-    }),
-    goals: i.entity({
-      createdAt: i.any(),
-      title: i.any(),
-    }),
-    messages: i.entity({
-      createdAt: i.any(),
-      text: i.any(),
-      updatedAt: i.any(),
     }),
     settings: i.entity({
       name: i.string(),
       value: i.string(),
     }),
-    test: i.entity({}),
     timeOfDayDefinitions: i.entity({
-      name: i.any(),
-      time: i.any(),
+      endTime: i.string(),
+      name: i.string(),
+      startTime: i.string(),
     }),
     todos: i.entity({
       createdAt: i.any(),
@@ -133,121 +110,113 @@ const _schema = i.schema({
     }),
   },
   links: {
-    allowanceFamilyMember: {
+    allowanceEnvelopesFamilyMember: {
       forward: {
-        on: 'allowance',
-        has: 'one',
-        label: 'familyMember',
+        on: "allowanceEnvelopes",
+        has: "one",
+        label: "familyMember",
       },
       reverse: {
-        on: 'familyMembers',
-        has: 'one',
-        label: 'allowance',
+        on: "familyMembers",
+        has: "many",
+        label: "allowanceEnvelopes",
       },
     },
-
-    allowanceEnvelopesAllowance: {
+    allowanceTransactionsDestinationEnvelope: {
       forward: {
-        on: 'allowanceEnvelopes',
-        has: 'one',
-        label: 'allowance',
+        on: "allowanceTransactions",
+        has: "one",
+        label: "destinationEnvelope",
       },
       reverse: {
-        on: 'allowance',
-        has: 'many',
-        label: 'allowanceEnvelopes',
+        on: "allowanceEnvelopes",
+        has: "many",
+        label: "incomingTransfers",
       },
     },
-    allowanceTransactionsAllowance: {
+    allowanceTransactionsEnvelope: {
       forward: {
-        on: 'allowanceTransactions',
-        has: 'many',
-        label: 'allowance',
+        on: "allowanceTransactions",
+        has: "one",
+        label: "envelope",
       },
       reverse: {
-        on: 'allowance',
-        has: 'many',
-        label: 'allowanceTransactions',
+        on: "allowanceEnvelopes",
+        has: "many",
+        label: "transactions",
+      },
+    },
+    allowanceTransactionsSourceEnvelope: {
+      forward: {
+        on: "allowanceTransactions",
+        has: "one",
+        label: "sourceEnvelope",
+      },
+      reverse: {
+        on: "allowanceEnvelopes",
+        has: "many",
+        label: "outgoingTransfers",
       },
     },
     choreAssignmentsFamilyMember: {
       forward: {
-        on: 'choreAssignments',
-        has: 'one',
-        label: 'familyMember',
+        on: "choreAssignments",
+        has: "one",
+        label: "familyMember",
       },
       reverse: {
-        on: 'familyMembers',
-        has: 'many',
-        label: 'choreAssignments',
+        on: "familyMembers",
+        has: "many",
+        label: "choreAssignments",
       },
     },
     choresAssignments: {
       forward: {
-        on: 'chores',
-        has: 'many',
-        label: 'assignments',
+        on: "chores",
+        has: "many",
+        label: "assignments",
       },
       reverse: {
-        on: 'choreAssignments',
-        has: 'one',
-        label: 'chore',
+        on: "choreAssignments",
+        has: "one",
+        label: "chore",
       },
     },
     choresCompletions: {
       forward: {
-        on: 'chores',
-        has: 'many',
-        label: 'completions',
+        on: "chores",
+        has: "many",
+        label: "completions",
       },
       reverse: {
-        on: 'choreCompletions',
-        has: 'one',
-        label: 'chore',
+        on: "choreCompletions",
+        has: "one",
+        label: "chore",
       },
     },
     familyMembersAssignedChores: {
       forward: {
-        on: 'familyMembers',
-        has: 'many',
-        label: 'assignedChores',
+        on: "familyMembers",
+        has: "many",
+        label: "assignedChores",
       },
       reverse: {
-        on: 'chores',
-        has: 'many',
-        label: 'assignees',
+        on: "chores",
+        has: "many",
+        label: "assignees",
       },
     },
     familyMembersCompletedChores: {
       forward: {
-        on: 'familyMembers',
-        has: 'many',
-        label: 'completedChores',
+        on: "familyMembers",
+        has: "many",
+        label: "completedChores",
       },
       reverse: {
-        on: 'choreCompletions',
-        has: 'one',
-        label: 'completedBy',
+        on: "choreCompletions",
+        has: "one",
+        label: "completedBy",
       },
-    },
-    // Link between a family member and their envelopes
-    familyMemberEnvelopes: {
-      forward: { on: 'allowanceEnvelopes', has: 'one', label: 'familyMember' },
-      reverse: { on: 'familyMembers', has: 'many', label: 'allowanceEnvelopes' },
-    },
-    // Link transactions to the envelope they affect
-    envelopeTransactions: {
-        forward: { on: 'allowanceTransactions', has: 'one', label: 'envelope' },
-        reverse: { on: 'allowanceEnvelopes', has: 'many', label: 'transactions' },
-    },
-    // Optional: If transactions need to reference source/destination for transfers
-    transactionSource: {
-        forward: { on: 'allowanceTransactions', has: 'one', label: 'sourceEnvelope' },
-        reverse: { on: 'allowanceEnvelopes', has: 'many', label: 'outgoingTransfers'}
-    },
-     transactionDestination: {
-        forward: { on: 'allowanceTransactions', has: 'one', label: 'destinationEnvelope' },
-        reverse: { on: 'allowanceEnvelopes', has: 'many', label: 'incomingTransfers'}
     },
   },
   rooms: {},
