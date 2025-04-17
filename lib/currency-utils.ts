@@ -85,39 +85,6 @@ export interface ConvertibleBalance {
   }[];
 }
 
-export const calculateWeightedExchangeRate = (
-  balances: CurrencyBalance[],
-  fromCurrency: string,
-  toCurrency: string
-): number => {
-  const relevantBalances = balances.filter(
-    (b) => b.currency === fromCurrency && b.exchangeRate
-  );
-
-  if (relevantBalances.length === 0) {
-    return 0;
-  }
-
-  const totalAmount = relevantBalances.reduce((sum, b) => sum + b.amount, 0);
-  const weightedSum = relevantBalances.reduce(
-    (sum, b) => sum + b.amount * (b.exchangeRate || 0),
-    0
-  );
-
-  return weightedSum / totalAmount;
-};
-
-export const convertCurrency = (
-  amount: number,
-  fromCurrency: string,
-  toCurrency: string,
-  exchangeRate: number
-): number => {
-  if (fromCurrency === toCurrency) return amount;
-  return amount * exchangeRate;
-};
-
-
 /**
  * Formats a balance object into a readable string using unit definitions.
  * Example: { "USD": 10.50, "NPR": 1500, "STARS": 25 } => "$10.50, रु1500, ⭐ 25"
@@ -193,6 +160,10 @@ return Object.entries(balances)
     .join(', ') || "Empty"; // Return "Empty" if all balances were zero
 };
 
+// To do:
+// This isn't used at the moment, but once we implement percentages for envelopes, we can then used it.
+// For family members who have set percentages for envelopes, we will distribute their allowance deposits using the distribute by percentage method
+// (used here) instead of distributing all to their default
 export const distributeAllowance = (
   amount: number,
   currency: string,
@@ -219,55 +190,20 @@ export const distributeAllowance = (
     }));
 };
 
+// To do:
+// This is not used at the moment, but when we implement roles for each user, and logins, we will need to use this
+// to see who can initiate certain transactions.
+// At the moment, it's pretty simple, and will need to be expanded on.
+// Children should be able to initiate transfers from one of their envelopes to another of their own envelopes, and
+// from one of their envelopes to another person. But they should not be able to initiate transfers from an envelope
+// belonging to someone else. They also should not be able to do withdrawals or deposits.
+// Parents should be able to initiate any of the transaction types
 export const canInitiateTransaction = (
   userRole: 'Parent' | 'Child',
   transactionType: 'deposit' | 'withdrawal' | 'transfer'
 ): boolean => {
   if (userRole === 'Parent') return true;
   return transactionType === 'transfer';
-};
-
-export const calculateEnvelopeTotal = (
-  transactions: Array<{
-    primaryCurrency: string;
-    amountPrimary: number;
-    secondaryCurrencies?: Array<{
-      currency: string;
-      amount: number;
-      exchangeRate: number;
-    }>;
-  }>,
-  currency: string,
-  latestExchangeRate?: number
-): number => {
-  return transactions.reduce((total, transaction) => {
-    if (transaction.primaryCurrency === currency) {
-      return total + transaction.amountPrimary;
-    }
-
-    const secondaryCurrency = transaction.secondaryCurrencies?.find(
-      (sc) => sc.currency === currency
-    );
-
-    if (secondaryCurrency) {
-      return total + secondaryCurrency.amount;
-    }
-
-    // If no direct conversion exists but we have a latest exchange rate
-    if (latestExchangeRate) {
-      return (
-        total +
-        convertCurrency(
-          transaction.amountPrimary,
-          transaction.primaryCurrency,
-          currency,
-          latestExchangeRate
-        )
-      );
-    }
-
-    return total;
-  }, 0);
 };
 
 /**
@@ -788,44 +724,44 @@ const isRateValid = (cachedRate: CachedExchangeRate | null): boolean => {
   return (now.getTime() - fetchedTime.getTime()) < EXCHANGE_RATE_CACHE_DURATION_MS;
 };
 
-/**
-* Retrieves a cached exchange rate from InstantDB for a specific target currency.
-* @param db - InstantDB instance.
-* @param targetCurrency - The target currency code (e.g., "NPR").
-* @param baseCurrency - The base currency code (e.g., "USD").
-* @returns The cached rate object { id, rate, lastFetchedTimestamp } or null if not found/error.
-*/
-export const getCachedExchangeRate = async (db: any, targetCurrency: string, baseCurrency: string = "USD"): Promise<CachedExchangeRate | null> => {
-  try {
-      const query = {
-          exchangeRates: {
-              $: {
-                  where: { baseCurrency: baseCurrency, targetCurrency: targetCurrency },
-                  limit: 1 // Expecting only one rate per pair
-              }
-          }
-      };
-      // Use queryOnce as we need the data immediately, not a subscription [cite: 129]
-      const { data, error } = await db.queryOnce(query);
+// /**
+// * Retrieves a cached exchange rate from InstantDB for a specific target currency.
+// * @param db - InstantDB instance.
+// * @param targetCurrency - The target currency code (e.g., "NPR").
+// * @param baseCurrency - The base currency code (e.g., "USD").
+// * @returns The cached rate object { id, rate, lastFetchedTimestamp } or null if not found/error.
+// */
+// export const getCachedExchangeRate = async (db: any, targetCurrency: string, baseCurrency: string = "USD"): Promise<CachedExchangeRate | null> => {
+//   try {
+//       const query = {
+//           exchangeRates: {
+//               $: {
+//                   where: { baseCurrency: baseCurrency, targetCurrency: targetCurrency },
+//                   limit: 1 // Expecting only one rate per pair
+//               }
+//           }
+//       };
+//       // Use queryOnce as we need the data immediately, not a subscription [cite: 129]
+//       const { data, error } = await db.queryOnce(query);
 
-      if (error) {
-          console.error("Error fetching cached rate from DB:", error);
-          return null;
-      }
+//       if (error) {
+//           console.error("Error fetching cached rate from DB:", error);
+//           return null;
+//       }
 
-      if (data && data.exchangeRates && data.exchangeRates.length > 0) {
-          const rateData = data.exchangeRates[0];
-          return {
-              ...rateData,
-              lastFetchedTimestamp: new Date(rateData.lastFetchedTimestamp) // Convert string to Date
-          };
-      }
-      return null; // Not found in cache
-  } catch (dbError) {
-      console.error("Database error fetching cached rate:", dbError);
-      return null;
-  }
-};
+//       if (data && data.exchangeRates && data.exchangeRates.length > 0) {
+//           const rateData = data.exchangeRates[0];
+//           return {
+//               ...rateData,
+//               lastFetchedTimestamp: new Date(rateData.lastFetchedTimestamp) // Convert string to Date
+//           };
+//       }
+//       return null; // Not found in cache
+//   } catch (dbError) {
+//       console.error("Database error fetching cached rate:", dbError);
+//       return null;
+//   }
+// };
 
 /**
  * Stores or updates multiple exchange rates in the InstantDB cache.

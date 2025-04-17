@@ -85,7 +85,7 @@ useEffect(() => {
         const defaultEnvelope = envelopes.find((env: any) => env.isDefault === true); // Use 'any' if Envelope type isn't perfectly matching raw data
         setDestinationDefaultEnvelope(defaultEnvelope || null);
         if (!defaultEnvelope && envelopes.length > 0) {
-           console.warn("Recipient has envelopes, but none marked as default.");
+          toast({ title: "Error", description: "Recipient has envelopes, but none marked as default.", variant: "destructive" });
            // Consider adding a toast warning here?
         }
     }
@@ -208,20 +208,6 @@ useEffect(() => {
                            isLoadingMemberData || // Disable while loading dest envelope
                            !destinationDefaultEnvelope || // Disable if dest envelope not found
                            parseFloat(amount) > sourceCurrencyBalance;
-
-  
-  // console.log("");
-  // console.log("*** starting ***");
-  // console.log("isSubmitting:", isSubmitting);
-  // console.log("!destinationMemberId:", !destinationMemberId);
-  // console.log("!sourceEnvelopeId:", !sourceEnvelopeId);
-  // console.log("!selectedCurrency:", !selectedCurrency);
-  // console.log("!amount:", !amount);
-  // console.log("parseFloat(amount) <= 0:", parseFloat(amount) <= 0);
-  // console.log("isLoadingDestEnvelope:", isLoadingDestEnvelope);
-  console.log("!destinationDefaultEnvelope:", !destinationDefaultEnvelope);
-  // console.log("parseFloat(amount) > sourceCurrencyBalance:", parseFloat(amount) > sourceCurrencyBalance);
-
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

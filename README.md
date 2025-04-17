@@ -52,6 +52,10 @@ This is the code for our family's organizer
 * Future: Use the envelope allowance system to create a multi-currency envelope-based budgeting system ynab-style
 * Convert into PWA so it can be used fully offline
 * Future: convert into react native for iOS app
+* Chores:
+    * Let chores be assigned during a time period of the day (using timeOfDayDefinitions)
+        * Maybe there should also be meal ones, which are like "Before Breakfast". You would have a way to say you are eating breakfast now, so it's over, and if it doesn't get marked, it's automatically marked as over at 11 am or something. "After dinner" starts automatically at 7:30 but if you mark dinner as happening it starts then. Etc.
+* 
 
 
 ## Features planned
@@ -65,11 +69,21 @@ This is the code for our family's organizer
     * Associate To dos with a particular person
     * Regular lists
     * *Maybe to dos are just a specific kind of chore, which only has one occurance?*
+* Chores
+    * A way to have home school subjects listed, with particular assignment items as to dos attached to particular days
+        * Or just attached to a given school subject chore (but not on a given day), and marked as starting at some particular date (in which case it shows up with that school subject chore on that day or the next day that school subject chore is scheduled) OR marked as starting when some other to do is finished (e.g., the previous day's assignments for that school subject). Then if the assingment it is marked as coming after has been marked as finished, it can show up the next day it's school subject chore is scheduled.
+        * Should be able to rely on multiple other to dos (this assignment has to be after this other assignment but before this one?)
+        * Is there any need for nested to dos if you can have to dos that only start depending on other to dos being done? Maybe there still is, just to break down a to do into constituient parts.
+        * If there are other to dos that will come up following the completion of a current chore, it should be possible to see the whole string of them (and maybe the string of those that have come before?)
+        * It would be nice if Chores could change too the same way. Like a school subject chore gets marked as completely finished when all its to dos are finished, and another school subject chore that starts next (finished 7th grade english, start 8th grade if it's done and the date is at least Aug 1).
+        * The assignments of a school subject are like a playlist
+        * Need to be able to go on to the next assignment on the same day if desired, so you don't have to wait until tomorrow and can get ahead
+            * There should be a field that lists if this is allowed or not, could be per school subject or per assignment
 * Meal plan
     * Connections to mealie (or another self-hosted recipe app) for recipes and meal planning
 * Family chores/rewards tracking
     * Set relative value of a chore for rewards/allowance calculations
-    * Keep track of rewards/money accounts per person - done
+    * ~Keep track of rewards/money accounts per person~ - done
 * Dashboard view for keyboardless/mouseless usage
 * Photo stream
 * Extension-capible
@@ -78,11 +92,16 @@ This is the code for our family's organizer
     * Current family hymn/song of the week
     * Kid home school/homework tracker
         * With each item tagged for whether they can do it alone or only with a parent
+        * See the comments on Chores above for more ideas
     * Etc
 * iOS and web clients
 * Two-way sync with Google calendar and apple calendar or cal dav servers
 * Touch screen capable
 * Connect to Immage photo server for photostream
+* Maybe:
+    * Messaging between family members
+    * Goals/goal tracking
+    * 
 
 
 We'll see how far I get!

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"; // Make sure this path is correct
 
 import { Button } from "@/components/ui/button";
+import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 
 interface CombinedBalanceDisplayProps {
   totalBalances: { [currency: string]: number }; // Original balances
@@ -113,116 +114,111 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
 
   return (
     <div className={cn("space-y-1", className)}>
-       {/* Original Balances (Clickable, with adjusted highlighting) */}
-      {/* Render this section regardless of showCombinedBalance */}
-       <p className="font-medium">
-          {Object.entries(totalBalances).map(([code, amount], index, arr) => {
-              const monetary = isMonetary(code);
-              // Highlight only if combined section is shown and it's the selected display currency
-              const isHighlighted = showCombinedBalance && monetary && code === displayCurrency && displayCurrencyExistsForMember; 
-              const isClickable = monetary && !!onCurrencyChange; // Clickable if monetary and handler exists
-              const balanceStr = formatBalances({ [code]: amount }, unitDefinitions);
-              
-              return (
-                <React.Fragment key={code}>
-                  {isClickable ? (
-                    <button
-                      onClick={() => handleOriginalClick(code)}
-                      className={cn(
-                        "hover:underline focus:underline focus:outline-none rounded py-0.5 transition-colors",
-                        isHighlighted ? "bg-primary/10 text-primary font-semibold" : "hover:bg-muted" // Use isHighlighted flag
-                        )}
-                        title={showCombinedBalance ? `Show total in ${code}`: `Balance in ${code}`}
-                        disabled={isLoading && showCombinedBalance} // Disable only if combined section is loading
-                    >
-                      {balanceStr}
-                    </button>
+      <ScrollArea className="whitespace-nowrap rounded-md border">
+        {/* Original Balances (Clickable, with adjusted highlighting) */}
+        {/* Render this section regardless of showCombinedBalance */}
+        <p className="font-medium">
+            {Object.entries(totalBalances).map(([code, amount], index, arr) => {
+                const monetary = isMonetary(code);
+                // Highlight only if combined section is shown and it's the selected display currency
+                const isHighlighted = showCombinedBalance && monetary && code === displayCurrency && displayCurrencyExistsForMember; 
+                const isClickable = monetary && !!onCurrencyChange; // Clickable if monetary and handler exists
+                const balanceStr = formatBalances({ [code]: amount }, unitDefinitions);
+                
+                return (
+                  <React.Fragment key={code}>
+                    {isClickable ? (
+                      <button
+                        onClick={() => handleOriginalClick(code)}
+                        className={cn(
+                          "hover:underline focus:underline focus:outline-none rounded py-0.5 transition-colors",
+                          isHighlighted ? "bg-primary/10 text-primary font-semibold" : "hover:bg-muted" // Use isHighlighted flag
+                          )}
+                          title={showCombinedBalance ? `Show total in ${code}`: `Balance in ${code}`}
+                          disabled={isLoading && showCombinedBalance} // Disable only if combined section is loading
+                      >
+                        {balanceStr}
+                      </button>
+                    ) : (
+                      <span className="px-1 py-0.5">{balanceStr}</span>
+                    )}
+                    {index < arr.length - 1 && <span className="text-muted-foreground ml-0">, </span>}
+                  </React.Fragment>
+                );
+            })}
+            {Object.keys(totalBalances).length === 0 && <span className="text-muted-foreground italic">No funds available yet.</span>}
+        </p>
+
+        {/* Combined Balance Section (Conditionally Rendered) */}
+        {showCombinedBalance && (hasMonetaryBalances || isLoading) && ( // Only show if prop is true AND monetary balances exist OR loading rates
+            <div className="flex items-center space-x-1 text-sm "> {/* Reduced space-x */}
+                  {/* **** UPDATED Label Structure **** */}
+                  <span className="text-muted-foreground">Combined, in</span>
+                  {/* Dropdown Trigger Button */}
+                  <DropdownMenu open={isCurrencyDropdownOpen} onOpenChange={setIsCurrencyDropdownOpen}>
+                      <DropdownMenuTrigger asChild>
+                          <Button
+                              variant="ghost"
+                              size="sm" // Smaller size
+                              className="m-0 pl-0.5 px-0 py-0.5 h-auto font-semibold hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring" // Adjust padding/height
+                              disabled={isLoading}
+                              aria-label={`Change combined balance display currency, currently ${displayCurrencyLabelPart}`}
+                          >
+                              {displayCurrencyLabelPart}
+                              <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                          </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                          {dropdownCurrencyOptions.map(option => (
+                              <DropdownMenuItem
+                                  key={option.code}
+                                  onSelect={() => handleDropdownSelect(option.code)}
+                                  className={cn(option.code === displayCurrency && "bg-accent")} // Highlight selected in dropdown
+                              >
+                                  {option.label}
+                              </DropdownMenuItem>
+                          ))}
+                          {dropdownCurrencyOptions.length === 0 && <DropdownMenuItem disabled>No other currencies</DropdownMenuItem>}
+                      </DropdownMenuContent>
+                  </DropdownMenu>
+                  <span className="text-muted-foreground">:</span>
+
+                  {/* Value and Tooltip */}
+                  {isLoading ? (
+                      <span className="flex items-center space-x-1 font-semibold">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span>Calculating...</span>
+                      </span>
+                  ) : combinedMonetaryValue !== null ? (
+                    <Popover open={isTooltipOpen} onOpenChange={setIsTooltipOpen}>
+                        <PopoverTrigger asChild>
+                            <button className="font-semibold hover:underline focus:underline focus:outline-none rounded py-0.5 hover:bg-muted">
+                                {formattedCombinedMonetary}
+                            </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-2 text-xs" align="start">
+                            <ul className="space-y-0.5">
+                              {(tooltipLines && tooltipLines.length > 0) 
+                                ? tooltipLines.map((line, i) => <li key={i}>{line}</li>)
+                                : <li>Breakdown unavailable.</li>
+                              }
+                          </ul>
+                      </PopoverContent>
+                  </Popover>
                   ) : (
-                    <span className="px-1 py-0.5">{balanceStr}</span>
+                      <span className="font-semibold text-muted-foreground italic">Unavailable</span>
                   )}
-                  {index < arr.length - 1 && <span className="text-muted-foreground ml-0">, </span>}
-                </React.Fragment>
-              );
-          })}
-          {Object.keys(totalBalances).length === 0 && <span className="text-muted-foreground italic">No funds available yet.</span>}
-       </p>
-
-      {/* Combined Balance Section (Conditionally Rendered) */}
-      {showCombinedBalance && (hasMonetaryBalances || isLoading) && ( // Only show if prop is true AND monetary balances exist OR loading rates
-           <div className="flex items-center space-x-1 text-sm "> {/* Reduced space-x */}
-                {/* **** UPDATED Label Structure **** */}
-                <span className="text-muted-foreground">Combined, in</span>
-                {/* Dropdown Trigger Button */}
-                <DropdownMenu open={isCurrencyDropdownOpen} onOpenChange={setIsCurrencyDropdownOpen}>
-                    <DropdownMenuTrigger asChild>
-                         <Button
-                            variant="ghost"
-                            size="sm" // Smaller size
-                            className="m-0 pl-0.5 px-0 py-0.5 h-auto font-semibold hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring" // Adjust padding/height
-                            disabled={isLoading}
-                            aria-label={`Change combined balance display currency, currently ${displayCurrencyLabelPart}`}
-                         >
-                            {displayCurrencyLabelPart}
-                            <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-                         </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                        {dropdownCurrencyOptions.map(option => (
-                            <DropdownMenuItem
-                                key={option.code}
-                                onSelect={() => handleDropdownSelect(option.code)}
-                                className={cn(option.code === displayCurrency && "bg-accent")} // Highlight selected in dropdown
-                            >
-                                {option.label}
-                            </DropdownMenuItem>
-                        ))}
-                         {dropdownCurrencyOptions.length === 0 && <DropdownMenuItem disabled>No other currencies</DropdownMenuItem>}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-                 <span className="text-muted-foreground">:</span>
-
-                {/* Value and Tooltip */}
-                {isLoading ? (
-                     <span className="flex items-center space-x-1 font-semibold">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          <span>Calculating...</span>
-                     </span>
-                ) : combinedMonetaryValue !== null ? (
-                  <Popover open={isTooltipOpen} onOpenChange={setIsTooltipOpen}>
-                      <PopoverTrigger asChild>
-                          <button className="font-semibold hover:underline focus:underline focus:outline-none rounded py-0.5 hover:bg-muted">
-                              {formattedCombinedMonetary}
-                          </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-2 text-xs" align="start">
-                          <ul className="space-y-0.5">
-                            {(tooltipLines && tooltipLines.length > 0) 
-                              ? tooltipLines.map((line, i) => <li key={i}>{line}</li>)
-                              : <li>Breakdown unavailable.</li>
-                            }
-                        </ul>
-                    </PopoverContent>
-                </Popover>
-                ) : (
-                     <span className="font-semibold text-muted-foreground italic">Unavailable</span>
-                )}
-                {/* Add non-monetary part if exists and not loading */}
-                {hasNonMonetaryBalances && !isLoading && (
-                    <>
-                        <span className="text-muted-foreground ml-0">,</span>
-                        <span className="font-semibold">{formattedNonMonetary}</span>
-                    </>
-                )}
-           </div>
-       )}
-
-      {/* If ONLY non-monetary balances exist and not loading (and combined not shown or no monetary) */}
-       {/* {!hasMonetaryBalances && hasNonMonetaryBalances && !isLoading && (
-            <div className="flex items-center space-x-2 text-sm">
-                <span className="text-muted-foreground">Total:</span>
-                <span className="font-semibold">{formattedNonMonetary}</span>
+                  {/* Add non-monetary part if exists and not loading */}
+                  {hasNonMonetaryBalances && !isLoading && (
+                      <>
+                          <span className="text-muted-foreground ml-0">,</span>
+                          <span className="font-semibold">{formattedNonMonetary}</span>
+                      </>
+                  )}
             </div>
-       )} */}
+        )}
+        <ScrollBar orientation="horizontal" />
+       </ScrollArea>
     </div>
   );
 };

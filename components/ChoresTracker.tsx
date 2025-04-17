@@ -16,7 +16,6 @@ import { createRRuleWithStartDate, getNextOccurrence } from '@/lib/chore-utils';
 import { format } from 'date-fns';
 import { useToast } from "@/components/ui/use-toast";
 import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
-import AllowanceBalance from '@/components/AllowanceBalance';
 // **** NEW: Import types ****
 import { UnitDefinition, Envelope } from '@/lib/currency-utils';
 
@@ -492,10 +491,11 @@ const updateChore = async (choreId, updatedChore) => {
               {selectedMember !== 'All' && (
                 <div className="flex-shrink-0">
                   <h3 className="text-lg font-semibold mb-2 text-gray-700">Current Allowance</h3>
-                  <AllowanceBalance
+                  {/* <CombinedBalanceSomethingSomething
                     familyMember={familyMembers.find(m => m.id === selectedMember)!} // Add non-null assertion
                     db={db}
-                  />
+                  /> */}
+                  Allowance Balance will be here
                 </div>
               )}
             </div>

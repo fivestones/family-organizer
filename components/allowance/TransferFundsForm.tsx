@@ -61,7 +61,6 @@ const TransferFundsForm: React.FC<TransferFundsFormProps> = ({
  // --- Effect 1: Reset the entire form when the modal opens ---
  useEffect(() => {
     if (isOpen) {
-      console.log("Modal opened, resetting form.");
       setAmount('');
       // Auto-select currency based on the *current* availableCurrencies
       setSelectedCurrency(availableCurrencies.length === 1 ? availableCurrencies[0] : undefined);
@@ -80,7 +79,6 @@ const TransferFundsForm: React.FC<TransferFundsFormProps> = ({
   useEffect(() => {
     // Only run if the modal is open AND sourceEnvelopeId is valid
     if (isOpen && sourceEnvelopeId) {
-      console.log("Source envelope changed while open, resetting selections.");
       // Reset amount too? Depends on desired UX.
       // setAmount('');
       setSelectedCurrency(availableCurrencies.length === 1 ? availableCurrencies[0] : undefined);
@@ -94,7 +92,6 @@ const TransferFundsForm: React.FC<TransferFundsFormProps> = ({
   // (Keep your existing effect for this if you have one, or add it)
   useEffect(() => {
     if (isOpen && selectedCurrency && !availableCurrencies.includes(selectedCurrency)) {
-      console.log("Selected currency no longer valid, resetting.");
       // Reset to default/undefined if the selected currency disappears
       setSelectedCurrency(availableCurrencies.length === 1 ? availableCurrencies[0] : undefined);
     }

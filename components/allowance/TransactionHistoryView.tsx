@@ -85,14 +85,10 @@ const getTransactionDetails = (tx: Transaction, isIntraMemberTransfer: boolean):
            }
           return `Withdrawal from ${envName}`; // Basic withdrawal
       case 'transfer-in': // Intra-member transfer IN
-           console.log("transfer-in");
-           console.log("tx:", tx);
           // This type might not be used if using transfer-in-person for all receipts?
           // Assuming it means received from same member's other envelope
            return `Transfer from ${srcEnvName} to ${destEnvName || envName}`;
       case 'transfer-out': // Intra-member transfer OUT
-           console.log("transfer-out");
-           console.log("tx:", tx);
            // Assuming it means sent to same member's other envelope
            return `Transfer from ${srcEnvName || envName} to ${destEnvName}`;
       case 'transfer-in-person': // Received from another person
@@ -200,7 +196,6 @@ const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({
   }, [mode, familyMemberId]);
 
   const { isLoading, error, data } = db.useQuery(query, { enabled: mode === 'all' || (mode === 'member' && !!familyMemberId) });
-  console.log("data:", data);
 
   // --- Data Processing & Filtering ---
   const processedTransactions: Transaction[] = useMemo(() => {

@@ -70,7 +70,7 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
   };
 
   return (
-    <ScrollArea className="grow min-h-0"> {/* grow min-h-0 on ScrollArea: This makes the ScrollArea itself the expanding element within its direct parent (<div className="flex flex-col gap-6 grow min-h-0">). It will take up the space not used by the AllowanceBalance section. The ScrollArea component (assuming it's from Shadcn UI or similar) internally handles overflow-y: auto;, so when its content exceeds the calculated height it receives from grow, a scrollbar will appear within the ScrollArea. */}
+    <ScrollArea className="grow min-h-0"> {/* grow min-h-0 on ScrollArea: This makes the ScrollArea itself the expanding element within its direct parent (<div className="flex flex-col gap-6 grow min-h-0">). It will take up the space not used by the allowance balance section. The ScrollArea component (assuming it's from Shadcn UI or similar) internally handles overflow-y: auto;, so when its content exceeds the calculated height it receives from grow, a scrollbar will appear within the ScrollArea. */}
       <ul>
         {filteredChores.map(chore => {
           const assignedMembers = getAssignedMembersForChoreOnDate(chore, safeSelectedDate);

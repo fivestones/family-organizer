@@ -101,7 +101,6 @@ export default function MemberAllowanceDetail({
     const [isTransferToPersonModalOpen, setIsTransferToPersonModalOpen] = useState(false);
     // **** NEW exchange rate States ****
     const [selectedDisplayCurrency, setSelectedDisplayCurrency] = useState<string | null>(null); // e.g., "USD"
-    // const [allRates, setAllRates] = useState<{ [pairKey: string]: RateInfo }>({});
     const [isLoadingRates, setIsLoadingRates] = useState(false);   
     // **** NEW: State to toggle between Allowance Details and Transactions ****
     const [showingTransactions, setShowingTransactions] = useState(false);

@@ -83,7 +83,7 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
       // onConfirm should handle success toast and closing
     } catch (err: any) {
       // onConfirm should handle error toast
-      console.error("Deletion failed:", err);
+      toast({ title: "Error", description: "Deletion failed for some reason", variant: "destructive" });
     } finally {
       setIsDeleting(false);
     }
@@ -93,7 +93,6 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
       // Cannot delete last envelope - this case should ideally be prevented
       // by disabling the delete button in EnvelopeItem, but added safeguard here.
        if (isOpen && envelopeToDelete && otherEnvelopes.length === 0) {
-           console.error("Attempted to open delete dialog for the last envelope.");
            toast({ title: "Error", description: "Cannot delete the last envelope.", variant: "destructive" });
            onClose(); // Close the dialog immediately
        }

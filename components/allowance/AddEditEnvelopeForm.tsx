@@ -176,7 +176,6 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
         });
         // If the default status was CHECKED during edit AND it wasn't default before
         if (isDefault && !originalIsDefault) {
-           console.log("Setting new default (edit):", initialData.id);
            await setDefaultEnvelope(db, allMemberEnvelopes, initialData.id);
         }
       } else {
@@ -188,7 +187,6 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
         });
          // If the default status was CHECKED during creation
         if (isDefault) {
-            console.log("Setting new default (create):", newEnvelopeId);
             // Fetch the *updated* list of envelopes AFTER creation before setting default
             // This is tricky as the component's state `allMemberEnvelopes` might be stale.
             // It's safer if `setDefaultEnvelope` fetches fresh data, or we pass the newly created envelope info.

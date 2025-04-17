@@ -104,10 +104,6 @@ const DefineUnitForm: React.FC<DefineUnitFormProps> = ({
 
     try {
       // TODO: Add check if code already exists in unitDefinitions before creating?
-      // const { data: existing } = await db.query({ unitDefinitions: { $: { where: { code: trimmedCode } } } });
-      // if (existing?.unitDefinitions?.length > 0) {
-      //   throw new Error(`Unit code '${trimmedCode}' already exists.`);
-      // }
 
       const newId = id();
       await db.transact([
