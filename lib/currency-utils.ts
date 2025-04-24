@@ -1,8 +1,8 @@
 import { tx, id } from '@instantdb/react';
 
-// Define an interface based on your unitDefinitions schema entity
+// --- Type Definitions ---
 export interface UnitDefinition {
-  id: string; // Include ID
+    id: string;
   code: string;
   name?: string | null;
   symbol?: string | null;
@@ -18,21 +18,12 @@ export interface Envelope {
   name: string;
   balances: { [currency: string]: number };
   isDefault?: boolean | null;
-  // Add optional goal fields
   goalAmount?: number | null;
   goalCurrency?: string | null;
-  // relationships (may not be populated depending on query)
-  familyMember?: { id: string, name: string }[];
-  transactions?: any[]; // Define more strictly if needed
+  familyMember?: { id: string, name?: string }[]; // Link to family member
+  transactions?: any[];
   outgoingTransfers?: any[];
   incomingTransfers?: any[];
-}
-
-
-export interface CurrencyBalance {
-  amount: number;
-  currency: string;
-  exchangeRate?: number;
 }
 
 // Interface for cached exchange rates
@@ -41,7 +32,7 @@ export interface CachedExchangeRate {
   baseCurrency: string;
   targetCurrency: string;
   rate: number;
-  lastFetchedTimestamp: Date; // Use Date object for easier comparison
+    lastFetchedTimestamp: Date;
 }
 
 // Interface for the result of getting a rate
@@ -56,34 +47,13 @@ export interface ExchangeRateResult {
 export interface GoalProgressResult {
   totalValueInGoalCurrency: number | null;
   percentage: number | null;
-  errors: string[]; // To report issues like missing rates
+  errors: string[];
 }
 
-
-export interface ConvertibleBalance {
-  primaryAmount: number;
-  primaryCurrency: string;
-  secondaryAmounts: {
-    amount: number;
-    currency: string;
-    exchangeRate: number;
-  }[];
-}
-
-// **** NEW: Constants ****
-const OPEN_EXCHANGE_RATES_APP_ID = 'a6175466a16c4ce3b3cdbf9fbb50cb7e';
+// --- Constants ---
+const OPEN_EXCHANGE_RATES_APP_ID = process.env.NEXT_PUBLIC_OPEN_EXCHANGE_RATES_APP_ID || 'a6175466a16c4ce3b3cdbf9fbb50cb7e';
 const EXCHANGE_RATE_CACHE_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours; this should cause a maximum of 360 or so api calls per month to openexchangerates.org's api; we have 1000/month in the free tier
 const BASE_CURRENCY = "USD"; // API Base
-
-export interface ConvertibleBalance {
-  primaryAmount: number;
-  primaryCurrency: string;
-  secondaryAmounts: {
-    amount: number;
-    currency: string;
-    exchangeRate: number;
-  }[];
-}
 
 /**
  * Formats a balance object into a readable string using unit definitions.
@@ -224,10 +194,12 @@ export const createInitialSavingsEnvelope = async (db: any, familyMemberId: stri
       goalAmount: null,
       goalCurrency: null,
       }),
+         // Also link it back from the family member
+          tx.familyMembers[familyMemberId].link({ allowanceEnvelopes: newEnvelopeId })
   ]);
   console.log(`Created initial Savings envelope ${newEnvelopeId} for member ${familyMemberId}`);
   return newEnvelopeId;
-}
+};
 
 /**
  * Creates an additional envelope, optionally setting it as default and adding goal info.
@@ -245,19 +217,13 @@ export const createAdditionalEnvelope = async (
   isDefault: boolean,
   goalAmount?: number | null,
   goalCurrency?: string | null
-) => {
-  if (!name || name.trim().length === 0) {
-      throw new Error("Envelope name cannot be empty.");
-  }
-  if (goalAmount !== null && goalAmount !== undefined && goalAmount <= 0) {
-    throw new Error("Goal amount must be positive if set.");
-  }
-  if ((goalAmount !== null && goalAmount !== undefined) && (!goalCurrency)) {
-      throw new Error("Goal currency must be specified if goal amount is set.");
-  }
-  if (goalCurrency && (goalAmount === null || goalAmount === undefined)) {
-      throw new Error("Goal amount must be specified if goal currency is set.");
-  }
+): Promise<string> => {
+    // ... (keep existing implementation, add linking)
+     if (!name || name.trim().length === 0) throw new Error("Envelope name cannot be empty.");
+     if (goalAmount !== null && goalAmount !== undefined && goalAmount <= 0) throw new Error("Goal amount must be positive if set.");
+     if ((goalAmount !== null && goalAmount !== undefined) && (!goalCurrency)) throw new Error("Goal currency must be specified if goal amount is set.");
+     // Removed validation: if (goalCurrency && (goalAmount === null || goalAmount === undefined)) throw new Error("Goal amount must be specified if goal currency is set.");
+     // Allow setting goal currency without amount initially if desired, though UI might prevent it.
 
 
   const newEnvelopeId = id();
@@ -265,12 +231,13 @@ export const createAdditionalEnvelope = async (
       tx.allowanceEnvelopes[newEnvelopeId].update({
         name: name.trim(),
         balances: {},
-        // Set the initial default status directly here
-        isDefault: isDefault,
-        familyMember: familyMemberId,
-        goalAmount: goalAmount ?? null, // Store as null if not provided
+           isDefault: isDefault, // Set initial status, but might be overridden by setDefaultEnvelope
+           familyMember: familyMemberId, // Link to member
+           goalAmount: goalAmount ?? null,
         goalCurrency: goalCurrency ?? null,
       }),
+          // Also link it back from the family member
+          tx.familyMembers[familyMemberId].link({ allowanceEnvelopes: newEnvelopeId })
   ]);
   console.log(`Created envelope ${newEnvelopeId} with name '${name}', isDefault=${isDefault}, goal=${goalCurrency || ''} ${goalAmount || ''}`);
   return newEnvelopeId; // Return the new ID
@@ -306,7 +273,7 @@ export const setDefaultEnvelope = async (db: any, envelopes: Envelope[], newDefa
       }
   });
 
-   // Handle case where the newDefaultEnvelopeId wasn't in the original list (e.g., just created)
+      // Handle case where the newDefaultEnvelopeId wasn't in the initial list (e.g., just created)
    if (!newDefaultExists) {
        console.log(`New default ${newDefaultEnvelopeId} was not in the initial list, marking for update.`);
        transactions.push(tx.allowanceEnvelopes[newDefaultEnvelopeId].update({ isDefault: true }));
@@ -316,9 +283,14 @@ export const setDefaultEnvelope = async (db: any, envelopes: Envelope[], newDefa
 
 
   if (transactions.length > 0) {
-      console.log("Executing transactions:", transactions);
+           console.log("Executing transactions:", transactions.map(t => t.toString())); // Log transactions better
+           try {
       await db.transact(transactions);
       console.log("Default envelope transaction successful.");
+           } catch (error) {
+                console.error("Error setting default envelope:", error);
+                throw error; // Re-throw
+           }
   } else if (newDefaultExists && envelopes.find(e => e.id === newDefaultEnvelopeId)?.isDefault) {
        console.log("No changes needed, target envelope is already the default.");
   } else {
@@ -337,23 +309,32 @@ export const setDefaultEnvelope = async (db: any, envelopes: Envelope[], newDefa
  * @param currency - Currency of the deposit
  * @param description - Optional description
  */
-export const depositToSpecificEnvelope = async (db: any, envelopeId: string, currentBalances: { [currency: string]: number }, amount: number, currency: string, description: string = "Deposit") => {
+export const depositToSpecificEnvelope = async (db: any, envelopeId: string, currentBalances: { [currency: string]: number }, amount: number, currency: string, description: string = "Deposit"): Promise<void> => {
   if (amount <= 0) throw new Error("Deposit amount must be positive.");
 
   // Logic now uses passed 'currentBalances' instead of querying
   const balances = currentBalances || {};
-  const newBalance = (balances[currency] || 0) + amount;
-  const updatedBalances = { ...balances, [currency]: newBalance };
+     const upperCaseCurrency = currency.toUpperCase();
+     const newBalance = (balances[upperCaseCurrency] || 0) + amount;
+     const updatedBalances = { ...balances, [upperCaseCurrency]: newBalance };
   const transactionId = id();
 
   await db.transact([
       tx.allowanceEnvelopes[envelopeId].update({ balances: updatedBalances }),
       tx.allowanceTransactions[transactionId].update({
-          amount: amount, currency: currency, transactionType: 'deposit',
-          envelope: envelopeId, destinationEnvelope: envelopeId, //sourceEnvelope: null,
-          description: description, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-      })
-  ]);
+        amount: amount,
+        currency: upperCaseCurrency,
+        transactionType: 'deposit',
+        envelope: envelopeId,
+        destinationEnvelope: envelopeId, // For deposits, source is external, destination is the envelope
+        description: description,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+    }),
+    // Ensure transaction is linked back to envelope
+     tx.allowanceEnvelopes[envelopeId].link({ transactions: transactionId })
+]);
+console.log(`Deposited ${upperCaseCurrency} ${amount} to envelope ${envelopeId}`);
 };
 
 /**
@@ -364,23 +345,30 @@ export const depositToSpecificEnvelope = async (db: any, envelopeId: string, cur
  * @param amount - Amount to transfer
  * @param currency - Currency of the transfer
  */
-export const transferFunds = async (db: any, fromEnvelope: any, toEnvelope: any, amount: number, currency: string) => {
+export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope: Envelope, amount: number, currency: string): Promise<void> => {
+    // ... (keep existing implementation, ensure linking)
   if (amount <= 0) throw new Error("Transfer amount must be positive.");
-  if (!fromEnvelope || !toEnvelope) throw new Error("Source or destination envelope data missing.");
+     if (!fromEnvelope?.id || !toEnvelope?.id) throw new Error("Source or destination envelope data missing.");
   if (fromEnvelope.id === toEnvelope.id) throw new Error("Cannot transfer funds to the same envelope.");
 
-  // Logic uses passed envelope objects instead of querying
+     const upperCaseCurrency = currency.toUpperCase();
   const fromBalances = fromEnvelope.balances || {};
   const toBalances = toEnvelope.balances || {};
-  const currentFromBalance = fromBalances[currency] || 0;
+     const currentFromBalance = fromBalances[upperCaseCurrency] || 0;
 
-  if (currentFromBalance < amount) throw new Error(`Insufficient ${currency} funds in ${fromEnvelope.name}.`);
+     if (currentFromBalance < amount) throw new Error(`Insufficient ${upperCaseCurrency} funds in ${fromEnvelope.name}.`);
 
   const newFromBalance = currentFromBalance - amount;
-  const newToBalance = (toBalances[currency] || 0) + amount;
-  const updatedFromBalances = { ...fromBalances, [currency]: newFromBalance };
-  const updatedToBalances = { ...toBalances, [currency]: newToBalance };
-  if (updatedFromBalances[currency] === 0) delete updatedFromBalances[currency];
+     const newToBalance = (toBalances[upperCaseCurrency] || 0) + amount;
+
+     const updatedFromBalances = { ...fromBalances };
+     if (newFromBalance === 0) {
+       delete updatedFromBalances[upperCaseCurrency];
+     } else {
+       updatedFromBalances[upperCaseCurrency] = newFromBalance;
+     }
+
+     const updatedToBalances = { ...toBalances, [upperCaseCurrency]: newToBalance };
 
   const transferDesc = `Transfer from ${fromEnvelope.name} to ${toEnvelope.name}`;
   const transactionIdOut = id();
@@ -389,17 +377,27 @@ export const transferFunds = async (db: any, fromEnvelope: any, toEnvelope: any,
   await db.transact([
     tx.allowanceEnvelopes[fromEnvelope.id].update({ balances: updatedFromBalances }),
     tx.allowanceEnvelopes[toEnvelope.id].update({ balances: updatedToBalances }),
+       // Outgoing Transaction Record
     tx.allowanceTransactions[transactionIdOut].update({
-        amount: -amount, currency: currency, transactionType: 'transfer-out',
-        envelope: fromEnvelope.id, sourceEnvelope: fromEnvelope.id, destinationEnvelope: toEnvelope.id,
+           amount: -amount, currency: upperCaseCurrency, transactionType: 'transfer-out',
+           envelope: fromEnvelope.id, // Log against the source envelope
+           sourceEnvelope: fromEnvelope.id,
+           destinationEnvelope: toEnvelope.id,
         description: transferDesc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }),
+       // Incoming Transaction Record
     tx.allowanceTransactions[transactionIdIn].update({
-        amount: amount, currency: currency, transactionType: 'transfer-in',
-        envelope: toEnvelope.id, sourceEnvelope: fromEnvelope.id, destinationEnvelope: toEnvelope.id,
+           amount: amount, currency: upperCaseCurrency, transactionType: 'transfer-in',
+           envelope: toEnvelope.id, // Log against the destination envelope
+           sourceEnvelope: fromEnvelope.id,
+           destinationEnvelope: toEnvelope.id,
         description: transferDesc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }),
-  ]);
+    // Link transactions to envelopes
+    tx.allowanceEnvelopes[fromEnvelope.id].link({ outgoingTransfers: transactionIdOut, transactions: transactionIdOut }),
+    tx.allowanceEnvelopes[toEnvelope.id].link({ incomingTransfers: transactionIdIn, transactions: transactionIdIn })
+ ]);
+  console.log(`Transferred ${upperCaseCurrency} ${amount} from ${fromEnvelope.id} to ${toEnvelope.id}`);
 };
 
 /**
@@ -416,8 +414,8 @@ export const deleteEnvelope = async (
     envelopeToDeleteId: string,
     transferToEnvelopeId: string,
     newDefaultEnvelopeId: string | null = null
-  ) => {
-
+): Promise<void> => {
+    // ... (keep existing implementation, ensure linking in transfers)
   if (envelopeToDeleteId === transferToEnvelopeId) throw new Error("Cannot transfer funds to the envelope being deleted.");
 
   // Logic uses passed 'allEnvelopes' array instead of querying
@@ -428,9 +426,9 @@ export const deleteEnvelope = async (
 
   if (!envelopeToDelete) throw new Error("Envelope to delete not found in provided list.");
   if (!targetEnvelope) throw new Error("Envelope to transfer funds to not found in provided list.");
-  if (envelopeToDelete.isDefault && !newDefaultEnvelopeId) throw new Error("Must specify a new default envelope.");
+     if (envelopeToDelete.isDefault && !newDefaultEnvelopeId) throw new Error("Must specify a new default envelope when deleting the default.");
   if (envelopeToDelete.isDefault && newDefaultEnvelopeId === envelopeToDeleteId) throw new Error("New default cannot be the deleted envelope.");
-  if (newDefaultEnvelopeId && !allEnvelopes.some((e) => e.id === newDefaultEnvelopeId)) throw new Error(`Specified new default envelope (${newDefaultEnvelopeId}) not found in list.`);
+     if (newDefaultEnvelopeId && !allEnvelopes.some((e) => e.id === newDefaultEnvelopeId)) throw new Error(`Specified new default envelope (${newDefaultEnvelopeId}) not found.`);
 
   const balancesToDelete = envelopeToDelete.balances || {};
   const transactions: any[] = [];
@@ -441,23 +439,30 @@ export const deleteEnvelope = async (
   for (const currency in balancesToDelete) {
     const amount = balancesToDelete[currency];
     if (amount > 0) {
-      updatedTargetBalances[currency] = (updatedTargetBalances[currency] || 0) + amount;
-      // ... (create transaction records as before) ...
+         const upperCaseCurrency = currency.toUpperCase();
+         updatedTargetBalances[upperCaseCurrency] = (updatedTargetBalances[upperCaseCurrency] || 0) + amount;
+
+         // Create transaction records for the transfer
       const transferDesc = `Transfer from deleted envelope ${envelopeToDelete.name} to ${targetEnvelope.name}`;
       const transactionIdOut = id();
       const transactionIdIn = id();
+         // Outgoing from deleted envelope (log against deleted ID temporarily)
       transactions.push(tx.allowanceTransactions[transactionIdOut].update({
-        amount: -amount, currency: currency, transactionType: 'transfer-out',
+           amount: -amount, currency: upperCaseCurrency, transactionType: 'transfer-out',
         envelope: envelopeToDeleteId, sourceEnvelope: envelopeToDeleteId, destinationEnvelope: transferToEnvelopeId,
         description: transferDesc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }));
+         // Incoming to target envelope
       transactions.push(tx.allowanceTransactions[transactionIdIn].update({
-        amount: amount, currency: currency, transactionType: 'transfer-in',
+           amount: amount, currency: upperCaseCurrency, transactionType: 'transfer-in',
         envelope: transferToEnvelopeId, sourceEnvelope: envelopeToDeleteId, destinationEnvelope: transferToEnvelopeId,
         description: transferDesc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }));
+          // Link incoming transaction to target envelope
+          transactions.push(tx.allowanceEnvelopes[transferToEnvelopeId].link({ incomingTransfers: transactionIdIn, transactions: transactionIdIn }));
     }
   }
+     // Update target envelope balance
   transactions.push(tx.allowanceEnvelopes[transferToEnvelopeId].update({ balances: updatedTargetBalances }));
 
   // Set new default logic
@@ -465,10 +470,11 @@ export const deleteEnvelope = async (
        transactions.push(tx.allowanceEnvelopes[newDefaultEnvelopeId].update({ isDefault: true }));
   }
 
-  // Add delete transaction
+     // Add delete transaction LAST
   transactions.push(tx.allowanceEnvelopes[envelopeToDeleteId].delete());
 
   await db.transact(transactions);
+  console.log(`Deleted envelope ${envelopeToDeleteId}, transferred funds to ${transferToEnvelopeId}`);
 };
 
 
@@ -487,24 +493,20 @@ export const updateEnvelope = async (
   isDefault: boolean,
   goalAmount?: number | null,
   goalCurrency?: string | null
-) => {
+): Promise<void> => {
+    // ... (keep existing implementation)
   const trimmedName = newName.trim();
   if (!trimmedName) throw new Error("Envelope name cannot be empty.");
-  if (goalAmount !== null && goalAmount !== undefined && goalAmount <= 0) {
-    throw new Error("Goal amount must be positive if set.");
-  }
-  if ((goalAmount !== null && goalAmount !== undefined) && (!goalCurrency)) {
-      throw new Error("Goal currency must be specified if goal amount is set.");
-  }
-  if (goalCurrency && (goalAmount === null || goalAmount === undefined)) {
-      throw new Error("Goal amount must be specified if goal currency is set.");
-  }
+     if (goalAmount !== null && goalAmount !== undefined && goalAmount <= 0) throw new Error("Goal amount must be positive if set.");
+     // Removed validation: if ((goalAmount !== null && goalAmount !== undefined) && (!goalCurrency)) throw new Error("Goal currency must be specified if goal amount is set.");
+     // Removed validation: if (goalCurrency && (goalAmount === null || goalAmount === undefined)) throw new Error("Goal amount must be specified if goal currency is set.");
 
 
   console.log(`Updating envelope ${envelopeId}: name='${trimmedName}', isDefault=${isDefault}, goal=${goalCurrency || ''} ${goalAmount || ''}`);
   await db.transact([
     tx.allowanceEnvelopes[envelopeId].update({
       name: trimmedName,
+      // Note: isDefault might be immediately overridden if setDefaultEnvelope is called after this
       isDefault: isDefault,
       goalAmount: goalAmount ?? null,
       goalCurrency: goalCurrency ?? null,
@@ -529,20 +531,15 @@ export const withdrawFromEnvelope = async (
   amount: number,
   currency: string,
   description: string = "Withdrawal"
-) => {
-if (amount <= 0) {
-  throw new Error("Withdrawal amount must be positive.");
-}
-if (!envelope || !envelope.balances) {
-  throw new Error("Invalid envelope data provided.");
-}
+): Promise<void> => {
+    // ... (keep existing implementation, ensure linking)
+     if (amount <= 0) throw new Error("Withdrawal amount must be positive.");
+     if (!envelope?.id || !envelope.balances) throw new Error("Invalid envelope data provided.");
 
 const upperCaseCurrency = currency.toUpperCase();
 const currentBalance = envelope.balances[upperCaseCurrency] || 0;
 
-if (currentBalance < amount) {
-  throw new Error(`Insufficient ${upperCaseCurrency} funds in ${envelope.name}. Available: ${currentBalance}, Tried: ${amount}`);
-}
+     if (currentBalance < amount) throw new Error(`Insufficient ${upperCaseCurrency} funds in ${envelope.name}. Available: ${currentBalance}, Tried: ${amount}`);
 
 // Calculate new balance
 const newBalance = currentBalance - amount;
@@ -572,7 +569,9 @@ const withdrawalTransaction = tx.allowanceTransactions[transactionId].update({
 // Perform transaction
 await db.transact([
   tx.allowanceEnvelopes[envelope.id].update({ balances: updatedBalances }),
-  withdrawalTransaction
+  withdrawalTransaction,
+  // Link transaction back to envelope
+  tx.allowanceEnvelopes[envelope.id].link({ transactions: transactionId })
 ]);
 
 console.log(`Withdrew ${upperCaseCurrency} ${amount} from envelope ${envelope.id}`);
@@ -595,37 +594,24 @@ export const transferFundsToPerson = async (
   destinationEnvelope: Envelope,
   amount: number,
   currency: string,
-  description?: string // Allow optional description
-) => {
-if (amount <= 0) {
-  throw new Error("Transfer amount must be positive.");
-}
-if (!sourceEnvelope || !sourceEnvelope.balances || !sourceEnvelope.id) {
-  throw new Error("Invalid source envelope data provided.");
-}
- if (!destinationEnvelope || !destinationEnvelope.balances || !destinationEnvelope.id) {
-  throw new Error("Invalid destination envelope data provided.");
-}
-if (sourceEnvelope.id === destinationEnvelope.id) {
-  // Use the existing intra-member transfer function for this case if needed
-  throw new Error("Source and destination envelopes cannot be the same. Use regular transfer for intra-member moves.");
-}
+    description?: string
+): Promise<void> => {
+    // ... (keep existing implementation, ensure linking)
+     if (amount <= 0) throw new Error("Transfer amount must be positive.");
+     if (!sourceEnvelope?.id || !sourceEnvelope.balances) throw new Error("Invalid source envelope data.");
+     if (!destinationEnvelope?.id || !destinationEnvelope.balances) throw new Error("Invalid destination envelope data.");
+     if (sourceEnvelope.id === destinationEnvelope.id) throw new Error("Source and destination envelopes cannot be the same.");
 
 const upperCaseCurrency = currency.toUpperCase();
 const sourceCurrentBalance = sourceEnvelope.balances[upperCaseCurrency] || 0;
 
-if (sourceCurrentBalance < amount) {
-  throw new Error(`Insufficient ${upperCaseCurrency} funds in source envelope (${sourceEnvelope.name}). Available: ${sourceCurrentBalance}, Tried: ${amount}`);
-}
+     if (sourceCurrentBalance < amount) throw new Error(`Insufficient ${upperCaseCurrency} funds in source envelope (${sourceEnvelope.name}). Available: ${sourceCurrentBalance}, Tried: ${amount}`);
 
 // Calculate new balances
 const sourceNewBalance = sourceCurrentBalance - amount;
 const updatedSourceBalances = { ...sourceEnvelope.balances };
-if (sourceNewBalance === 0) {
-  delete updatedSourceBalances[upperCaseCurrency];
-} else {
-  updatedSourceBalances[upperCaseCurrency] = sourceNewBalance;
-}
+     if (sourceNewBalance === 0) delete updatedSourceBalances[upperCaseCurrency];
+     else updatedSourceBalances[upperCaseCurrency] = sourceNewBalance;
 
 const destinationCurrentBalance = destinationEnvelope.balances[upperCaseCurrency] || 0;
 const destinationNewBalance = destinationCurrentBalance + amount;
@@ -634,34 +620,24 @@ const updatedDestinationBalances = { ...destinationEnvelope.balances, [upperCase
 // Create transaction records
 const transactionIdOut = id();
 const transactionIdIn = id();
-const transferDesc = description || `Transfer to ${(destinationEnvelope as any).familyMember?.[0]?.name || 'other member'} - ${destinationEnvelope.name}`; // Try to get recipient name  // this line was `const transferDesc = description || `Transfer to ${destinationEnvelope.name}`; // Default description if none provided`
+     // Attempt to get recipient name for description
+      const recipientName = destinationEnvelope.familyMember?.[0]?.name || 'other member';
+      const senderName = sourceEnvelope.familyMember?.[0]?.name || 'other member';
+      const transferDesc = description || `Transfer from ${senderName} to ${recipientName}`;
+
 
 // Transaction for the sender
 const transferOutTransaction = tx.allowanceTransactions[transactionIdOut].update({
-    amount: -amount, // Negative amount for outgoing
-    currency: upperCaseCurrency,
-    transactionType: 'transfer-out-person', // Specific type for inter-person transfer
-    envelope: sourceEnvelope.id, // Envelope the transaction is logged against
-    sourceEnvelope: sourceEnvelope.id, // Source of funds
-    destinationEnvelope: destinationEnvelope.id, // Destination of funds
-    description: transferDesc,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    // Consider adding sourceMemberId and destinationMemberId if schema supports/needs it
+         amount: -amount, currency: upperCaseCurrency, transactionType: 'transfer-out-person',
+         envelope: sourceEnvelope.id, sourceEnvelope: sourceEnvelope.id, destinationEnvelope: destinationEnvelope.id,
+         description: transferDesc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
 });
 
 // Transaction for the receiver
 const transferInTransaction = tx.allowanceTransactions[transactionIdIn].update({
-    amount: amount, // Positive amount for incoming
-    currency: upperCaseCurrency,
-    transactionType: 'transfer-in-person', // Specific type for inter-person transfer
-    envelope: destinationEnvelope.id, // Envelope the transaction is logged against
-    sourceEnvelope: sourceEnvelope.id, // Source of funds
-    destinationEnvelope: destinationEnvelope.id, // Destination of funds
-    description: transferDesc,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    // Consider adding sourceMemberId and destinationMemberId if schema supports/needs it
+         amount: amount, currency: upperCaseCurrency, transactionType: 'transfer-in-person',
+         envelope: destinationEnvelope.id, sourceEnvelope: sourceEnvelope.id, destinationEnvelope: destinationEnvelope.id,
+         description: transferDesc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
 });
 
 
@@ -673,8 +649,10 @@ await db.transact([
   tx.allowanceEnvelopes[destinationEnvelope.id].update({ balances: updatedDestinationBalances }),
   // Log the outgoing transaction
   transferOutTransaction,
-  // Log the incoming transaction
-  transferInTransaction
+  transferInTransaction,
+  // Link transactions back
+  tx.allowanceEnvelopes[sourceEnvelope.id].link({ outgoingTransfers: transactionIdOut, transactions: transactionIdOut }),
+  tx.allowanceEnvelopes[destinationEnvelope.id].link({ incomingTransfers: transactionIdIn, transactions: transactionIdIn })
 ]);
 
 console.log(`Transferred ${upperCaseCurrency} ${amount} from envelope ${sourceEnvelope.id} to ${destinationEnvelope.id}`);
@@ -724,52 +702,6 @@ const isRateValid = (cachedRate: CachedExchangeRate | null): boolean => {
   return (now.getTime() - fetchedTime.getTime()) < EXCHANGE_RATE_CACHE_DURATION_MS;
 };
 
-// /**
-// * Retrieves a cached exchange rate from InstantDB for a specific target currency.
-// * @param db - InstantDB instance.
-// * @param targetCurrency - The target currency code (e.g., "NPR").
-// * @param baseCurrency - The base currency code (e.g., "USD").
-// * @returns The cached rate object { id, rate, lastFetchedTimestamp } or null if not found/error.
-// */
-// export const getCachedExchangeRate = async (db: any, targetCurrency: string, baseCurrency: string = "USD"): Promise<CachedExchangeRate | null> => {
-//   try {
-//       const query = {
-//           exchangeRates: {
-//               $: {
-//                   where: { baseCurrency: baseCurrency, targetCurrency: targetCurrency },
-//                   limit: 1 // Expecting only one rate per pair
-//               }
-//           }
-//       };
-//       // Use queryOnce as we need the data immediately, not a subscription [cite: 129]
-//       const { data, error } = await db.queryOnce(query);
-
-//       if (error) {
-//           console.error("Error fetching cached rate from DB:", error);
-//           return null;
-//       }
-
-//       if (data && data.exchangeRates && data.exchangeRates.length > 0) {
-//           const rateData = data.exchangeRates[0];
-//           return {
-//               ...rateData,
-//               lastFetchedTimestamp: new Date(rateData.lastFetchedTimestamp) // Convert string to Date
-//           };
-//       }
-//       return null; // Not found in cache
-//   } catch (dbError) {
-//       console.error("Database error fetching cached rate:", dbError);
-//       return null;
-//   }
-// };
-
-/**
- * Stores or updates multiple exchange rates in the InstantDB cache.
- * Attempts to update existing entries if found, otherwise creates new ones.
- * @param db - InstantDB instance.
- * @param ratesToCache - An array of objects: { baseCurrency, targetCurrency, rate, timestamp }
- * @param allExistingCachedRates - Pass the full list currently known to the component to find IDs.
- */
 export const cacheExchangeRates = async (
   db: any,
   ratesToCache: { baseCurrency: string, targetCurrency: string, rate: number, timestamp: Date }[],
@@ -933,7 +865,141 @@ export const setLastDisplayCurrencyPref = async (db: any, familyMemberId: string
   }
 };
 
-// --- NEW Goal Progress Calculation Function ---
+
+// --- NEW/Implemented Functions ---
+
+/**
+ * Finds the default envelope for a member, creating one if necessary following specific logic.
+ * Marks the found/created envelope as default in the database.
+ * @param db - InstantDB instance.
+ * @param memberId - The ID of the family member.
+ * @param memberEnvelopes - An array of the member's current envelopes.
+ * @returns The ID of the default envelope, or null if creation/setting failed.
+ */
+export const findOrDefaultEnvelope = async (
+    db: any,
+    memberId: string,
+    memberEnvelopes: Envelope[]
+): Promise<string | null> => {
+    console.log(`Finding default envelope for member ${memberId}...`);
+
+    // 1. Check if a default already exists
+    let defaultEnvelope = memberEnvelopes.find(e => e.isDefault);
+    if (defaultEnvelope) {
+        console.log(`Found existing default: ${defaultEnvelope.id} (${defaultEnvelope.name})`);
+        return defaultEnvelope.id;
+    }
+    console.log("No existing default found.");
+
+    // 2. Check for "Savings" envelope
+    let savingsEnvelope = memberEnvelopes.find(e => e.name.toLowerCase() === 'savings');
+    if (savingsEnvelope) {
+        console.log(`Found 'Savings' envelope (${savingsEnvelope.id}), setting as default.`);
+        try {
+            await setDefaultEnvelope(db, memberEnvelopes, savingsEnvelope.id);
+            return savingsEnvelope.id;
+        } catch (error) {
+            console.error(`Failed to set 'Savings' (${savingsEnvelope.id}) as default:`, error);
+            // Continue trying other options if setting failed
+        }
+    }
+
+    // 3. Use the first envelope if available
+    if (memberEnvelopes.length > 0) {
+        const firstEnvelope = memberEnvelopes[0];
+        console.log(`Using first envelope (${firstEnvelope.id}) as default.`);
+        try {
+            await setDefaultEnvelope(db, memberEnvelopes, firstEnvelope.id);
+            return firstEnvelope.id;
+        } catch (error) {
+            console.error(`Failed to set first envelope (${firstEnvelope.id}) as default:`, error);
+             // Continue trying other options if setting failed
+        }
+    }
+
+    // 4. Create "Savings" if no envelopes exist
+    console.log("No envelopes exist, creating 'Savings'.");
+    try {
+        const newEnvelopeId = await createInitialSavingsEnvelope(db, memberId);
+        console.log(`Created and set 'Savings' (${newEnvelopeId}) as default.`);
+        return newEnvelopeId; // createInitialSavingsEnvelope already sets it as default
+    } catch (error) {
+        console.error("Failed to create initial 'Savings' envelope:", error);
+        return null; // Return null if creation failed
+    }
+};
+
+/**
+ * Executes an allowance transaction (deposit or withdrawal) to the member's default envelope.
+ * Finds/creates the default envelope if needed.
+ * @param db - InstantDB instance.
+ * @param memberId - The ID of the family member.
+ * @param memberEnvelopes - An array of the member's current envelopes.
+ * @param amount - The amount to transact (positive for deposit, negative for withdrawal).
+ * @param currency - The currency code.
+ * @param description - A description for the transaction log.
+ */
+export const executeAllowanceTransaction = async (
+    db: any,
+    memberId: string,
+    memberEnvelopes: Envelope[],
+    amount: number,
+    currency: string,
+    description: string
+): Promise<void> => {
+    if (!currency) throw new Error("Currency must be specified for allowance transaction.");
+    if (amount === 0) {
+        console.log("Skipping allowance transaction for zero amount.");
+        return; // No transaction needed for zero amount
+    }
+
+    console.log(`Executing allowance transaction for ${memberId}: ${amount} ${currency}`);
+
+    const defaultEnvelopeId = await findOrDefaultEnvelope(db, memberId, memberEnvelopes);
+
+    if (!defaultEnvelopeId) {
+        // Error handling within findOrDefaultEnvelope should have occurred, but double-check
+        throw new Error(`Failed to find or create a default envelope for member ${memberId}. Cannot process allowance.`);
+    }
+
+    // Fetch the latest state of the default envelope, especially if it was just created
+    // This ensures `balances` is correctly populated.
+    let defaultEnvelope: Envelope | null = memberEnvelopes.find(e => e.id === defaultEnvelopeId) || null;
+    if (!defaultEnvelope) {
+        // If not found in the passed list (e.g., just created), fetch it directly
+        try {
+             console.log(`Default envelope ${defaultEnvelopeId} not in provided list, fetching...`);
+             const { data: fetchedData } = await db.queryOnce({ allowanceEnvelopes: { $: { where: { id: defaultEnvelopeId } } } });
+             defaultEnvelope = fetchedData?.allowanceEnvelopes?.[0] ?? null;
+        } catch (fetchError) {
+             console.error(`Error fetching newly created/set default envelope ${defaultEnvelopeId}:`, fetchError);
+             throw new Error(`Failed to fetch default envelope details for ID ${defaultEnvelopeId}.`);
+        }
+    }
+
+
+    if (!defaultEnvelope) {
+        // This should be rare after findOrDefaultEnvelope logic, but safeguard
+        throw new Error(`Default envelope with ID ${defaultEnvelopeId} could not be confirmed.`);
+    }
+
+    // Execute deposit or withdrawal based on amount sign
+    try {
+        if (amount > 0) {
+            console.log(`Depositing ${amount} ${currency} to ${defaultEnvelopeId}`);
+            await depositToSpecificEnvelope(db, defaultEnvelopeId, defaultEnvelope.balances || {}, amount, currency, description);
+        } else if (amount < 0) {
+             const withdrawalAmount = Math.abs(amount);
+             console.log(`Withdrawing ${withdrawalAmount} ${currency} from ${defaultEnvelopeId}`);
+            await withdrawFromEnvelope(db, defaultEnvelope, withdrawalAmount, currency, description);
+        }
+         console.log(`Allowance transaction for ${memberId} completed successfully.`);
+    } catch (error) {
+        console.error(`Allowance transaction failed for ${memberId}:`, error);
+        throw error; // Re-throw to be handled by the caller
+    }
+};
+
 
 /**
  * Calculates the total value of an envelope's balances in the goal currency

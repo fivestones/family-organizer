@@ -6,14 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Check, ChevronsUpDown, MinusCircle, Users, History, Target } from "lucide-react"; // Added Target
+import { Loader2, Check, ChevronsUpDown, MinusCircle, Users, History, Target, Settings, Save, CalendarDays, Info } from "lucide-react"; // Added Settings, Save, CalendarDays, Info
 // --- Shadcn UI Imports ---
 import { cn } from "@/lib/utils";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Import Select components
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group" // Import RadioGroup
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card"; // Import Card components
 // --- Import Components ---
-// **** Import updated Envelope type ****
 import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem';
 import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
 import TransferFundsForm from '@/components/allowance/TransferFundsForm'; // From envelope to envelope of the same person
@@ -22,10 +23,11 @@ import DefineUnitForm from '@/components/allowance/DefineUnitForm';
 import WithdrawForm from '@/components/allowance/WithdrawForm';
 import TransferToPersonForm from '@/components/allowance/TransferToPersonForm';
 import TransactionHistoryView from '@/components/allowance/TransactionHistoryView';
-// **** NEW: Import CombinedBalanceDisplay ****
 import CombinedBalanceDisplay from '@/components/allowance/CombinedBalanceDisplay';
+import RecurrenceRuleForm from '@/components/RecurrenceRuleForm'; // Import RecurrenceRuleForm
 
 // --- Import Utilities ---
+import { RRule, Frequency } from 'rrule'; // Import RRule for parsing/generation
 import {
     depositToSpecificEnvelope,
     createInitialSavingsEnvelope,
@@ -34,25 +36,46 @@ import {
     deleteEnvelope,
     withdrawFromEnvelope,
     transferFundsToPerson,
-    // **** NEW: Import exchange rate and preference utils ****
     fetchExternalExchangeRates,
     cacheExchangeRates,
-    getExchangeRate, // Async util
+    getExchangeRate,
     setLastDisplayCurrencyPref,
-    CachedExchangeRate, // Type for cache entries
-
+    CachedExchangeRate,
     UnitDefinition,
     formatBalances,
-    ExchangeRateResult, // Type for rate result
+    ExchangeRateResult,
+    calculateEnvelopeProgress, // Ensure this is imported if used elsewhere
+    GoalProgressResult // Ensure this is imported if used elsewhere
 } from '@/lib/currency-utils';
 
-// Minimal interface for family members passed down
+// --- Types ---
 interface BasicFamilyMember {
     id: string;
     name: string;
 }
 
-// Add allFamilyMembers to props
+// Type for the full family member data expected from the query
+interface FamilyMemberData extends BasicFamilyMember {
+    allowanceEnvelopes?: Envelope[];
+    lastDisplayCurrency?: string | null;
+    // +++ Add new allowance fields +++
+    allowanceAmount?: number | null;
+    allowanceCurrency?: string | null;
+    allowanceRrule?: string | null;
+    allowanceStartDate?: string | null; // Store as ISO string from DB
+    allowanceConfig?: AllowanceConfig | null; // Store config as JSON
+    // +++ Add delay field +++
+    allowancePayoutDelayDays?: number | null;
+}
+
+// Interface for the allowance configuration JSON
+interface AllowanceConfig {
+    // *** REMOVED startOfWeek ***
+    readable?: string; // Human-readable description
+    // Add other UI-specific settings if needed
+}
+
+// --- Component Props ---
 interface MemberAllowanceDetailProps {
     memberId: string; // Changed from string | null previously? Ensure consistency.
     allFamilyMembers: BasicFamilyMember[]; // Added prop
@@ -60,11 +83,12 @@ interface MemberAllowanceDetailProps {
     unitDefinitions: UnitDefinition[]; 
 }
 
+// --- Constants ---
 const APP_ID =  process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'af77353a-0a48-455f-b892-010232a052b4';
 const db = init({
   appId: APP_ID,
-  apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || "http://kepler.local:8888",
-  websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://kepler.local:8888/runtime/session",
+  apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || "http://localhost:8888",
+  websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://localhost:8888/runtime/session",
 });
 
 // Define props for the component
@@ -78,14 +102,14 @@ const BASE_CURRENCY = "USD"; // API Base
 export default function MemberAllowanceDetail({
     memberId,
     allFamilyMembers,
-    allMonetaryCurrenciesInUse, // Use received prop
-    unitDefinitions            // Use received prop
+    allMonetaryCurrenciesInUse,
+    unitDefinitions
 }: MemberAllowanceDetailProps) {
     const { toast } = useToast();
     const hasInitializedEnvelope = useRef(false);
-    const rateCalculationController = useRef<AbortController | null>(null); // Abort controller
-    const isFetchingApiRates = useRef(false); // Prevent concurrent API calls
-    const hasSetInitialCurrency = useRef(false); // Flag to prevent re-initializing currency
+    const rateCalculationController = useRef<AbortController | null>(null);
+    const isFetchingApiRates = useRef(false);
+    const hasSetInitialCurrency = useRef(false);
 
 
     // --- State ---
@@ -99,26 +123,35 @@ export default function MemberAllowanceDetail({
     const [isDefineUnitModalOpen, setIsDefineUnitModalOpen] = useState(false);
     const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
     const [isTransferToPersonModalOpen, setIsTransferToPersonModalOpen] = useState(false);
-    // **** NEW exchange rate States ****
-    const [selectedDisplayCurrency, setSelectedDisplayCurrency] = useState<string | null>(null); // e.g., "USD"
+    const [selectedDisplayCurrency, setSelectedDisplayCurrency] = useState<string | null>(null);
     const [isLoadingRates, setIsLoadingRates] = useState(false);   
-    // **** NEW: State to toggle between Allowance Details and Transactions ****
     const [showingTransactions, setShowingTransactions] = useState(false);
     
     // ... (form states) ...
     const [depositAmount, setDepositAmount] = useState('');
-    const [depositCurrency, setDepositCurrency] = useState('USD'); // The actual selected/final currency
+    const [depositCurrency, setDepositCurrency] = useState('USD');
     const [depositDescription, setDepositDescription] = useState('');
     const [isDepositing, setIsDepositing] = useState(false);
     const [isCurrencyPopoverOpen, setIsCurrencyPopoverOpen] = useState(false);
     const [currencySearchInput, setCurrencySearchInput] = useState('');
-    const itemSelectedRef = useRef(false); // Track if selection happened via mouse/keyboard
-
+    const itemSelectedRef = useRef(false);
     const [hasFetchedInitialPrefs, setHasFetchedInitialPrefs] = useState(false);
-    // **** NEW State for calculated results ****
     const [combinedValue, setCombinedValue] = useState<number | null>(null);
     const [tooltipLines, setTooltipLines] = useState<string[]>([]);
     const [nonMonetaryBalances, setNonMonetaryBalances] = useState<{ [c: string]: number }>({});
+
+    // +++ NEW State for Allowance Settings Form +++
+    const [allowanceAmountInput, setAllowanceAmountInput] = useState<string>('');
+    const [allowanceCurrencyInput, setAllowanceCurrencyInput] = useState<string>('');
+    const [allowanceCurrencyPopoverOpen, setAllowanceCurrencyPopoverOpen] = useState(false);
+    const [allowanceCurrencySearch, setAllowanceCurrencySearch] = useState('');
+    const allowanceItemSelectedRef = useRef(false);
+    const [allowanceRecurrenceOptions, setAllowanceRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
+    const [allowanceStartDateInput, setAllowanceStartDateInput] = useState<string>(''); // Store as 'yyyy-MM-dd' string
+    // *** REMOVED allowanceStartOfWeekInput state ***
+    // +++ NEW State for Delay +++
+    const [allowanceDelayDaysInput, setAllowanceDelayDaysInput] = useState<string>('0'); // Default delay 0 days
+    const [isSavingAllowance, setIsSavingAllowance] = useState(false);
 
 
     // --- Data Fetching ---
@@ -127,46 +160,111 @@ export default function MemberAllowanceDetail({
     const { isLoading: isLoadingData, error: errorData, data } = db.useQuery({
         familyMembers: {
             $: { where: { id: memberId! } },
-            allowanceEnvelopes: {},
+            allowanceEnvelopes: {}, // Include envelopes for balance calculation
+            // Allowance fields are implicitly included by querying the member
         },
         exchangeRates: {} // Fetch all cached rates
     });
     
     // --- Derived Data ---
-    const member = data?.familyMembers?.[0];
+    const member: FamilyMemberData | undefined = data?.familyMembers?.[0];
     const envelopes: Envelope[] = useMemo(() => member?.allowanceEnvelopes || [], [member]);
-    const allCachedRates: CachedExchangeRate[] = useMemo(() => { // Memoize processing
+    const allCachedRates: CachedExchangeRate[] = useMemo(() => {
         if (!data?.exchangeRates) return [];
         return data.exchangeRates.map((r: any) => ({
             ...r,
-            lastFetchedTimestamp: r.lastFetchedTimestamp ? new Date(r.lastFetchedTimestamp) : new Date(0), // Ensure Date, handle potential null
+            lastFetchedTimestamp: r.lastFetchedTimestamp ? new Date(r.lastFetchedTimestamp) : new Date(0),
         })).filter((r: any) => r.lastFetchedTimestamp instanceof Date && !isNaN(r.lastFetchedTimestamp.getTime()));
     }, [data?.exchangeRates]);
-
     const isLastEnvelope = envelopes.length === 1;
 
+    // --- Effect to Populate Allowance Form when Member Data Loads ---
+    useEffect(() => {
+        if (member) {
+            setAllowanceAmountInput(member.allowanceAmount ? String(member.allowanceAmount) : '');
+            setAllowanceCurrencyInput(member.allowanceCurrency || ''); // Default to empty if null/undefined
+            setAllowanceStartDateInput(member.allowanceStartDate ? member.allowanceStartDate.split('T')[0] : ''); // Format date string
+             // +++ Populate Delay Days +++
+             setAllowanceDelayDaysInput(member.allowancePayoutDelayDays !== null && member.allowancePayoutDelayDays !== undefined ? String(member.allowancePayoutDelayDays) : '0');
 
-  // --- Generate Currency Options for Deposit (using props) ---
-    const currencyOptions = useMemo(() => {
-        // ... (same logic as before to generate options list) ...
+
+            // Parse existing RRULE string to set recurrence form state
+            if (member.allowanceRrule) {
+                try {
+                    const options = RRule.parseString(member.allowanceRrule);
+                     // Add dtstart back from allowanceStartDate for RRule object if needed by RecurrenceRuleForm's internal logic
+                     if (member.allowanceStartDate) {
+                         options.dtstart = new Date(member.allowanceStartDate);
+                     }
+                    setAllowanceRecurrenceOptions(options);
+                } catch (e) {
+                    console.error("Error parsing member allowance RRULE:", e);
+                    setAllowanceRecurrenceOptions(null); // Reset if invalid
+                }
+            } else {
+                setAllowanceRecurrenceOptions(null); // No rule set
+            }
+
+             // *** REMOVED logic setting allowanceStartOfWeekInput ***
+
+        } else {
+            // Reset form if member data is unavailable
+            setAllowanceAmountInput('');
+            setAllowanceCurrencyInput('');
+            setAllowanceStartDateInput('');
+            setAllowanceRecurrenceOptions(null);
+            // *** REMOVED reset for allowanceStartOfWeekInput ***
+            setAllowanceDelayDaysInput('0'); // Reset delay in the else block too
+        }
+    }, [member]); // Rerun when member data changes
+
+    
+    // --- Generate Currency Options for Deposit & Allowance (using props) ---
+    // Using a single computed list for both deposit and allowance currency dropdowns
+    const depositAndAllowanceCurrencyOptions = useMemo(() => {
         const codes = new Set<string>();
-        // Add codes from definitions
+        // Add codes from global definitions
         unitDefinitions.forEach(def => codes.add(def.code.toUpperCase()));
-        // Add codes currently used in this member's envelopes
+        // Add codes currently used across *all* monetary balances (passed via prop)
+        allMonetaryCurrenciesInUse.forEach(code => codes.add(code.toUpperCase()));
+         // Add codes currently used in *this member's* envelopes (in case they have unique non-monetary)
+         // TODO: need to get all codes form every family member's envelopes, not just this one member's envelopes
         envelopes.forEach(env => {
             if (env.balances) {
                 Object.keys(env.balances).forEach(code => codes.add(code.toUpperCase()));
             }
         });
-        // Add common default if not present (optional)
-        if (!codes.has('USD')) codes.add('USD');
+        // Ensure common defaults like USD are present if defined or 3 letters
+         const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def]));
+         ['USD'].forEach(c => {
+             const def = unitDefMap.get(c);
+             const isMonetary = def?.isMonetary ?? (c.length === 3);
+             if (isMonetary || codes.has(c)) { // Add if monetary or already used
+                 codes.add(c);
+             }
+         });
+
 
         const sortedCodes = Array.from(codes).sort();
+
+        // Generate label including symbol/name from definitions
+        const optionsWithLabels = sortedCodes.map(code => {
+             const def = unitDefMap.get(code);
+             const symbol = def?.symbol;
+             const name = def?.name;
+             let label = code;
+             if (symbol && name) label = `${code} (${symbol} - ${name})`;
+             else if (symbol) label = `${code} (${symbol})`;
+             else if (name) label = `${code} (${name})`;
+             return { value: code, label: label };
+        });
+
+
         return [
-            ...sortedCodes.map(code => ({ value: code, label: code })),
-            { value: '__DEFINE_NEW__', label: 'Define New Unit...' }
+            ...optionsWithLabels,
+            { value: '__DEFINE_NEW__', label: 'Define New Unit...' } // Keep define new option
         ];
-    }, [unitDefinitions, envelopes]);
+    }, [unitDefinitions, allMonetaryCurrenciesInUse, envelopes]);
 
 
     // --- Calculate Total Balances ---
@@ -206,11 +304,7 @@ export default function MemberAllowanceDetail({
         // ... (logic to set initial selectedDisplayCurrency based on pref or default) ...
         console.log("Initial Pref/Default currency:", member.lastDisplayCurrency);
         let initialCurrency = member.lastDisplayCurrency;
-        const availableMonetaryCodes = Object.keys(totalBalances).filter(code => {
-            const def = unitDefinitions.find(ud => ud.code.toUpperCase() === code.toUpperCase());
-            return def?.isMonetary ?? (code.length === 3);
-        });
-
+        
         if (!initialCurrency || !allMonetaryCurrenciesInUse.includes(initialCurrency)) {
             initialCurrency = getFirstMonetaryCurrency();
             console.log("Pref missing or invalid, using default:", initialCurrency);
@@ -218,23 +312,24 @@ export default function MemberAllowanceDetail({
         setSelectedDisplayCurrency(initialCurrency);
         setHasFetchedInitialPrefs(true); // Mark pref as fetched/set
 
+
         // --- Initialize Default Envelope (Keep existing logic) ---
         if (!hasInitializedEnvelope.current) {
              if (envelopes.length === 0) {
             console.log(`Member ${memberId} has no envelopes. Calling createInitialSavingsEnvelope.`);
             hasInitializedEnvelope.current = true; // prevent loop
-            createInitialSavingsEnvelope(db, memberId) // [cite: 78]
+                 createInitialSavingsEnvelope(db, memberId)
                  .then((newId) => {
-                    if (newId) toast({ title: "Created 'Savings' envelope." }); // [cite: 79]
+                         if (newId) toast({ title: "Created 'Savings' envelope." });
                 })
                 .catch(err => {
-                    console.error("Failed to create initial Savings envelope:", err); // [cite: 79]
+                         console.error("Failed to create initial Savings envelope:", err);
                     toast({
                         title: "Error",
                         description: err.message || "Could not create envelope.",
                         variant: "destructive"
-                    }); // [cite: 80, 81]
-                   hasInitializedEnvelope.current = false; // Allow retry if failed // [cite: 82]
+                         });
+                         hasInitializedEnvelope.current = false; // Allow retry if failed
                 });
             } else {
                 const hasDefault = envelopes.some((env: Envelope) => env.isDefault);
@@ -253,8 +348,7 @@ export default function MemberAllowanceDetail({
                  }
              }
          }
-
-   }, [isLoadingData, member, envelopes, hasFetchedInitialPrefs, allMonetaryCurrenciesInUse, getFirstMonetaryCurrency, unitDefinitions, db, memberId, toast]); // Add allMonetaryCurrenciesInUse to dependencies
+    }, [isLoadingData, member, envelopes, hasFetchedInitialPrefs, allMonetaryCurrenciesInUse, getFirstMonetaryCurrency, unitDefinitions, db, memberId, toast]);
     
 
     // --- Effect to Calculate Combined Balance and Fetch Rates ---
@@ -319,14 +413,13 @@ export default function MemberAllowanceDetail({
                         // Rate unavailable, add note to tooltip
                         lines.push(`${formatBalances({[code]: amount}, unitDefinitions)} (rate to ${selectedDisplayCurrency} unavailable)`);
                     }
-
                     if (rateResult.needsApiFetch) {
                         needsApiFetch = true;
                     }
                 } else {
                     nonMonetary[code] = amount;
                 }
-            } // end for loop
+            }
 
             if (signal.aborted) return;
 
@@ -419,8 +512,8 @@ export default function MemberAllowanceDetail({
          try {
              await depositToSpecificEnvelope(
                  db, defaultEnvelope.id, defaultEnvelope.balances || {}, amount,
-                 finalDepositCurrency, // Use validated code
-                 depositDescription.trim()
+                  finalDepositCurrency, // TODO: What does the below || `Deposit to ${member?.name}` bit do?
+                  depositDescription.trim() || `Deposit to ${member?.name}` // Add default description
              );
              toast({ title: "Success", description: `Deposited ${finalDepositCurrency} ${amount}` });
              setDepositAmount('');
@@ -433,8 +526,83 @@ export default function MemberAllowanceDetail({
              setIsDepositing(false);
          }
     };
+
+     // --- Save Allowance Settings Handler (Updated) ---
+     const handleSaveAllowanceSettings = async () => {
+         if (!member) return;
+
+         const amount = allowanceAmountInput.trim() ? parseFloat(allowanceAmountInput) : null;
+         const currency = allowanceCurrencyInput.trim().toUpperCase() || null;
+         let rruleString: string | null = null;
+         // *** REMOVED startOfWeek from config initialization ***
+         let config: AllowanceConfig = { };
+
+         if (allowanceRecurrenceOptions) {
+             try {
+                 // Remove dtstart before generating string if it exists
+                  const optionsForString = { ...allowanceRecurrenceOptions };
+                 if ('dtstart' in optionsForString) delete optionsForString.dtstart;
+                   delete optionsForString._dtstart;
+
+                 // Ensure freq is present
+                  if (optionsForString.freq === undefined) {
+                      throw new Error("Frequency (freq) is required to generate RRULE string.");
+                  }
+
+                 const rrule = new RRule(optionsForString);
+                 rruleString = rrule.toString();
+                  // *** REMOVED setting config.startOfWeek ***
+                  config.readable = rrule.toText();
+             } catch (e: any) { toast({ title: "Invalid Recurrence", description: `Could not save recurrence rule: ${e.message}`, variant: "destructive" }); return; }
+         }
+
+         const startDate = allowanceStartDateInput ? new Date(allowanceStartDateInput) : null;
+         if (rruleString && !startDate) { toast({ title: "Validation Error", description: "A start date is required when recurrence is set.", variant: "destructive" }); return; }
+
+         // +++ Parse and Validate Delay Days +++
+         const delayDays = allowanceDelayDaysInput.trim() ? parseInt(allowanceDelayDaysInput, 10) : 0; // Default to 0 if empty
+         if (isNaN(delayDays) || delayDays < 0) {
+             toast({ title: "Invalid Delay", description: "Payout delay must be a non-negative whole number (0 or more days).", variant: "destructive" });
+                return;
+            }
+
+
+         // Basic validation
+         if (amount !== null && (isNaN(amount) || amount < 0)) {
+             toast({ title: "Invalid Amount", description: "Allowance amount must be a non-negative number.", variant: "destructive" });
+             return;
+         }
+         if (amount !== null && !currency) {
+             toast({ title: "Missing Currency", description: "Please select a currency for the allowance amount.", variant: "destructive" });
+             return;
+         }
+          if (currency && amount === null) {
+                toast({ title: "Missing Amount", description: "Please enter an amount for the allowance currency.", variant: "destructive" });
+                return;
+            }
+
+         setIsSavingAllowance(true);
+         try {
+             await db.transact(tx.familyMembers[member.id].update({
+                 allowanceAmount: amount,
+                 allowanceCurrency: currency,
+                 allowanceRrule: rruleString,
+                 allowanceStartDate: startDate ? startDate.toISOString() : null,
+                 allowanceConfig: config,
+                 allowancePayoutDelayDays: delayDays, // *** ADDED: Save the parsed delay ***
+             }));
+             toast({ title: "Success", description: "Allowance settings saved." });
+         } catch (err: any) {
+             console.error("Failed to save allowance settings:", err);
+             toast({ title: "Save Failed", description: err.message, variant: "destructive" });
+         } finally {
+             setIsSavingAllowance(false);
+         }
+     };
+
+
     // --- Other Handlers ---
-    // ... (AddClick, EditClick, TransferClick, DeleteClick, TransferSubmit, DeleteConfirm) ...
+    // ... (AddClick, EditClick, TransferClick, DeleteClick, TransferSubmit, DeleteConfirm, WithdrawClick, TransferToPersonClick, ShowTransactionsClick, DisplayCurrencyChange) ...
     const handleAddClick = () => setIsAddModalOpen(true);
     const handleEditClick = useCallback((envelopeId: string) => {
         const envelope = envelopes.find(e => e.id === envelopeId);
@@ -442,12 +610,12 @@ export default function MemberAllowanceDetail({
             setEnvelopeToEdit(envelope);
             setIsEditModalOpen(true);
         }
-    }, [envelopes]); // [cite: 98]
+    }, [envelopes]);
 
     const handleTransferClick = useCallback((sourceId: string) => {
         setTransferSourceEnvelopeId(sourceId);
         setIsTransferModalOpen(true);
-    }, []); // [cite: 99]
+    }, []);
 
     const handleDeleteClick = useCallback((envelopeId: string) => {
         const envelope = envelopes.find(e => e.id === envelopeId);
@@ -502,6 +670,7 @@ export default function MemberAllowanceDetail({
     }, [selectedDisplayCurrency, db, memberId, toast]);
 
     // --- Modal Submit Handlers & Callbacks ---
+    // ... (handleTransferSubmit, handleDeleteConfirm, handleUnitDefined, handleWithdrawSubmit, handleTransferToPersonSubmit) ...
     const handleTransferSubmit = async (amount: number, currency: string, destinationEnvelopeId: string) => {
         // Basic validation moved to form, but keep checks here too
         if (!db || !transferSourceEnvelopeId || !destinationEnvelopeId || amount <= 0) return; // [cite: 112]
@@ -558,18 +727,20 @@ export default function MemberAllowanceDetail({
    };
 
 
-    const handleUnitDefined = (newCode: string) => { //
-       setIsDefineUnitModalOpen(false); //
-       setDepositCurrency(newCode); // Set actual state
-       setCurrencySearchInput(newCode); // Also update input visually
+    const handleUnitDefined = (newCode: string) => {
+        setIsDefineUnitModalOpen(false);
+        // Update both deposit and allowance currency if the user defines a new one
+        setDepositCurrency(newCode);
+        setCurrencySearchInput(newCode);
+        setAllowanceCurrencyInput(newCode); // Set allowance currency too
+        setAllowanceCurrencySearch(newCode);
     };
-    // **** NEW: Handler for Withdraw Form Submission ****
+
     const handleWithdrawSubmit = async (envelopeId: string, amount: number, currency: string, description?: string) => {
         const envelopeToWithdrawFrom = envelopes.find(e => e.id === envelopeId);
-
         if (!envelopeToWithdrawFrom) {
             toast({ title: "Error", description: "Could not find the specified envelope.", variant: "destructive" });
-            return; // Or throw?
+             return;
         }
 
         try {
@@ -622,7 +793,7 @@ export default function MemberAllowanceDetail({
 
 
     // --- Conditional Rendering for Transactions ---
-    if (showingTransactions) { // [cite: 418]
+    if (showingTransactions) {
         return (
              <div className="h-full"> {/* Ensure container takes height */}
                  <TransactionHistoryView
@@ -650,52 +821,191 @@ export default function MemberAllowanceDetail({
                  </Button>
              </div>
 
-
-            {/* Wrap content in a flex-grow ScrollArea if content might overflow */}
+            {/* Wrap content in a flex-grow ScrollArea */}
             <ScrollArea className="flex-grow -mr-4 pr-4">
                  <div className="space-y-6 pb-4"> 
 
+            {/* +++ NEW: Allowance Settings Section +++ */}
+            <Card>
+                          <CardHeader className="pb-3">
+                               <CardTitle className="text-lg flex items-center">
+                                   <Settings className="mr-2 h-5 w-5" />
+                                   Allowance Configuration
+                               </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {/* Amount */}
+                                   <div>
+                                        <Label htmlFor="allowance-amount">Amount per Period</Label>
+                                        <Input
+                                            id="allowance-amount"
+                                            type="number"
+                                            value={allowanceAmountInput}
+                                            onChange={(e) => setAllowanceAmountInput(e.target.value)}
+                                            placeholder="e.g., 10.00"
+                                            step="0.01"
+                                            min="0" // Generally allowance is non-negative
+                                            disabled={isSavingAllowance}
+                                        />
+                                   </div>
+                                    {/* Currency */}
+                                    <div>
+                                        <Label htmlFor="allowance-currency-input">Currency/Unit</Label>
+                                        {/* Use Popover Combobox similar to deposit */}
+                                          <Popover
+                                               open={allowanceCurrencyPopoverOpen}
+                                                onOpenChange={(open) => {
+                                                     setAllowanceCurrencyPopoverOpen(open);
+                                                     if (open) {
+                                                         setAllowanceCurrencySearch(''); // Clear search on open
+                                                         allowanceItemSelectedRef.current = false;
+                                                     } else if (!allowanceItemSelectedRef.current) {
+                                                         // Use typed value on close if valid
+                                                         const typedValue = allowanceCurrencySearch.trim().toUpperCase();
+                                                         const isValidCode = /^[A-Z0-9_\-]{1,10}$/.test(typedValue); // Allow more flexible codes
+                                                          const isKnownOption = depositAndAllowanceCurrencyOptions.some(opt => opt.value === typedValue);
+                                                         if (typedValue && typedValue !== '__DEFINE_NEW__' && (isValidCode || isKnownOption)) {
+                                                               setAllowanceCurrencyInput(typedValue);
+                                                          }
+                                                     }
+                                                 }}
+                                           >
+                                               <PopoverTrigger asChild>
+                                                    <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                                                         {allowanceCurrencyInput && allowanceCurrencyInput !== '__DEFINE_NEW__'
+                                                              ? depositAndAllowanceCurrencyOptions.find(opt => opt.value === allowanceCurrencyInput)?.label ?? allowanceCurrencyInput
+                                                             : "Select or type unit..."}
+                                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                     </Button>
+                                               </PopoverTrigger>
+                                               <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
+                                                    <Command>
+                                                          <CommandInput
+                                                               id="allowance-currency-input"
+                                                               placeholder="Type or select..."
+                                                               value={allowanceCurrencySearch}
+                                                               onValueChange={setAllowanceCurrencySearch}
+                                                               disabled={isSavingAllowance}
+                                                           />
+                                                          <CommandList>
+                                                               <CommandEmpty>No unit found.</CommandEmpty>
+                                                              <CommandGroup>
+                                                                   {depositAndAllowanceCurrencyOptions.map((option) => (
+                                                                       <CommandItem
+                                                                             key={option.value}
+                                                                             value={option.value}
+                                                                             onSelect={(currentValue) => {
+                                                                                  allowanceItemSelectedRef.current = true;
+                                                                                  if (currentValue === '__DEFINE_NEW__') {
+                                                                                       setIsDefineUnitModalOpen(true);
+                                                                                  } else {
+                                                                                       const finalValue = currentValue.toUpperCase();
+                                                                                        setAllowanceCurrencyInput(finalValue);
+                                                                                        setAllowanceCurrencySearch(finalValue);
+                                                                                   }
+                                                                                   setAllowanceCurrencyPopoverOpen(false);
+                                                                              }}
+                                                                               className={option.value === '__DEFINE_NEW__' ? 'italic text-primary' : ''}
+                                                                         >
+                                                                             <Check className={cn("mr-2 h-4 w-4", allowanceCurrencyInput === option.value ? "opacity-100" : "opacity-0")} />
+                                                                             {option.label}
+                                                                         </CommandItem>
+                                                                   ))}
+                                                              </CommandGroup>
+                                                         </CommandList>
+                                                     </Command>
+                                               </PopoverContent>
+                                           </Popover>
+                                     </div>
+                               </div>
+
+                               {/* Recurrence Settings */}
+                                <div className="space-y-3 pt-3 border-t">
+                                    <Label className="text-base font-medium">Frequency & Schedule</Label>
+                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start"> {/* Use grid for side-by-side layout */}
+                                        {/* Left Column: Start Date & Recurrence Form */}
+                                         <div className="space-y-3">
+                                               <div className="grid w-full items-center gap-1.5">
+                                           <Label htmlFor="allowance-start-date">Schedule Start Date</Label>
+                                           <Input
+                                              id="allowance-start-date"
+                                               type="date"
+                                               value={allowanceStartDateInput}
+                                               onChange={(e) => setAllowanceStartDateInput(e.target.value)}
+                                               disabled={isSavingAllowance}
+                                           />
+                                           <p className="text-xs text-muted-foreground">The date the allowance schedule begins.</p>
+                                       </div>
+                                        <RecurrenceRuleForm
+                                             key={memberId} // Re-initialize when member changes
+                                            onSave={(options) => {
+                                                 console.log("Recurrence options saved:", options);
+                                                 setAllowanceRecurrenceOptions(options); // Update state
+                                             }}
+                                             initialOptions={allowanceRecurrenceOptions}
+                                         />
+                                         </div>
+                                          {/* Right Column: Delay and Week Start */}
+                                          <div className="space-y-3">
+                                               {/* +++ NEW: Payout Delay Input +++ */}
+                                                <div className="grid w-full items-center gap-1.5">
+                                                      <Label htmlFor="allowance-delay-days">Calculation Delay (Days)</Label>
+                                                       <Input
+                                                            id="allowance-delay-days"
+                                                            type="number"
+                                                            value={allowanceDelayDaysInput}
+                                                            onChange={(e) => setAllowanceDelayDaysInput(e.target.value)}
+                                                            placeholder="e.g., 1"
+                                                            min="0" // Ensures non-negative input in browser
+                                                            step="1" // Allows only whole numbers
+                                                            disabled={isSavingAllowance}
+                                                        />
+                                                       <p className="text-xs text-muted-foreground">
+                                                            Days after period ends to calculate/payout allowance (0 = same day).
+                                                        </p>
+                                    </div>
+
+                                                {/* *** REMOVED Weekly Start Day Select *** */}
+
+                                          </div>
+                                      </div>
+                               </div>
+
+
+                          </CardContent>
+                           <CardFooter>
+                                <Button onClick={handleSaveAllowanceSettings} disabled={isSavingAllowance}>
+                                     {isSavingAllowance ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : <><Save className="mr-2 h-4 w-4" /> Save Settings</>}
+                               </Button>
+                           </CardFooter>
+                     </Card>
+
+
             {/* Deposit Section */}
              <section className="p-4 border rounded-md">
-                <h3 className="text-lg font-semibold mb-3">Add to Allowance</h3>
+                        <h3 className="text-lg font-semibold mb-3">Add to Allowance (Manual Deposit)</h3>
                 <form onSubmit={handleDeposit} className="space-y-3">
-                    {/* ... deposit form inputs ... */}
-                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                         {/* Amount Input */}
+                           {/* Deposit Amount */}
                          <div>
                              <Label htmlFor="deposit-amount">Amount</Label>
-                             <Input
-                                 id="deposit-amount"
-                                 type="number"
-                                 value={depositAmount}
-                                 onChange={(e) => setDepositAmount(e.target.value)}
-                                 placeholder="e.g., 10.00"
-                                 step="0.01"
-                                 required
-                             />
+                               <Input id="deposit-amount" type="number" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} placeholder="e.g., 10.00" step="0.01" required disabled={isDepositing} />
                          </div>
-
-                         {/* **** UPDATED: Currency Combobox **** */}
+                            {/* Deposit Currency */}
                          <div>
                              <Label htmlFor="deposit-currency-input">Currency/Unit</Label>
-                             <Popover
-                                open={isCurrencyPopoverOpen}
-                                // ** UPDATED: onOpenChange logic **
-                                onOpenChange={(open) => {
+                                 <Popover open={isCurrencyPopoverOpen} onOpenChange={(open) => {
                                     setIsCurrencyPopoverOpen(open);
                                     if (open) {
                                         // Clear search input when opening
                                         setCurrencySearchInput('');
                                         itemSelectedRef.current = false;
-                                    } else {
-                                        // Popover closed: If no item was selected via click/enter,
-                                        // consider using the typed value.
-                                        if (!itemSelectedRef.current) {
+                                      } else if (!itemSelectedRef.current) {
                                              const typedValue = currencySearchInput.trim().toUpperCase();
                                              // Basic check: Is it non-empty, not the special value,
                                              // AND either 3 letters OR already known in options?
                                              const isValidCode = /^[A-Z]{3}$/.test(typedValue); // Common 3-letter case
-                                             const isKnownOption = currencyOptions.some(opt => opt.value === typedValue);
+                                             const isKnownOption = depositAndAllowanceCurrencyOptions.some(opt => opt.value === typedValue);
 
                                              if (typedValue && typedValue !== '__DEFINE_NEW__' && (isValidCode || isKnownOption)) {
                                                 console.log("Using typed value:", typedValue)
@@ -704,49 +1014,33 @@ export default function MemberAllowanceDetail({
                                              // Else: maybe revert to previous depositCurrency or do nothing,
                                              // letting the trigger button show the last valid state.
                                         }
-                                    }
-                                }}
-                             >
+                                   }}>
                                 <PopoverTrigger asChild>
-                                    <Button variant="outline" role="combobox" className="w-full justify-between">
-                                        {/* Display the main depositCurrency state */}
+                                         <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
                                         {depositCurrency && depositCurrency !== '__DEFINE_NEW__'
-                                            ? depositCurrency
+                                                 ? depositAndAllowanceCurrencyOptions.find(opt => opt.value === depositCurrency)?.label ?? depositCurrency
                                             : "Select or type unit..."}
                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
                                     <Command>
-                                        <CommandInput
-                                            id="deposit-currency-input"
-                                            placeholder="Type or select..."
-                                            // ** UPDATED: Bind value to currencySearchInput **
-                                            value={currencySearchInput}
-                                            // ** UPDATED: Update search input state **
-                                            onValueChange={setCurrencySearchInput}
-                                            />
+                                             <CommandInput id="deposit-currency-input" placeholder="Type or select..." value={currencySearchInput} onValueChange={setCurrencySearchInput} disabled={isDepositing}/>
                                          <CommandList>
                                             <CommandEmpty>No unit found.</CommandEmpty>
                                             <CommandGroup>
-                                                {currencyOptions.map((option) => (
-                                                <CommandItem
-                                                    key={option.value}
-                                                    value={option.value}
-                                                    // ** UPDATED: onSelect logic **
-                                                    onSelect={(currentValue) => {
-                                                        itemSelectedRef.current = true; // Mark selection happened
+                                                       {depositAndAllowanceCurrencyOptions.map((option) => (
+                                                           <CommandItem key={option.value} value={option.value} onSelect={(currentValue) => {
+                                                                itemSelectedRef.current = true; // Mark selection happened
                                                         if (currentValue === '__DEFINE_NEW__') {
                                                             setIsDefineUnitModalOpen(true);
                                                         } else {
                                                             const finalValue = currentValue.toUpperCase();
-                                                            setDepositCurrency(finalValue); // Set main state
-                                                            setCurrencySearchInput(finalValue); // Update input visual
+                                                                     setDepositCurrency(finalValue); // Set main state
+                                                                     setCurrencySearchInput(finalValue); // Update input visual
                                                         }
-                                                        setIsCurrencyPopoverOpen(false); // Close popover
-                                                    }}
-                                                    className={option.value === '__DEFINE_NEW__' ? 'font-bold text-blue-600' : ''}
-                                                >
+                                                                 setIsCurrencyPopoverOpen(false); // Close popover
+                                                             }} className={option.value === '__DEFINE_NEW__' ? 'italic text-primary' : ''}>
                                                     <Check className={cn("mr-2 h-4 w-4", depositCurrency === option.value ? "opacity-100" : "opacity-0")} />
                                                     {option.label}
                                                 </CommandItem>
@@ -757,17 +1051,10 @@ export default function MemberAllowanceDetail({
                                 </PopoverContent>
                              </Popover>
                          </div>
-                         {/* Description Input */}
+                           {/* Deposit Description */}
                          <div>
                              <Label htmlFor="deposit-description">Description (Optional)</Label>
-                             <Input
-                                 id="deposit-description"
-                                 type="text"
-                                 value={depositDescription}
-                                 onChange={(e) => setDepositDescription(e.target.value)}
-                                 placeholder="e.g., Weekly allowance"
-                            />
-                         </div>
+                               <Input id="deposit-description" type="text" value={depositDescription} onChange={(e) => setDepositDescription(e.target.value)} placeholder="e.g., Weekly allowance" disabled={isDepositing}/>
                      </div>
                     <Button type="submit" disabled={isDepositing}>
                          {isDepositing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Depositing...</> : 'Deposit Funds'}
@@ -779,7 +1066,7 @@ export default function MemberAllowanceDetail({
             <section className="p-4 border rounded-md bg-muted/50">
                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                     {/* Balance Display */}
-                    <div className="flex-grow"> {/* Allow balance display to take space */}
+                             <div className="flex-grow">
                         <h3 className="text-lg font-semibold mb-1">Total Balance</h3>
                                  {/* Use CombinedBalanceDisplay */}
                                 {selectedDisplayCurrency ? (
@@ -846,14 +1133,10 @@ export default function MemberAllowanceDetail({
              {/* --- Modals --- */}
              <AddEditEnvelopeForm
                 db={db}
-                isOpen={isAddModalOpen || isEditModalOpen} // [cite: 198]
-                onClose={() => {
-                    setIsAddModalOpen(false); // [cite: 199]
-                    setIsEditModalOpen(false); // [cite: 199]
-                    setEnvelopeToEdit(null); // [cite: 200]
-                 }}
-                initialData={envelopeToEdit} // [cite: 200]
-                memberId={memberId} // [cite: 200]
+                isOpen={isAddModalOpen || isEditModalOpen}
+                onClose={() => { setIsAddModalOpen(false); setIsEditModalOpen(false); setEnvelopeToEdit(null); }}
+                initialData={envelopeToEdit}
+                memberId={memberId}
                 allMemberEnvelopes={envelopes}
                 // **** Pass unit definitions to Add/Edit form ****
                 unitDefinitions={unitDefinitions}
@@ -861,12 +1144,9 @@ export default function MemberAllowanceDetail({
              />
 
             <TransferFundsForm
-                 db={db} // [cite: 201]
+                 db={db}
                 isOpen={isTransferModalOpen}
-                onClose={() => {
-                    setIsTransferModalOpen(false); // [cite: 202]
-                    setTransferSourceEnvelopeId(null); // [cite: 202]
-                 }}
+                 onClose={() => { setIsTransferModalOpen(false); setTransferSourceEnvelopeId(null); }}
                 onSubmit={handleTransferSubmit}
                 sourceEnvelopeId={transferSourceEnvelopeId}
                 allEnvelopes={envelopes}
@@ -875,12 +1155,9 @@ export default function MemberAllowanceDetail({
             />
 
             <DeleteEnvelopeDialog
-                  db={db} // [cite: 203]
+                  db={db}
                  isOpen={isDeleteModalOpen}
-                 onClose={() => {
-                    setIsDeleteModalOpen(false); // [cite: 204]
-                    setEnvelopeToDelete(null); // [cite: 204]
-                 }}
+                 onClose={() => { setIsDeleteModalOpen(false); setEnvelopeToDelete(null); }}
                  onConfirm={handleDeleteConfirm}
                  envelopeToDelete={envelopeToDelete}
                  allEnvelopes={envelopes}
@@ -896,7 +1173,7 @@ export default function MemberAllowanceDetail({
                 db={db}
                 isOpen={isWithdrawModalOpen}
                 onClose={() => setIsWithdrawModalOpen(false)}
-                onSubmit={handleWithdrawSubmit} // Pass the handler
+                onSubmit={handleWithdrawSubmit}
                 memberEnvelopes={envelopes}
                 unitDefinitions={unitDefinitions}
             />

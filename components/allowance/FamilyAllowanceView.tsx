@@ -17,8 +17,8 @@ import { UnitDefinition, Envelope } from '@/lib/currency-utils';
 const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'af77353a-0a48-455f-b892-010232a052b4';
 const db = init({
   appId: APP_ID,
-  apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || "http://kepler.local:8888",
-  websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://kepler.local:8888/runtime/session",
+  apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || "http://localhost:8888",
+  websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://localhost:8888/runtime/session",
 });
 
 // Define FamilyMember type based on query

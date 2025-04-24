@@ -7,8 +7,8 @@ import CurrencySettings from '@/components/CurrencySettings';
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4';
 const db = init({
   appId: APP_ID,
-  apiURI: "http://kepler.local:8888",
-  websocketURI: "ws://kepler.local:8888/runtime/session",
+  apiURI: "http://localhost:8888",
+  websocketURI: "ws://localhost:8888/runtime/session",
 });
 
 export default function SettingsPage() {

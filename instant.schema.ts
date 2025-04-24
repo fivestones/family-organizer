@@ -30,7 +30,20 @@ const _schema = i.schema({
       currency: i.string(),
       description: i.string(),
       transactionType: i.string(),
-      updatedAt: i.string(),
+      updatedAt: i.string(), // Consider i.date()
+    }),
+    // +++ NEW: Cache for calculated allowance period data +++
+    calculatedAllowancePeriods: i.entity({
+      id: i.string().unique(), // Ensure this is explicitly defined if not default
+      familyMemberId: i.string().indexed(),
+      periodStartDate: i.date().indexed(),
+      periodEndDate: i.date().indexed(),
+      totalWeight: i.number(),
+      completedWeight: i.number(),
+      percentage: i.number(),
+      calculatedAmount: i.number(),
+      lastCalculatedAt: i.date(),
+      isStale: i.boolean().indexed(), // Flag for recalculation needs
     }),
     unitDefinitions: i.entity({
       code: i.string().unique().indexed(),
@@ -56,8 +69,10 @@ const _schema = i.schema({
     }),
     choreCompletions: i.entity({
       completed: i.boolean(),
-      dateCompleted: i.string(),
-      dateDue: i.string(),
+      dateCompleted: i.string(), // Consider i.date()
+      dateDue: i.string(), // Consider i.date()
+      // +++ NEW: Track if allowance awarded for this completion +++
+      allowanceAwarded: i.boolean().indexed(),
     }),
     chores: i.entity({
       advanceCompletionLimit: i.any(),
@@ -80,6 +95,8 @@ const _schema = i.schema({
       rrule: i.string(),
       startDate: i.any(),
       title: i.string(),
+      // +++ NEW: Add weight field +++
+      weight: i.number(),
     }),
     exchangeRates: i.entity({
       baseCurrency: i.string().indexed(),
@@ -91,8 +108,15 @@ const _schema = i.schema({
       email: i.string().indexed(),
       lastDisplayCurrency: i.string(),
       name: i.string(),
-      photoUrl: i.string(),
       photoUrls: i.json(),
+      // +++ NEW: Allowance Settings +++
+      allowanceAmount: i.number(),
+      allowanceCurrency: i.string(),
+      allowanceRrule: i.string(), // RRULE for frequency
+      allowanceStartDate: i.date(), // Anchor date for RRULE
+      allowanceConfig: i.json(), // Store UI config like startOfWeek, readable string
+      // +++ NEW: Delay for payout calculation +++
+      allowancePayoutDelayDays: i.number(),
     }),
     settings: i.entity({
       name: i.string(),
@@ -217,6 +241,11 @@ const _schema = i.schema({
         has: "one",
         label: "completedBy",
       },
+    },
+    // +++ NEW: Link family member to their calculated allowance periods +++
+    familyMemberAllowancePeriods: {
+      forward: { on: 'familyMembers', has: 'many', label: 'allowancePeriods' },
+      reverse: { on: 'calculatedAllowancePeriods', has: 'one', label: 'familyMember' },
     },
   },
   rooms: {},

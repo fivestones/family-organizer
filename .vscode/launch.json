@@ -5,7 +5,7 @@
       "name": "Next.js: debug server-side",
       "type": "node-terminal",
       "request": "launch",
-      "command": "npm run dev"
+      "command": "NEXT_DISABLE_TURBOPACK=1 npx next dev -p 3001"
     },
     {
       "name": "Next.js: debug client-side",

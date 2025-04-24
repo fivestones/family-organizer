@@ -48,6 +48,7 @@ interface Chore {
   rrule?: string;
   assignees: FamilyMember[];
   rotationType: 'none' | 'daily' | 'weekly' | 'monthly';
+  weight?: number;
   assignments?: {
     order: number;
     familyMember: FamilyMember;
@@ -72,8 +73,8 @@ type Schema = {
 const APP_ID = 'af77353a-0a48-455f-b892-010232a052b4';
 const db = init<Schema>({
   appId: APP_ID,
-  apiURI: "http://kepler.local:8888",
-  websocketURI: "ws://kepler.local:8888/runtime/session",
+  apiURI: "http://localhost:8888",
+  websocketURI: "ws://localhost:8888/runtime/session",
 });
 
 function ChoresTracker() {
@@ -149,6 +150,7 @@ function ChoresTracker() {
         done: false,
         rrule: choreData.rrule || null,
         rotationType: choreData.rotationType || 'none',
+        weight: choreData.weight, // <-- Add this line to save the weight
       }),
     ];
     
@@ -289,7 +291,8 @@ function ChoresTracker() {
         tx.choreCompletions[newCompletionId].update({
           dateDue: formattedDate,
           dateCompleted: format(new Date(), 'yyyy-MM-dd'),
-          completed: true
+          completed: true,
+          allowanceAwarded: false // Set allowanceAwarded to false for new completions
         }),
         tx.chores[choreId].link({ completions: newCompletionId }),
         tx.familyMembers[familyMemberId].link({ completedChores: newCompletionId })

@@ -1,65 +1,82 @@
-import React, { useState, useEffect } from 'react';
-import { RRule, Frequency, Weekday } from 'rrule';
+import React, { useState, useEffect, useRef } from 'react'; // Import useRef
+import { RRule, Frequency, Weekday, ByWeekday } from 'rrule'; // Keep ByWeekday
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Checkbox } from '@/components/ui/checkbox'; // Use Checkbox for Weekly and Monthly
 import { Button } from "@/components/ui/button";
 
+// Mapping from DayOfWeek string literal to RRule Weekday constant
+const dayOfWeekMap: { [key: string]: Weekday } = {
+    MO: RRule.MO,
+    TU: RRule.TU,
+    WE: RRule.WE,
+    TH: RRule.TH,
+    FR: RRule.FR,
+    SA: RRule.SA,
+    SU: RRule.SU,
+};
+// Use this array for rendering checkboxes
+const daysOfWeekCheckboxes: { value: DayOfWeekString; label: string }[] = [
+    { value: 'MO', label: 'Mon' },
+    { value: 'TU', label: 'Tue' },
+    { value: 'WE', label: 'Wed' },
+    { value: 'TH', label: 'Thu' },
+    { value: 'FR', label: 'Fri' },
+    { value: 'SA', label: 'Sat' },
+    { value: 'SU', label: 'Sun' },
+];
 
-const daysOfWeek = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
-type DayOfWeek = typeof daysOfWeek[number];
 
+type DayOfWeekString = typeof daysOfWeekCheckboxes[number]['value']; // 'MO', 'TU', etc.
 type FrequencyType = 'once' | 'daily' | 'weekly' | 'monthly';
 
 interface RecurrenceRuleFormProps {
   onSave: (rule: { freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>> | null) => void;
-  initialOptions?: { freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>;
+  initialOptions?: ({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null;
 }
 
-const frequencyMap: Record<FrequencyType, Frequency> = {
-  once: Frequency.DAILY,
+const frequencyMap: Record<FrequencyType, Frequency | null> = {
+  once: null,
   daily: Frequency.DAILY,
   weekly: Frequency.WEEKLY,
   monthly: Frequency.MONTHLY,
 };
-
-const freqMapReverse = {
+const freqMapReverse: { [key in Frequency]?: FrequencyType } = {
   [Frequency.DAILY]: 'daily',
   [Frequency.WEEKLY]: 'weekly',
   [Frequency.MONTHLY]: 'monthly',
 };
 
+
 const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initialOptions }) => {
   // Initialize state using useState initializers
   const [frequency, setFrequency] = useState<FrequencyType>(() => {
-    return initialOptions?.freq !== undefined // Default to 'daily' for new chores, otherwise show once, daily, weekly, or monthly as per initialOptions of pre-exisiting chore
-      ? freqMapReverse[initialOptions.freq] || 'once'
+        // If initialOptions exist and have a valid freq, map it back, otherwise default to 'once'
+        return (initialOptions && initialOptions.freq !== undefined && freqMapReverse[initialOptions.freq])
+            ? freqMapReverse[initialOptions.freq]!
       : 'once'; 
   });
-
   const [interval, setInterval] = useState(() => initialOptions?.interval || 1);
 
-  const [weeklyDays, setWeeklyDays] = useState<DayOfWeek[]>(() => {
-    if (initialOptions?.byweekday) {
-      const weekdays = Array.isArray(initialOptions.byweekday)
-        ? initialOptions.byweekday
-        : [initialOptions.byweekday];
-      return weekdays
-        .map((weekday) => {
-          if (typeof weekday === 'number') {
-            const dayCodes: DayOfWeek[] = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
-            return dayCodes[weekday];
-          } else if (weekday instanceof Weekday) {
-            return weekday.toString().slice(0, 2).toUpperCase() as DayOfWeek;
-          } else {
-            console.warn('Unexpected type in byweekday:', weekday);
-            return null;
-          }
-        })
-        .filter(Boolean) as DayOfWeek[];
-    }
-    return [];
+    // *** REVERTED: State for MULTIPLE weekly day selection ***
+    const [weeklyDays, setWeeklyDays] = useState<DayOfWeekString[]>(() => {
+         if (initialOptions?.freq === Frequency.WEEKLY && initialOptions.byweekday) {
+             // Extract the *first* day if it exists (allowance should only have one)
+             const weekdays = Array.isArray(initialOptions.byweekday) ? initialOptions.byweekday : [initialOptions.byweekday];
+            return weekdays
+                .map((weekday) => {
+                    if (weekday instanceof Weekday) {
+                        return weekday.toString() as DayOfWeekString; // e.g., "MO"
+                    } else if (typeof weekday === 'number') {
+                        const dayCodes: DayOfWeekString[] = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+                        return dayCodes[weekday] ?? undefined;
+         }
+                    return undefined;
+                })
+                .filter((d): d is DayOfWeekString => d !== undefined); // Ensure correct type and filter out undefined
+        }
+        return [];
   });
 
   const [monthlyDays, setMonthlyDays] = useState<number[]>(() => {
@@ -71,147 +88,149 @@ const RecurrenceRuleForm: React.FC<RecurrenceRuleFormProps> = ({ onSave, initial
     return [];
   });
 
-  // Remove the useEffect that resets state when initialOptions change
-  // This prevents the component from resetting during user interaction
-
-  useEffect(() => {
-    handleSave();
-  }, [frequency, interval, weeklyDays, monthlyDays]);
+  // Ref to track if the initial save (on mount without initialOptions) has happened
+  const initialSaveDoneRef = useRef(false);
 
   // Handle saving the recurrence rule
   const handleSave = () => {
     if (frequency === 'once') {
+            onSave(null);
+            return;
+        }
+
+        const freqValue = frequencyMap[frequency];
+        if (freqValue === null) {
       onSave(null);
       return;
     }
 
     const rruleOptions: { freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>> = {
-      freq: frequencyMap[frequency],
-      interval: interval,
+            freq: freqValue,
+            interval: interval > 0 ? interval : 1,
     };
 
-    if (frequency === 'weekly' && weeklyDays.length > 0) {
-      rruleOptions.byweekday = weeklyDays.map(
-        (day) => RRule[day as keyof typeof RRule] as Weekday
-      );
+        // *** REVERTED: Handle multiple weekly days ***
+        if (frequency === 'weekly' && weeklyDays.length > 0) {
+            // Map the string day codes back to RRule Weekday constants
+            rruleOptions.byweekday = weeklyDays.map(dayStr => dayOfWeekMap[dayStr]);
     }
 
     if (frequency === 'monthly' && monthlyDays.length > 0) {
       rruleOptions.bymonthday = monthlyDays;
     }
 
+        // Clear irrelevant options based on frequency
+        if (frequency !== 'weekly') delete rruleOptions.byweekday;
+        if (frequency !== 'monthly') delete rruleOptions.bymonthday;
+
+
     onSave(rruleOptions);
   };
 
-  // Remove handleSave calls from state update functions
+  // Effect to handle the initial save when no initialOptions are provided
+  useEffect(() => {
+    if (!initialOptions && !initialSaveDoneRef.current) {
+        // Only call handleSave on the very first render if there were no initial options
+        handleSave();
+        initialSaveDoneRef.current = true; // Mark initial save as done
+    }
+    // This effect only needs to run once based on initialOptions
+  }, [initialOptions, handleSave]); // handleSave is stable if defined outside useEffect
+
+  // Effect to handle saves on subsequent state changes *after* the initial mount/save
+  useEffect(() => {
+    // If initialOptions were provided OR the initial save for null options is done,
+    // then proceed with saving on state changes.
+    if (initialOptions || initialSaveDoneRef.current) {
+        handleSave();
+    }
+    // This effect runs whenever the state influencing the rule changes
+  }, [frequency, interval, weeklyDays, monthlyDays]);
+
+
+    // State update handlers (no longer call handleSave directly)
   const handleFrequencyChange = (value: FrequencyType) => {
     setFrequency(value);
-    // handleSave(); // Optionally, call handleSave here if you want to update on change
+        if (value !== 'weekly') setWeeklyDays([]);
+         if (value !== 'monthly') setMonthlyDays([]);
+        if (value === 'once') setInterval(1);
   };
 
   const handleIntervalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInterval(parseInt(e.target.value) || 1);
-    // handleSave(); // Optionally, call handleSave here if you want to update on change
-  };
+        const val = parseInt(e.target.value);
+        setInterval(val >= 1 ? val : 1);
+    };
 
-  const handleWeeklyDayToggle = (day: DayOfWeek) => {
-    setWeeklyDays((prev) => {
-      const newDays = prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day];
-      return newDays;
-    });
-    // handleSave(); // Optionally, call handleSave here if you want to update on change
+     // *** REVERTED: Handle MULTIPLE weekly day selection via checkboxes ***
+     const handleWeeklyDayToggle = (day: DayOfWeekString) => {
+         setWeeklyDays((prev) =>
+             prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => daysOfWeekCheckboxes.findIndex(opt => opt.value === a) - daysOfWeekCheckboxes.findIndex(opt => opt.value === b)) // Keep order consistent
+         );
   };
 
   const handleMonthlyDayToggle = (day: number) => {
     setMonthlyDays((prev) => {
       const newDays = prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day];
-      return newDays;
+            return newDays.sort((a, b) => a - b);
     });
-    // handleSave(); // Optionally, call handleSave here if you want to update on change
   };
 
+
   return (
-    <div className="space-y-4">
-      <RadioGroup value={frequency} onValueChange={handleFrequencyChange}>
-        <div className="flex items-center space-x-2">
-          <RadioGroupItem value="once" id="once" />
-          <Label htmlFor="once">Once</Label>
-        </div>
-        <div className="flex items-center space-x-2">
-          <RadioGroupItem value="daily" id="daily" />
-          <Label htmlFor="daily">Daily</Label>
-        </div>
-        <div className="flex items-center space-x-2">
-          <RadioGroupItem value="weekly" id="weekly" />
-          <Label htmlFor="weekly">Weekly</Label>
-        </div>
-        <div className="flex items-center space-x-2">
-          <RadioGroupItem value="monthly" id="monthly" />
-          <Label htmlFor="monthly">Monthly</Label>
-        </div>
+    <div className="space-y-4 p-3 border rounded-md bg-muted/50">
+      <RadioGroup value={frequency} onValueChange={handleFrequencyChange} className="flex flex-wrap gap-x-4 gap-y-2">
+        {/* Radio buttons for Once, Daily, Weekly, Monthly */}
+        <div className="flex items-center space-x-2"> <RadioGroupItem value="once" id="once" /> <Label htmlFor="once">Once</Label> </div>
+        <div className="flex items-center space-x-2"> <RadioGroupItem value="daily" id="daily" /> <Label htmlFor="daily">Daily</Label> </div>
+        <div className="flex items-center space-x-2"> <RadioGroupItem value="weekly" id="weekly" /> <Label htmlFor="weekly">Weekly</Label> </div>
+        <div className="flex items-center space-x-2"> <RadioGroupItem value="monthly" id="monthly" /> <Label htmlFor="monthly">Monthly</Label> </div>
       </RadioGroup>
 
       {frequency !== 'once' && (
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 pt-2">
           <Label htmlFor="interval">Every</Label>
-          <Input
-            id="interval"
-            type="number"
-            value={interval}
-            onChange={handleIntervalChange}
-            className="w-16"
-            min={1}
-          />
-          <span>
-            {frequency === 'daily'
-              ? 'day(s)'
-              : frequency === 'weekly'
-              ? 'week(s)'
-              : 'month(s)'}
+          <Input id="interval" type="number" value={interval} onChange={handleIntervalChange} className="w-16 h-8 text-sm" min={1}/>
+          <span className="text-sm">
+            {frequency === 'daily' ? 'day(s)' : frequency === 'weekly' ? 'week(s)' : 'month(s)'}
           </span>
         </div>
       )}
 
+       {/* *** REVERTED: Weekly Section uses Checkboxes *** */}
       {frequency === 'weekly' && (
-        <div className="space-y-2">
-          <Label>Repeat on:</Label>
-          <div className="flex space-x-2">
-            {daysOfWeek.map((day) => (
-              <div key={day} className="flex flex-col items-center">
-                <Checkbox
-                  id={`weekly-${day}`}
-                  checked={weeklyDays.includes(day)}
-                  onCheckedChange={() => handleWeeklyDayToggle(day)}
-                />
-                <Label htmlFor={`weekly-${day}`}>{day}</Label>
-              </div>
+        <div className="space-y-2 pt-2">
+               <Label>Repeat on:</Label>
+               <div className="flex flex-wrap gap-x-3 gap-y-2"> {/* Adjusted gap */}
+                   {daysOfWeekCheckboxes.map((dayInfo) => (
+                       <div key={dayInfo.value} className="flex items-center space-x-1.5"> {/* Reduced space */}
+                           <Checkbox
+                               id={`weekly-${dayInfo.value}`}
+                               checked={weeklyDays.includes(dayInfo.value)}
+                               onCheckedChange={() => handleWeeklyDayToggle(dayInfo.value)}
+                           />
+                           <Label htmlFor={`weekly-${dayInfo.value}`} className="text-xs font-normal"> {/* Smaller label */}
+                               {dayInfo.label}
+                           </Label>
+                       </div>
             ))}
-          </div>
+               </div>
         </div>
       )}
 
       {frequency === 'monthly' && (
-        <div className="space-y-2">
-          <Label>Repeat on day:</Label>
+        <div className="space-y-2 pt-2">
+          <Label>Repeat on day(s):</Label>
           <div className="grid grid-cols-7 gap-2">
-            {Array.from({ length: 28 }, (_, i) => i + 1).map((day) => (
-              <div key={day} className="flex items-center justify-center">
-                <Checkbox
-                  id={`monthly-${day}`}
-                  checked={monthlyDays.includes(day)}
-                  onCheckedChange={() => handleMonthlyDayToggle(day)}
-                />
-                <Label htmlFor={`monthly-${day}`} className="ml-1">
-                  {day}
-                </Label>
+             {/* Only show days 1-31, maybe add 'Last Day' option later if needed */}
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+              <div key={day} className="flex items-center justify-center space-x-1">
+                 <Checkbox id={`monthly-${day}`} checked={monthlyDays.includes(day)} onCheckedChange={() => handleMonthlyDayToggle(day)} />
+                 <Label htmlFor={`monthly-${day}`} className="text-xs">{day}</Label>
               </div>
             ))}
           </div>
         </div>
       )}
-
-      {/* Optionally, you can add a Save button if you prefer manual saving */}
-      {/* <Button onClick={handleSave}>Save Recurrence Rule</Button> */}
     </div>
   );
 };
