@@ -62,6 +62,11 @@ interface EditableAmounts {
     [memberId: string]: string;
 }
 
+// +++ NEW STATE: Store editable amounts per period +++
+interface EditablePeriodAmounts {
+    [periodId: string]: string;
+}
+
 // --- DB Initialization ---
 const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'af77353a-0a48-455f-b892-010232a052b4';
 const db = init({
@@ -82,6 +87,9 @@ export default function AllowanceDistributionPage() {
     const [editableAmounts, setEditableAmounts] = useState<EditableAmounts>({});
     const [processingMemberId, setProcessingMemberId] = useState<string | null>(null); // Track processing state for specific member actions
     const [simulatedDate, setSimulatedDate] = useState<Date>(() => startOfDay(new Date()));
+
+    // +++ NEW STATE: Add state for editable period amounts +++
+    const [editablePeriodAmounts, setEditablePeriodAmounts] = useState<EditablePeriodAmounts>({});
 
     // --- Data Fetching ---
     // Fetch necessary data for calculations
@@ -127,6 +135,7 @@ export default function AllowanceDistributionPage() {
 
     // --- Calculation and Processing Logic ---
     const processAllowanceData = useCallback(async (currentSimulatedDate: Date) => {
+        console.log(`[PROCESS DATA START] (Simulated Date: ${currentSimulatedDate.toISOString().split('T')[0]})`); // DEBUG LOG
         if (isDataLoading || !typedData) {
             console.log("Data still loading or not available for processing.");
             return;
@@ -138,6 +147,8 @@ export default function AllowanceDistributionPage() {
          const { familyMembers, choreCompletions: allUnawardedCompletions, chores, unitDefinitions, allowanceEnvelopes } = typedData;
          const results: MemberAllowanceInfo[] = [];
         const newEditableAmounts: EditableAmounts = {};
+        // +++ NEW: Reset period amounts on each process run +++
+        const newEditablePeriodAmounts: EditablePeriodAmounts = {};
 
         try {
             for (const member of familyMembers) {
@@ -258,6 +269,7 @@ export default function AllowanceDistributionPage() {
                      );
 
                     if (details) {
+                        console.log(`  [Calc Details] Period ${details.id}: calculatedAmount=${details.calculatedAmount}, completionsToMark=${details.completionsToMark.length}`); // DEBUG LOG
                      // Determine payout due date and status
                      const payoutDueDate = addDays(periodEndDate, delayDays);
                      const isDue = isBefore(payoutDueDate, currentSimulatedDate) || isEqual(payoutDueDate, currentSimulatedDate);
@@ -282,25 +294,56 @@ export default function AllowanceDistributionPage() {
 
                 if (memberPendingPeriods.length > 0) {
                  // No need to sort again if boundaries were sorted
-                // Filter out only 'pending' periods for total due calculation
-                 const totalDue = memberPendingPeriods
-                      .filter(p => p.status === 'pending')
+
+                // +++ FILTERING STEP: Remove periods that are 'pending' but have no unawarded completions +++
+                 const displayablePeriods = memberPendingPeriods.filter(p => {
+                     // Always keep 'in-progress' periods for display
+                     if (p.status === 'in-progress') return true;
+                     // Keep 'pending' periods ONLY if they still have completions to mark (i.e., not fully awarded yet)
+                     if (p.status === 'pending' && p.completionsToMark.length > 0) return true;
+                     // Filter out 'pending' periods with no completions left to mark
+                     return false;
+                 });
+
+                // +++ Proceed only if there are displayable periods left +++
+                 if (displayablePeriods.length > 0) {
+                     // +++ Populate initial editable period amounts ONLY for displayable periods +++
+                      displayablePeriods.forEach(p => {
+                         // Populate for pending or in-progress
+                          if (p.status === 'pending' || p.status === 'in-progress') {
+                         newEditablePeriodAmounts[p.id] = String(p.calculatedAmount.toFixed(2));
+                     }
+                 });
+
+                // Filter out only 'pending' periods for total due calculation (using the displayable list)
+      const totalDue = displayablePeriods
+                      .filter(p => p.status === 'pending') // Ensure we only sum pending ones from the displayable list
                       .reduce((sum, p) => sum + p.calculatedAmount, 0);
 
-                     results.push({ member, pendingPeriods: memberPendingPeriods, totalDue: totalDue });
+                     // +++ Push filtered periods to results +++
+results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue });
                     newEditableAmounts[member.id] = String(totalDue.toFixed(2));
+                 } // End check for displayable periods length
                 }
         } // End loop through members
 
+        // +++ Update state variables (editablePeriodAmounts should now only contain entries for displayable periods) +++
+         console.log(`  [BEFORE SET STATE] newEditablePeriodAmounts:`, JSON.stringify(newEditablePeriodAmounts)); // DEBUG LOG
+         console.log(`  [BEFORE SET STATE] newEditableAmounts:`, JSON.stringify(newEditableAmounts)); // DEBUG LOG
+         
             setProcessedAllowances(results);
             setEditableAmounts(newEditableAmounts);
+        setEditablePeriodAmounts(newEditablePeriodAmounts);
+         console.log(`  [AFTER SET STATE CALLS] State update functions called.`); // DEBUG LOG
+
+
         } catch (e: any) {
             console.error("Error processing allowance data:", e);
             setError(e);
             toast({ title: "Error Calculating Allowances", description: e.message, variant: "destructive" });
         } finally {
              setIsLoading(false);
-            console.log("Allowance processing complete.");
+            console.log("[PROCESS DATA END]"); // DEBUG LOG
         }
      }, [isDataLoading, typedData, db, toast]); // Dependencies
 
@@ -314,6 +357,17 @@ export default function AllowanceDistributionPage() {
             setIsLoading(false);
         }
     }, [isDataLoading, typedData, dataError, processAllowanceData, simulatedDate]);
+
+     // Add these near other useEffects
+     useEffect(() => {
+         console.log('[EFFECT] editablePeriodAmounts changed:', JSON.stringify(editablePeriodAmounts));
+         // Optional: Uncomment to see stack trace for *every* change
+         // console.trace('editablePeriodAmounts updated by:');
+     }, [editablePeriodAmounts]);
+
+     useEffect(() => {
+         console.log('[EFFECT] editableAmounts (Footer) changed:', JSON.stringify(editableAmounts));
+     }, [editableAmounts]);
 
 
     // --- Event Handlers --- (Keep existing: handleAmountChange, handleSkipPeriod, handleDepositWithdraw)
@@ -336,6 +390,79 @@ export default function AllowanceDistributionPage() {
         }
     };
 
+    // +++ NEW: Handler for individual period amount changes +++
+    const handlePeriodAmountChange = (periodId: string, memberId: string, value: string) => {
+        setEditablePeriodAmounts(prev => ({ ...prev, [periodId]: value }));
+
+        // Recalculate totalDue for the footer based on the new period amounts
+        setEditableAmounts(prevTotalAmounts => {
+             const allowanceInfo = processedAllowances.find(pa => pa.member.id === memberId);
+             if (!allowanceInfo) return prevTotalAmounts; // Should not happen
+
+             const newTotalDue = allowanceInfo.pendingPeriods
+                 .filter(p => p.status === 'pending') // Only sum pending periods
+                 .reduce((sum, p) => {
+                     // Use the updated amount for the changed period, or existing for others
+                     const amountString = p.id === periodId ? value : editablePeriodAmounts[p.id];
+                     const amount = parseFloat(amountString || '0');
+                     return sum + (isNaN(amount) ? 0 : amount);
+                 }, 0);
+
+             return { ...prevTotalAmounts, [memberId]: String(newTotalDue.toFixed(2)) };
+        });
+    };
+
+    // +++ NEW: Handler for depositing/withdrawing a single period +++
+    const handleDepositWithdrawPeriod = async (memberId: string, period: CalculatedPeriod) => {
+        console.log(`[HANDLER START] handleDepositWithdrawPeriod for period ${period.id}`); // DEBUG LOG
+        console.log(`Processing deposit/withdrawal for period ${period.id} of member ${memberId}`);
+        setProcessingMemberId(memberId); // Use member ID to disable all buttons for that member
+
+        const finalAmountString = editablePeriodAmounts[period.id];
+        const finalAmount = parseFloat(finalAmountString);
+        if (isNaN(finalAmount)) {
+            toast({ title: "Invalid Amount", description: "Please enter a valid number for the period.", variant: "destructive" });
+            setProcessingMemberId(null);
+            return;
+        }
+
+        const member = processedAllowances.find(pa => pa.member.id === memberId)?.member;
+        if (!member) {
+             toast({ title: "Error", description: "Could not find member data.", variant: "destructive" });
+             setProcessingMemberId(null);
+             return;
+        }
+
+        const currency = member.allowanceCurrency;
+        if (!currency) {
+            toast({ title: "Missing Configuration", description: "Allowance currency is not set for this member.", variant: "destructive" });
+            setProcessingMemberId(null);
+            return;
+        }
+
+        // Only mark completions for THIS specific period
+        const completionIdsToMark = period.completionsToMark;
+        const description = `Allowance distribution for period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}`;
+
+        try {
+             const memberEnvelopes = typedData?.allowanceEnvelopes?.filter(e => e.familyMember?.[0]?.id === memberId) || [];
+             await executeAllowanceTransaction(db, memberId, memberEnvelopes, finalAmount, currency, description);
+             await markCompletionsAwarded(db, completionIdsToMark); // Mark only this period's completions
+
+             toast({
+                 title: finalAmount >= 0 ? "Period Deposited" : "Period Withdrawn",
+                 description: `${formatBalances({ [currency]: Math.abs(finalAmount) }, typedData?.unitDefinitions || [])} for period ending ${format(period.periodEndDate, 'yyyy-MM-dd')} processed.`
+             });
+             await processAllowanceData(simulatedDate); // Refresh data
+
+        } catch (err: any) {
+            console.error("Error processing period deposit/withdrawal:", err);
+            toast({ title: "Period Processing Failed", description: err.message, variant: "destructive" });
+        } finally {
+            setProcessingMemberId(null);
+        }
+    };
+
 
       const handleDepositWithdraw = async (memberId: string) => {
         console.log(`Processing deposit/withdrawal for ${memberId}`);
@@ -348,8 +475,20 @@ export default function AllowanceDistributionPage() {
                return;
            }
 
-        const finalAmountString = editableAmounts[memberId];
-        const finalAmount = parseFloat(finalAmountString);
+        // +++ UPDATE: Use editablePeriodAmounts to calculate finalAmount for total deposit/withdraw +++
+         const finalAmount = allowanceInfo.pendingPeriods
+            .filter(p => p.status === 'pending')
+            .reduce((sum, p) => {
+                 const amountString = editablePeriodAmounts[p.id]; // Read from period state
+                 const amount = parseFloat(amountString || '0');
+                 return sum + (isNaN(amount) ? 0 : amount);
+             }, 0);
+
+        // Ensure calculated finalAmount is used instead of relying solely on editableAmounts[memberId]
+        // editableAmounts[memberId] should reflect this sum already if handlePeriodAmountChange worked correctly,
+        // but recalculating here ensures accuracy at the time of deposit.
+        const finalAmountString = String(finalAmount.toFixed(2)); // Use the recalculated sum
+
 
         if (isNaN(finalAmount)) {
             toast({ title: "Invalid Amount", description: "Please enter a valid number.", variant: "destructive" });
@@ -492,9 +631,42 @@ export default function AllowanceDistributionPage() {
                                         <span>Total Wt: <span className="font-mono">{period.totalWeight.toFixed(2)}</span></span>
                                         <span>Completed Wt: <span className="font-mono">{period.completedWeight.toFixed(2)}</span></span>
                                         <span>Completion: <span className="font-mono">{period.percentage.toFixed(1)}%</span></span>
-                                             <span className="font-semibold">Period Amt: <span className="font-mono">{formatBalances({ [allowanceInfo.member.allowanceCurrency || '']: period.calculatedAmount }, typedData?.unitDefinitions || [])}</span></span>
+                                             {/* Removed original Period Amt display here */}
                                     </div>
                                 </div>
+
+                                {/* +++ NEW: Per-period Edit/Deposit/Skip controls (Right Aligned) +++ */}
+                                <div className='flex flex-col items-end gap-1'> {/* Wrap controls in flex-col for alignment */}
+                                    {!isInProgress && ( // Only show edit/deposit for pending periods
+                                        <div className="flex items-center gap-1 justify-end">
+                                            {/* <Label htmlFor={`periodAmount-${period.id}`} className="sr-only">Period Amount</Label> */} {/* Label removed for space */}
+                                            <div className="flex items-center bg-white dark:bg-gray-900 border rounded-md overflow-hidden h-8">
+                                                <span className="pl-1.5 pr-0.5 text-sm font-semibold">{allowanceInfo.member.allowanceCurrency}</span>
+                                                <Input
+                                                    id={`periodAmount-${period.id}`}
+                                                    type="number"
+                                                    step="0.01"
+                                                    value={editablePeriodAmounts[period.id] ?? '0'}
+                                                    onChange={(e) => handlePeriodAmountChange(period.id, member.id, e.target.value)}
+                                                    className="w-20 text-sm font-semibold border-0 rounded-none focus-visible:ring-0 h-full p-1" // Adjust size/padding
+                                                    disabled={processingMemberId === member.id}
+                                                />
+                                            </div>
+                                            <Button
+                                                size="sm" // Smaller button
+                                                className="h-8" // Match input height
+                                                onClick={() => handleDepositWithdrawPeriod(member.id, period)}
+                                                disabled={processingMemberId === member.id || parseFloat(editablePeriodAmounts[period.id] || '0') === 0}
+                                                variant={parseFloat(editablePeriodAmounts[period.id] || '0') < 0 ? "destructive" : "default"}
+                                            >
+                                                {processingMemberId === member.id ? ( <Loader2 className="h-4 w-4 animate-spin" /> )
+                                                    : parseFloat(editablePeriodAmounts[period.id] || '0') < 0 ? ( <TrendingDown className="h-4 w-4" /> )
+                                                    : ( <DollarSign className="h-4 w-4" /> )}
+                                                <span className="sr-only">{parseFloat(editablePeriodAmounts[period.id] || '0') < 0 ? "Withdraw" : "Deposit"} Period</span>
+                                            </Button>
+                                        </div>
+                                    )}
+                                     {/* Original Skip Button */}
                                  <Button
                                                       variant="ghost" size="sm" className="text-xs text-muted-foreground hover:text-destructive"
                                             onClick={() => handleSkipPeriod(member.id, period)}
@@ -502,6 +674,7 @@ export default function AllowanceDistributionPage() {
                                             title={isInProgress ? "Cannot skip period in progress" : "Mark period as processed without deposit/withdrawal"} >
                                      <XCircle className="h-4 w-4 mr-1" /> Skip
                                  </Button>
+                                 </div>
                             </div>
                                 );
                            })
