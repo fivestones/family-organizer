@@ -127,7 +127,6 @@ export default function AllowanceDistributionPage() {
 
     // --- Calculation and Processing Logic ---
     const processAllowanceData = useCallback(async (currentSimulatedDate: Date) => {
-        // ... (rest of the function remains the same as the previous version) ...
         if (isDataLoading || !typedData) {
             console.log("Data still loading or not available for processing.");
             return;

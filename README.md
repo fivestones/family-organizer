@@ -24,33 +24,33 @@ This is the code for our family's organizer
 
 
 ## To do at the moment:
-* ~Need a way to withdraw/spend money from your account~ - done
-* ~Transfer to other person~ - done
-* ~Show total current allowance~ - done
-* ~Change default envelope~ - done
+* ~~Need a way to withdraw/spend money from your account~~ - done
+* ~~Transfer to other person~~ - done
+* ~~Show total current allowance~~ - done
+* ~~Change default envelope~~ - done
     * Set up rules for deposits (ordered list of amounts and percentages (e.g., first $2 in env A, then of the remainder [20% in env B and 80% in env C]))
-* ~Show accurate currency symbol for rupees at least~ - done
-* ~Show the total amount in one given currency, if you changed all your money to that currency today~ - done
-    * ~This will only compute the total for the given currency for monetary curriencies (e.g., if you have $ and euros and stars, it can give you your total in $ and stars)~
+* ~~Show accurate currency symbol for rupees at least~~ - done
+* ~~Show the total amount in one given currency, if you changed all your money to that currency today~~ - done
+    * ~~This will only compute the total for the given currency for monetary curriencies (e.g., if you have $ and euros and stars, it can give you your total in $ and stars)~~
     * Make the last chosen display currency come up next time first, per family member
-* ~Envelopes can have a savings goal amount~ - done
+* ~~Envelopes can have a savings goal amount~~ - done
 * Make a default "Savings" envelope when adding a family member
-* ~Show the current total allowance for each person in the familyMembersList next to their name~ - done
-* ~Show a full transaction list~ - done
+* ~~Show the current total allowance for each person in the familyMembersList next to their name~~ - done
+* ~~Show a full transaction list~~ - done
     * Show a graph next to the list; if there is a savings goal amount for envelopes this should be incorporated somehow. Maybe if it is a graph of just one envelope (or each envelope is shown in a different color, with the total amount in its own color)
     * Add a running total, per currency or as a combined total in a given currency
     * filter by envelope
-* ~Add value to chores (each chore has a weight of any real number); then have an allowance; base the allowance payout amount on the weighted values of the chores which have been marked done during the given period~ - done
-    * ~Need to calculate the total weight of all assigned chores for the week, and then the total weight of all chores completed for the week. Find the weighted percent completed.~ - done
+* ~~Add value to chores (each chore has a weight of any real number); then have an allowance; base the allowance payout amount on the weighted values of the chores which have been marked done during the given period~~ - done
+    * ~~Need to calculate the total weight of all assigned chores for the week, and then the total weight of all chores completed for the week. Find the weighted percent completed.~~ - done
         * bug: all chores are counted (J had 80% listed when all were checked off. Maybe from adding new chores, or from checking, then unchecking, then rechecking some chores?)
         * bug: if a chore is unchecked after having been checked off, it should no longer count toward allowance
-    * ~Display current stats for chores complete and allowance due~ - done
-    * ~Deposit that percent of that family member's weekly allowance in their default envelope.~ - done
+    * ~~Display current stats for chores complete and allowance due~~ - done
+    * ~~Deposit that percent of that family member's weekly allowance in their default envelope.~~ - done
         * Fix the bug where it makes a new default envelope
     * Chores can be part of the normal allowance (required to be able to get 100% of the allowance amount for you), or can be up for grabs with a given amount attached
         * If an up-for-grabs chore was completed, deposit the given amount in the family member's allowance too
         * Up for grabs chores should be able to have an amount or a weight (so you could get more than 100% of your assigned chores' weight if you do an up for grabs chore)
-    * ~Set up a way to auto-deposit or click to deposit chore money~ - done
+    * ~~Set up a way to auto-deposit or click to deposit chore money~~ - done
 * Maybe: if working in stars or some other non-money currency, could have a list somewhere of prizes that could be gotten with certain numbers of stars (e.g., 10 stars for a small candy; 100 stars to watch a show, 50 stars to play a video game for 30 minutes);
     * Also maybe: value of stars in monetary currency, can be time limited (e.g., if you want to convert stars to $ you can do that this week at a rate of 100 stars = $1).
 * Kid's passcode needed to activate transfers out; parent passcode needed to activate parent mode which lets you do any transfers and deposits.
@@ -89,7 +89,7 @@ This is the code for our family's organizer
     * Connections to mealie (or another self-hosted recipe app) for recipes and meal planning
 * Family chores/rewards tracking
     * Set relative value of a chore for rewards/allowance calculations
-    * ~Keep track of rewards/money accounts per person~ - done
+    * ~~Keep track of rewards/money accounts per person~~ - done
 * Dashboard view for keyboardless/mouseless usage
 * Photo stream
 * Extension-capible

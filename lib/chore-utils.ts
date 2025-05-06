@@ -590,7 +590,10 @@ export const calculatePeriodDetails = async (
     // Check if the completion's due date falls within the period
     if (dateDueMillis >= periodStartMillis && dateDueMillis < periodEndMillis) {
         // This completion belongs to the current period
+        // +++ Check if the completion is marked as completed +++
+        if (completion.completed) {
         completedWeight += choreWeight;
+        }
         completionsInPeriodToMark.push(completion.id); // Add to list to mark awarded later
     }
   }
