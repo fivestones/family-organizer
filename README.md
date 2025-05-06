@@ -42,8 +42,8 @@ This is the code for our family's organizer
     * filter by envelope
 * ~~Add value to chores (each chore has a weight of any real number); then have an allowance; base the allowance payout amount on the weighted values of the chores which have been marked done during the given period~~ - done
     * ~~Need to calculate the total weight of all assigned chores for the week, and then the total weight of all chores completed for the week. Find the weighted percent completed.~~ - done
-        * bug: all chores are counted (J had 80% listed when all were checked off. Maybe from adding new chores, or from checking, then unchecking, then rechecking some chores?)
-        * bug: if a chore is unchecked after having been checked off, it should no longer count toward allowance
+        * ~~bug: all chores are counted (J had 80% listed when all were checked off. Maybe from adding new chores, or from checking, then unchecking, then rechecking some chores?)~~ - done
+        * ~~bug: if a chore is unchecked after having been checked off, it should no longer count toward allowance~~ - done
     * ~~Display current stats for chores complete and allowance due~~ - done
     * ~~Deposit that percent of that family member's weekly allowance in their default envelope.~~ - done
         * Fix the bug where it makes a new default envelope
@@ -51,6 +51,7 @@ This is the code for our family's organizer
         * If an up-for-grabs chore was completed, deposit the given amount in the family member's allowance too
         * Up for grabs chores should be able to have an amount or a weight (so you could get more than 100% of your assigned chores' weight if you do an up for grabs chore)
     * ~~Set up a way to auto-deposit or click to deposit chore money~~ - done
+* bug: if an envelope is deleted, and it's empty, it should just give an "are you sure" message but not ask where to transfer funds to
 * Maybe: if working in stars or some other non-money currency, could have a list somewhere of prizes that could be gotten with certain numbers of stars (e.g., 10 stars for a small candy; 100 stars to watch a show, 50 stars to play a video game for 30 minutes);
     * Also maybe: value of stars in monetary currency, can be time limited (e.g., if you want to convert stars to $ you can do that this week at a rate of 100 stars = $1).
 * Kid's passcode needed to activate transfers out; parent passcode needed to activate parent mode which lets you do any transfers and deposits.

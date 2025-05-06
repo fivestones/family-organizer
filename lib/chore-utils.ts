@@ -554,8 +554,7 @@ export const calculatePeriodDetails = async (
   allChores: Chore[],
   unawardedCompletionsForMember: ChoreCompletion[]
 ): Promise<CalculatedPeriod | null> => {
-  console.log(`Calculating details for ${memberId} from ${periodStartDate.toISOString().split('T')[0]} to ${periodEndDate.toISOString().split('T')[0]}`);
-
+  
   let totalWeight = 0;
   let completedWeight = 0;
   const completionsInPeriodToMark: string[] = [];

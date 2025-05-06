@@ -120,7 +120,9 @@ export default function AllowanceDistributionPage() {
           }
         },
         "unitDefinitions": {},
-        "allowanceEnvelopes": {}
+        "allowanceEnvelopes": {
+            "familyMember": {}
+        }
     });
 
     // Type assertion for fetched data
@@ -135,12 +137,10 @@ export default function AllowanceDistributionPage() {
 
     // --- Calculation and Processing Logic ---
     const processAllowanceData = useCallback(async (currentSimulatedDate: Date) => {
-        console.log(`[PROCESS DATA START] (Simulated Date: ${currentSimulatedDate.toISOString().split('T')[0]})`); // DEBUG LOG
         if (isDataLoading || !typedData) {
             console.log("Data still loading or not available for processing.");
             return;
         }
-         console.log(`Processing allowance data using simulated date: ${currentSimulatedDate.toISOString().split('T')[0]}`);
          setIsLoading(true);
         setError(null);
 
@@ -154,7 +154,6 @@ export default function AllowanceDistributionPage() {
             for (const member of familyMembers) {
                 // Skip members without necessary allowance configuration
                 if (!member.allowanceRrule || !member.allowanceStartDate || !member.allowanceAmount || !member.allowanceCurrency) {
-                    // console.log(`Skipping member ${member.id}: Missing allowance config.`);
                     continue;
                 }
 
@@ -240,7 +239,6 @@ export default function AllowanceDistributionPage() {
                  // Skip periods that entirely finished before our searchStartDate logic needs adjustment
                  // We need to *generate* all periods from start, but only consider *processing* those ending after searchStartDate
                  if (periodEndDate < searchStartDate) {
-                      // console.log(`Skipping period ending ${periodEndDate.toISOString().split('T')[0]} as it's before search start ${searchStartDate.toISOString().split('T')[0]}`);
                             continue;
                        }
 
@@ -269,8 +267,7 @@ export default function AllowanceDistributionPage() {
                      );
 
                     if (details) {
-                        console.log(`  [Calc Details] Period ${details.id}: calculatedAmount=${details.calculatedAmount}, completionsToMark=${details.completionsToMark.length}`); // DEBUG LOG
-                     // Determine payout due date and status
+                        // Determine payout due date and status
                      const payoutDueDate = addDays(periodEndDate, delayDays);
                      const isDue = isBefore(payoutDueDate, currentSimulatedDate) || isEqual(payoutDueDate, currentSimulatedDate);
                      // Check if simulated date falls within the period (inclusive start, inclusive end)
@@ -328,14 +325,11 @@ results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue })
         } // End loop through members
 
         // +++ Update state variables (editablePeriodAmounts should now only contain entries for displayable periods) +++
-         console.log(`  [BEFORE SET STATE] newEditablePeriodAmounts:`, JSON.stringify(newEditablePeriodAmounts)); // DEBUG LOG
-         console.log(`  [BEFORE SET STATE] newEditableAmounts:`, JSON.stringify(newEditableAmounts)); // DEBUG LOG
          
             setProcessedAllowances(results);
             setEditableAmounts(newEditableAmounts);
         setEditablePeriodAmounts(newEditablePeriodAmounts);
-         console.log(`  [AFTER SET STATE CALLS] State update functions called.`); // DEBUG LOG
-
+         
 
         } catch (e: any) {
             console.error("Error processing allowance data:", e);
@@ -343,7 +337,6 @@ results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue })
             toast({ title: "Error Calculating Allowances", description: e.message, variant: "destructive" });
         } finally {
              setIsLoading(false);
-            console.log("[PROCESS DATA END]"); // DEBUG LOG
         }
      }, [isDataLoading, typedData, db, toast]); // Dependencies
 
@@ -358,25 +351,12 @@ results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue })
         }
     }, [isDataLoading, typedData, dataError, processAllowanceData, simulatedDate]);
 
-     // Add these near other useEffects
-     useEffect(() => {
-         console.log('[EFFECT] editablePeriodAmounts changed:', JSON.stringify(editablePeriodAmounts));
-         // Optional: Uncomment to see stack trace for *every* change
-         // console.trace('editablePeriodAmounts updated by:');
-     }, [editablePeriodAmounts]);
-
-     useEffect(() => {
-         console.log('[EFFECT] editableAmounts (Footer) changed:', JSON.stringify(editableAmounts));
-     }, [editableAmounts]);
-
-
     // --- Event Handlers --- (Keep existing: handleAmountChange, handleSkipPeriod, handleDepositWithdraw)
     const handleAmountChange = (memberId: string, value: string) => {
         setEditableAmounts(prev => ({ ...prev, [memberId]: value }));
     };
 
     const handleSkipPeriod = async (memberId: string, period: CalculatedPeriod) => {
-        console.log(`Skipping period ${period.periodStartDate.toISOString().split('T')[0]} for ${memberId}`);
         setProcessingMemberId(memberId);
         try {
             await markCompletionsAwarded(db, period.completionsToMark);
@@ -414,8 +394,6 @@ results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue })
 
     // +++ NEW: Handler for depositing/withdrawing a single period +++
     const handleDepositWithdrawPeriod = async (memberId: string, period: CalculatedPeriod) => {
-        console.log(`[HANDLER START] handleDepositWithdrawPeriod for period ${period.id}`); // DEBUG LOG
-        console.log(`Processing deposit/withdrawal for period ${period.id} of member ${memberId}`);
         setProcessingMemberId(memberId); // Use member ID to disable all buttons for that member
 
         const finalAmountString = editablePeriodAmounts[period.id];
@@ -465,7 +443,6 @@ results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue })
 
 
       const handleDepositWithdraw = async (memberId: string) => {
-        console.log(`Processing deposit/withdrawal for ${memberId}`);
         setProcessingMemberId(memberId);
 
           const allowanceInfo = processedAllowances.find(pa => pa.member.id === memberId);
@@ -512,8 +489,8 @@ results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue })
 
         try {
              const memberEnvelopes = typedData?.allowanceEnvelopes?.filter(e => e.familyMember?.[0]?.id === memberId) || [];
-                await executeAllowanceTransaction(db, memberId, memberEnvelopes, finalAmount, currency, description);
-                 await markCompletionsAwarded(db, completionIdsToMark); // Mark only paid-out completions
+            await executeAllowanceTransaction(db, memberId, memberEnvelopes, finalAmount, currency, description);
+            await markCompletionsAwarded(db, completionIdsToMark); // Mark only paid-out completions
 
              toast({
                  title: finalAmount >= 0 ? "Allowance Deposited" : "Allowance Withdrawn",
