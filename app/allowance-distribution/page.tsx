@@ -381,7 +381,7 @@ results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue })
         try {
             await markCompletionsAwarded(db, period.completionsToMark);
             toast({ title: "Period Skipped", description: `Allowance period ending ${format(period.periodEndDate, 'yyyy-MM-dd')} marked as skipped.` });
-              await processAllowanceData(simulatedDate);
+            //   await processAllowanceData(simulatedDate); // This was causing a race condition I think
         } catch (err: any) {
             console.error("Error skipping period:", err);
             toast({ title: "Error Skipping Period", description: err.message, variant: "destructive" });
@@ -453,7 +453,7 @@ results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue })
                  title: finalAmount >= 0 ? "Period Deposited" : "Period Withdrawn",
                  description: `${formatBalances({ [currency]: Math.abs(finalAmount) }, typedData?.unitDefinitions || [])} for period ending ${format(period.periodEndDate, 'yyyy-MM-dd')} processed.`
              });
-             await processAllowanceData(simulatedDate); // Refresh data
+            //  await processAllowanceData(simulatedDate); // Refresh data // This was causing a race condition I think, making an amount show even after a deposit.
 
         } catch (err: any) {
             console.error("Error processing period deposit/withdrawal:", err);
@@ -520,7 +520,7 @@ results.push({ member, pendingPeriods: displayablePeriods, totalDue: totalDue })
                  description: `${formatBalances({ [currency]: Math.abs(finalAmount) }, typedData?.unitDefinitions || [])} processed successfully.`
              });
 
-                await processAllowanceData(simulatedDate);
+                // await processAllowanceData(simulatedDate); // This was causing a race condition I think
 
         } catch (err: any) {
             console.error("Error processing deposit/withdrawal:", err);
