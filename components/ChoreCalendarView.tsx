@@ -55,7 +55,7 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
       setMonths(months);
 
       // Get family members
-      const familyMembersArray = chore.assignments
+      const familyMembersArray = (chore.assignments && chore.assignments.length > 0)
         ? chore.assignments
             .filter(a => a && a.familyMember)
             .map((a: any) => {

@@ -355,8 +355,9 @@ export const getAssignedMembersForChoreOnDate = (chore: Chore, date: Date): { id
         const sortedAssignments = [...chore.assignments].sort((a, b) => a.order - b.order);
         const assignmentIndex = rotationIndex % sortedAssignments.length;
 
-        const assignedMemberData = sortedAssignments[assignmentIndex]?.familyMember[0];
-        
+        // const assignedMemberData = sortedAssignments[assignmentIndex]?.familyMember[0];
+        const assignedMemberData = sortedAssignments[assignmentIndex]?.familyMember;
+                
         // Now check if the extracted object and its id exist
         return (assignedMemberData && assignedMemberData.id)
           ? [{ id: assignedMemberData.id, name: assignedMemberData.name }] // Return valid assignee in an array

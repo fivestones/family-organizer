@@ -46,12 +46,13 @@ This is the code for our family's organizer
         * ~~bug: if a chore is unchecked after having been checked off, it should no longer count toward allowance~~ - done
     * ~~Display current stats for chores complete and allowance due~~ - done
     * ~~Deposit that percent of that family member's weekly allowance in their default envelope.~~ - done
-        * Fix the bug where it makes a new default envelope
+        * ~~Fix the bug where it makes a new default envelope~~ - done
     * Chores can be part of the normal allowance (required to be able to get 100% of the allowance amount for you), or can be up for grabs with a given amount attached
         * If an up-for-grabs chore was completed, deposit the given amount in the family member's allowance too
         * Up for grabs chores should be able to have an amount or a weight (so you could get more than 100% of your assigned chores' weight if you do an up for grabs chore)
     * ~~Set up a way to auto-deposit or click to deposit chore money~~ - done
-* bug: if an envelope is deleted, and it's empty, it should just give an "are you sure" message but not ask where to transfer funds to
+* Bug: if an envelope is deleted, and it's empty, it should just give an "are you sure" message but not ask where to transfer funds to
+* Figure out what to do with future periods that are simulated and then marked as done. Should the simulation be completely simulated (e.g., deposits are marked as simulated too somehow)? Or get rid of the simulated date option (or make it only available in settings, not by default).
 * Maybe: if working in stars or some other non-money currency, could have a list somewhere of prizes that could be gotten with certain numbers of stars (e.g., 10 stars for a small candy; 100 stars to watch a show, 50 stars to play a video game for 30 minutes);
     * Also maybe: value of stars in monetary currency, can be time limited (e.g., if you want to convert stars to $ you can do that this week at a rate of 100 stars = $1).
 * Kid's passcode needed to activate transfers out; parent passcode needed to activate parent mode which lets you do any transfers and deposits.
@@ -62,7 +63,8 @@ This is the code for our family's organizer
 * Chores:
     * Let chores be assigned during a time period of the day (using timeOfDayDefinitions)
         * Maybe there should also be meal ones, which are like "Before Breakfast". You would have a way to say you are eating breakfast now, so it's over, and if it doesn't get marked, it's automatically marked as over at 11 am or something. "After dinner" starts automatically at 7:30 but if you mark dinner as happening it starts then. Etc.
-* 
+    * ~~Bug: the assignment preview isn't showing up in the detailed create/edit chore form~~ - done
+    * Show completed vs uncompleted chores in the assignment preview when editing a chore
 
 
 ## Features planned
