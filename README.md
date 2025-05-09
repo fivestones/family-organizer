@@ -1,167 +1,228 @@
 # Thomas Family Organizer
 
-This is the code for our family's organizer
+Hey! This is the code for our family's organizer. I'm building this to help us (and maybe you, if you like this kind of thing!) manage our family life a bit more smoothly. It's a personal project, so I'm putting it on GitHub mainly to track my own changes and updates, but if you find it useful, feel free to tinker with it!
 
-## Features implemented
+## What It Can Do (Key Features)
 
--   Calendar, most features working. Add or remove items. view calendar ok multi-month view
-    -   Optionally show either/both Gregorian and Bikram Samvat calendars
--   Chore assignment and tracking
-    -   See all chores with avatars for which person/people are assigned
-    -   See chores due for calandar view
-    -   Set multiple assignees for a chore, and to have it optionally alternate between the assignees
-    -   Set auto repeats for chores with simple or complicated repeat patterns, using rrule rules
--   Instant sync between clients
--   Local-first architecture
--   Allowance tracking, in multiple currencies
-    -   Each family member can have multiple envelopes
-    -   Can deposit funds
-    -   Can transfer funds between envelopes, withdraw money, delete envelopes, show totals
-    -   View a transaction history
--   Offline capibile, fast
-    -   Uses instantdb.com in the background for syncing
+Here's a rundown of what the Thomas Family Organizer offers so far:
 
-## To do at the moment:
+-   **Comprehensive Calendar:**
 
--   ~~Need a way to withdraw/spend money from your account~~ - done
--   ~~Transfer to other person~~ - done
--   ~~Show total current allowance~~ - done
--   ~~Change default envelope~~ - done
-    -   Set up rules for deposits (ordered list of amounts and percentages (e.g., first $2 in env A, then of the remainder [20% in env B and 80% in env C]))
--   ~~Show accurate currency symbol for rupees at least~~ - done
--   ~~Show the total amount in one given currency, if you changed all your money to that currency today~~ - done
-    -   ~~This will only compute the total for the given currency for monetary curriencies (e.g., if you have $ and euros and stars, it can give you your total in $ and stars)~~
-    -   Make the last chosen display currency come up next time first, per family member
--   ~~Envelopes can have a savings goal amount~~ - done
--   Make a default "Savings" envelope when adding a family member
--   ~~Show the current total allowance for each person in the familyMembersList next to their name~~ - done
--   ~~Show a full transaction list~~ - done
-    -   Show a graph next to the list; if there is a savings goal amount for envelopes this should be incorporated somehow. Maybe if it is a graph of just one envelope (or each envelope is shown in a different color, with the total amount in its own color)
-    -   Add a running total, per currency or as a combined total in a given currency
-    -   filter by envelope
--   ~~Add value to chores (each chore has a weight of any real number); then have an allowance; base the allowance payout amount on the weighted values of the chores which have been marked done during the given period~~ - done
-    -   ~~Need to calculate the total weight of all assigned chores for the week, and then the total weight of all chores completed for the week. Find the weighted percent completed.~~ - done
-        -   ~~bug: all chores are counted (J had 80% listed when all were checked off. Maybe from adding new chores, or from checking, then unchecking, then rechecking some chores?)~~ - done
-        -   ~~bug: if a chore is unchecked after having been checked off, it should no longer count toward allowance~~ - done
-    -   ~~Display current stats for chores complete and allowance due~~ - done
-    -   ~~Deposit that percent of that family member's weekly allowance in their default envelope.~~ - done
-        -   ~~Fix the bug where it makes a new default envelope~~ - done
-    -   ~~Set up a way to auto-deposit or click to deposit chore money~~ - done
--   Bug: if an envelope is deleted, and it's empty, it should just give an "are you sure" message but not ask where to transfer funds to
--   Figure out what to do with future periods that are simulated and then marked as done. Should the simulation be completely simulated (e.g., deposits are marked as simulated too somehow)? Or get rid of the simulated date option (or make it only available in settings, not by default).
--   Maybe: if working in stars or some other non-money currency, could have a list somewhere of prizes that could be gotten with certain numbers of stars (e.g., 10 stars for a small candy; 100 stars to watch a show, 50 stars to play a video game for 30 minutes);
-    -   Also maybe: value of stars in monetary currency, can be time limited (e.g., if you want to convert stars to $ you can do that this week at a rate of 100 stars = $1).
--   Kid's passcode needed to activate transfers out; parent passcode needed to activate parent mode which lets you do any transfers and deposits.
--   Integrate the familyMemberDetail page into the main page somewhere, or have it come up with a button click from a family member's chore list
--   Future: Use the envelope allowance system to create a multi-currency envelope-based budgeting system ynab-style
--   Convert into PWA so it can be used fully offline
--   Future: convert into react native for iOS app
--   Chores:
-    -   Let chores be assigned during a time period of the day (using timeOfDayDefinitions)
-        -   Maybe there should also be meal ones, which are like "Before Breakfast". You would have a way to say you are eating breakfast now, so it's over, and if it doesn't get marked, it's automatically marked as over at 11 am or something. "After dinner" starts automatically at 7:30 but if you mark dinner as happening it starts then. Etc.
-    -   ~~Bug: the assignment preview isn't showing up in the detailed create/edit chore form~~ - done
-    -   Show completed vs uncompleted chores in the assignment preview when editing a chore
-    -   Make the preview more flexible to show other dates (e.g, for chores starting in the future, or in the past).
-        -   Maybe we can load a month before and after what we are showing, and if the user scrolls toward the beginning or end, when there is less than a month of buffer, we can calculate another prior or future month and add it on before or after what is already shown like lazy loading.
-    -   ~~Up for grabs chores: Chores can be part of the normal allowance (required to be able to get 100% of the allowance amount for you), or can be up for grabs with a given amount attached~~ - done
-        -   ~~If an up-for-grabs chore was completed, deposit the given amount in the family member's allowance too~~ - done
-        -   ~~Up for grabs chores should be able to have an amount or a weight (so you could get more than 100% of your assigned chores' weight if you do an up for grabs chore)~~ - done
-        -   Bug: non-monetary up for grab chores aren't getting properly deposited along with monetary chores (even though they show up in the allowance distribution)
-        -   Fix: The way that chore period allowance distribution info is shown needs to be arranged better
-    -   Bug: If a new currency is made and is not defined, and money in that currency is deposited, familyMemberDetail Total Balance hangs on loading
-    -   Set end dates for chores
-    -   Pause and restart chores
-        -   Optionally scheudule the pauses and restarts
-    -   Deletions
--   Allowance:
-    -   Figure out how to work with changes to the set allowance. E.g., schedule raises or currency changes, or make them at the current time (or a past time?)
+    -   Add, remove, and view calendar items easily.
+    -   Includes a multi-month view for better planning.
+    -   Supports both Gregorian and Bikram Samvat calendars, and you can choose to show either or both.
 
-## Features planned
+-   **Chore Assignment and Tracking:**
 
--   Calendar
-    -   For multiple people
-    -   Day, 3-4 day, weekly, agenda, monthly, multi-month, and full year views
-    -   Custom metadata (circle, highlight events. Make an event a major even (to show only major events on the yearly (or other) calendar). Events can be associated with a person or multiple people.)
-    -   Events can be all day, specific time, no particular time (shows not as all day, but also has no time given), or a time period (Early morning, Morning, Mid-day, Afternoon, Evening, Night, Middle of the night).
--   To do list
-    -   Associate To dos with a particular person
-    -   Regular lists
-    -   _Maybe to dos are just a specific kind of chore, which only has one occurance?_
--   Chores
-    -   A way to have home school subjects listed, with particular assignment items as to dos attached to particular days
-        -   Or just attached to a given school subject chore (but not on a given day), and marked as starting at some particular date (in which case it shows up with that school subject chore on that day or the next day that school subject chore is scheduled) OR marked as starting when some other to do is finished (e.g., the previous day's assignments for that school subject). Then if the assingment it is marked as coming after has been marked as finished, it can show up the next day it's school subject chore is scheduled.
-        -   Should be able to rely on multiple other to dos (this assignment has to be after this other assignment but before this one?)
-        -   Is there any need for nested to dos if you can have to dos that only start depending on other to dos being done? Maybe there still is, just to break down a to do into constituient parts.
-        -   If there are other to dos that will come up following the completion of a current chore, it should be possible to see the whole string of them (and maybe the string of those that have come before?)
-        -   It would be nice if Chores could change too the same way. Like a school subject chore gets marked as completely finished when all its to dos are finished, and another school subject chore that starts next (finished 7th grade english, start 8th grade if it's done and the date is at least Aug 1).
-        -   The assignments of a school subject are like a playlist
-        -   Need to be able to go on to the next assignment on the same day if desired, so you don't have to wait until tomorrow and can get ahead
-            -   There should be a field that lists if this is allowed or not, could be per school subject or per assignment
--   Meal plan
-    -   Connections to mealie (or another self-hosted recipe app) for recipes and meal planning
--   Family chores/rewards tracking
-    -   Set relative value of a chore for rewards/allowance calculations
-    -   ~~Keep track of rewards/money accounts per person~~ - done
--   Dashboard view for keyboardless/mouseless usage
--   Photo stream
--   Extension-capible
-    -   Quote of the day
-    -   Current family Bible memory passage
-    -   Current family hymn/song of the week
-    -   Kid home school/homework tracker
-        -   With each item tagged for whether they can do it alone or only with a parent
-        -   See the comments on Chores above for more ideas
-    -   Etc
--   iOS and web clients
--   Two-way sync with Google calendar and apple calendar or cal dav servers
--   Touch screen capable
--   Connect to Immage photo server for photostream
--   Maybe:
-    -   Messaging between family members
-    -   Goals/goal tracking
-    -
+    -   Clearly see all chores with avatars showing who is assigned.
+    -   View chores due directly in the calendar.
+    -   Assign chores to multiple people, with an option to have it automatically alternate between them.
+    -   Set up auto-repeating chores with simple or complex recurrence patterns using rrule.
+    -   The detailed create/edit chore form includes a working assignment preview.
+    -   **"Up for Grabs" Chores:**
+        -   Chores can be part of the normal allowance (required for 100% allowance) OR be "up for grabs" with a specific monetary amount or weight attached.
+        -   Completed up-for-grabs chores will automatically deposit the specified amount/value into the family member's allowance. This applies to chores with either a direct amount or a weight (allowing for earning more than 100% of assigned chore weight).
+
+-   **Allowance & Money Management (Multi-Currency):**
+
+    -   Each family member can have multiple "envelopes" to manage their funds.
+    -   Easily deposit funds, withdraw/spend money, and transfer funds between their own envelopes or to another person.
+    -   Envelopes can be deleted (with appropriate confirmations).
+    -   View a full transaction history and current totals for each envelope and overall.
+    -   The system accurately displays currency symbols (e.g., for Rupees, alongside others).
+    -   **Smart Totals & Currency Conversion:**
+        -   See the total current allowance for each person displayed next to their name in the family members list.
+        -   View your total balance converted into a single chosen monetary currency (e.g., if you have USD, Euros, and Stars, it can show your total in USD and your total in Stars).
+    -   **Savings Goals:** Envelopes can have a designated savings goal amount.
+    -   **Flexible Deposits:**
+        -   Allows setting a default envelope for deposits. (The previous bug that sometimes created a new default envelope is fixed.)
+    -   **Chore-Based Allowance Calculation:**
+        -   Assign a numerical weight (any real number) to chores.
+        -   Allowance payouts can be based on the total weighted value of chores marked "done" during a specific period.
+        -   The system calculates the total weight of all assigned chores for the week and the total weight of completed chores to find a weighted completion percentage. (Bugs related to incorrect counting of all chores or issues with unchecking/rechecking have been resolved.)
+        -   If a chore is unchecked after being marked done, it correctly no longer counts towards the allowance.
+        -   View current stats for chores completed and the allowance due.
+        -   Automatically (or with a click) deposit the calculated percentage of a family member's weekly allowance into their default envelope.
+
+-   **Tech & Sync:**
+    -   **Instant Sync:** Changes are reflected immediately across all connected clients.
+    -   **Local-First Architecture:** Your data primarily lives on your device/server.
+    -   **Offline Capable & Fast:** Designed to work even without an internet connection and be responsive. (Ok, this isn't done yet, but it shouldn't be too hard to make happen, given that it uses InstantDB which is designed for this kind of stuff.)
+    -   Uses `instantdb.com` in the background for its powerful syncing capabilities.
+
+## What I'm Tinkering With Now (Current To-Do & Bugs)
+
+This is the stuff I'm actively working on or plan to tackle very soon:
+
+-   **Allowance System Enhancements:**
+    -   Set up sophisticated rules for deposits (e.g., first $2 into envelope A, then of the remainder: 20% into envelope B and 80% into envelope C).
+    -   Make the last chosen display currency for totals stick for the next session (on a per-family-member basis).
+    -   Automatically create a default "Savings" envelope when a new family member is added.
+-   **Transaction Viewing Improvements:**
+    -   Add a graph next to the transaction list. This graph should somehow incorporate savings goal amounts for envelopes (maybe different colors for each envelope, with the total in its own color, showing progress towards goals).
+    -   Include a running total in the transaction list, either per currency or as a combined total in a chosen currency.
+    -   Allow filtering transactions by envelope.
+-   **Chore System Next Steps:**
+    -   Allow chores to be assigned during specific time periods of the day (using `timeOfDayDefinitions`).
+        -   This might include meal-based timings like "Before Breakfast" (ends when breakfast is marked as started, or auto-ends at a set time like 11 am) or "After Dinner" (starts when dinner is marked done, or auto-starts at 7:30 pm).
+    -   Show completed vs. uncompleted chores in the assignment preview when editing a chore (to see historical status).
+    -   Make the chore preview more flexible to show other dates (e.g., for chores starting in the future or past).
+        -   Maybe implement lazy loading: load a month before and after what's shown, and if the user scrolls towards the beginning/end, calculate and add another month of data.
+    -   Ability to set end dates for chores.
+    -   Implement pausing and restarting chores, potentially with an option to schedule these pauses/restarts.
+    -   Refine chore deletion processes.
+-   **User Experience & General Polish:**
+    -   Figure out the best way to handle future periods that are simulated and then marked as done. Should deposits also be marked as simulated? Or maybe simplify/hide the simulated date option.
+    -   Kid's passcode needed to activate transfers out; parent passcode needed to activate parent mode (full transfer/deposit rights).
+    -   Integrate the `familyMemberDetail` page more smoothly into the main interface, perhaps as a pop-up or section accessible from a family member's chore list.
+-   **Allowance Adjustments:**
+
+    -   Develop a system for managing changes to set allowance amounts (e.g., schedule future raises, change currencies, or apply changes retroactively or from the current time).
+
+-   **Bugs on the Radar:**
+    -   **Envelopes:** If an empty envelope is deleted, it should just give an "are you sure" message and not ask where to transfer funds to (since there are none).
+    -   **Chore System (Up for Grabs):**
+        -   Non-monetary up-for-grabs chores aren't getting properly deposited along with monetary chores (even though they show up in the allowance distribution calculation).
+        -   The way chore period allowance distribution info (especially with up-for-grabs items) is shown needs to be arranged more clearly.
+        -   When an up-for-grabs chore is done, while it disables it for others, it doesn't give them a message about _who_ has already done it.
+        -   When an up-for-grabs chore is done, and you are viewing the chore list of the person who completed it, its name shouldn't be struck through (as it's a completed task for them, not an unavailable one).
+    -   **Currency:** If a new currency is made and is not defined (e.g., no exchange rate or type), and money in that currency is deposited, the `familyMemberDetail` Total Balance hangs on loading.
+
+## Dreaming Big (Future Ideas & Aspirations)
+
+This is where I'd love to take the project eventually. No promises, but these are the things I'm thinking about!
+
+-   **Even Better Calendar:**
+
+    -   Individual calendars for multiple people.
+    -   More views: Day, 3-4 day, weekly, agenda, and full year views.
+    -   Custom metadata for events: circle or highlight events, mark an event as "major" (to show only major events on yearly/other views).
+    -   Events assignable to a person or multiple people.
+    -   Flexible event timings: all-day, specific time, no particular time (shows differently from all-day), or broader time periods (Early morning, Morning, Mid-day, Afternoon, Evening, Night, Middle of the night).
+
+-   **To-Do Lists:**
+
+    -   Associate To-Dos with a particular person.
+    -   Simple, effective regular lists.
+    -   _Maybe To-Dos are just a specific kind of chore that only occurs once? Something to ponder._
+
+-   **Advanced Chores / Homeschooling Module:**
+
+    -   A way to list homeschool subjects, with specific assignment items (as To-Dos) attached to particular days.
+    -   Or, assignments attached to a school subject chore (not a specific day), marked as starting on a certain date (appearing with that school subject chore on that day or the next scheduled day for that subject) OR starting when another To-Do is finished (e.g., previous day's assignments). If the preceding assignment is done, the next one appears on the next scheduled day for that subject.
+    -   Assignments could depend on multiple other To-Dos (e.g., this one has to be after X but before Y).
+    -   Is there a need for nested To-Dos if dependencies are handled? Maybe for breaking down big tasks.
+    -   Ability to see the whole string of upcoming dependent chores/assignments (and maybe those already completed).
+    -   It would be cool if Chores (like school subjects) could change dynamically. For example, "7th Grade English" gets marked as "completely finished" when all its To-Dos are done, and then "8th Grade English" starts if it's after a certain date (e.g., Aug 1st).
+    -   Assignments for a school subject could function like a playlist.
+    -   Need a way to move on to the next assignment on the same day if desired (get ahead), possibly configurable per subject or assignment.
+
+-   **Meal Planning:**
+
+    -   Connections to Mealie (or another self-hosted recipe app) for recipes and meal planning.
+
+-   **Family Chores/Rewards Tracking (Already partially implemented, but can be expanded):**
+
+    -   The core value/weight system for chores and allowance is in place.
+
+-   **Dashboard View:**
+
+    -   A view designed for keyboardless/mouseless usage (e.g., a tablet on the wall).
+
+-   **Photo Stream:**
+
+    -   Connect to an Immage photo server for a family photostream.
+
+-   **Extensibility / Plugins:**
+
+    -   Quote of the day widget.
+    -   Current family Bible memory passage display.
+    -   Current family hymn/song of the week.
+    -   Kid homeschool/homework tracker (with items tagged for whether they can do it alone or only with a parent) - building on the Chores/Homeschooling ideas above.
+    -   And whatever else sounds fun or useful!
+
+-   **Broader Platform Support:**
+
+    -   Convert into a Progressive Web App (PWA) for full offline use on any device.
+    -   Eventually, convert into React Native for a native iOS app (and maybe Android?).
+    -   Two-way sync with Google Calendar, Apple Calendar, or CalDAV servers.
+    -   Ensure the interface is touch-screen capable.
+
+-   **"Maybe Someday" Ideas:**
+    -   Simple messaging between family members within the app.
+    -   Goals/goal tracking (beyond just envelope savings goals).
+    -   Prize system for non-monetary currencies (e.g., 10 stars for candy, 100 for a show).
+        -   Maybe a time-limited option to convert stars to monetary currency (e.g., this week 100 stars = $1).
+    -   Use the envelope allowance system as a foundation for a full multi-currency, YNAB-style envelope budgeting system.
 
 We'll see how far I get!
 
-# Setup
+## Setting Things Up (For Fellow Tinkerers)
 
-Not fully tested, but might work:
+If you want to get this running yourself, here's a rough guide. It's not super polished, but it might work:
 
--   Clone this repo
--   Clone the instantdb repo
--   Set up the instantdb server
+-   **What you'll need first:**
+
+    -   Git
+    -   Docker & Docker Compose
+    -   Node.js (I use `pnpm`, so `corepack enable` is handy)
+
+-   **1. Get instantdb Server Running:**
+
+    -   Clone the `instantdb` repo: `git clone <instantdb_repo_url>` (you'll need to find this)
     -   `cd instant/server`
-    -   May need to add AWS_REGION, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY in the docker-compose-dev.yml file for the server, just set dummy values
-        -   see https://github.com/instantdb/instant/issues/617
-    -   `make docker-compose`
-    -   Check that the instantdb server is running: at localhost:8888 you should see "Welcome to Instant's Backend!".
--   Set up the instantdb client
-    -   In a new terminal window,
-        -   `cd instant/client`
-        -   `corepack enable`
-        -   `pnpm i`
-        -   `make dev`
-    -   If you are doing this after the first time, just do `npm run dev`
-    -   Check localhost:3000 in a browser, should see the instandb.com website.
-    -   In devtools, go to console. Enter `localStorage.setItem('devBackend', true);` so that the client (localhost:3000) connects to the local instantdb server (instead of the instantdb.com one).
--   Sign in to instantdb
-    -   Maybe not strictly necessary to use this app, but good for dev purposes.
-    -   At localhost:3000, click login.
-    -   Enter your email address. It won't send an email, but the same email will be used for the username.
-    -   Look in the terminal window where the server was started, should see `postmark/send-disabled` somewhere, with the contents of the email, and a 6 digit code. Enter this.
-        -   If you have already logged in in the past and are trying to log in again, it won't show the code. To find it:
-            -   `docker ps` and find the name of the docker container that is running the postgres database
-            -   `docker exec -it server-postgres-1 /bin/bash` to get into the docker container
-            -   `psql -U instant -d instant` to get into the postgres database
-            -   `SELECT * FROM instant_user_magic_codes ORDER BY created_at DESC LIMIT 5;` and you should see the current date with a code
-        -   Enter the code in the website
--   Start the family-organizer app
-    -   `cd family-organizer`
-    -   `npm dev run`
-    -   go to localhost:3001 or whichever port it was launched with.
+    -   You _might_ need to put dummy AWS values in `docker-compose-dev.yml`. See [this instantdb issue](https://github.com/instantdb/instant/issues/617). (e.g., `AWS_REGION=us-east-1`, `AWS_ACCESS_KEY_ID=dummy`, `AWS_SECRET_ACCESS_KEY=dummy`)
+    -   Run `make docker-compose`.
+    -   Check `http://localhost:8888`. You should see "Welcome to Instant's Backend!".
 
-### How I got the instant.schema.ts file from the database
+-   **2. Get instantdb Client Dev Environment Running:**
 
-to get the schema file out of the instantdb database, cd into the base directory of the react or next.js project. Then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest login` Then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest pull` which will pull the data and create the instant.schema.ts file. Then when you have the schema file modified how you want it to be, `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest push`
+    -   In a new terminal: `cd instant/client`
+    -   `corepack enable`
+    -   `pnpm i`
+    -   `make dev` (or `npm run dev` if you've run it before)
+    -   Check `http://localhost:3000`. You should see the instantdb website.
+    -   **Important:** Open browser dev tools (console) for `localhost:3000` and run: `localStorage.setItem('devBackend', true);`. This tells the client to use your local server. Refresh the page.
 
-The old way, for when I didn't know to add `@latest`: `npx instant-cli pull` should do it, but it wasn't working to login to the locally hosted instantdb backend. `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli login` and then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli pull` should work, but the login only took me to https://instantdb.com/login. Maybe my version of instant-cli was out of date. I tried a bunch of ways, and finally what worked was to cd into the instant/client directory (from where I did git clone of the instantdb repo), then `pnpm install` (which probably isn't needed since I had done that to run the client web interface already), then cd packages/cli, then `pnpm dev`, then in a new browser, `cd instant/client/packages/cli` and then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI=http://localhost:8888 node dist/index.js login` which brought me to the localhost:3000 client instance for login, then `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI=http://localhost:8888 node dist/index.js pull` which walked me through using the instantdb to write a schema to instant.schema.ts (and perms to instant.perms.ts).
+-   **3. Sign in to Your Local instantdb:**
+
+    -   This isn't strictly needed to run the app, but good for dev.
+    -   At `http://localhost:3000`, click login.
+    -   Enter your email (it won't actually send an email, this just becomes your username).
+    -   Look in the terminal where your `instant/server` is running. You should see `postmark/send-disabled` with a 6-digit code. Enter this code on the website.
+    -   **If you can't find the code (e.g., after logging in before):**
+        -   `docker ps` (find the name of your postgres container, like `server-postgres-1`).
+        -   `docker exec -it server-postgres-1 /bin/bash`
+        -   `psql -U instant -d instant`
+        -   `SELECT * FROM instant_user_magic_codes ORDER BY created_at DESC LIMIT 5;` (find the latest code).
+        -   Enter that code on the site.
+
+-   **4. Start the Family Organizer App Itself:**
+    -   `cd family-organizer` (wherever you cloned this repo)
+    -   `npm install` (or `pnpm i`, `yarn`, whatever you use)
+    -   `npm run dev` (or your start script)
+    -   Go to `http://localhost:3001` (or the port it says it's running on).
+
+## Developer's Corner (My Notes to Self)
+
+### How I wrangle the `instant.schema.ts` file:
+
+To get the schema file out of the local instantdb database and into the project:
+
+1.  `cd` into the `family-organizer` project directory.
+2.  Login to the local Instant CLI: `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest login`
+3.  Pull the schema: `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest pull` This should create/update `instant.schema.ts` (and `instant.perms.ts`).
+4.  After I modify `instant.schema.ts` how I want it, I push it back: `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest push`
+
+**The Old Way (when `@latest` was being fussy or I didn't know to add it):** Sometimes `npx instant-cli` (without `@latest`) didn't want to login to the local backend directly. This was my workaround:
+
+1. `cd` into the local `instant/client/packages/cli` directory (from my cloned instantdb repo).
+2. `pnpm install` (probably done already if I ran the client web interface).
+3. `pnpm dev` (to build/watch the CLI package).
+4. Then, in a _new_ terminal, from that same `instant/client/packages/cli` directory:
+    - Login: `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI=http://localhost:8888 node dist/index.js login` (this then used `localhost:3000` for the actual login browser part).
+    - Pull: `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI=http://localhost:8888 node dist/index.js pull` (this walked me through getting the schema into `instant.schema.ts`).
+
+---
+
+Hope this makes the project a bit easier to understand!
