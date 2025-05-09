@@ -2,15 +2,14 @@
 'use client'; // Needed for hooks like useState, useEffect, useQuery
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { init, tx, id } from '@instantdb/react'; // Import InstantDB hooks [cite: 67]
+import { init, tx, id } from '@instantdb/react'; // Import InstantDB hooks
 
 // Import the child components
 import FamilyMembersList from '@/components/FamilyMembersList'; // Your existing component
 import MemberAllowanceDetail from '@/components/allowance/MemberAllowanceDetail'; // The new detail component
 
 // **** Import types ****
-import { UnitDefinition, Envelope } from '@/lib/currency-utils';
-
+import { UnitDefinition, Envelope, computeMonetaryCurrencies } from '@/lib/currency-utils';
 
 // It's generally better to initialize db once, perhaps in a central file
 // If initializing here, ensure Schema type is imported
@@ -54,7 +53,7 @@ export default function FamilyAllowanceView() {
     });
 
     // --- Derived Data ---
-    const familyMembers: FamilyMember[] = useMemo(() => appData?.familyMembers || [], [appData?.familyMembers]); // [cite: 227] // Add type annotation
+    const familyMembers: FamilyMember[] = useMemo(() => appData?.familyMembers || [], [appData?.familyMembers]); // Add type annotation
     const allEnvelopes: Envelope[] = useMemo(() => appData?.allowanceEnvelopes || [], [appData?.allowanceEnvelopes]);
     const unitDefinitions: UnitDefinition[] = useMemo(() => appData?.unitDefinitions || [], [appData?.unitDefinitions]);
 
@@ -77,42 +76,11 @@ export default function FamilyAllowanceView() {
         return balances;
     }, [appData?.familyMembers]); // Depend on the queried data structure
 
-    // **** NEW: Compute all monetary currencies in use ****
+    // +++ Use the new utility function +++
     const allMonetaryCurrenciesInUse = useMemo(() => {
-        const codesInBalances = new Set<string>();
-        allEnvelopes.forEach(env => {
-            if (env.balances) {
-                Object.keys(env.balances).forEach(code => codesInBalances.add(code.toUpperCase()));
-            }
-        });
-
-        const codesInDefs = new Set<string>(
-            unitDefinitions.map(def => def.code.toUpperCase())
-        );
-
-        const allCodes = new Set([...codesInBalances, ...codesInDefs]);
-        const unitDefMap = new Map(unitDefinitions.map(def => [def.code.toUpperCase(), def]));
-
-        const monetaryCodes = Array.from(allCodes).filter(code => {
-            const definition = unitDefMap.get(code);
-            // It's monetary if definition exists and says so,
-            // OR if no definition exists but it looks like a standard 3-letter code (heuristic)
-            return definition?.isMonetary ?? (code.length === 3);
-        });
-
-        // Add common defaults if they aren't present, only if they are defined as monetary
-        //  const defaultsToAdd = ["USD", "EUR", "GBP", "CAD", "AUD", "NPR"]; // Add others as needed
-        //  defaultsToAdd.forEach(defaultCode => {
-        //      if (!monetaryCodes.includes(defaultCode)) {
-        //          const definition = unitDefMap.get(defaultCode);
-        //          const isMonetary = definition?.isMonetary ?? (defaultCode.length === 3); // Check if it's monetary
-        //          if (isMonetary) {
-        //             monetaryCodes.push(defaultCode);
-        //          }
-        //      }
-        //  });
-        return monetaryCodes.sort(); // Sort alphabetically
+        return computeMonetaryCurrencies(allEnvelopes, unitDefinitions);
     }, [allEnvelopes, unitDefinitions]);
+
 
     // --- Placeholder functions for adding/deleting members ---
     // You should replace these with your actual implementation,
@@ -179,6 +147,7 @@ export default function FamilyAllowanceView() {
                         // **** Pass the computed list and definitions ****
                         allMonetaryCurrenciesInUse={allMonetaryCurrenciesInUse}
                         unitDefinitions={unitDefinitions}
+                        db={db} // Pass db instance
                     />
                 ) : (
                     // Placeholder when no family member is selected

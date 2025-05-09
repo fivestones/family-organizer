@@ -9,8 +9,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Check, ChevronsUpDown, MinusCircle, Users, History, Target, Settings, Save, CalendarDays, Info } from "lucide-react"; // Added Settings, Save, CalendarDays, Info
 // --- Shadcn UI Imports ---
 import { cn } from "@/lib/utils";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+// --- REMOVED Command Imports ---
+// import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+// --- REMOVED Popover Imports ---
+// import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Import Select components
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group" // Import RadioGroup
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card"; // Import Card components
@@ -19,12 +21,14 @@ import EnvelopeItem, { Envelope } from '@/components/EnvelopeItem';
 import AddEditEnvelopeForm from '@/components/allowance/AddEditEnvelopeForm';
 import TransferFundsForm from '@/components/allowance/TransferFundsForm'; // From envelope to envelope of the same person
 import DeleteEnvelopeDialog from '@/components/allowance/DeleteEnvelopeDialog';
-import DefineUnitForm from '@/components/allowance/DefineUnitForm';
+// --- REMOVED DefineUnitForm Import (Handled by CurrencySelector) ---
+// import DefineUnitForm from '@/components/allowance/DefineUnitForm';
 import WithdrawForm from '@/components/allowance/WithdrawForm';
 import TransferToPersonForm from '@/components/allowance/TransferToPersonForm';
 import TransactionHistoryView from '@/components/allowance/TransactionHistoryView';
 import CombinedBalanceDisplay from '@/components/allowance/CombinedBalanceDisplay';
 import RecurrenceRuleForm from '@/components/RecurrenceRuleForm'; // Import RecurrenceRuleForm
+import CurrencySelector from '@/components/CurrencySelector'; // +++ Import CurrencySelector +++
 
 // --- Import Utilities ---
 import { RRule, Frequency } from 'rrule'; // Import RRule for parsing/generation
@@ -81,15 +85,17 @@ interface MemberAllowanceDetailProps {
     allFamilyMembers: BasicFamilyMember[]; // Added prop
     allMonetaryCurrenciesInUse: string[]; // e.g., ["USD", "NPR", "EUR"] - this is passed from parent
     unitDefinitions: UnitDefinition[]; 
+    db: any; // +++ Add db prop +++
 }
 
 // --- Constants ---
-const APP_ID =  process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'af77353a-0a48-455f-b892-010232a052b4';
-const db = init({
-  appId: APP_ID,
-  apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || "http://localhost:8888",
-  websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://localhost:8888/runtime/session",
-});
+// --- REMOVED db initialization (passed as prop) ---
+// const APP_ID =  process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'af77353a-0a48-455f-b892-010232a052b4';
+// const db = init({
+//   appId: APP_ID,
+//   apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || "http://localhost:8888",
+//   websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://localhost:8888/runtime/session",
+// });
 
 // Define props for the component
 interface MemberAllowanceDetailProps { // [cite: 101]
@@ -103,7 +109,8 @@ export default function MemberAllowanceDetail({
     memberId,
     allFamilyMembers,
     allMonetaryCurrenciesInUse,
-    unitDefinitions
+    unitDefinitions,
+    db // Destructure db prop
 }: MemberAllowanceDetailProps) {
     const { toast } = useToast();
     const hasInitializedEnvelope = useRef(false);
@@ -120,7 +127,8 @@ export default function MemberAllowanceDetail({
     const [envelopeToEdit, setEnvelopeToEdit] = useState<Envelope | null>(null);
     const [transferSourceEnvelopeId, setTransferSourceEnvelopeId] = useState<string | null>(null);
     const [envelopeToDelete, setEnvelopeToDelete] = useState<Envelope | null>(null);
-    const [isDefineUnitModalOpen, setIsDefineUnitModalOpen] = useState(false);
+    // --- REMOVED isDefineUnitModalOpen (Handled by CurrencySelector) ---
+    // const [isDefineUnitModalOpen, setIsDefineUnitModalOpen] = useState(false);
     const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
     const [isTransferToPersonModalOpen, setIsTransferToPersonModalOpen] = useState(false);
     const [selectedDisplayCurrency, setSelectedDisplayCurrency] = useState<string | null>(null);
@@ -132,9 +140,10 @@ export default function MemberAllowanceDetail({
     const [depositCurrency, setDepositCurrency] = useState('USD');
     const [depositDescription, setDepositDescription] = useState('');
     const [isDepositing, setIsDepositing] = useState(false);
-    const [isCurrencyPopoverOpen, setIsCurrencyPopoverOpen] = useState(false);
-    const [currencySearchInput, setCurrencySearchInput] = useState('');
-    const itemSelectedRef = useRef(false);
+    // --- REMOVED Currency Popover/Search/Ref State (Handled by CurrencySelector) ---
+    // const [isCurrencyPopoverOpen, setIsCurrencyPopoverOpen] = useState(false);
+    // const [currencySearchInput, setCurrencySearchInput] = useState('');
+    // const itemSelectedRef = useRef(false);
     const [hasFetchedInitialPrefs, setHasFetchedInitialPrefs] = useState(false);
     const [combinedValue, setCombinedValue] = useState<number | null>(null);
     const [tooltipLines, setTooltipLines] = useState<string[]>([]);
@@ -143,9 +152,10 @@ export default function MemberAllowanceDetail({
     // +++ NEW State for Allowance Settings Form +++
     const [allowanceAmountInput, setAllowanceAmountInput] = useState<string>('');
     const [allowanceCurrencyInput, setAllowanceCurrencyInput] = useState<string>('');
-    const [allowanceCurrencyPopoverOpen, setAllowanceCurrencyPopoverOpen] = useState(false);
-    const [allowanceCurrencySearch, setAllowanceCurrencySearch] = useState('');
-    const allowanceItemSelectedRef = useRef(false);
+    // --- REMOVED Allowance Currency Popover/Search/Ref State (Will use CurrencySelector) ---
+    // const [allowanceCurrencyPopoverOpen, setAllowanceCurrencyPopoverOpen] = useState(false);
+    // const [allowanceCurrencySearch, setAllowanceCurrencySearch] = useState('');
+    // const allowanceItemSelectedRef = useRef(false);
     const [allowanceRecurrenceOptions, setAllowanceRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
     const [allowanceStartDateInput, setAllowanceStartDateInput] = useState<string>(''); // Store as 'yyyy-MM-dd' string
     // *** REMOVED allowanceStartOfWeekInput state ***
@@ -399,8 +409,8 @@ export default function MemberAllowanceDetail({
                         combinedTotal += convertedAmount;
 
                         // Add tooltip line based on how the rate was obtained
-                        const formattedOriginal = formatBalances({[code]: amount}, unitDefinitions);
-                        const formattedConverted = formatBalances({[selectedDisplayCurrency]: convertedAmount}, unitDefinitions);
+                        const formattedOriginal = formatBalances({ [code]: amount }, unitDefinitions);
+                        const formattedConverted = formatBalances({ [selectedDisplayCurrency]: convertedAmount }, unitDefinitions);
                         let sourceText = "";
                         if (rateResult.source === 'identity') sourceText = `already in ${selectedDisplayCurrency}`;
                         else if (rateResult.source === 'cache') sourceText = `from ${formattedOriginal}`; // removed " (cached rate)" from the end of the string
@@ -411,7 +421,7 @@ export default function MemberAllowanceDetail({
 
                     } else {
                         // Rate unavailable, add note to tooltip
-                        lines.push(`${formatBalances({[code]: amount}, unitDefinitions)} (rate to ${selectedDisplayCurrency} unavailable)`);
+                        lines.push(`${formatBalances({ [code]: amount }, unitDefinitions)} (rate to ${selectedDisplayCurrency} unavailable)`);
                     }
                     if (rateResult.needsApiFetch) {
                         needsApiFetch = true;
@@ -421,7 +431,7 @@ export default function MemberAllowanceDetail({
                 }
             }
 
-            if (signal.aborted) return;
+            if (signal.aborted) return; // Check for abort
 
             // Update state with results
             setCombinedValue(combinedTotal);
@@ -497,7 +507,7 @@ export default function MemberAllowanceDetail({
         // **** UPDATED: Validate typed currency format ****
         const finalDepositCurrency = depositCurrency.trim().toUpperCase();
         if (!finalDepositCurrency || finalDepositCurrency === '__DEFINE_NEW__') {
-             toast({ title: "Invalid Currency", description:"Please select or define a currency/unit.", variant: "destructive" });
+            toast({ title: "Invalid Currency", description: "Please select or define a currency/unit.", variant: "destructive" });
              return;
         }
 
@@ -535,7 +545,7 @@ export default function MemberAllowanceDetail({
          const currency = allowanceCurrencyInput.trim().toUpperCase() || null;
          let rruleString: string | null = null;
          // *** REMOVED startOfWeek from config initialization ***
-         let config: AllowanceConfig = { };
+        let config: AllowanceConfig = {};
 
          if (allowanceRecurrenceOptions) {
              try {
@@ -665,7 +675,7 @@ export default function MemberAllowanceDetail({
             setSelectedDisplayCurrency(newCurrency);
             // Store preference asynchronously
             setLastDisplayCurrencyPref(db, memberId, newCurrency)
-                .catch(err => toast({ title: "Warning", description: "Could not save currency preference.", variant:"default" }));
+                .catch(err => toast({ title: "Warning", description: "Could not save currency preference.", variant: "default" }));
         }
     }, [selectedDisplayCurrency, db, memberId, toast]);
 
@@ -726,15 +736,15 @@ export default function MemberAllowanceDetail({
        }
    };
 
-
-    const handleUnitDefined = (newCode: string) => {
-        setIsDefineUnitModalOpen(false);
-        // Update both deposit and allowance currency if the user defines a new one
-        setDepositCurrency(newCode);
-        setCurrencySearchInput(newCode);
-        setAllowanceCurrencyInput(newCode); // Set allowance currency too
-        setAllowanceCurrencySearch(newCode);
-    };
+    // --- REMOVED handleUnitDefined (Handled by CurrencySelector) ---
+    // const handleUnitDefined = (newCode: string) => {
+    //     setIsDefineUnitModalOpen(false);
+    //     // Update both deposit and allowance currency if the user defines a new one
+    //     setDepositCurrency(newCode);
+    //     setCurrencySearchInput(newCode);
+    //     setAllowanceCurrencyInput(newCode); // Set allowance currency too
+    //     setAllowanceCurrencySearch(newCode);
+    // };
 
     const handleWithdrawSubmit = async (envelopeId: string, amount: number, currency: string, description?: string) => {
         const envelopeToWithdrawFrom = envelopes.find(e => e.id === envelopeId);
@@ -852,71 +862,16 @@ export default function MemberAllowanceDetail({
                                     {/* Currency */}
                                     <div>
                                         <Label htmlFor="allowance-currency-input">Currency/Unit</Label>
-                                        {/* Use Popover Combobox similar to deposit */}
-                                          <Popover
-                                               open={allowanceCurrencyPopoverOpen}
-                                                onOpenChange={(open) => {
-                                                     setAllowanceCurrencyPopoverOpen(open);
-                                                     if (open) {
-                                                         setAllowanceCurrencySearch(''); // Clear search on open
-                                                         allowanceItemSelectedRef.current = false;
-                                                     } else if (!allowanceItemSelectedRef.current) {
-                                                         // Use typed value on close if valid
-                                                         const typedValue = allowanceCurrencySearch.trim().toUpperCase();
-                                                         const isValidCode = /^[A-Z0-9_\-]{1,10}$/.test(typedValue); // Allow more flexible codes
-                                                          const isKnownOption = depositAndAllowanceCurrencyOptions.some(opt => opt.value === typedValue);
-                                                         if (typedValue && typedValue !== '__DEFINE_NEW__' && (isValidCode || isKnownOption)) {
-                                                               setAllowanceCurrencyInput(typedValue);
-                                                          }
-                                                     }
-                                                 }}
-                                           >
-                                               <PopoverTrigger asChild>
-                                                    <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                                                         {allowanceCurrencyInput && allowanceCurrencyInput !== '__DEFINE_NEW__'
-                                                              ? depositAndAllowanceCurrencyOptions.find(opt => opt.value === allowanceCurrencyInput)?.label ?? allowanceCurrencyInput
-                                                             : "Select or type unit..."}
-                                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                                     </Button>
-                                               </PopoverTrigger>
-                                               <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
-                                                    <Command>
-                                                          <CommandInput
-                                                               id="allowance-currency-input"
-                                                               placeholder="Type or select..."
-                                                               value={allowanceCurrencySearch}
-                                                               onValueChange={setAllowanceCurrencySearch}
+                                    {/* +++ Use CurrencySelector for Allowance +++ */}
+                                    <CurrencySelector
+                                        db={db}
+                                        value={allowanceCurrencyInput}
+                                        onChange={setAllowanceCurrencyInput}
+                                        currencyOptions={depositAndAllowanceCurrencyOptions} // Use same options as deposit
+                                        unitDefinitions={unitDefinitions}
                                                                disabled={isSavingAllowance}
-                                                           />
-                                                          <CommandList>
-                                                               <CommandEmpty>No unit found.</CommandEmpty>
-                                                              <CommandGroup>
-                                                                   {depositAndAllowanceCurrencyOptions.map((option) => (
-                                                                       <CommandItem
-                                                                             key={option.value}
-                                                                             value={option.value}
-                                                                             onSelect={(currentValue) => {
-                                                                                  allowanceItemSelectedRef.current = true;
-                                                                                  if (currentValue === '__DEFINE_NEW__') {
-                                                                                       setIsDefineUnitModalOpen(true);
-                                                                                  } else {
-                                                                                       const finalValue = currentValue.toUpperCase();
-                                                                                        setAllowanceCurrencyInput(finalValue);
-                                                                                        setAllowanceCurrencySearch(finalValue);
-                                                                                   }
-                                                                                   setAllowanceCurrencyPopoverOpen(false);
-                                                                              }}
-                                                                               className={option.value === '__DEFINE_NEW__' ? 'italic text-primary' : ''}
-                                                                         >
-                                                                             <Check className={cn("mr-2 h-4 w-4", allowanceCurrencyInput === option.value ? "opacity-100" : "opacity-0")} />
-                                                                             {option.label}
-                                                                         </CommandItem>
-                                                                   ))}
-                                                              </CommandGroup>
-                                                         </CommandList>
-                                                     </Command>
-                                               </PopoverContent>
-                                           </Popover>
+                                        placeholder="Select or type unit..."
+                                    />
                                      </div>
                                </div>
 
@@ -994,62 +949,16 @@ export default function MemberAllowanceDetail({
                             {/* Deposit Currency */}
                          <div>
                              <Label htmlFor="deposit-currency-input">Currency/Unit</Label>
-                                 <Popover open={isCurrencyPopoverOpen} onOpenChange={(open) => {
-                                    setIsCurrencyPopoverOpen(open);
-                                    if (open) {
-                                        // Clear search input when opening
-                                        setCurrencySearchInput('');
-                                        itemSelectedRef.current = false;
-                                      } else if (!itemSelectedRef.current) {
-                                             const typedValue = currencySearchInput.trim().toUpperCase();
-                                             // Basic check: Is it non-empty, not the special value,
-                                             // AND either 3 letters OR already known in options?
-                                             const isValidCode = /^[A-Z]{3}$/.test(typedValue); // Common 3-letter case
-                                             const isKnownOption = depositAndAllowanceCurrencyOptions.some(opt => opt.value === typedValue);
-
-                                             if (typedValue && typedValue !== '__DEFINE_NEW__' && (isValidCode || isKnownOption)) {
-                                                console.log("Using typed value:", typedValue)
-                                                setDepositCurrency(typedValue);
-                                             }
-                                             // Else: maybe revert to previous depositCurrency or do nothing,
-                                             // letting the trigger button show the last valid state.
-                                        }
-                                   }}>
-                                <PopoverTrigger asChild>
-                                         <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                                        {depositCurrency && depositCurrency !== '__DEFINE_NEW__'
-                                                 ? depositAndAllowanceCurrencyOptions.find(opt => opt.value === depositCurrency)?.label ?? depositCurrency
-                                            : "Select or type unit..."}
-                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
-                                    <Command>
-                                             <CommandInput id="deposit-currency-input" placeholder="Type or select..." value={currencySearchInput} onValueChange={setCurrencySearchInput} disabled={isDepositing}/>
-                                         <CommandList>
-                                            <CommandEmpty>No unit found.</CommandEmpty>
-                                            <CommandGroup>
-                                                       {depositAndAllowanceCurrencyOptions.map((option) => (
-                                                           <CommandItem key={option.value} value={option.value} onSelect={(currentValue) => {
-                                                                itemSelectedRef.current = true; // Mark selection happened
-                                                        if (currentValue === '__DEFINE_NEW__') {
-                                                            setIsDefineUnitModalOpen(true);
-                                                        } else {
-                                                            const finalValue = currentValue.toUpperCase();
-                                                                     setDepositCurrency(finalValue); // Set main state
-                                                                     setCurrencySearchInput(finalValue); // Update input visual
-                                                        }
-                                                                 setIsCurrencyPopoverOpen(false); // Close popover
-                                                             }} className={option.value === '__DEFINE_NEW__' ? 'italic text-primary' : ''}>
-                                                    <Check className={cn("mr-2 h-4 w-4", depositCurrency === option.value ? "opacity-100" : "opacity-0")} />
-                                                    {option.label}
-                                                </CommandItem>
-                                                ))}
-                                            </CommandGroup>
-                                         </CommandList>
-                                    </Command>
-                                </PopoverContent>
-                             </Popover>
+                                {/* +++ Use CurrencySelector for Deposit +++ */}
+                                <CurrencySelector
+                                    db={db}
+                                    value={depositCurrency}
+                                    onChange={setDepositCurrency}
+                                    currencyOptions={depositAndAllowanceCurrencyOptions}
+                                    unitDefinitions={unitDefinitions}
+                                    disabled={isDepositing}
+                                    placeholder="Select or type unit..."
+                                />
                          </div>
                            {/* Deposit Description */}
                          <div>
@@ -1162,12 +1071,13 @@ export default function MemberAllowanceDetail({
                  envelopeToDelete={envelopeToDelete}
                  allEnvelopes={envelopes}
             />
-            <DefineUnitForm
+            {/* --- REMOVED DefineUnitForm (Handled by CurrencySelector) --- */}
+            {/* <DefineUnitForm
                 db={db}
                 isOpen={isDefineUnitModalOpen}
                 onClose={() => setIsDefineUnitModalOpen(false)}
                 onUnitDefined={handleUnitDefined} // Pass the callback
-            />
+            /> */}
             {/* **** NEW: Withdraw Modal **** */}
             <WithdrawForm
                 db={db}

@@ -89,14 +89,16 @@ const _schema = i.schema({
       isPaused: i.any(),
       pastCompletionLimit: i.any(),
       recurrenceRule: i.any(),
-      rewardAmount: i.any(),
-      rewardType: i.any(),
       rotationType: i.string(),
       rrule: i.string(),
       startDate: i.any(),
       title: i.string(),
       // +++ NEW: Add weight field +++
       weight: i.number(),
+      isUpForGrabs: i.boolean(),
+      rewardType: i.string(), // e.g., 'fixed' or 'weight'
+      rewardAmount: i.number(), // Used if rewardType is 'fixed'
+      rewardCurrency: i.string(), // Used if rewardType is 'fixed'
     }),
     exchangeRates: i.entity({
       baseCurrency: i.string().indexed(),
