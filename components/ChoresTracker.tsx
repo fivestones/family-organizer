@@ -30,8 +30,14 @@ interface FamilyMember {
         '320'?: string;
         '1200'?: string;
     };
-    // **** NEW: Add linked allowance envelopes ****
     allowanceEnvelopes?: Envelope[];
+    lastDisplayCurrency?: string | null;
+    allowanceAmount?: number | null;
+    allowanceCurrency?: string | null;
+    allowanceRrule?: string | null;
+    allowanceStartDate?: string | null; // Schema is i.date(), so this will be an ISO string or null
+    allowanceConfig?: any | null; // Using 'any' for the JSON object
+    allowancePayoutDelayDays?: number | null;
 }
 
 // Updated Chore interface
@@ -314,6 +320,15 @@ function ChoresTracker() {
         const memberData: Partial<FamilyMember> = {
             name,
             email: email || '',
+
+            // Set some sane defaults
+            lastDisplayCurrency: null,
+            allowanceAmount: null,
+            allowanceCurrency: null,
+            allowanceRrule: null,
+            allowanceStartDate: null,
+            allowanceConfig: {}, // Default to an empty JSON object
+            allowancePayoutDelayDays: 0, // Default to 0 days
         };
 
         // Only add photoUrls if it is not null (i.e., a photo was uploaded)

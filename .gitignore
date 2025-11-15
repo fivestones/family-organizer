@@ -37,3 +37,6 @@ next-env.d.ts
 
 # App uploads
 /public/uploads/
+
+#LLM context
+llm-context.txt
