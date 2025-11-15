@@ -197,7 +197,21 @@ If you want to get this running yourself, here's a rough guide. It's not super p
         -   `SELECT * FROM instant_user_magic_codes ORDER BY created_at DESC LIMIT 5;` (find the latest code).
         -   Enter that code on the site.
 
--   **4. Start the Family Organizer App Itself:**
+-   **4. Push the schema and perms to the local instantdb:**
+
+    -   Login to the local Instant CLI: `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest login`
+        -   If the website comes up with the wrong port (e.g., your local instantdb client is running on localhost:3001 but it tries to load localhost:3001): just change the port in the url
+        -   This will be easier if you already signed into your local instantdb client in the same browser (see step 3 above)
+    -   Initialize an app. Either:
+        -   Use the local instantdb client dashboard (http://localhost:3000/dash), which will onboard you to make a new app
+            - Then get the App ID from the web interface and replace what's in the .env file with your new App ID
+        -   Or use instant-cli to initialize:
+            - First delete `.env`(maybe? I haven't actually tried this), then
+            - `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest init`
+    -   At this point your .env file should have `NEXT_PUBLIC_INSTANT_APP_ID=xxxxxxx...` and `INSTANT_APP_ID=xxxxxxx...` which should both list your app's id
+    -   Now you can push the schema: `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest push`
+
+-   **5. Start the Family Organizer App Itself:**
     -   `cd family-organizer` (wherever you cloned this repo)
     -   `npm install` (or `pnpm i`, `yarn`, whatever you use)
     -   `npm run dev` (or your start script)
