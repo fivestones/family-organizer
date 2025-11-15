@@ -4,6 +4,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { GripVertical, Edit, Trash2 } from 'lucide-react';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { DropIndicator } from '@atlaskit/pragmatic-drag-and-drop-react-drop-indicator/box';
+import { type Edge, attachClosestEdge, extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
 import { cn } from '@/lib/utils';
 import invariant from 'tiny-invariant';
 
@@ -36,7 +37,7 @@ interface SortableFamilyMemberItemProps {
     handleDeleteMember: (memberId: string) => void;
 }
 
-type DropIndicatorEdge = 'top' | 'bottom' | null;
+type DropIndicatorEdge = Edge | null; // 'top' | 'bottom' | 'left' | 'right' | null
 
 export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> = ({
     member,
@@ -78,18 +79,26 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
         });
 
         const cleanupDropTarget = dropTargetForElements({
-            element: element,
-            getIsSticky: () => true, // Allows edge detection
-            getData: () => ({ memberId: member.id, index }),
-            onDragEnter: (args) => {
-                // Determine if drop is on top or bottom half
-                const edge = args.location.current.input.clientY > element.getBoundingClientRect().top + element.offsetHeight / 2 ? 'bottom' : 'top';
-                setDropIndicatorEdge(edge);
+            element,
+            getIsSticky: () => true,
+            getData: ({ input, element }) => {
+                // Attach closest edge info (top/bottom) to our data
+                const data = { memberId: member.id, index };
+                return attachClosestEdge(data, {
+                    input,
+                    element,
+                    allowedEdges: ['top', 'bottom'],
+                });
             },
-            onDragLeave: () => {
+            onDrag({ self }) {
+                // Read closest edge from the hitbox data and drive the DropIndicator
+                const closestEdge = extractClosestEdge(self.data) as DropIndicatorEdge;
+                setDropIndicatorEdge(closestEdge);
+            },
+            onDragLeave() {
                 setDropIndicatorEdge(null);
             },
-            onDrop: () => {
+            onDrop() {
                 setDropIndicatorEdge(null);
             },
         });

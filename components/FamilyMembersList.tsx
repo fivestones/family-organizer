@@ -18,7 +18,8 @@ import { UnitDefinition } from '@/lib/currency-utils';
 
 // **** NEW: Import PDND tools ****
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
-import { reorder } from '@atlaskit/pragmatic-drag-and-drop/reorder';
+import { extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
+import { reorderWithEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/util/reorder-with-edge';
 import { SortableFamilyMemberItem } from './SortableFamilyMemberItem'; // <-- Import new component
 
 // Define FamilyMember type based on usage
@@ -90,39 +91,42 @@ function FamilyMembersList({
 
     // --- NEW: PDND Monitor Setup ---
     useEffect(() => {
-        // This monitor listens for drop events on the whole page
         const cleanup = monitorForElements({
-            onDrop: async (args) => {
-                const { source, location } = args;
+            onDrop: async ({ source, location }) => {
+                // No drop target -> ignore
+                if (!location.current.dropTargets.length) return;
 
-                // Ensure drop target is valid (not dropped in a non-drop zone)
-                if (!location.current.dropTargets.length) {
+                const target = location.current.dropTargets[0];
+
+                const sourceIndex = source.data.index as number | undefined;
+                const targetIndex = target.data.index as number | undefined;
+                const closestEdgeOfTarget = extractClosestEdge(target.data);
+
+                // Sanity checks
+                if (sourceIndex == null || targetIndex == null || closestEdgeOfTarget == null) {
                     return;
                 }
 
-                // Get source and target indices from the data we attached
-                const sourceIndex = source.data.index as number;
-                const targetDropTarget = location.current.dropTargets[0];
-                const targetIndex = targetDropTarget.data.index as number;
-
-                // If dropped in the same position, do nothing
-                if (sourceIndex === targetIndex) {
+                // Nothing to do if we effectively didn't move
+                if (sourceIndex === targetIndex && closestEdgeOfTarget === 'top') {
                     return;
                 }
 
-                // --- 1. Optimistic UI Update ---
-                const reorderedList = reorder({
+                // 1. Compute new list using both index and edge
+                const reorderedList = reorderWithEdge({
                     list: orderedMembers,
                     startIndex: sourceIndex,
-                    finishIndex: targetIndex,
+                    indexOfTarget: targetIndex,
+                    closestEdgeOfTarget,
+                    axis: 'vertical',
                 });
 
                 setOrderedMembers(reorderedList);
 
-                // --- 2. Persist to Database ---
+                // 2. Persist new order to InstantDB
                 const transactions = reorderedList.map((member, index) =>
                     tx.familyMembers[member.id].update({
-                        order: index, // Update the order field based on new array index
+                        order: index,
                     })
                 );
 
@@ -139,13 +143,11 @@ function FamilyMembersList({
                         description: 'Could not save the new order. Reverting changes.',
                         variant: 'destructive',
                     });
-                    // Revert optimistic update on failure
                     setOrderedMembers(familyMembers);
                 }
             },
         });
 
-        // Return the cleanup function
         return cleanup;
     }, [orderedMembers, familyMembers, db, toast]); // Re-run if these change
 
