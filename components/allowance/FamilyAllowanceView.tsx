@@ -3,6 +3,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { init, tx, id } from '@instantdb/react'; // Import InstantDB hooks
+import { useToast } from '@/components/ui/use-toast'; // +++ ADDED IMPORT
 
 // Import the child components
 import FamilyMembersList from '@/components/FamilyMembersList'; // Your existing component
@@ -24,20 +25,28 @@ const db = init({
 interface FamilyMember {
     id: string;
     name: string;
-    email?: string | null;
+    email?: string;
+    photoUrl?: string; // Legacy support if needed
     photoUrls?: {
         '64'?: string;
         '320'?: string;
         '1200'?: string;
-    } | null;
-    // Define link structure based on query
-    allowanceEnvelopes?: Envelope[]; // Optional based on query structure
+    };
+    allowanceEnvelopes?: Envelope[];
+    lastDisplayCurrency?: string | null;
+    allowanceAmount?: number | null;
+    allowanceCurrency?: string | null;
+    allowanceRrule?: string | null;
+    allowanceStartDate?: string | null; // Schema is i.date(), so this will be an ISO string or null
+    allowanceConfig?: any | null; // Using 'any' for the JSON object
+    allowancePayoutDelayDays?: number | null;
 }
 
 export default function FamilyAllowanceView() {
     // State to track which member's details are being shown
     // Initialize with null or potentially 'All' depending on FamilyMembersList's default behavior
     const [selectedMemberId, setSelectedMemberId] = useState<string | null | 'All'>(null);
+    const { toast } = useToast(); // +++ ADDED HOOK
 
     // **** UPDATED QUERY: Fetch members, ALL envelopes, and unit definitions ****
     const {
