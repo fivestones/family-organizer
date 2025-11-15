@@ -1,0 +1,177 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { GripVertical, Edit, Trash2 } from 'lucide-react';
+import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { DropIndicator } from '@atlaskit/pragmatic-drag-and-drop-react-drop-indicator/box';
+import { cn } from '@/lib/utils';
+import invariant from 'tiny-invariant';
+
+// Import types from FamilyMembersList
+import CombinedBalanceDisplay from '@/components/allowance/CombinedBalanceDisplay';
+import { UnitDefinition } from '@/lib/currency-utils';
+
+interface FamilyMember {
+    id: string;
+    name: string;
+    email?: string | null;
+    photoUrls?: {
+        '64'?: string;
+        '320'?: string;
+        '1200'?: string;
+    } | null;
+    order?: number | null;
+}
+
+interface SortableFamilyMemberItemProps {
+    member: FamilyMember;
+    index: number;
+    isEditMode: boolean;
+    selectedMember: string | null | 'All';
+    setSelectedMember: (id: string | null | 'All') => void;
+    showBalances?: boolean;
+    membersBalances?: { [memberId: string]: { [currency: string]: number } };
+    unitDefinitions?: UnitDefinition[];
+    handleEditMember: (member: FamilyMember) => void;
+    handleDeleteMember: (memberId: string) => void;
+}
+
+type DropIndicatorEdge = 'top' | 'bottom' | null;
+
+export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> = ({
+    member,
+    index,
+    isEditMode,
+    selectedMember,
+    setSelectedMember,
+    showBalances,
+    membersBalances,
+    unitDefinitions = [],
+    handleEditMember,
+    handleDeleteMember,
+}) => {
+    const itemRef = useRef<HTMLDivElement>(null);
+    const handleRef = useRef<HTMLButtonElement>(null);
+
+    const [isDragging, setIsDragging] = useState(false);
+    const [dropIndicatorEdge, setDropIndicatorEdge] = useState<DropIndicatorEdge>(null);
+
+    // Register the element as draggable and a drop target when in edit mode
+    useEffect(() => {
+        if (!isEditMode) {
+            // If not in edit mode, do not register any dnd listeners
+            return;
+        }
+
+        invariant(itemRef.current);
+        invariant(handleRef.current);
+
+        const element = itemRef.current;
+        const dragHandle = handleRef.current;
+
+        const cleanupDraggable = draggable({
+            element: element,
+            dragHandle: dragHandle, // Use the specific handle for dragging
+            getInitialData: () => ({ memberId: member.id, index }),
+            onDragStart: () => setIsDragging(true),
+            onDrop: () => setIsDragging(false),
+        });
+
+        const cleanupDropTarget = dropTargetForElements({
+            element: element,
+            getIsSticky: () => true, // Allows edge detection
+            getData: () => ({ memberId: member.id, index }),
+            onDragEnter: (args) => {
+                // Determine if drop is on top or bottom half
+                const edge = args.location.current.input.clientY > element.getBoundingClientRect().top + element.offsetHeight / 2 ? 'bottom' : 'top';
+                setDropIndicatorEdge(edge);
+            },
+            onDragLeave: () => {
+                setDropIndicatorEdge(null);
+            },
+            onDrop: () => {
+                setDropIndicatorEdge(null);
+            },
+        });
+
+        // Return cleanup function
+        return () => {
+            cleanupDraggable();
+            cleanupDropTarget();
+        };
+    }, [isEditMode, member.id, index]); // Re-run if edit mode or item context changes
+
+    const memberBalance = showBalances ? membersBalances?.[member.id] : null;
+    const hasBalanceData = !!memberBalance && Object.keys(memberBalance).length > 0;
+
+    return (
+        <div ref={itemRef} style={{ opacity: isDragging ? 0.4 : 1 }} className="relative">
+            {/* Show drop indicator when an item is dragged over this one */}
+            {dropIndicatorEdge === 'top' && <DropIndicator edge="top" />}
+
+            <div className="flex items-center mb-2">
+                {/* Drag Handle (visible only in edit mode) */}
+                {isEditMode && (
+                    <Button ref={handleRef} variant="ghost" size="icon" className="cursor-grab" aria-label={`Reorder ${member.name}`}>
+                        <GripVertical className="h-4 w-4" />
+                    </Button>
+                )}
+                {/* Main Member Button */}
+                <div className="flex-grow mr-2">
+                    <Button
+                        variant={selectedMember === member.id ? 'default' : 'ghost'}
+                        className="w-full justify-start text-left h-auto py-2"
+                        onClick={() => setSelectedMember(member.id)}
+                        disabled={isEditMode} // Disable clicking when in edit mode
+                    >
+                        <div className="flex items-center space-x-3 flex-grow">
+                            <Avatar className="h-10 w-10 flex-shrink-0">
+                                {member.photoUrls ? (
+                                    <AvatarImage src={'uploads/' + member.photoUrls['64']} alt={member.name} />
+                                ) : (
+                                    <AvatarFallback>
+                                        {member.name
+                                            .split(' ')
+                                            .map((n) => n[0])
+                                            .join('')
+                                            .toUpperCase()}
+                                    </AvatarFallback>
+                                )}
+                            </Avatar>
+                            <span className="flex-grow font-medium">{member.name}</span>
+                            {/* Balance Display */}
+                            {showBalances && hasBalanceData && (
+                                <div className="ml-auto pl-2 flex-shrink-0 text-xs">
+                                    <CombinedBalanceDisplay
+                                        totalBalances={memberBalance!}
+                                        unitDefinitions={unitDefinitions}
+                                        showCombinedBalance={false}
+                                        isLoading={false}
+                                        className="text-right"
+                                    />
+                                </div>
+                            )}
+                            {showBalances && !hasBalanceData && (
+                                <div className="ml-auto pl-2 flex-shrink-0 text-xs text-muted-foreground italic">No balance</div>
+                            )}
+                        </div>
+                    </Button>
+                </div>
+                {/* Edit/Delete Buttons (visible only in edit mode) */}
+                {isEditMode && (
+                    <>
+                        <Button variant="ghost" size="icon" onClick={() => handleEditMember(member)}>
+                            <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDeleteMember(member.id)}>
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    </>
+                )}
+            </div>
+
+            {/* Show drop indicator at the bottom */}
+            {dropIndicatorEdge === 'bottom' && <DropIndicator edge="bottom" />}
+        </div>
+    );
+};

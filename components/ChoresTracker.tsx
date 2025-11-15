@@ -112,6 +112,9 @@ function ChoresTracker() {
     // **** UPDATED QUERY: Fetch members + linked envelopes, chores, and unit definitions ****
     const { isLoading, error, data } = db.useQuery({
         familyMembers: {
+            // ADD THIS to sort the results
+            $: { order: { order: 'asc' } },
+
             assignedChores: {
                 completions: {},
             },
@@ -278,104 +281,8 @@ function ChoresTracker() {
         setIsDetailedChoreModalOpen(false);
     };
 
-    const addFamilyMember = async (name: string, email: string | null, photoFile: File | null) => {
-        if (!name) return;
-        let photoUrls: {
-            '64'?: string;
-            '320'?: string;
-            '1200'?: string;
-        } | null = null; // Type annotation
-        if (photoFile) {
-            const formData = new FormData();
-            formData.append('file', photoFile);
-
-            try {
-                const response = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData,
-                });
-
-                if (!response.ok) throw new Error('Failed to upload photo');
-
-                const data = await response.json();
-
-                // Ensure that the response contains the expected properties
-                photoUrls = {
-                    '64': data.photoUrls['64'] || '', // Use string key
-                    '320': data.photoUrls['320'] || '', // Use string key
-                    '1200': data.photoUrls['1200'] || '', // Use string key
-                };
-            } catch (error) {
-                console.error('Error uploading photo:', error);
-                toast({
-                    title: 'Error',
-                    description: 'Failed to upload photo. Please try again.',
-                    variant: 'destructive',
-                });
-                return; // Stop execution if upload fails
-            }
-        }
-
-        const memberId = id();
-        const memberData: Partial<FamilyMember> = {
-            name,
-            email: email || '',
-
-            // Set some sane defaults
-            lastDisplayCurrency: null,
-            allowanceAmount: null,
-            allowanceCurrency: null,
-            allowanceRrule: null,
-            allowanceStartDate: null,
-            allowanceConfig: {}, // Default to an empty JSON object
-            allowancePayoutDelayDays: 0, // Default to 0 days
-        };
-
-        // Only add photoUrls if it is not null (i.e., a photo was uploaded)
-        if (photoUrls) {
-            memberData.photoUrls = photoUrls;
-        }
-
-        try {
-            await db.transact([tx.familyMembers[memberId].update(memberData)]);
-            toast({
-                title: 'Success',
-                description: 'Family member added successfully.',
-            });
-        } catch (error) {
-            console.error('Error adding family member:', error);
-            toast({
-                title: 'Error',
-                description: 'Failed to add family member. Please try again.',
-                variant: 'destructive',
-            });
-        }
-    };
-
-    const deleteFamilyMember = async (memberId: string) => {
-        // Add type annotation
-        // Fetch the family member to get the photo URLs
-        const member = familyMembers.find((m) => m.id === memberId);
-        if (member && member.photoUrls) {
-            try {
-                await fetch('/api/delete-image', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ urls: member.photoUrls }),
-                });
-            } catch (error) {
-                console.error('Error deleting photo:', error);
-            }
-        }
-        await db.transact([tx.familyMembers[memberId].delete()]);
-        if (selectedMember === memberId) {
-            setSelectedMember('All');
-        }
-        toast({
-            title: 'Member Deleted',
-            description: `${member?.name || 'Member'} removed.`,
-        });
-    };
+    // **** REMOVED: addFamilyMember function ****
+    // **** REMOVED: deleteFamilyMember function ****
 
     const toggleChoreDone = async (choreId: string, familyMemberId: string) => {
         const chore = chores.find((c) => c.id === choreId);
@@ -399,8 +306,8 @@ function ChoresTracker() {
             // Query completions for THIS chore on THIS date
             // Note: This requires `choreCompletions` to be fetched in the main query if not already linked sufficiently
             // Using `allChoreCompletions` derived from the main query
-            const completionsOnDate = allChoreCompletions.filter((c: any) => c.chore?.[0]?.id === choreId && c.dateDue === formattedDate && c.completed);
 
+            const completionsOnDate = allChoreCompletions.filter((c: any) => c.chore?.[0]?.id === choreId && c.dateDue === formattedDate && c.completed);
             if (completionsOnDate.length > 0) {
                 // Check if the current user is trying to mark it complete AGAIN (allow unchecking)
                 const currentUserCompletion = completionsOnDate.find((c) => c.completedBy?.[0]?.id === familyMemberId);
@@ -595,7 +502,8 @@ function ChoresTracker() {
                 description: 'Chore updated successfully.',
             });
             // Ensure modal closes upon successful update, potentially handle in ChoreList?
-            // setIsDetailedChoreModalOpen(false); // Maybe handle in ChoreList where edit is triggered
+            // setIsDetailedChoreModalOpen(false);
+            // Maybe handle in ChoreList where edit is triggered
         } catch (error: any) {
             console.error('Error updating chore:', error);
             toast({
@@ -652,8 +560,7 @@ function ChoresTracker() {
                     familyMembers={familyMembers}
                     selectedMember={selectedMember}
                     setSelectedMember={setSelectedMember}
-                    addFamilyMember={addFamilyMember}
-                    deleteFamilyMember={deleteFamilyMember}
+                    // **** REMOVED: addFamilyMember and deleteFamilyMember props ****
                     db={db}
                     // **** NEW: Pass balance data ****
                     showBalances={true} // Enable balance display

@@ -111,6 +111,7 @@ const _schema = i.schema({
             allowanceStartDate: i.date().optional(),
             allowanceConfig: i.json().optional(),
             allowancePayoutDelayDays: i.number().optional(),
+            order: i.number().indexed(),
         }),
         settings: i.entity({
             name: i.string(),

@@ -55,6 +55,9 @@ export default function FamilyAllowanceView() {
         data: appData,
     } = db.useQuery({
         familyMembers: {
+            // ADD THIS to sort the results
+            $: { order: { order: 'asc' } },
+
             // Fetch all fields for members by default
             // We NEED allowanceEnvelopes linked here to calculate balances per member
             allowanceEnvelopes: {}, // Fetch linked envelopes for calculation later
@@ -93,31 +96,8 @@ export default function FamilyAllowanceView() {
         return computeMonetaryCurrencies(allEnvelopes, unitDefinitions);
     }, [allEnvelopes, unitDefinitions]);
 
-    // --- Placeholder functions for adding/deleting members ---
-    // You should replace these with your actual implementation,
-    // possibly imported from a utility file or defined here if simple.
-    const handleAddFamilyMember = async (name: string, email: string | null, photoFile: File | null) => {
-        console.log('Adding member (placeholder):', name, email, photoFile);
-        // Your actual logic using db.transact and potentially file upload API
-        // Example structure:
-        // const memberId = id();
-        // const updates: any = { name, email: email || '' };
-        // if (photoFile) { /* Upload logic -> get photoUrls */ updates.photoUrls = {/* ... */}; }
-        // await db.transact(tx.familyMembers[memberId].update(updates));
-        alert('Add functionality not fully implemented in this example.');
-    };
-
-    const handleDeleteFamilyMember = async (memberId: string) => {
-        console.log('Deleting member (placeholder):', memberId);
-        // Your actual logic using db.transact
-        // Example: await db.transact(tx.familyMembers[memberId].delete());
-        // Remember to handle associated data cleanup if necessary (e.g., delete photos)
-        if (selectedMemberId === memberId) {
-            setSelectedMemberId(null); // Deselect if the deleted member was selected
-        }
-        alert('Delete functionality not fully implemented in this example.');
-    };
-    // --- End Placeholder functions ---
+    // **** REMOVED: Placeholder handleAddFamilyMember ****
+    // **** REMOVED: Placeholder handleDeleteFamilyMember ****
 
     if (isLoadingAppData) {
         return <div className="p-4">Loading family members...</div>;
@@ -136,8 +116,7 @@ export default function FamilyAllowanceView() {
                     familyMembers={familyMembers}
                     selectedMember={selectedMemberId}
                     setSelectedMember={setSelectedMemberId}
-                    addFamilyMember={handleAddFamilyMember}
-                    deleteFamilyMember={handleDeleteFamilyMember}
+                    // **** REMOVED: addFamilyMember and deleteFamilyMember props ****
                     db={db}
                     // **** NEW: Pass balance data ****
                     showBalances={true} // Enable balance display
