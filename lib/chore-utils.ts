@@ -3,7 +3,7 @@ import { init, tx, id } from '@instantdb/react';
 
 // Assuming db instance is initialized here or passed around
 // If passing around, remove this initialization
-const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'af77353a-0a48-455f-b892-010232a052b4'; // Use env var
+const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'df733414-7ccd-45bd-85f3-ffd0b3da8812'; // Use env var
 const db = init({
     appId: APP_ID,
     apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || 'http://localhost:8888',

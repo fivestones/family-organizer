@@ -82,7 +82,7 @@ interface EditablePeriodAmounts {
 }
 
 // --- DB Initialization ---
-const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'af77353a-0a48-455f-b892-010232a052b4';
+const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'df733414-7ccd-45bd-85f3-ffd0b3da8812';
 const db = init({
     appId: APP_ID,
     apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || 'http://localhost:8888',
