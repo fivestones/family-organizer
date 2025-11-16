@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { format, addDays, subDays } from 'date-fns';
+import { addDays, subDays } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -15,10 +15,12 @@ const DateCarousel: React.FC<DateCarouselProps> = ({ onDateSelect, initialDate }
             return initialDate; // It's already the UTC date we want
         }
         // If initialDate wasn't provided, create UTC midnight for "today"
-        return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+        return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
     });
 
     const [dateRange, setDateRange] = useState<Date[]>([]);
+
+    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     useEffect(() => {
         const generateDateRange = () => {
@@ -33,18 +35,17 @@ const DateCarousel: React.FC<DateCarouselProps> = ({ onDateSelect, initialDate }
     }, [selectedDate]);
 
     const handleDateClick = (date: Date) => {
-        const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-        setSelectedDate(utcDate);
-        onDateSelect(utcDate);
+        // date is already normalized (UTC midnight in your scheme),
+        // so just use it as-is.
+        setSelectedDate(date);
+        onDateSelect(date);
     };
 
     const handleNavigate = (direction: 'prev' | 'next') => {
         const newDate = direction === 'prev' ? subDays(selectedDate, 1) : addDays(selectedDate, 1);
-        const utcNewDate = new Date(Date.UTC(newDate.getFullYear(), newDate.getMonth(), newDate.getDate()));
-        setSelectedDate(utcNewDate);
-        onDateSelect(utcNewDate);
+        setSelectedDate(newDate);
+        onDateSelect(newDate);
     };
-
     return (
         <div className="flex items-center justify-center space-x-2 p-4">
             <Button variant="outline" size="icon" onClick={() => handleNavigate('prev')}>
@@ -55,8 +56,10 @@ const DateCarousel: React.FC<DateCarouselProps> = ({ onDateSelect, initialDate }
                     const isSelected = date.getTime() === selectedDate.getTime();
                     // Fix: UTC-aware check for "today"
                     const today = new Date();
-                    const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-                    const isToday = date.getTime() === todayUTC.getTime();
+
+                    const todayKey = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())).getTime();
+
+                    const isToday = date.getTime() === todayKey;
                     return (
                         <div
                             key={date.toISOString()}
@@ -65,8 +68,8 @@ const DateCarousel: React.FC<DateCarouselProps> = ({ onDateSelect, initialDate }
                             }`}
                             onClick={() => handleDateClick(date)}
                         >
-                            <div className={`text-sm ${isToday ? 'interBold' : ''}`}>{format(date, 'EEE')}</div>
-                            <div className={`text-2xl ${isToday ? 'interBold' : ''}`}>{format(date, 'd')}</div>
+                            <div className={`text-sm ${isToday ? 'interBold' : ''}`}>{daysOfWeek[date.getUTCDay()]}</div>
+                            <div className={`text-2xl ${isToday ? 'interBold' : ''}`}>{date.getUTCDate()}</div>
                         </div>
                     );
                 })}

@@ -67,7 +67,7 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
         }
     });
 
-    const formattedSelectedDate = format(safeSelectedDate, 'yyyy-MM-dd'); // Use safeSelectedDate
+    const formattedSelectedDate = safeSelectedDate.toISOString().slice(0, 10); // Use safeSelectedDate
 
     const handleEditChore = (chore) => {
         setEditingChore(chore);

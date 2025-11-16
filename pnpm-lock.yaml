@@ -17,6 +17,9 @@ importers:
       '@atlaskit/pragmatic-drag-and-drop-react-drop-indicator':
         specifier: ^3.2.9
         version: 3.2.9(@types/react@18.2.47)(react@18.3.1)
+      '@date-fns/utc':
+        specifier: ^2.1.1
+        version: 2.1.1
       '@instantdb/react':
         specifier: ^0.18.3
         version: 0.18.3(react@18.3.1)
@@ -198,6 +201,9 @@ packages:
     resolution: {integrity: sha512-Mt6sJOwykeoToEBFbOUNR4xABi2gOr/+X5QSGqGEYiCBMh+XPDAclG2UX94zveiYJXO4AUJIQBCVwa4/lwPMBA==}
     peerDependencies:
       react: '>= 16.12.0'
+
+  '@date-fns/utc@2.1.1':
+    resolution: {integrity: sha512-SlJDfG6RPeEX8wEVv6ZB3kak4MmbtyiI2qX/5zuKdordbrhB/iaJ58GVMZgJ6P1sJaM1gMgENFYYeg1JWrCFrA==}
 
   '@emnapi/runtime@1.4.0':
     resolution: {integrity: sha512-64WYIf4UYcdLnbKn/umDlNjQDSS8AgZrI/R9+x5ilkUVFxXcA1Ebl+gQLc/6mERA4407Xof0R7wEyEuj091CVw==}
@@ -2024,6 +2030,8 @@ snapshots:
     dependencies:
       csstype: 3.1.3
       react: 18.3.1
+
+  '@date-fns/utc@2.1.1': {}
 
   '@emnapi/runtime@1.4.0':
     dependencies:

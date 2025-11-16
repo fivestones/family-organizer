@@ -11,7 +11,6 @@ import ChoreList from './ChoreList';
 import DetailedChoreForm from './DetailedChoreForm';
 import DateCarousel from '@/components/ui/DateCarousel';
 import { createRRuleWithStartDate, getNextOccurrence, toUTCDate } from '@/lib/chore-utils'; // Ensure toUTCDate is imported
-import { format } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
 import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
 // **** NEW: Import types and utility ****
@@ -288,7 +287,7 @@ function ChoresTracker() {
         const chore = chores.find((c) => c.id === choreId);
         // +++ Add check for Up for Grabs +++
         const isUpForGrabsChore = chore?.isUpForGrabs ?? false;
-        const formattedDate = format(selectedDate, 'yyyy-MM-dd');
+        const formattedDate = selectedDate.toISOString().slice(0, 10);
 
         if (!chore) {
             // Keep existing chore check

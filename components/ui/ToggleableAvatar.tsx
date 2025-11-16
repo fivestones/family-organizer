@@ -8,7 +8,6 @@ import { cn } from '@/lib/utils'; // +++ Import cn +++
 const ToggleableAvatar = ({ name, photoUrls, isComplete, onToggle, isDisabled = false, completerName = '', choreTitle = '' }) => {
     // +++ Add new props +++
     const { toast } = useToast(); // +++ Get toast function +++
-    console.log('name', name);
     const initials = name
         .split(' ')
         .map((n) => n[0])
