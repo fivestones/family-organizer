@@ -1,12 +1,14 @@
 // components/DroppableDayCell.js
 import React, { useRef, useEffect, useState } from 'react';
 import { dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
-import { attachClosestEdge, extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
-import { DropIndicator } from '@atlaskit/pragmatic-drag-and-drop-react-drop-indicator/box';
+// REMOVED: Edge detection and DropIndicator imports
+import { cn } from '../lib/utils'; // Import cn utility
+import styles from '../styles/Calendar.module.css'; // Import styles
 
 export const DroppableDayCell = ({ day, dateStr, className, onClick, children }) => {
     const cellRef = useRef(null);
-    const [dropIndicatorEdge, setDropIndicatorEdge] = useState(null);
+    // NEW: State to track if the cell is being dragged over
+    const [isBeingDraggedOver, setIsBeingDraggedOver] = useState(false);
 
     useEffect(() => {
         const cell = cellRef.current;
@@ -16,23 +18,20 @@ export const DroppableDayCell = ({ day, dateStr, className, onClick, children })
             element: cell,
             canDrop: (args) => args.source.data.type === 'calendar-event',
             getIsSticky: () => true,
-            getData: ({ input, element }) => {
-                // Attach closest edge info (top/bottom) to our data
-                const data = { type: 'calendar-day', dateStr: dateStr };
-                return attachClosestEdge(data, {
-                    input,
-                    element,
-                    allowedEdges: ['top', 'bottom'], // Only care about top/bottom for day cells
-                });
+            getData: () => {
+                // CHANGED: Simplified data, no edge detection needed
+                return { type: 'calendar-day', dateStr: dateStr };
             },
-            onDrag: (args) => {
-                setDropIndicatorEdge(extractClosestEdge(args.self.data));
-            },
+            // NEW: Set state on drag enter
+            onDragEnter: () => setIsBeingDraggedOver(true),
+            // REMOVED: onDrag handler
             onDragLeave: () => {
-                setDropIndicatorEdge(null);
+                // CHANGED: Set state on drag leave
+                setIsBeingDraggedOver(false);
             },
             onDrop: () => {
-                setDropIndicatorEdge(null);
+                // CHANGED: Set state on drop
+                setIsBeingDraggedOver(false);
             },
         });
 
@@ -40,11 +39,9 @@ export const DroppableDayCell = ({ day, dateStr, className, onClick, children })
     }, [dateStr]); // Re-run if the date string changes
 
     return (
-        <td ref={cellRef} className={className} onClick={() => onClick(day)}>
-            {/* Render drop indicator */}
-            {dropIndicatorEdge === 'top' && <DropIndicator edge="top" />}
-            {dropIndicatorEdge === 'bottom' && <DropIndicator edge="bottom" />}
-
+        // CHANGED: Apply conditional class for drag-over state
+        <td ref={cellRef} className={cn(className, isBeingDraggedOver && styles.dragOverCell)} onClick={() => onClick(day)}>
+            {/* REMOVED: DropIndicator elements */}
             {/* Render the cell's content */}
             {children}
         </td>

@@ -27,6 +27,11 @@
     height: 120px; /* Fixed height to ensure enough space for month names */
     vertical-align: top; /* Align text to the top */
 }
+.dragOverCell {
+    background-color: #e0f2fe; /* light-blue-100 */
+    opacity: 0.8;
+    transition: background-color 150ms ease-out;
+}
 
 .firstDayOfMonth {
     background: linear-gradient(to right, rgb(209, 223, 252), white); /* Apply gradient */
@@ -35,7 +40,12 @@
     border-style: double;
 }
 
-.firstDayOfMonth + td, .firstDayOfMonth + td + td, .firstDayOfMonth + td + td + td, .firstDayOfMonth + td + td + td + td, .firstDayOfMonth + td + td + td + td + td, .firstDayOfMonth + td + td + td + td + td + td {
+.firstDayOfMonth + td,
+.firstDayOfMonth + td + td,
+.firstDayOfMonth + td + td + td,
+.firstDayOfMonth + td + td + td + td,
+.firstDayOfMonth + td + td + td + td + td,
+.firstDayOfMonth + td + td + td + td + td + td {
     border-top: 1px solid blue;
     border-style: double;
 }
@@ -66,9 +76,8 @@
 } */
 
 .firstDayOfYear {
-    background:
-        linear-gradient(to right, rgb(49, 138, 255), white) 0% 0% / 80% 23% no-repeat, /* Blue to white gradient strip along the top edge */
-        linear-gradient(to right, rgb(209, 223, 252), white); /* regular new month gradient */
+    background: linear-gradient(to right, rgb(49, 138, 255), white) 0% 0% / 80% 23% no-repeat,
+        /* Blue to white gradient strip along the top edge */ linear-gradient(to right, rgb(209, 223, 252), white); /* regular new month gradient */
 }
 
 .firstDayOfNepaliMonth {
@@ -84,16 +93,15 @@
 }
 
 .firstDayOfNepaliYear {
-    background:
-        linear-gradient(to right, red, white) 0% 0% / 80% 23% no-repeat, /* Red to white gradient strip along the top edge */
-        linear-gradient(to right, rgb(252, 209, 209), white); /* regular Nepali new month gradient */
+    background: linear-gradient(to right, red, white) 0% 0% / 80% 23% no-repeat,
+        /* Red to white gradient strip along the top edge */ linear-gradient(to right, rgb(252, 209, 209), white); /* regular Nepali new month gradient */
 }
 
 .dayNumber {
     font-size: 16px;
     color: #333;
     padding-right: 1.5%;
-    /* position: absolute; *//* Positioning the day number */
+    /* position: absolute; */ /* Positioning the day number */
     top: 5px; /* Closer to the top */
     right: 5px; /* Right-justified within the cell */
 }
@@ -118,7 +126,7 @@
 }
 
 .highlighted {
-    background-color: #FFFF00;
+    background-color: #ffff00;
 }
 
 .important {
@@ -183,4 +191,3 @@
 .react-beautiful-dnd-dragging {
     opacity: 0.8;
 }
-
