@@ -4,77 +4,78 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface DateCarouselProps {
-  onDateSelect: (date: Date) => void;
-  initialDate?: Date; // Mark initialDate as optional
+    onDateSelect: (date: Date) => void;
+    initialDate?: Date; // Mark initialDate as optional
 }
 
 const DateCarousel: React.FC<DateCarouselProps> = ({ onDateSelect, initialDate }) => {
-  const [selectedDate, setSelectedDate] = useState<Date>(() => {
-    const date = initialDate || new Date();
-    return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  });
+    const [selectedDate, setSelectedDate] = useState<Date>(() => {
+        const date = initialDate || new Date(); // initialDate is already UTC, new Date() is local
+        if (initialDate) {
+            return initialDate; // It's already the UTC date we want
+        }
+        // If initialDate wasn't provided, create UTC midnight for "today"
+        return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    });
 
-  const [dateRange, setDateRange] = useState<Date[]>([]);
+    const [dateRange, setDateRange] = useState<Date[]>([]);
 
-  useEffect(() => {
-    const generateDateRange = () => {
-      const range = [];
-      for (let i = -4; i <= 4; i++) {
-        range.push(addDays(selectedDate, i));
-      }
-      setDateRange(range);
+    useEffect(() => {
+        const generateDateRange = () => {
+            const range = [];
+            for (let i = -4; i <= 4; i++) {
+                range.push(addDays(selectedDate, i));
+            }
+            setDateRange(range);
+        };
+
+        generateDateRange();
+    }, [selectedDate]);
+
+    const handleDateClick = (date: Date) => {
+        const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        setSelectedDate(utcDate);
+        onDateSelect(utcDate);
     };
 
-    generateDateRange();
-  }, [selectedDate]);
+    const handleNavigate = (direction: 'prev' | 'next') => {
+        const newDate = direction === 'prev' ? subDays(selectedDate, 1) : addDays(selectedDate, 1);
+        const utcNewDate = new Date(Date.UTC(newDate.getFullYear(), newDate.getMonth(), newDate.getDate()));
+        setSelectedDate(utcNewDate);
+        onDateSelect(utcNewDate);
+    };
 
-  const handleDateClick = (date: Date) => {
-    const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    setSelectedDate(utcDate);
-    onDateSelect(utcDate);
-  };
-
-  const handleNavigate = (direction: 'prev' | 'next') => {
-    const newDate = direction === 'prev' ? subDays(selectedDate, 1) : addDays(selectedDate, 1);
-    const utcNewDate = new Date(Date.UTC(newDate.getFullYear(), newDate.getMonth(), newDate.getDate()));
-    setSelectedDate(utcNewDate);
-    onDateSelect(utcNewDate);
-  };
-
-  return (
-    <div className="flex items-center justify-center space-x-2 p-4">
-      <Button variant="outline" size="icon" onClick={() => handleNavigate('prev')}>
-        <ChevronLeft className="h-4 w-4" />
-      </Button>
-      <div className="flex space-x-2 overflow-x-auto">
-        {dateRange.map((date) => {
-          const isSelected = date.getTime() === selectedDate.getTime();
-          const isToday = date.toDateString() === new Date().toDateString();
-          return (
-            <div
-              key={date.toISOString()}
-              className={`flex flex-col items-center justify-center w-20 h-24 rounded-lg cursor-pointer transition-all duration-200 ${
-                isSelected
-                  ? 'bg-primary text-primary-foreground shadow-lg transform scale-105'
-                  : 'bg-background hover:bg-secondary'
-              }`}
-              onClick={() => handleDateClick(date)}
-            >
-              <div className={`text-sm ${isToday ? 'interBold' : ''}`}>
-                {format(date, 'EEE')}
-              </div>
-              <div className={`text-2xl ${isToday ? 'interBold' : ''}`}>
-                {format(date, 'd')}
-              </div>
+    return (
+        <div className="flex items-center justify-center space-x-2 p-4">
+            <Button variant="outline" size="icon" onClick={() => handleNavigate('prev')}>
+                <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex space-x-2 overflow-x-auto">
+                {dateRange.map((date) => {
+                    const isSelected = date.getTime() === selectedDate.getTime();
+                    // Fix: UTC-aware check for "today"
+                    const today = new Date();
+                    const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+                    const isToday = date.getTime() === todayUTC.getTime();
+                    return (
+                        <div
+                            key={date.toISOString()}
+                            className={`flex flex-col items-center justify-center w-20 h-24 rounded-lg cursor-pointer transition-all duration-200 ${
+                                isSelected ? 'bg-primary text-primary-foreground shadow-lg transform scale-105' : 'bg-background hover:bg-secondary'
+                            }`}
+                            onClick={() => handleDateClick(date)}
+                        >
+                            <div className={`text-sm ${isToday ? 'interBold' : ''}`}>{format(date, 'EEE')}</div>
+                            <div className={`text-2xl ${isToday ? 'interBold' : ''}`}>{format(date, 'd')}</div>
+                        </div>
+                    );
+                })}
             </div>
-          );
-        })}
-      </div>
-      <Button variant="outline" size="icon" onClick={() => handleNavigate('next')}>
-        <ChevronRight className="h-4 w-4" />
-      </Button>
-    </div>
-  );
+            <Button variant="outline" size="icon" onClick={() => handleNavigate('next')}>
+                <ChevronRight className="h-4 w-4" />
+            </Button>
+        </div>
+    );
 };
 
 export default DateCarousel;

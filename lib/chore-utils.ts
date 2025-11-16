@@ -105,10 +105,7 @@ export function createRRule(ruleObject: Partial<RRule.Options>) {
 
 export function toUTCDate(date: Date | string | number): Date {
     const d = new Date(date);
-    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    // gemeni thinks we need to replace the above with what's below:
-    // // Ensures we create a Date object representing midnight UTC for the given date parts
-    // return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
 export function createRRuleWithStartDate(rruleString: string | null | undefined, startDateString: string | Date): RRule | null {
