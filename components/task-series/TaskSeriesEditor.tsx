@@ -9,15 +9,17 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'; // Added this import
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon, Info, AlertTriangle, PlusCircle, Trash2, Settings, Save, Edit, Check } from 'lucide-react'; // Added Check
+import { CalendarIcon, Info, AlertTriangle, PlusCircle, Trash2, Settings, Save, Edit, Check } from 'lucide-react';
 import { format, parseISO, isValid, startOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
-import type { AppSchema } from '@/instant.schema'; // Adjust path if needed
-import TaskItem from './TaskItem'; // ADD this import
+import type { AppSchema } from '@/instant.schema';
+import TaskItem from './TaskItem';
+
+const INDENT_CHAR_EQUIVALENT = 4; // Assume 1 indent level = 4 characters visually
 
 // Types based on V1 schema
 type FamilyMember = AppSchema['entities']['familyMembers'];
@@ -37,7 +39,7 @@ interface Task {
     createdAt?: string | null; // Assuming ISO string from DB
     updatedAt?: string | null; // Assuming ISO string from DB
     parentTask?: Array<{ id: string; $type: 'tasks' }>;
-    prerequisites?: Array<{ id: string; $type: 'tasks' }>; // ADDED
+    prerequisites?: Array<{ id: string; $type: 'tasks' }>;
     subsequentTasks?: Array<{ id: string; $type: 'tasks' }>;
     attachments?: Array<{ id: string; $type: 'taskAttachments' }>;
     taskSeries?: Array<{ id: string; $type: 'taskSeries' }>;
@@ -60,15 +62,12 @@ interface TaskSeriesEditorProps {
     onClose?: () => void; // Optional callback for when "Finished" or "Cancel" is clicked
 }
 
-// const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID!;
-// db should be passed as a prop, but initializing here for standalone dev if needed
-
 const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initialSeriesId = null, initialFamilyMemberId = null, onClose }) => {
-    const db = propDb; // Use passed db or init
+    const db = propDb;
     const { toast } = useToast();
 
     const [isEditing, setIsEditing] = useState(!!initialSeriesId);
-    const [seriesId, setSeriesId] = useState<string>(initialSeriesId || id()); // Generate new ID if creating
+    const [seriesId, setSeriesId] = useState<string>(initialSeriesId || id());
 
     // States for Task Series Details
     const [taskSeriesName, setTaskSeriesName] = useState('');
@@ -86,9 +85,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
     // State for Task List Editor
     const [uiTasks, setUiTasks] = useState<UITask[]>([]);
     const [dbTasks, setDbTasks] = useState<Task[]>([]);
-    const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null); // ADD this state
-
-    // TODO: Add state for parsed tasks and dynamic date margin calculation
+    const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+    const [desiredVisualCursorPos, setDesiredVisualCursorPos] = useState<number | null>(null);
+    const [cursorEntryDirection, setCursorEntryDirection] = useState<'up' | 'down' | null>(null); // NEW
 
     if (!db) {
         //fixes bug where useQuery() was running before hydration completed, or before the component tree could use the db context correctly, causing useQuery to come up empty
@@ -105,8 +104,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
         selectedFamilyMemberId
             ? {
                   chores: {
-                      $: { where: { 'assignees.id': selectedFamilyMemberId } }, // TODO: Adjust if schema for chore assignees changes
-                      assignees: {}, // Need to ensure this fetches members linked to chores
+                      $: { where: { 'assignees.id': selectedFamilyMemberId } },
+                      assignees: {},
                   },
               }
             : null // Don't query if no family member is selected
@@ -114,6 +113,15 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
     const availableChores = choresData?.chores || [];
 
     // --- Helper function to parse task list text ---
+    interface ParsedTask {
+        id: string;
+        text: string;
+        indentationLevel: number;
+        isDayBreak: boolean;
+        originalLineNumber: number;
+        parentId: string | null;
+    }
+
     const parseTaskListText = (text: string): ParsedTask[] => {
         const lines = text.split('\n');
         const parsedTasks: ParsedTask[] = [];
@@ -122,7 +130,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
         lines.forEach((line, index) => {
             const trimmedLine = line.trim();
             const dayBreakChars = ['~', '-', '='];
-            const isDayBreak = dayBreakChars.includes(trimmedLine) && line.length === trimmedLine.length; // Ensure it's only the char
+            const isDayBreak = dayBreakChars.includes(trimmedLine) && line.length === trimmedLine.length;
 
             let indentationLevel = 0;
             const match = line.match(/^(\s*)/);
@@ -133,12 +141,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                 // indentationLevel = Math.floor((line.match(/^ */)?.[0]?.length || 0) / 2);
             }
 
-            const taskText = isDayBreak ? '' : line.substring(indentationLevel); // Remove leading tabs/spaces for text
-            const taskId = id(); // Generate a new ID for each parsed task item
+            const taskText = isDayBreak ? '' : line.substring(indentationLevel);
+            const taskId = id();
 
             let parentId: string | null = null;
-            // Determine parent based on indentation
-            // Remove candidates from the stack that are at the same or higher level
             while (parentCanditates.length > 0 && parentCanditates[parentCanditates.length - 1].indentationLevel >= indentationLevel) {
                 parentCanditates.pop();
             }
@@ -171,22 +177,53 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
         // If immediate auto-save on text change is needed, call handleImmediateAutoSave() here, possibly debounced.
     };
 
-    const handleCreateNewTaskAfter = (currentTaskId: string, currentTaskText: string) => {
-        // First, update the text of the current task, in case it changed before Enter was pressed
-        setUiTasks((prevTasks) => prevTasks.map((t) => (t.id === currentTaskId ? { ...t, text: currentTaskText } : t)));
-
+    const handlePressEnter = (currentTaskId: string, currentTaskText: string, cursorPos: number) => {
         const currentIndex = uiTasks.findIndex((t) => t.id === currentTaskId);
-        const currentTask = uiTasks[currentIndex];
-        const newUiTask: UITask = {
-            id: id(),
-            text: '',
-            indentationLevel: currentTask ? currentTask.indentationLevel : 0, // Inherit indentation
-            isDayBreak: false,
-        };
+        if (currentIndex === -1) return;
 
-        setUiTasks((prevTasks) => [...prevTasks.slice(0, currentIndex + 1), newUiTask, ...prevTasks.slice(currentIndex + 1)]);
-        setFocusedTaskId(newUiTask.id); // Focus the new task
-        // handleImmediateAutoSave(); // Decide if Enter should immediately save
+        const currentTask = uiTasks[currentIndex];
+
+        if (cursorPos === 0) {
+            // Case 1: Enter at the beginning
+            const newUiTask: UITask = {
+                id: id(),
+                text: '',
+                indentationLevel: currentTask.indentationLevel,
+                isDayBreak: false,
+            };
+            setUiTasks((prevTasks) => [
+                ...prevTasks.slice(0, currentIndex),
+                newUiTask,
+                ...prevTasks.slice(currentIndex), // Keep the original task
+            ]);
+            setFocusedTaskId(currentTaskId);
+            setDesiredVisualCursorPos(null);
+            setCursorEntryDirection(null);
+        } else {
+            // Case 2: Enter in the middle or at the end
+            const textBefore = currentTaskText.substring(0, cursorPos);
+            const textAfter = currentTaskText.substring(cursorPos);
+
+            const newUiTask: UITask = {
+                id: id(),
+                text: textAfter,
+                indentationLevel: currentTask.indentationLevel,
+                isDayBreak: false,
+            };
+
+            setUiTasks((prevTasks) => [
+                ...prevTasks.slice(0, currentIndex), // All tasks before
+                { ...currentTask, text: textBefore }, // The updated current task
+                newUiTask, // The new task
+                ...prevTasks.slice(currentIndex + 1), // All tasks after
+            ]);
+
+            setFocusedTaskId(newUiTask.id);
+            // Set desired visual pos to the start of the new task (accounting for indent)
+            const newVisualPos = newUiTask.indentationLevel * INDENT_CHAR_EQUIVALENT;
+            setDesiredVisualCursorPos(newVisualPos);
+            setCursorEntryDirection('down');
+        }
     };
 
     const handlePasteTasks = (currentTaskId: string, pastedText: string, currentTaskTextBeforePaste: string) => {
@@ -217,12 +254,12 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                 lastFocusedId = newTask.id; // Keep track of the last task added for focus
             }
 
-            // Insert new tasks after the current one
             newUiTasks = [...newUiTasks.slice(0, currentTaskIndex + 1), ...tasksToInsert, ...newUiTasks.slice(currentTaskIndex + 1)];
         }
 
         setUiTasks(newUiTasks);
-        setFocusedTaskId(lastFocusedId); // Focus the last task that was part of the paste
+        setFocusedTaskId(lastFocusedId);
+        setCursorEntryDirection('down');
         handleImmediateAutoSave();
     };
 
@@ -241,9 +278,11 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
             setFocusedTaskId(null);
         } else if (taskIndex > 0 && newUiTasks[taskIndex - 1]) {
             setFocusedTaskId(newUiTasks[taskIndex - 1].id);
+            setCursorEntryDirection('up');
         } else if (newUiTasks.length > 0) {
             // Deleted the first item, focus the new first item
             setFocusedTaskId(newUiTasks[0].id);
+            setCursorEntryDirection('down');
         }
 
         const transactions = [
@@ -254,15 +293,19 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
 
         try {
             await db.transact(transactions);
-            toast({ title: 'Task Deleted', description: `Task "${taskToDelete.text || 'Untitled'}" removed.` });
-            // Also update dbTasks state to reflect the deletion
+            toast({
+                title: 'Task Deleted',
+                description: `Task "${taskToDelete.text || 'Untitled'}" removed.`,
+            });
             setDbTasks((prevDbTasks) => prevDbTasks.filter((t) => t.id !== taskId));
         } catch (error: any) {
             console.error('Failed to delete task from DB:', error);
-            toast({ title: 'Error Deleting Task', description: error.message, variant: 'destructive' });
-            // Revert UI change if DB operation failed
-            setUiTasks(uiTasks); // Revert to previous uiTasks state
-            // Potentially re-focus the task that failed to delete if focus logic is intricate
+            toast({
+                title: 'Error Deleting Task',
+                description: error.message,
+                variant: 'destructive',
+            });
+            setUiTasks(uiTasks);
             if (taskIndex !== -1 && uiTasks[taskIndex]) {
                 setFocusedTaskId(uiTasks[taskIndex].id);
             }
@@ -270,67 +313,77 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
     };
 
     const handleIndentTask = (taskId: string) => {
-        setUiTasks((prevTasks) =>
-            prevTasks.map((task) => {
-                if (task.id === taskId) {
-                    // Basic indentation: Allow indenting if not a day break and if previous task is not a daybreak
-                    // and if its new indentation level is not more than 1 greater than the previous task's level
-                    // or if it's the first task (cannot indent further as no parent)
-                    const taskIndex = prevTasks.findIndex((t) => t.id === taskId);
-                    if (taskIndex > 0) {
-                        // Cannot indent the very first task this way
-                        const prevTask = prevTasks[taskIndex - 1];
-                        // Can only indent if previous task allows children (not a daybreak)
-                        // and new indent level isn't too far from previous task's indent.
-                        if (!task.isDayBreak && !prevTask.isDayBreak && task.indentationLevel <= prevTask.indentationLevel) {
-                            return { ...task, indentationLevel: prevTask.indentationLevel + 1 };
-                        }
-                        // A more robust check: new indent level should be at most prevTask.indentationLevel + 1
-                        // And a task cannot indent beyond being a child of the immediate previous task
-                        // For V1, simple increment if possible:
-                        // if (task.indentationLevel < (prevTask.indentationLevel + (prevTask.isDayBreak ? 0 : 1) ) ) {
-                        //    return { ...task, indentationLevel: task.indentationLevel + 1 };
-                        // }
-                    }
-                    // Max indentation depth (e.g., 5 levels) could also be added.
-                    // For now, simple +1 if possible relative to previous non-daybreak task, else no change.
-                    // This logic for indenting relative to previous needs careful thought for all edge cases.
-                    // A simpler V1 indent: just increase if taskIndex > 0 and prevTask isn't a daybreak.
-                    // The parent linking in autoSave will use this indentation level.
-                    if (taskIndex > 0 && !prevTasks[taskIndex - 1].isDayBreak && !task.isDayBreak) {
-                        // Allow indenting only if the new level isn't more than 1 greater than the prev non-daybreak task at same or lesser indent
-                        let potentialParentIndex = -1;
-                        for (let i = taskIndex - 1; i >= 0; i--) {
-                            if (prevTasks[i].indentationLevel < task.indentationLevel + 1 && !prevTasks[i].isDayBreak) {
-                                potentialParentIndex = i;
-                                break;
-                            }
-                            if (prevTasks[i].indentationLevel < task.indentationLevel && !prevTasks[i].isDayBreak) break; // Stop if we go too far up
-                        }
-                        if (potentialParentIndex !== -1 && task.indentationLevel <= prevTasks[potentialParentIndex].indentationLevel) {
-                            return { ...task, indentationLevel: prevTasks[potentialParentIndex].indentationLevel + 1 };
-                        } else if (potentialParentIndex === -1 && taskIndex > 0 && !prevTasks[taskIndex - 1].isDayBreak) {
-                            // Indent under immediate previous if it's shallower
-                            if (task.indentationLevel <= prevTasks[taskIndex - 1].indentationLevel) {
-                                return { ...task, indentationLevel: prevTasks[taskIndex - 1].indentationLevel + 1 };
-                            }
-                        }
-                    }
+        setUiTasks((prevTasks) => {
+            const taskIndex = prevTasks.findIndex((t) => t.id === taskId);
+            if (taskIndex === -1) return prevTasks;
+
+            const targetTask = prevTasks[taskIndex];
+            const originalLevel = targetTask.indentationLevel;
+
+            // Constraint 1: Is it the first task?
+            if (taskIndex === 0) return prevTasks;
+
+            const prevTask = prevTasks[taskIndex - 1];
+
+            // Constraint 2: Is the preceding task a "Day Break"?
+            if (prevTask.isDayBreak) return prevTasks;
+
+            // Constraint 3: Is it already over-indented?
+            if (originalLevel >= prevTask.indentationLevel + 1) {
+                return prevTasks;
+            }
+
+            // Identify the branch
+            const branchIndices: number[] = [taskIndex];
+            for (let i = taskIndex + 1; i < prevTasks.length; i++) {
+                if (prevTasks[i].indentationLevel <= originalLevel) {
+                    break; // Stop when we hit a sibling or an outdented task
                 }
-                return task;
-            })
-        );
+                branchIndices.push(i);
+            }
+
+            // Apply the transformation
+            const newUiTasks = [...prevTasks]; // Create a mutable copy
+            branchIndices.forEach((idx) => {
+                const task = newUiTasks[idx];
+                newUiTasks[idx] = { ...task, indentationLevel: task.indentationLevel + 1 };
+            });
+
+            return newUiTasks;
+        });
         handleImmediateAutoSave();
     };
 
     const handleUnindentTask = (taskId: string) => {
-        setUiTasks((prevTasks) =>
-            prevTasks.map((task) =>
-                task.id === taskId && !task.isDayBreak // Cannot unindent day breaks with this logic
-                    ? { ...task, indentationLevel: Math.max(0, task.indentationLevel - 1) }
-                    : task
-            )
-        );
+        setUiTasks((prevTasks) => {
+            const taskIndex = prevTasks.findIndex((t) => t.id === taskId);
+            if (taskIndex === -1) return prevTasks; // Task not found
+
+            const targetTask = prevTasks[taskIndex];
+            const originalLevel = targetTask.indentationLevel;
+
+            // Constraint: Check Root Level
+            if (originalLevel === 0) return prevTasks;
+
+            // Identify the branch
+            const branchIndices: number[] = [taskIndex];
+            for (let i = taskIndex + 1; i < prevTasks.length; i++) {
+                if (prevTasks[i].indentationLevel <= originalLevel) {
+                    break; // Stop when we hit a sibling or an outdented task
+                }
+                branchIndices.push(i);
+            }
+
+            // Apply the transformation
+            const newUiTasks = [...prevTasks]; // Create a mutable copy
+            branchIndices.forEach((idx) => {
+                const task = newUiTasks[idx];
+                // Ensure level doesn't go below 0
+                newUiTasks[idx] = { ...task, indentationLevel: Math.max(0, task.indentationLevel - 1) };
+            });
+
+            return newUiTasks;
+        });
         handleImmediateAutoSave();
     };
 
@@ -339,21 +392,80 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
     };
 
     const handleBlurTask = (taskId: string) => {
-        // If the blurred task is the currently focused one, clear focus.
-        // This helps avoid issues if a task is deleted while it (conceptually) has focus.
-        // if (focusedTaskId === taskId) {
-        //   setFocusedTaskId(null);
-        // }
-        // Trigger save on blur of a task item's input.
-        // autoSave(); // This will be called by the Input's onBlur via handleImmediateAutoSave in some fashion
+        // Currently no-op; hook if you want blur-based saves
+    };
+
+    const handleArrowUp = (taskId: string, cursorPos: number) => {
+        const currentIndex = uiTasks.findIndex((t) => t.id === taskId);
+        if (currentIndex > 0) {
+            const currentTask = uiTasks[currentIndex];
+            const visualPos = currentTask.indentationLevel * INDENT_CHAR_EQUIVALENT + cursorPos;
+            setDesiredVisualCursorPos(visualPos);
+            setCursorEntryDirection('up');
+
+            const prevTaskId = uiTasks[currentIndex - 1].id;
+            setFocusedTaskId(prevTaskId); // Switch focus
+        }
+    };
+
+    const handleArrowDown = (taskId: string, cursorPos: number) => {
+        const currentIndex = uiTasks.findIndex((t) => t.id === taskId);
+        if (currentIndex < uiTasks.length - 1) {
+            const currentTask = uiTasks[currentIndex];
+            const visualPos = currentTask.indentationLevel * INDENT_CHAR_EQUIVALENT + cursorPos;
+            setDesiredVisualCursorPos(visualPos);
+            setCursorEntryDirection('down');
+
+            const nextTaskId = uiTasks[currentIndex + 1].id;
+            setFocusedTaskId(nextTaskId); // Switch focus
+        }
+    };
+
+    const handleFocusClearCursorPos = () => {
+        setDesiredVisualCursorPos(null);
+        setCursorEntryDirection(null);
+    };
+
+    const handleArrowLeftAtStart = (taskId: string) => {
+        const currentIndex = uiTasks.findIndex((t) => t.id === taskId);
+        if (currentIndex > 0) {
+            // Move to the end of the previous task
+            const prevTask = uiTasks[currentIndex - 1];
+            const visualPos = prevTask.indentationLevel * INDENT_CHAR_EQUIVALENT + prevTask.text.length;
+            setDesiredVisualCursorPos(visualPos);
+            setCursorEntryDirection('up');
+            setFocusedTaskId(prevTask.id);
+        }
+    };
+
+    const handleArrowRightAtEnd = (taskId: string) => {
+        const currentIndex = uiTasks.findIndex((t) => t.id === taskId);
+        if (currentIndex < uiTasks.length - 1) {
+            // Move to the start of the next task
+            const nextTask = uiTasks[currentIndex + 1];
+            const visualPos = nextTask.indentationLevel * INDENT_CHAR_EQUIVALENT;
+            setDesiredVisualCursorPos(visualPos);
+            setCursorEntryDirection('down');
+            setFocusedTaskId(nextTask.id);
+        }
+    };
+
+    const handleBackspaceEmpty = (taskId: string) => {
+        // Deleting a task will also handle moving focus
+        handleDeleteTask(taskId);
     };
 
     const handleAddNewTask = () => {
-        console.log('Add new task to end');
-        const newUiTask: UITask = { id: id(), text: '', indentationLevel: 0, isDayBreak: false };
+        const newUiTask: UITask = {
+            id: id(),
+            text: '',
+            indentationLevel: 0,
+            isDayBreak: false,
+        };
         setUiTasks((prevTasks) => [...prevTasks, newUiTask]);
-        setFocusedTaskId(newUiTask.id); // Focus the new task
-        // handleImmediateAutoSave(); // Save after adding
+        setFocusedTaskId(newUiTask.id);
+        setDesiredVisualCursorPos(0);
+        setCursorEntryDirection('down');
     };
 
     // --- Auto-Save Logic ---
@@ -389,26 +501,36 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
 
             // Link family member if creating or changing
             if (selectedFamilyMemberId) {
-                transactions.push(tx.taskSeries[seriesId].link({ familyMember: selectedFamilyMemberId }));
-                // Also ensure reverse link if familyMembers.taskSeries is defined (it is in our schema)
-                transactions.push(tx.familyMembers[selectedFamilyMemberId].link({ taskSeries: seriesId }));
+                transactions.push(
+                    tx.taskSeries[seriesId].link({
+                        familyMember: selectedFamilyMemberId,
+                    })
+                );
+                transactions.push(
+                    tx.familyMembers[selectedFamilyMemberId].link({
+                        taskSeries: seriesId,
+                    })
+                );
             }
 
             // Link scheduled activity
             if (linkedScheduledActivityId) {
-                transactions.push(tx.taskSeries[seriesId].link({ scheduledActivity: linkedScheduledActivityId }));
-                // Add reverse link if chores.taskSeries is defined
-                transactions.push(tx.chores[linkedScheduledActivityId].link({ taskSeries: seriesId }));
-            } else {
-                // TODO: Handle unlinking if a scheduled activity was previously linked and now is "None"
-                // This requires knowing the previous state or fetching the existing link.
-                // For V1 auto-save, we might simplify and only handle linking for now.
+                transactions.push(
+                    tx.taskSeries[seriesId].link({
+                        scheduledActivity: linkedScheduledActivityId,
+                    })
+                );
+                transactions.push(
+                    tx.chores[linkedScheduledActivityId].link({
+                        taskSeries: seriesId,
+                    })
+                );
             }
 
-            // --- Task Processing: Create or Update tasks based on uiTasks ---
-            // Deletions are now handled directly by handleDeleteTask.
-            // This section ensures tasks in uiTasks are present and up-to-date in the DB.
-            const parentCandidates: Array<{ id: string; indentationLevel: number }> = [];
+            const parentCandidates: Array<{
+                id: string;
+                indentationLevel: number;
+            }> = [];
             const currentDbTaskIds = new Set(dbTasks.map((dbt) => dbt.id));
             let previousTaskForPrerequisite: UITask | null = null;
 
@@ -441,48 +563,63 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
 
                 if (parentId && oldParentId !== parentId) {
                     if (oldParentId) {
-                        // Unlink old parent if it changed
-                        transactions.push(tx.tasks[uiTask.id].unlink({ parentTask: oldParentId }));
+                        transactions.push(
+                            tx.tasks[uiTask.id].unlink({
+                                parentTask: oldParentId,
+                            })
+                        );
                     }
                     transactions.push(tx.tasks[uiTask.id].link({ parentTask: parentId }));
                 } else if (!parentId && oldParentId) {
-                    // Parent removed
                     transactions.push(tx.tasks[uiTask.id].unlink({ parentTask: oldParentId }));
                 }
 
                 // Handle prerequisites link
                 if (!uiTask.isDayBreak && !parentId) {
-                    // Only top-level tasks get explicit sequential prerequisites for now
                     const oldPrerequisites = originalDbTask?.prerequisites?.map((p) => p.id) || [];
                     if (previousTaskForPrerequisite) {
-                        // Link to the new prerequisite if it's different or wasn't there
                         if (!oldPrerequisites.includes(previousTaskForPrerequisite.id)) {
-                            transactions.push(tx.tasks[uiTask.id].link({ prerequisites: previousTaskForPrerequisite.id }));
+                            transactions.push(
+                                tx.tasks[uiTask.id].link({
+                                    prerequisites: previousTaskForPrerequisite.id,
+                                })
+                            );
                         }
                         // Unlink any old prerequisites that are not the current `previousTaskForPrerequisite`
                         oldPrerequisites.forEach((oldPrereqId) => {
                             if (oldPrereqId !== previousTaskForPrerequisite!.id) {
-                                // Safe due to previousTaskForPrerequisite check
-                                transactions.push(tx.tasks[uiTask.id].unlink({ prerequisites: oldPrereqId }));
+                                transactions.push(
+                                    tx.tasks[uiTask.id].unlink({
+                                        prerequisites: oldPrereqId,
+                                    })
+                                );
                             }
                         });
                     } else {
                         // This is the first non-day-break, non-child task
                         oldPrerequisites.forEach((oldPrereqId) => {
-                            // Unlink all old prerequisites
-                            transactions.push(tx.tasks[uiTask.id].unlink({ prerequisites: oldPrereqId }));
+                            transactions.push(
+                                tx.tasks[uiTask.id].unlink({
+                                    prerequisites: oldPrereqId,
+                                })
+                            );
                         });
                     }
                 } else if (originalDbTask?.prerequisites && originalDbTask.prerequisites.length > 0) {
-                    // If it's a day break or child task, it shouldn't have direct prerequisites from this logic
-                    // so unlink any it might have had.
-                    originalDbTask.prerequisites.forEach((oldPrereqId) => {
-                        transactions.push(tx.tasks[uiTask.id].unlink({ prerequisites: oldPrereqId.id }));
+                    originalDbTask.prerequisites.forEach((oldPrereq) => {
+                        transactions.push(
+                            tx.tasks[uiTask.id].unlink({
+                                prerequisites: oldPrereq.id,
+                            })
+                        );
                     });
                 }
 
                 if (!uiTask.isDayBreak && uiTask.text.trim() !== '') {
-                    parentCandidates.push({ id: uiTask.id, indentationLevel: uiTask.indentationLevel });
+                    parentCandidates.push({
+                        id: uiTask.id,
+                        indentationLevel: uiTask.indentationLevel,
+                    });
                     if (!parentId) {
                         // Update predecessor for next top-level task
                         previousTaskForPrerequisite = uiTask;
@@ -507,7 +644,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                 // After successful save, update dbTasks to reflect the current state
 
                 const finalParentLookups: Record<string, string | null> = {};
-                const parentCandidatesStack: Array<{ id: string; indentationLevel: number }> = [];
+                const parentCandidatesStack: Array<{
+                    id: string;
+                    indentationLevel: number;
+                }> = [];
                 uiTasks.forEach((uiTask) => {
                     let determinedParentId: string | null = null;
                     while (
@@ -524,7 +664,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                     }
                     finalParentLookups[uiTask.id] = determinedParentId;
                     if (!uiTask.isDayBreak && uiTask.text.trim() !== '') {
-                        parentCandidatesStack.push({ id: uiTask.id, indentationLevel: uiTask.indentationLevel });
+                        parentCandidatesStack.push({
+                            id: uiTask.id,
+                            indentationLevel: uiTask.indentationLevel,
+                        });
                     }
                 });
 
@@ -555,7 +698,16 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                         specificTime: originalDbTask?.specificTime || '',
                         subsequentTasks: originalDbTask?.subsequentTasks || [],
                         attachments: originalDbTask?.attachments || [],
-                        taskSeries: originalDbTask?.taskSeries || (seriesId ? [{ id: seriesId, $type: 'taskSeries' }] : []),
+                        taskSeries:
+                            originalDbTask?.taskSeries ||
+                            (seriesId
+                                ? [
+                                      {
+                                          id: seriesId,
+                                          $type: 'taskSeries',
+                                      },
+                                  ]
+                                : []),
                     };
                 });
                 setDbTasks(newDbTasks);
@@ -581,13 +733,12 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
             breakDelayUnit,
             selectedFamilyMemberId,
             linkedScheduledActivityId,
-            // taskListText, // REMOVE this from autoSave dependencies for now
-            uiTasks, // ADD uiTasks as a dependency
-            // dbTasks, // ADD dbTasks as a dependency
+            uiTasks,
             isEditing,
             initialSeriesId,
             db,
             toast,
+            dbTasks,
         ]
     );
 
@@ -602,9 +753,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                             familyMember: {},
                             scheduledActivity: {},
                             tasks: {
-                                // Fetch linked tasks
-                                parentTask: {}, // Also fetch parentTask link if needed for initial structuring
-                                // subsequentTasks: {} // And subsequentTasks (prerequisites)
+                                parentTask: {},
                             },
                         },
                     });
@@ -626,23 +775,30 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                         setDbTasks(series.tasks || []);
                         // Transform DB tasks to UITask structure for the editor
                         const initialUiTasks: UITask[] = (series.tasks || [])
-                            .sort((a, b) => (a.order || 0) - (b.order || 0))
-                            .map((dbTask) => ({
+                            .sort((a: Task, b: Task) => (a.order || 0) - (b.order || 0))
+                            .map((dbTask: Task) => ({
                                 id: dbTask.id,
                                 text: dbTask.text || '',
-                                indentationLevel: 0, // TODO: Determine initial indentation from parentTask links
+                                indentationLevel: 0,
                                 isDayBreak: dbTask.isDayBreak || false,
                             }));
                         setUiTasks(initialUiTasks);
 
-                        setIsEditing(true); // Ensure isEditing is true
+                        setIsEditing(true);
                     } else {
-                        toast({ title: 'Error', description: `Task Series with ID ${initialSeriesId} not found.`, variant: 'destructive' });
-                        // Optionally call onClose or navigate away
+                        toast({
+                            title: 'Error',
+                            description: `Task Series with ID ${initialSeriesId} not found.`,
+                            variant: 'destructive',
+                        });
                     }
                 } catch (error: any) {
                     console.error('Failed to fetch task series:', error);
-                    toast({ title: 'Error fetching series', description: error.message, variant: 'destructive' });
+                    toast({
+                        title: 'Error fetching series',
+                        description: error.message,
+                        variant: 'destructive',
+                    });
                 }
             };
             fetchSeries();
@@ -654,9 +810,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
             // Trigger initial save for a new series
             autoSave();
         }
-    }, [initialSeriesId, initialFamilyMemberId, db, autoSave]);
+    }, [initialSeriesId, initialFamilyMemberId, db, autoSave, toast]);
 
-    // Debounced auto-save for text inputs (could be more sophisticated with a proper debounce hook)
+    // Debounced auto-save for text inputs
     useEffect(() => {
         const handler = setTimeout(() => {
             if (isEditing || (selectedFamilyMemberId && taskSeriesName)) {
@@ -729,7 +885,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                         <SelectValue placeholder="Select a family member" />
                     </SelectTrigger>
                     <SelectContent>
-                        {familyMembers.map((member) => (
+                        {familyMembers.map((member: any) => (
                             <SelectItem key={member.id} value={member.id}>
                                 {member.name}
                             </SelectItem>
@@ -777,14 +933,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="none">None</SelectItem>
-                                {availableChores.map((chore) => (
+                                {availableChores.map((chore: any) => (
                                     <SelectItem key={chore.id} value={chore.id}>
                                         {chore.title}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
-                        {/* TODO: Display selected activity's pattern */}
                         {!linkedScheduledActivityId && selectedFamilyMemberId && (
                             <p className="text-xs text-muted-foreground mt-1">Tasks will default to daily schedule (Mon-Fri).</p>
                         )}
@@ -840,8 +995,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                         </Popover>
                     </div>
                     <div className="flex items-center space-x-2 pt-6">
-                        {' '}
-                        {/* Adjusted for alignment */}
                         <Checkbox
                             id="work-ahead"
                             checked={workAheadAllowed}
@@ -863,7 +1016,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                         value={breakType}
                         onValueChange={(value: 'immediate' | 'specificDate' | 'delay') => {
                             setBreakType(value);
-                            // Reset other break fields when type changes
                             if (value !== 'specificDate') setBreakStartDate(undefined);
                             if (value !== 'delay') {
                                 setBreakDelayValue('');
@@ -905,7 +1057,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                                                 setBreakStartDate(date);
                                                 handleImmediateAutoSave();
                                             }}
-                                            disabled={(date) => targetEndDate && date < targetEndDate} // Optionally disable dates before targetEndDate
+                                            disabled={(date) => targetEndDate && date < targetEndDate}
                                             initialFocus
                                         />
                                     </PopoverContent>
@@ -926,7 +1078,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                                     onChange={(e) => {
                                         setBreakDelayValue(e.target.value);
                                     }}
-                                    onBlur={handleImmediateAutoSave} // Save on blur for number input
+                                    onBlur={handleImmediateAutoSave}
                                     className="w-20"
                                     min="0"
                                 />
@@ -965,12 +1117,12 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                         <Label htmlFor="task-list-editor">Tasks</Label>
                         {/* Container for Task List with a border */}
                         <div className="task-list-container border rounded-md p-2 min-h-[200px] space-y-1 bg-background">
-                            {uiTasks.map((task, index) => (
+                            {uiTasks.map((task) => (
                                 <TaskItem
                                     key={task.id}
                                     task={task}
                                     onTextChange={handleTaskTextChange}
-                                    onPressEnter={handleCreateNewTaskAfter}
+                                    onPressEnter={handlePressEnter}
                                     onPaste={handlePasteTasks}
                                     onDelete={handleDeleteTask}
                                     onIndent={handleIndentTask}
@@ -978,6 +1130,15 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                                     onFocus={handleFocusTask}
                                     onBlur={handleBlurTask}
                                     isFocused={focusedTaskId === task.id}
+                                    onArrowUp={handleArrowUp}
+                                    onArrowDown={handleArrowDown}
+                                    onBackspaceEmpty={handleBackspaceEmpty}
+                                    desiredVisualCursorPos={focusedTaskId === task.id ? desiredVisualCursorPos : null}
+                                    indentCharEquivalent={INDENT_CHAR_EQUIVALENT}
+                                    onFocusClearCursorPos={handleFocusClearCursorPos}
+                                    cursorEntryDirection={focusedTaskId === task.id ? cursorEntryDirection : null}
+                                    onArrowLeftAtStart={handleArrowLeftAtStart}
+                                    onArrowRightAtEnd={handleArrowRightAtEnd}
                                 />
                             ))}
                             <Button variant="outline" size="sm" onClick={handleAddNewTask} className="mt-2">
