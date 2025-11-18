@@ -19,8 +19,6 @@ import { useToast } from '@/components/ui/use-toast';
 import type { AppSchema } from '@/instant.schema';
 import TaskItem from './TaskItem';
 
-const INDENT_CHAR_EQUIVALENT = 4; // Assume 1 indent level = 4 characters visually
-
 // Types based on V1 schema
 type FamilyMember = AppSchema['entities']['familyMembers'];
 type Chore = AppSchema['entities']['chores'];
@@ -86,8 +84,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
     const [uiTasks, setUiTasks] = useState<UITask[]>([]);
     const [dbTasks, setDbTasks] = useState<Task[]>([]);
     const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
-    const [desiredVisualCursorPos, setDesiredVisualCursorPos] = useState<number | null>(null);
-    const [cursorEntryDirection, setCursorEntryDirection] = useState<'up' | 'down' | null>(null); // NEW
+    const [desiredVisualCursorPos, setDesiredVisualCursorPos] = useState<number | 'start' | 'end' | null>(null);
+    const [cursorEntryDirection, setCursorEntryDirection] = useState<'up' | 'down' | null>(null);
 
     if (!db) {
         //fixes bug where useQuery() was running before hydration completed, or before the component tree could use the db context correctly, causing useQuery to come up empty
@@ -197,7 +195,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                 ...prevTasks.slice(currentIndex), // Keep the original task
             ]);
             setFocusedTaskId(currentTaskId);
-            setDesiredVisualCursorPos(null);
+            setDesiredVisualCursorPos('start');
             setCursorEntryDirection(null);
         } else {
             // Case 2: Enter in the middle or at the end
@@ -219,9 +217,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
             ]);
 
             setFocusedTaskId(newUiTask.id);
-            // Set desired visual pos to the start of the new task (accounting for indent)
-            const newVisualPos = newUiTask.indentationLevel * INDENT_CHAR_EQUIVALENT;
-            setDesiredVisualCursorPos(newVisualPos);
+            // Set desired visual pos to the start of the new task
+            setDesiredVisualCursorPos('start');
             setCursorEntryDirection('down');
         }
     };
@@ -429,8 +426,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
         if (currentIndex > 0) {
             // Move to the end of the previous task
             const prevTask = uiTasks[currentIndex - 1];
-            const visualPos = prevTask.indentationLevel * INDENT_CHAR_EQUIVALENT + prevTask.text.length;
-            setDesiredVisualCursorPos(visualPos);
+            setDesiredVisualCursorPos('end');
             setCursorEntryDirection('up');
             setFocusedTaskId(prevTask.id);
         }
@@ -441,8 +437,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
         if (currentIndex < uiTasks.length - 1) {
             // Move to the start of the next task
             const nextTask = uiTasks[currentIndex + 1];
-            const visualPos = nextTask.indentationLevel * INDENT_CHAR_EQUIVALENT;
-            setDesiredVisualCursorPos(visualPos);
+            setDesiredVisualCursorPos('start');
             setCursorEntryDirection('down');
             setFocusedTaskId(nextTask.id);
         }
@@ -462,7 +457,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
         };
         setUiTasks((prevTasks) => [...prevTasks, newUiTask]);
         setFocusedTaskId(newUiTask.id);
-        setDesiredVisualCursorPos(0);
+        setDesiredVisualCursorPos('start');
         setCursorEntryDirection('down');
     };
 
@@ -1132,7 +1127,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                                     onArrowDown={handleArrowDown}
                                     onBackspaceEmpty={handleBackspaceEmpty}
                                     desiredVisualCursorPos={focusedTaskId === task.id ? desiredVisualCursorPos : null}
-                                    indentCharEquivalent={INDENT_CHAR_EQUIVALENT}
                                     onFocusClearCursorPos={handleFocusClearCursorPos}
                                     cursorEntryDirection={focusedTaskId === task.id ? cursorEntryDirection : null}
                                     onArrowLeftAtStart={handleArrowLeftAtStart}

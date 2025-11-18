@@ -30,8 +30,7 @@ interface TaskItemProps {
     onArrowUp: (taskId: string, globalCaretX: number) => void;
     onArrowDown: (taskId: string, cursorPos: number, caretX: number) => void;
     onBackspaceEmpty: (taskId: string) => void;
-    desiredVisualCursorPos: number | null;
-    indentCharEquivalent: number;
+    desiredVisualCursorPos: number | 'start' | 'end' | null;
     onFocusClearCursorPos: () => void;
     cursorEntryDirection?: 'up' | 'down' | null; // NEW
     onArrowLeftAtStart: (taskId: string) => void;
@@ -281,8 +280,14 @@ const TaskItem: React.FC<TaskItemProps> = ({
             if (desiredVisualCursorPos !== null) {
                 let targetPos: number;
 
-                if (cursorEntryDirection === 'up') {
-                    // Use pixel-based logic for 'up'
+                // FIX: Handle 'start' and 'end' magic strings
+                if (desiredVisualCursorPos === 'start') {
+                    targetPos = 0;
+                } else if (desiredVisualCursorPos === 'end') {
+                    targetPos = task.text.length;
+
+                    // FIX: Handle the pixel number case
+                } else if (typeof desiredVisualCursorPos === 'number') {
                     let localX = desiredVisualCursorPos;
                     if (containerRef.current) {
                         const containerStyles = window.getComputedStyle(containerRef.current);
@@ -291,19 +296,13 @@ const TaskItem: React.FC<TaskItemProps> = ({
                     }
                     if (localX < 0) localX = 0;
 
-                    // FIX: Use new helper to find char on LAST line
-                    targetPos = getCharIndexOnLastLineAtX(textarea, localX);
-                } else if (cursorEntryDirection === 'down') {
-                    // NEW: global X -> local X for this task -> closest char on first visual line
-                    let localX = desiredVisualCursorPos;
-                    if (containerRef.current) {
-                        const containerStyles = window.getComputedStyle(containerRef.current);
-                        const paddingLeftPx = parseFloat(containerStyles.paddingLeft) || 0;
-                        localX = desiredVisualCursorPos - paddingLeftPx;
+                    if (cursorEntryDirection === 'up') {
+                        // Use the helper from the previous fix
+                        targetPos = getCharIndexOnLastLineAtX(textarea, localX);
+                    } else {
+                        // Default to 'down' logic (first line)
+                        targetPos = getCharIndexOnFirstLineAtX(textarea, localX);
                     }
-                    if (localX < 0) localX = 0;
-
-                    targetPos = getCharIndexOnFirstLineAtX(textarea, localX);
                 } else {
                     // Fallback
                     targetPos = 0;
@@ -315,7 +314,7 @@ const TaskItem: React.FC<TaskItemProps> = ({
                 onFocusClearCursorPos();
             }
         }
-    }, [isFocused, task.text, task.indentationLevel, desiredVisualCursorPos, indentCharEquivalent, cursorEntryDirection, onFocusClearCursorPos]);
+    }, [isFocused, task.text, task.indentationLevel, desiredVisualCursorPos, cursorEntryDirection, onFocusClearCursorPos]);
 
     // Auto-resize textarea height
     useLayoutEffect(() => {
