@@ -4,7 +4,8 @@
 import React, { useRef, useEffect, useLayoutEffect } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { MoreVertical, Trash2, CornerDownLeft, CornerUpLeft } from 'lucide-react'; // Example icons
+import { MoreVertical, Trash2, CornerDownLeft, CornerUpLeft } from 'lucide-react';
+import { cn } from '@/lib/utils'; // +++ Import cn
 
 // Re-using UITask from TaskSeriesEditor.tsx, or define locally/import from shared types
 interface UITask {
@@ -23,16 +24,16 @@ interface TaskItemProps {
     onDelete: (taskId: string) => void;
     onIndent: (taskId: string) => void;
     onUnindent: (taskId: string) => void;
-    onFocus: (taskId: string) => void; // To manage which task is "active"
+    onFocus: (taskId: string) => void;
     onBlur: (taskId: string) => void;
-    isFocused?: boolean; // Optional: if parent manages focus state
+    isFocused?: boolean;
     // Add other callbacks as needed, e.g., for opening metadata popover
     onArrowUp: (taskId: string, globalCaretX: number) => void;
     onArrowDown: (taskId: string, cursorPos: number, caretX: number) => void;
     onBackspaceEmpty: (taskId: string) => void;
     desiredVisualCursorPos: number | 'start' | 'end' | null;
     onFocusClearCursorPos: () => void;
-    cursorEntryDirection?: 'up' | 'down' | null; // NEW
+    cursorEntryDirection?: 'up' | 'down' | null;
     onArrowLeftAtStart: (taskId: string) => void;
     onArrowRightAtEnd: (taskId: string) => void;
 }
@@ -68,12 +69,19 @@ function getVisualLineInfo(textarea: HTMLTextAreaElement, cursorPos: number): { 
     mirror.style.overflowWrap = 'break-word';
     mirror.style.wordBreak = 'break-word';
     mirror.style.boxSizing = styles.boxSizing;
+    // +++ Add text-align from style +++
+    mirror.style.textAlign = styles.textAlign;
 
     const text = textarea.value;
     const lineHeight = parseFloat(styles.lineHeight) || 1;
 
     if (text.length === 0) {
-        return { currentLine: 0, totalLines: 1, caretLeft: 0 };
+        // +++ Adjust caretLeft for centered text +++
+        let caretLeft = 0;
+        if (styles.textAlign === 'center') {
+            caretLeft = parseFloat(styles.width) / 2;
+        }
+        return { currentLine: 0, totalLines: 1, caretLeft: caretLeft };
     }
 
     const textBefore = text.substring(0, cursorPos);
@@ -253,7 +261,6 @@ const TaskItem: React.FC<TaskItemProps> = ({
     onArrowDown,
     onBackspaceEmpty,
     desiredVisualCursorPos,
-    indentCharEquivalent,
     onFocusClearCursorPos,
     cursorEntryDirection,
     onArrowLeftAtStart,
@@ -397,7 +404,8 @@ const TaskItem: React.FC<TaskItemProps> = ({
                 // Allow default behavior if not at end
                 break;
             case 'Backspace':
-                if (input.value === '') {
+                if ((input.value === '' || input.value === '-') && textLength <= 1) {
+                    // Check if empty or just day break
                     event.preventDefault();
                     onBackspaceEmpty(task.id);
                 }
@@ -414,23 +422,14 @@ const TaskItem: React.FC<TaskItemProps> = ({
         onPaste(task.id, pastedText, textareaRef.current?.value || task.text);
     };
 
-    if (task.isDayBreak) {
-        return (
-            <div
-                className="flex items-center py-2 text-muted-foreground"
-                style={{ paddingLeft: `${task.indentationLevel * 2}rem` }} // Basic indentation
-            >
-                <span className="w-full border-t border-dashed border-gray-400 text-center text-xs">~ Day Break ~</span>
-                {/* TODO: Add delete button for day break? */}
-            </div>
-        );
-    }
+    // --- REMOVED: Special day break rendering ---
+    // if (task.isDayBreak) { ... }
 
     return (
         <>
             <div
                 ref={containerRef}
-                className="task-item flex items-center group py-0.5" // group for showing icons on hover
+                className="task-item flex items-start group py-0.5" // items-start to align with date
                 style={{ paddingLeft: `${task.indentationLevel * 2}rem` }} // Basic indentation
                 onFocus={() => onFocus(task.id)} // Might bubble from input
                 onBlurCapture={() => onBlur(task.id)} // Might bubble from input
@@ -462,9 +461,15 @@ const TaskItem: React.FC<TaskItemProps> = ({
                     }}
                     // onBlur={() => onBlur(task.id)} // Can cause issues if focus moves to another button within the item
                     placeholder="New task..."
-                    className="w-full border-none ring-0 ring-offset-0 shadow-none focus:ring-0 focus:ring-offset-0 focus:shadow-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:shadow-none focus-visible:outline-none bg-transparent p-0 h-auto min-h-0 leading-snug resize-none overflow-hidden"
+                    // +++ MODIFIED: Apply conditional styling for day break +++
+                    className={cn(
+                        'w-full border-none ring-0 ring-offset-0 shadow-none focus:ring-0 focus:ring-offset-0 focus:shadow-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:shadow-none focus-visible:outline-none bg-transparent p-0 h-auto min-h-0 leading-snug resize-none overflow-hidden',
+                        task.isDayBreak && 'text-center text-muted-foreground font-semibold'
+                    )}
+                    // +++ Day breaks should not be indented via Tab +++
+                    disabled={task.isDayBreak && event.key === 'Tab'}
                 />
-                <Button variant="ghost" size="icon" onClick={() => onDelete(task.id)} className="h-6 w-6 ml-1 opacity-0 group-hover:opacity-100">
+                <Button variant="ghost" size="icon" onClick={() => onDelete(task.id)} className="h-6 w-6 ml-1 opacity-0 group-hover:opacity-100 flex-shrink-0">
                     <Trash2 className="h-4 w-4" />
                 </Button>
             </div>

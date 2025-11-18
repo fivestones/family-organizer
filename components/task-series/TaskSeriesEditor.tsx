@@ -1,7 +1,7 @@
 // components/task-series/TaskSeriesEditor.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { init, tx, id } from '@instantdb/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, Info, AlertTriangle, PlusCircle, Trash2, Settings, Save, Edit, Check } from 'lucide-react';
-import { format, parseISO, isValid, startOfDay } from 'date-fns';
+import { format, parseISO, isValid, startOfDay, addDays, getDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import type { AppSchema } from '@/instant.schema';
@@ -48,9 +48,16 @@ interface UITask {
     id: string; // Stable ID for the UI session, maps to DB task ID
     text: string;
     indentationLevel: number;
-    isDayBreak: boolean;
+    isDayBreak: boolean; // This will be set based on text === '-'
     // parentId: string | null; // We'll determine this dynamically or store it
     // Add other UI-specific states if needed, like `isEditingText: boolean`
+}
+
+// +++ NEW: Interface for the processed task list with dates +++
+interface ProcessedTaskWithDate {
+    task: UITask;
+    date: Date | null;
+    dateString: string; // Formatted date string, or "" if it shares the previous date
 }
 
 interface TaskSeriesEditorProps {
@@ -59,6 +66,19 @@ interface TaskSeriesEditorProps {
     initialFamilyMemberId?: string | null; // Pre-select family member if provided
     onClose?: () => void; // Optional callback for when "Finished" or "Cancel" is clicked
 }
+
+// +++ NEW: Helper function to advance to the next weekday +++
+const getNextWeekday = (date: Date): Date => {
+    let nextDate = addDays(date, 1);
+    let dayOfWeek = getDay(nextDate); // 0=Sun, 1=Mon, ..., 6=Sat
+
+    // Advance to Monday if Saturday (6) or Sunday (0)
+    while (dayOfWeek === 0 || dayOfWeek === 6) {
+        nextDate = addDays(nextDate, 1);
+        dayOfWeek = getDay(nextDate);
+    }
+    return nextDate;
+};
 
 const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initialSeriesId = null, initialFamilyMemberId = null, onClose }) => {
     const db = propDb;
@@ -127,8 +147,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
 
         lines.forEach((line, index) => {
             const trimmedLine = line.trim();
-            const dayBreakChars = ['~', '-', '='];
-            const isDayBreak = dayBreakChars.includes(trimmedLine) && line.length === trimmedLine.length;
+            // +++ Use new day break logic +++
+            const isDayBreak = trimmedLine === '-';
 
             let indentationLevel = 0;
             const match = line.match(/^(\s*)/);
@@ -139,7 +159,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                 // indentationLevel = Math.floor((line.match(/^ */)?.[0]?.length || 0) / 2);
             }
 
-            const taskText = isDayBreak ? '' : line.substring(indentationLevel);
+            const taskText = isDayBreak ? '-' : line.substring(indentationLevel); // Keep the '-' text
             const taskId = id();
 
             let parentId: string | null = null;
@@ -169,7 +189,18 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
     };
 
     const handleTaskTextChange = (taskId: string, newText: string) => {
-        setUiTasks((prevTasks) => prevTasks.map((t) => (t.id === taskId ? { ...t, text: newText } : t)));
+        setUiTasks((prevTasks) =>
+            prevTasks.map((t) =>
+                t.id === taskId
+                    ? {
+                          ...t,
+                          text: newText,
+                          // +++ Update isDayBreak flag dynamically +++
+                          isDayBreak: newText.trim() === '-',
+                      }
+                    : t
+            )
+        );
         // Potentially debounce this or rely on a less frequent autoSave trigger for text changes within a task
         // For now, let's assume individual task input blurs or a main save button will handle persisting this.
         // If immediate auto-save on text change is needed, call handleImmediateAutoSave() here, possibly debounced.
@@ -181,8 +212,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
 
         const currentTask = uiTasks[currentIndex];
 
-        if (cursorPos === 0) {
-            // Case 1: Enter at the beginning
+        if (cursorPos === 0 && !currentTask.isDayBreak) {
+            // Don't split if pressing enter at start of day break
+            // Case 1: Enter at the beginning (and not a day break)
             const newUiTask: UITask = {
                 id: id(),
                 text: '',
@@ -194,24 +226,34 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                 newUiTask,
                 ...prevTasks.slice(currentIndex), // Keep the original task
             ]);
+            // Focus stays on the original task, which is now below the new one
             setFocusedTaskId(currentTaskId);
             setDesiredVisualCursorPos('start');
             setCursorEntryDirection(null);
         } else {
-            // Case 2: Enter in the middle or at the end
+            // Case 2: Enter in the middle, at the end, or on a day break line
             const textBefore = currentTaskText.substring(0, cursorPos);
             const textAfter = currentTaskText.substring(cursorPos);
 
             const newUiTask: UITask = {
                 id: id(),
                 text: textAfter,
-                indentationLevel: currentTask.indentationLevel,
-                isDayBreak: false,
+                // +++ Inherit indentation, unless it's a day break (set to 0) +++
+                indentationLevel: currentTask.isDayBreak ? 0 : currentTask.indentationLevel,
+                // +++ Check if new task is a day break +++
+                isDayBreak: textAfter.trim() === '-',
             };
 
             setUiTasks((prevTasks) => [
                 ...prevTasks.slice(0, currentIndex), // All tasks before
-                { ...currentTask, text: textBefore }, // The updated current task
+                {
+                    ...currentTask,
+                    text: textBefore,
+                    // +++ Update day break status of current task +++
+                    isDayBreak: textBefore.trim() === '-',
+                    // +++ Reset indentation if it just became a day break +++
+                    indentationLevel: textBefore.trim() === '-' ? 0 : currentTask.indentationLevel,
+                }, // The updated current task
                 newUiTask, // The new task
                 ...prevTasks.slice(currentIndex + 1), // All tasks after
             ]);
@@ -236,16 +278,28 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
         // Update the current task with the first line of pasted text
         // For simplicity, appending. Could also replace or insert at cursor.
         const updatedFirstTaskText = currentTaskTextBeforePaste + lines[0];
-        let newUiTasks = uiTasks.map((t) => (t.id === currentTaskId ? { ...t, text: updatedFirstTaskText } : t));
-
+        let newUiTasks = uiTasks.map((t) =>
+            t.id === currentTaskId
+                ? {
+                      ...t,
+                      text: updatedFirstTaskText,
+                      // +++ Update day break status +++
+                      isDayBreak: updatedFirstTaskText.trim() === '-',
+                      indentationLevel: updatedFirstTaskText.trim() === '-' ? 0 : t.indentationLevel,
+                  }
+                : t
+        );
         if (lines.length > 1) {
             const tasksToInsert: UITask[] = [];
             for (let i = 1; i < lines.length; i++) {
+                const isDayBreak = lines[i].trim() === '-';
                 const newTask: UITask = {
                     id: id(),
                     text: lines[i],
-                    indentationLevel: currentTask.indentationLevel, // Inherit indentation from current task
-                    isDayBreak: false, // Pasted lines are not day breaks by default
+                    // +++ Inherit indentation, unless it's a day break +++
+                    indentationLevel: isDayBreak ? 0 : currentTask.indentationLevel,
+                    // +++ Update day break status +++
+                    isDayBreak: isDayBreak,
                 };
                 tasksToInsert.push(newTask);
                 lastFocusedId = newTask.id; // Keep track of the last task added for focus
@@ -276,10 +330,12 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
         } else if (taskIndex > 0 && newUiTasks[taskIndex - 1]) {
             setFocusedTaskId(newUiTasks[taskIndex - 1].id);
             setCursorEntryDirection('up');
+            setDesiredVisualCursorPos('end'); // Move to end of previous task
         } else if (newUiTasks.length > 0) {
             // Deleted the first item, focus the new first item
             setFocusedTaskId(newUiTasks[0].id);
             setCursorEntryDirection('down');
+            setDesiredVisualCursorPos('start'); // Move to start of new first task
         }
 
         const transactions = [
@@ -320,9 +376,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
             // Constraint 1: Is it the first task?
             if (taskIndex === 0) return prevTasks;
 
+            // +++ NEW: Constraint: Is it a day break? +++
+            if (targetTask.isDayBreak) return prevTasks;
+
             const prevTask = prevTasks[taskIndex - 1];
 
             // Constraint 2: Is the preceding task a "Day Break"?
+            // +++ Update day break check +++
             if (prevTask.isDayBreak) return prevTasks;
 
             // Constraint 3: Is it already over-indented?
@@ -361,6 +421,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
 
             // Constraint: Check Root Level
             if (originalLevel === 0) return prevTasks;
+
+            // +++ NEW: Constraint: Is it a day break? (Shouldn't be indented, but good check) +++
+            if (targetTask.isDayBreak) return prevTasks;
 
             // Identify the branch
             const branchIndices: number[] = [taskIndex];
@@ -539,6 +602,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                 const taskData: Partial<Task> = {
                     text: uiTask.text,
                     order: index,
+                    // +++ Save day break status +++
                     isDayBreak: uiTask.isDayBreak,
                     updatedAt: new Date().toISOString(),
                 };
@@ -772,8 +836,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
                             .map((dbTask: Task) => ({
                                 id: dbTask.id,
                                 text: dbTask.text || '',
-                                indentationLevel: 0,
-                                isDayBreak: dbTask.isDayBreak || false,
+                                indentationLevel: 0, // TODO: Recalculate indentation on load
+                                // +++ Set day break status from DB field +++
+                                isDayBreak: dbTask.isDayBreak || (dbTask.text || '').trim() === '-',
                             }));
                         setUiTasks(initialUiTasks);
 
@@ -796,7 +861,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
             };
             fetchSeries();
         } else if (!initialSeriesId) {
-            // This is a new series. If a family member is pre-selected, set it.
+            // This is a new series.
+            // If a family member is pre-selected, set it.
             if (initialFamilyMemberId) {
                 setSelectedFamilyMemberId(initialFamilyMemberId);
             }
@@ -814,7 +880,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
             }
         }, 1500); // Auto-save after 1.5 seconds of inactivity
         return () => clearTimeout(handler);
-    }, [taskSeriesName, description, autoSave, isEditing, selectedFamilyMemberId]); // Added taskListText
+    }, [taskSeriesName, description, autoSave, isEditing, selectedFamilyMemberId]);
+    // Added taskListText
 
     // Auto-save immediately for other field types on change
     // For dropdowns, date pickers, checkboxes
@@ -851,6 +918,59 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
             toast({ title: 'Error Deleting', description: error.message, variant: 'destructive' });
         }
     };
+
+    // +++ NEW: Memoized hook to calculate schedule preview +++
+    const processedTasksWithDates = useMemo((): ProcessedTaskWithDate[] => {
+        const result: ProcessedTaskWithDate[] = [];
+        // Use today's real date, reset to midnight
+        const today = startOfDay(new Date());
+
+        // Find the first weekday >= today
+        let currentDate = today;
+        const startDayOfWeek = getDay(currentDate); // 0=Sun, 6=Sat
+        if (startDayOfWeek === 0 || startDayOfWeek === 6) {
+            currentDate = getNextWeekday(currentDate);
+        }
+
+        let lastDate: Date | null = null;
+
+        for (const task of uiTasks) {
+            // Check for day break logic first
+            if (task.isDayBreak) {
+                // This is a day break. Add it to the list to be rendered.
+                result.push({
+                    task: task,
+                    date: null, // Day breaks don't have a date themselves
+                    dateString: '', // They don't show a date
+                });
+
+                // Advance the date for the *next* task
+                currentDate = getNextWeekday(currentDate);
+                lastDate = null; // Reset lastDate so the next task shows the new date
+                continue; // Skip the rest of the logic for this day break task
+            }
+
+            // This is a visible, non-day-break task
+            let dateString = '';
+            // Show the date if it's the first task OR if the date has changed
+            if (lastDate === null || currentDate.getTime() !== lastDate.getTime()) {
+                dateString = format(currentDate, 'E, M/d'); // e.g., "Mon, 11/18"
+                lastDate = currentDate;
+            }
+
+            result.push({
+                task: task,
+                date: currentDate,
+                dateString: dateString,
+            });
+
+            // --- MODIFIED ---
+            // DO NOT advance the date here. Date only advances when a day break is hit.
+            // All tasks (root and child) will get the same date until the next break.
+        }
+
+        return result;
+    }, [uiTasks]);
 
     if (isLoadingFamilyMembers && !initialSeriesId) {
         // Only block for new series if members are loading
@@ -1100,42 +1220,68 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
             {/* Task List Editor Section */}
             <section className="space-y-4 p-4 border rounded-lg">
                 <h2 className="text-xl font-semibold">Task List</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="md:col-span-1 bg-muted p-2 rounded min-h-[200px]">
-                        <p className="text-sm font-semibold text-center">Dynamic Date Margin</p>
-                        <p className="text-xs text-center text-muted-foreground">(Preview of scheduled dates will appear here)</p>
-                        {/* TODO: Implement Dynamic Date Margin display */}
-                    </div>
-                    <div className="md:col-span-2">
+                {/* +++ MODIFIED: Use full width for the task list area +++ */}
+                <div className="grid grid-cols-1">
+                    {/* +++ REMOVED: md:col-span-1 date margin div +++ */}
+                    {/* +++ MODIFIED: md:col-span-2 -> w-full +++ */}
+                    <div className="w-full">
                         <Label htmlFor="task-list-editor">Tasks</Label>
                         {/* Container for Task List with a border */}
                         <div className="task-list-container border rounded-md p-2 min-h-[200px] space-y-1 bg-background">
-                            {uiTasks.map((task) => (
-                                <TaskItem
-                                    key={task.id}
-                                    task={task}
-                                    onTextChange={handleTaskTextChange}
-                                    onPressEnter={handlePressEnter}
-                                    onPaste={handlePasteTasks}
-                                    onDelete={handleDeleteTask}
-                                    onIndent={handleIndentTask}
-                                    onUnindent={handleUnindentTask}
-                                    onFocus={handleFocusTask}
-                                    onBlur={handleBlurTask}
-                                    isFocused={focusedTaskId === task.id}
-                                    onArrowUp={handleArrowUp}
-                                    onArrowDown={handleArrowDown}
-                                    onBackspaceEmpty={handleBackspaceEmpty}
-                                    desiredVisualCursorPos={focusedTaskId === task.id ? desiredVisualCursorPos : null}
-                                    onFocusClearCursorPos={handleFocusClearCursorPos}
-                                    cursorEntryDirection={focusedTaskId === task.id ? cursorEntryDirection : null}
-                                    onArrowLeftAtStart={handleArrowLeftAtStart}
-                                    onArrowRightAtEnd={handleArrowRightAtEnd}
-                                />
+                            {/* +++ NEW: Render loop using processedTasksWithDates +++ */}
+                            {processedTasksWithDates.map(({ task, date, dateString }) => (
+                                <div key={task.id} className="flex items-start group">
+                                    {/* --- Date Margin Column --- */}
+                                    <div
+                                        className={cn(
+                                            'date-margin-item w-20 flex-shrink-0 text-right pr-3 pt-1.5 text-xs font-medium', // Sizing & basic style
+                                            dateString ? 'text-muted-foreground' : 'text-transparent', // Show date or make empty space
+                                            task.isDayBreak && 'text-transparent' // Also hide if it's a day break line
+                                        )}
+                                        aria-hidden="true" // Hide from screen readers, date is context
+                                    >
+                                        {/* Use a non-breaking space if empty to maintain height, or just let pt-1.5 handle it */}
+                                        {dateString || '\u00A0'}
+                                    </div>
+
+                                    {/* --- Task Item Column --- */}
+                                    <div className="flex-grow min-w-0">
+                                        {' '}
+                                        {/* min-w-0 is crucial for flex-grow to work with long content */}
+                                        <TaskItem
+                                            // key={task.id} // Key is now on the parent div
+                                            task={task}
+                                            onTextChange={handleTaskTextChange}
+                                            onPressEnter={handlePressEnter}
+                                            onPaste={handlePasteTasks}
+                                            onDelete={handleDeleteTask}
+                                            onIndent={handleIndentTask}
+                                            onUnindent={handleUnindentTask}
+                                            onFocus={handleFocusTask}
+                                            onBlur={handleBlurTask}
+                                            isFocused={focusedTaskId === task.id}
+                                            onArrowUp={handleArrowUp}
+                                            onArrowDown={handleArrowDown}
+                                            onBackspaceEmpty={handleBackspaceEmpty}
+                                            desiredVisualCursorPos={focusedTaskId === task.id ? desiredVisualCursorPos : null}
+                                            onFocusClearCursorPos={handleFocusClearCursorPos}
+                                            cursorEntryDirection={focusedTaskId === task.id ? cursorEntryDirection : null}
+                                            onArrowLeftAtStart={handleArrowLeftAtStart}
+                                            onArrowRightAtEnd={handleArrowRightAtEnd}
+                                        />
+                                    </div>
+                                </div>
                             ))}
-                            <Button variant="outline" size="sm" onClick={handleAddNewTask} className="mt-2">
-                                <PlusCircle className="mr-2 h-4 w-4" /> Add Task
-                            </Button>
+                            {/* Render "Add Task" button, but adjust its position if needed */}
+                            <div className="flex items-start">
+                                {/* Empty space to align with date margin */}
+                                <div className="w-20 flex-shrink-0" aria-hidden="true"></div>
+                                <div className="flex-grow">
+                                    <Button variant="outline" size="sm" onClick={handleAddNewTask} className="mt-2">
+                                        <PlusCircle className="mr-2 h-4 w-4" /> Add Task
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
                         {/* TODO: Add buttons for automated task distribution */}
                     </div>
