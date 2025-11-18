@@ -395,32 +395,30 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db: propDb, initial
         // Currently no-op; hook if you want blur-based saves
     };
 
-    const handleArrowUp = (taskId: string, cursorPos: number) => {
+    const handleArrowUp = (taskId: string, globalCaretX: number) => {
         const currentIndex = uiTasks.findIndex((t) => t.id === taskId);
         if (currentIndex > 0) {
-            const currentTask = uiTasks[currentIndex];
-            const visualPos = currentTask.indentationLevel * INDENT_CHAR_EQUIVALENT + cursorPos;
-            setDesiredVisualCursorPos(visualPos);
+            // FIX: Remove character-based math
+            // const visualPos = ...
+
+            // FIX: Store the pixel value directly
+            setDesiredVisualCursorPos(globalCaretX);
             setCursorEntryDirection('up');
 
             const prevTaskId = uiTasks[currentIndex - 1].id;
             setFocusedTaskId(prevTaskId); // Switch focus
         }
     };
-
-    const handleArrowDown = (taskId: string, cursorPos: number) => {
+    const handleArrowDown = (taskId: string, cursorPos: number, globalCaretX: number) => {
         const currentIndex = uiTasks.findIndex((t) => t.id === taskId);
         if (currentIndex < uiTasks.length - 1) {
-            const currentTask = uiTasks[currentIndex];
-            const visualPos = currentTask.indentationLevel * INDENT_CHAR_EQUIVALENT + cursorPos;
-            setDesiredVisualCursorPos(visualPos);
+            setDesiredVisualCursorPos(globalCaretX); // store global X
             setCursorEntryDirection('down');
 
             const nextTaskId = uiTasks[currentIndex + 1].id;
-            setFocusedTaskId(nextTaskId); // Switch focus
+            setFocusedTaskId(nextTaskId);
         }
     };
-
     const handleFocusClearCursorPos = () => {
         setDesiredVisualCursorPos(null);
         setCursorEntryDirection(null);

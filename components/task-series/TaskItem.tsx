@@ -27,8 +27,8 @@ interface TaskItemProps {
     onBlur: (taskId: string) => void;
     isFocused?: boolean; // Optional: if parent manages focus state
     // Add other callbacks as needed, e.g., for opening metadata popover
-    onArrowUp: (taskId: string, cursorPos: number) => void;
-    onArrowDown: (taskId: string, cursorPos: number) => void;
+    onArrowUp: (taskId: string, globalCaretX: number) => void;
+    onArrowDown: (taskId: string, cursorPos: number, caretX: number) => void;
     onBackspaceEmpty: (taskId: string) => void;
     desiredVisualCursorPos: number | null;
     indentCharEquivalent: number;
@@ -44,12 +44,11 @@ const MIRROR_ID = 'task-item-mirror-div';
  * Creates or retrieves a hidden mirror div, styles it like the textarea,
  * and measures the visual line position of the cursor.
  */
-function getVisualLineInfo(textarea: HTMLTextAreaElement, cursorPos: number): { currentLine: number; totalLines: number } {
+function getVisualLineInfo(textarea: HTMLTextAreaElement, cursorPos: number): { currentLine: number; totalLines: number; caretLeft: number } {
     let mirror = document.getElementById(MIRROR_ID) as HTMLDivElement;
     if (!mirror) {
         mirror = document.createElement('div');
         mirror.id = MIRROR_ID;
-        // Position it off-screen
         mirror.style.position = 'absolute';
         mirror.style.left = '-9999px';
         mirror.style.top = '0';
@@ -59,7 +58,6 @@ function getVisualLineInfo(textarea: HTMLTextAreaElement, cursorPos: number): { 
         document.body.appendChild(mirror);
     }
 
-    // 1. Sync styles from the textarea
     const styles = window.getComputedStyle(textarea);
     mirror.style.width = styles.width;
     mirror.style.font = styles.font;
@@ -76,37 +74,34 @@ function getVisualLineInfo(textarea: HTMLTextAreaElement, cursorPos: number): { 
     const lineHeight = parseFloat(styles.lineHeight) || 1;
 
     if (text.length === 0) {
-        return { currentLine: 0, totalLines: 1 };
+        return { currentLine: 0, totalLines: 1, caretLeft: 0 };
     }
 
-    // 2. Prepare text with markers
     const textBefore = text.substring(0, cursorPos);
     const textAfter = text.substring(cursorPos);
-    // Use a zero-width space inside the span to ensure it has a layout
     const caretMarker = '<span id="caret-marker" style="display: inline-block;">\u200B</span>';
 
-    // Sanitize text for HTML injection
     const sanitize = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br />');
 
-    // 3. Measure total lines
-    // Add an end marker to measure total lines accurately, especially for trailing newlines
+    // totalLines
     mirror.innerHTML = sanitize(text) + '<span id="end-marker" style="display: inline-block;">\u200B</span>';
     const endSpan = mirror.querySelector<HTMLSpanElement>('#end-marker');
-    if (!endSpan) return { currentLine: 0, totalLines: 1 }; // Fallback
+    if (!endSpan) return { currentLine: 0, totalLines: 1, caretLeft: 0 };
 
     const divTop = mirror.offsetTop;
     const endTop = endSpan.offsetTop;
     const totalLines = Math.max(1, Math.round((endTop - divTop) / lineHeight) + 1);
 
-    // 4. Measure caret line
+    // caret line + X
     mirror.innerHTML = sanitize(textBefore) + caretMarker + sanitize(textAfter);
     const caretSpan = mirror.querySelector<HTMLSpanElement>('#caret-marker');
-    if (!caretSpan) return { currentLine: 0, totalLines: totalLines }; // Fallback
+    if (!caretSpan) return { currentLine: 0, totalLines, caretLeft: 0 };
 
     const caretTop = caretSpan.offsetTop;
     const currentLine = Math.round((caretTop - divTop) / lineHeight);
+    const caretLeft = caretSpan.offsetLeft;
 
-    return { currentLine, totalLines };
+    return { currentLine, totalLines, caretLeft };
 }
 
 /**
@@ -144,6 +139,106 @@ function getStartOfVisualLine(textarea: HTMLTextAreaElement, which: 'first' | 'l
     return best;
 }
 
+function getCharIndexOnFirstLineAtX(textarea: HTMLTextAreaElement, targetX: number): number {
+    const text = textarea.value;
+    const textLength = text.length;
+    if (textLength === 0) return 0;
+
+    // First find the last index that is still on visual line 0
+    let left = 0;
+    let right = textLength;
+    let lastIdxOnFirstLine = 0;
+
+    while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        const { currentLine } = getVisualLineInfo(textarea, mid);
+
+        if (currentLine === 0) {
+            lastIdxOnFirstLine = mid;
+            left = mid + 1; // search further right
+        } else {
+            right = mid - 1; // too far down
+        }
+    }
+
+    // Now binary search within [0, lastIdxOnFirstLine] for the closest caretLeft to targetX
+    let bestIndex = 0;
+    let bestDiff = Infinity;
+    left = 0;
+    right = lastIdxOnFirstLine;
+
+    while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        const { caretLeft } = getVisualLineInfo(textarea, mid);
+        const diff = Math.abs(caretLeft - targetX);
+
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            bestIndex = mid;
+        }
+
+        if (caretLeft < targetX) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+
+    return bestIndex;
+}
+
+function getCharIndexOnLastLineAtX(textarea: HTMLTextAreaElement, targetX: number): number {
+    const text = textarea.value;
+    const textLength = text.length;
+    if (textLength === 0) return 0;
+
+    // 1. Find the start of the last visual line
+    const firstIdxOnLastLine = getStartOfVisualLine(textarea, 'last');
+    const lastIdxOnLastLine = textLength; // The last line goes to the end
+
+    // 2. Binary search within [firstIdxOnLastLine, lastIdxOnLastLine] for the closest caretLeft to targetX
+    let bestIndex = firstIdxOnLastLine;
+    let bestDiff = Infinity;
+
+    // Check the start position first
+    const { caretLeft: initialCaretLeft } = getVisualLineInfo(textarea, firstIdxOnLastLine);
+    bestDiff = Math.abs(initialCaretLeft - targetX);
+
+    let left = firstIdxOnLastLine;
+    let right = lastIdxOnLastLine;
+
+    while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        // We only care about measurements on the last line
+        const { currentLine, caretLeft } = getVisualLineInfo(textarea, mid);
+
+        // Get targetLine (this is inefficient, 'getStartOfVisualLine' should return it)
+        const { totalLines } = getVisualLineInfo(textarea, textLength);
+        const targetLine = totalLines - 1;
+
+        if (currentLine < targetLine) {
+            left = mid + 1; // Should not happen if firstIdxOnLastLine is correct
+            continue;
+        }
+
+        // We are on the last line (or past it, which `getVisualLineInfo` handles)
+        const diff = Math.abs(caretLeft - targetX);
+
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            bestIndex = mid;
+        }
+
+        if (caretLeft < targetX) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+
+    return bestIndex;
+}
+
 const TaskItem: React.FC<TaskItemProps> = ({
     task,
     onTextChange,
@@ -166,6 +261,7 @@ const TaskItem: React.FC<TaskItemProps> = ({
     onArrowRightAtEnd,
 }) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     // Effect to clean up the mirror div on unmount
     useEffect(() => {
@@ -182,27 +278,40 @@ const TaskItem: React.FC<TaskItemProps> = ({
             const textarea = textareaRef.current;
             textarea.focus();
 
-            // Check if there's a desired visual cursor position
             if (desiredVisualCursorPos !== null) {
-                // Calculate the new input position based on visual pos and this task's indent
-                const indentOffset = task.indentationLevel * indentCharEquivalent;
-                const baseColumn = Math.max(0, desiredVisualCursorPos - indentOffset);
-
                 let targetPos: number;
 
                 if (cursorEntryDirection === 'up') {
-                    // When moving up into this task, place the caret on the last visual line
-                    const lastLineStart = getStartOfVisualLine(textarea, 'last');
-                    targetPos = lastLineStart + baseColumn;
+                    // Use pixel-based logic for 'up'
+                    let localX = desiredVisualCursorPos;
+                    if (containerRef.current) {
+                        const containerStyles = window.getComputedStyle(containerRef.current);
+                        const paddingLeftPx = parseFloat(containerStyles.paddingLeft) || 0;
+                        localX = desiredVisualCursorPos - paddingLeftPx;
+                    }
+                    if (localX < 0) localX = 0;
+
+                    // FIX: Use new helper to find char on LAST line
+                    targetPos = getCharIndexOnLastLineAtX(textarea, localX);
+                } else if (cursorEntryDirection === 'down') {
+                    // NEW: global X -> local X for this task -> closest char on first visual line
+                    let localX = desiredVisualCursorPos;
+                    if (containerRef.current) {
+                        const containerStyles = window.getComputedStyle(containerRef.current);
+                        const paddingLeftPx = parseFloat(containerStyles.paddingLeft) || 0;
+                        localX = desiredVisualCursorPos - paddingLeftPx;
+                    }
+                    if (localX < 0) localX = 0;
+
+                    targetPos = getCharIndexOnFirstLineAtX(textarea, localX);
                 } else {
-                    // When moving down (or unknown), use first-line behavior
-                    targetPos = baseColumn;
+                    // Fallback
+                    targetPos = 0;
                 }
 
                 const clampedPos = Math.min(Math.max(0, targetPos), task.text.length);
                 textarea.setSelectionRange(clampedPos, clampedPos);
 
-                // Clear the desired position in the parent
                 onFocusClearCursorPos();
             }
         }
@@ -238,21 +347,40 @@ const TaskItem: React.FC<TaskItemProps> = ({
                 }
                 break;
             case 'ArrowUp': {
-                const { currentLine } = getVisualLineInfo(input, cursorPos);
+                // FIX: Get caretLeft
+                const { currentLine, caretLeft } = getVisualLineInfo(input, cursorPos);
                 if (currentLine === 0) {
                     event.preventDefault();
-                    onArrowUp(task.id, cursorPos); // Pass pos
+
+                    // FIX: Calculate globalCaretX, just like in ArrowDown
+                    let globalCaretX = caretLeft;
+                    if (containerRef.current) {
+                        const containerStyles = window.getComputedStyle(containerRef.current);
+                        const paddingLeftPx = parseFloat(containerStyles.paddingLeft) || 0;
+                        globalCaretX += paddingLeftPx;
+                    }
+
+                    // FIX: Pass globalCaretX, not cursorPos
+                    onArrowUp(task.id, globalCaretX);
                 }
                 // Otherwise, let the browser handle moving the cursor up within the wrapped text.
                 break;
             }
             case 'ArrowDown': {
-                const { currentLine: downLine, totalLines } = getVisualLineInfo(input, cursorPos);
+                const { currentLine: downLine, totalLines, caretLeft } = getVisualLineInfo(input, cursorPos);
                 if (downLine === totalLines - 1) {
                     event.preventDefault();
-                    onArrowDown(task.id, cursorPos); // Pass pos
+
+                    // Compute global X = caretLeft inside textarea + container's padding-left
+                    let globalCaretX = caretLeft;
+                    if (containerRef.current) {
+                        const containerStyles = window.getComputedStyle(containerRef.current);
+                        const paddingLeftPx = parseFloat(containerStyles.paddingLeft) || 0;
+                        globalCaretX += paddingLeftPx;
+                    }
+
+                    onArrowDown(task.id, cursorPos, globalCaretX); // pass global X
                 }
-                // Otherwise, let the browser handle moving the cursor down within the wrapped text.
                 break;
             }
             case 'ArrowLeft':
@@ -302,6 +430,7 @@ const TaskItem: React.FC<TaskItemProps> = ({
     return (
         <>
             <div
+                ref={containerRef}
                 className="task-item flex items-center group py-0.5" // group for showing icons on hover
                 style={{ paddingLeft: `${task.indentationLevel * 2}rem` }} // Basic indentation
                 onFocus={() => onFocus(task.id)} // Might bubble from input
