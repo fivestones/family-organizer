@@ -55,57 +55,87 @@ function getVisualLineInfo(textarea: HTMLTextAreaElement, cursorPos: number): { 
         mirror.style.pointerEvents = 'none';
         mirror.style.opacity = '0';
         mirror.style.visibility = 'hidden';
+        // Ensure basic block behavior matches
+        mirror.style.whiteSpace = 'pre-wrap';
         document.body.appendChild(mirror);
     }
 
     const styles = window.getComputedStyle(textarea);
+
+    // 1. Copy Layout Properties
     mirror.style.width = styles.width;
-    mirror.style.font = styles.font;
-    mirror.style.lineHeight = styles.lineHeight;
     mirror.style.padding = styles.padding;
     mirror.style.border = styles.border;
-    mirror.style.letterSpacing = styles.letterSpacing;
-    mirror.style.whiteSpace = 'pre-wrap';
-    mirror.style.overflowWrap = 'break-word';
-    mirror.style.wordBreak = 'break-word';
     mirror.style.boxSizing = styles.boxSizing;
-    // +++ Add text-align from style +++
     mirror.style.textAlign = styles.textAlign;
 
+    // 2. Explicitly copy all font properties (shorthand 'font' is unreliable)
+    mirror.style.fontFamily = styles.fontFamily;
+    mirror.style.fontSize = styles.fontSize;
+    mirror.style.fontWeight = styles.fontWeight;
+    mirror.style.fontStyle = styles.fontStyle;
+    mirror.style.letterSpacing = styles.letterSpacing;
+    mirror.style.textTransform = styles.textTransform;
+
+    // 3. Match wrapping behavior exactly
+    mirror.style.overflowWrap = styles.overflowWrap;
+    mirror.style.wordBreak = styles.wordBreak;
+    mirror.style.whiteSpace = styles.whiteSpace; // usually 'pre-wrap' for textarea
+
+    // 4. Robust Line Height Calculation
+    // If 'normal', approximate roughly 1.2x font size, otherwise parse pixel value
+    let lineHeightPx = parseFloat(styles.lineHeight);
+    if (isNaN(lineHeightPx)) {
+        lineHeightPx = parseFloat(styles.fontSize) * 1.2;
+    }
+    mirror.style.lineHeight = `${lineHeightPx}px`;
+
     const text = textarea.value;
-    const lineHeight = parseFloat(styles.lineHeight) || 1;
 
     if (text.length === 0) {
         // +++ Adjust caretLeft for centered text +++
         let caretLeft = 0;
         if (styles.textAlign === 'center') {
-            caretLeft = parseFloat(styles.width) / 2;
+            // Calculate center position based on content box width
+            const paddingLeft = parseFloat(styles.paddingLeft) || 0;
+            const paddingRight = parseFloat(styles.paddingRight) || 0;
+            const borderLeft = parseFloat(styles.borderLeftWidth) || 0;
+            const borderRight = parseFloat(styles.borderRightWidth) || 0;
+            const totalWidth = parseFloat(styles.width) || 0;
+
+            const contentWidth = totalWidth - paddingLeft - paddingRight - borderLeft - borderRight;
+            caretLeft = paddingLeft + borderLeft + contentWidth / 2;
+        } else {
+            // Default left alignment includes padding
+            caretLeft = parseFloat(styles.paddingLeft) || 0;
+            caretLeft += parseFloat(styles.borderLeftWidth) || 0;
         }
         return { currentLine: 0, totalLines: 1, caretLeft: caretLeft };
     }
 
     const textBefore = text.substring(0, cursorPos);
     const textAfter = text.substring(cursorPos);
-    const caretMarker = '<span id="caret-marker" style="display: inline-block;">\u200B</span>';
+    const caretMarker = '<span id="caret-marker" style="display: inline-block; height: 0;">\u200B</span>';
 
     const sanitize = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br />');
 
-    // totalLines
+    // Measure total lines
     mirror.innerHTML = sanitize(text) + '<span id="end-marker" style="display: inline-block;">\u200B</span>';
     const endSpan = mirror.querySelector<HTMLSpanElement>('#end-marker');
+    // Fallback if something fails
     if (!endSpan) return { currentLine: 0, totalLines: 1, caretLeft: 0 };
 
     const divTop = mirror.offsetTop;
     const endTop = endSpan.offsetTop;
-    const totalLines = Math.max(1, Math.round((endTop - divTop) / lineHeight) + 1);
+    const totalLines = Math.max(1, Math.round((endTop - divTop) / lineHeightPx) + 1);
 
-    // caret line + X
+    // Measure caret position
     mirror.innerHTML = sanitize(textBefore) + caretMarker + sanitize(textAfter);
     const caretSpan = mirror.querySelector<HTMLSpanElement>('#caret-marker');
     if (!caretSpan) return { currentLine: 0, totalLines, caretLeft: 0 };
 
     const caretTop = caretSpan.offsetTop;
-    const currentLine = Math.round((caretTop - divTop) / lineHeight);
+    const currentLine = Math.round((caretTop - divTop) / lineHeightPx);
     const caretLeft = caretSpan.offsetLeft;
 
     return { currentLine, totalLines, caretLeft };
@@ -353,39 +383,35 @@ const TaskItem: React.FC<TaskItemProps> = ({
                 }
                 break;
             case 'ArrowUp': {
-                // FIX: Get caretLeft
                 const { currentLine, caretLeft } = getVisualLineInfo(input, cursorPos);
+                // Strict check for top line
                 if (currentLine === 0) {
                     event.preventDefault();
 
-                    // FIX: Calculate globalCaretX, just like in ArrowDown
                     let globalCaretX = caretLeft;
                     if (containerRef.current) {
                         const containerStyles = window.getComputedStyle(containerRef.current);
                         const paddingLeftPx = parseFloat(containerStyles.paddingLeft) || 0;
                         globalCaretX += paddingLeftPx;
                     }
-
-                    // FIX: Pass globalCaretX, not cursorPos
                     onArrowUp(task.id, globalCaretX);
                 }
-                // Otherwise, let the browser handle moving the cursor up within the wrapped text.
                 break;
             }
             case 'ArrowDown': {
                 const { currentLine: downLine, totalLines, caretLeft } = getVisualLineInfo(input, cursorPos);
-                if (downLine === totalLines - 1) {
+                // Strict check for bottom line
+                if (downLine >= totalLines - 1) {
+                    // Changed === to >= for safety
                     event.preventDefault();
 
-                    // Compute global X = caretLeft inside textarea + container's padding-left
                     let globalCaretX = caretLeft;
                     if (containerRef.current) {
                         const containerStyles = window.getComputedStyle(containerRef.current);
                         const paddingLeftPx = parseFloat(containerStyles.paddingLeft) || 0;
                         globalCaretX += paddingLeftPx;
                     }
-
-                    onArrowDown(task.id, cursorPos, globalCaretX); // pass global X
+                    onArrowDown(task.id, cursorPos, globalCaretX);
                 }
                 break;
             }
