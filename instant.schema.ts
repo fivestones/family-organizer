@@ -133,30 +133,36 @@ const _schema = i.schema({
         // --- Task Series Management ---
         taskSeries: i.entity({
             name: i.string(),
-            description: i.string(),
-            startDate: i.date(),
-            targetEndDate: i.date(),
-            workAheadAllowed: i.boolean(),
-            // For break after series completion
-            breakType: i.string(), // "immediate", "specificDate", "delay"
-            breakStartDate: i.date(), // Used if breakType is "specificDate"
-            breakDelayValue: i.number(), // e.g., 2
-            breakDelayUnit: i.string(), // "days", "weeks", "months"
-            // Auto-timestamped fields
-            createdAt: i.date(),
-            updatedAt: i.date(),
+            // ALL metadata fields below must be optional because the
+            // editor might not populate them immediately upon creation.
+            description: i.string().optional(),
+            startDate: i.date().optional(),
+            targetEndDate: i.date().optional(),
+            workAheadAllowed: i.boolean().optional(),
+
+            // Break fields are definitely optional (not every series has a break)
+            breakType: i.string().optional(),
+            breakStartDate: i.date().optional(),
+            breakDelayValue: i.number().optional(),
+            breakDelayUnit: i.string().optional(),
+
+            // Timestamps
+            createdAt: i.date().optional(),
+            updatedAt: i.date().optional(),
         }),
         tasks: i.entity({
             text: i.string(),
-            order: i.number(), // For maintaining sequence within a series/parent
-            isDayBreak: i.boolean(), // True if this task line is a '~'
-            // Individual task metadata
-            overrideWorkAhead: i.boolean(),
-            notes: i.string(),
-            specificTime: i.string(), // e.g., "HH:MM"
-            // Auto-timestamped fields
-            createdAt: i.date(),
-            updatedAt: i.date(),
+            order: i.number(),
+            isDayBreak: i.boolean(),
+
+            // Individual task metadata (UPDATED to be optional)
+            overrideWorkAhead: i.boolean().optional(),
+            notes: i.string().optional(),
+            specificTime: i.string().optional(),
+
+            // Timestamps
+            createdAt: i.date().optional(),
+            updatedAt: i.date().optional(),
         }),
         taskAttachments: i.entity({
             name: i.string(), // Original filename or user-defined name
