@@ -16,10 +16,17 @@ export const TaskDateContext = React.createContext<Record<string, { label: strin
 
 // --- The React Component (UI) ---
 const TaskItemComponent = (props: any) => {
-    const { node } = props;
+    const { node, updateAttributes } = props;
     const { indentationLevel, isDayBreak, id } = node.attrs;
 
-    // Get the calculated date for this specific task ID from context
+    // Ensure every taskItem has a stable ID, even after paste.
+    React.useEffect(() => {
+        if (!id) {
+            const newId = generateId();
+            updateAttributes({ id: newId });
+        }
+    }, [id, updateAttributes]);
+
     const dateMap = useContext(TaskDateContext);
 
     // Safety check: If ID is missing, we can't find the date.
@@ -190,21 +197,54 @@ export const TaskItemExtension = Node.create({
                 });
             },
             Backspace: () => {
-                // If at start of node and indented, unindent instead of merging
-                return this.editor.commands.command(({ state, chain }) => {
+                return this.editor.commands.command(({ state, chain, dispatch }) => {
                     const { selection } = state;
                     const { $from, empty } = selection;
 
-                    // Only if cursor is at the start of the text content
-                    if (empty && $from.parentOffset === 0) {
-                        const node = $from.node();
-                        if (node.type.name === 'taskItem' && node.attrs.indentationLevel > 0) {
-                            return chain()
-                                .updateAttributes('taskItem', { indentationLevel: node.attrs.indentationLevel - 1 })
-                                .run();
+                    // 1. Ensure cursor is collapsed
+                    if (!empty) return false;
+
+                    // 2. Ensure cursor is at the start of the text within this task
+                    if ($from.parentOffset !== 0) return false;
+
+                    const currentNode = $from.node();
+                    if (currentNode.type.name !== 'taskItem') return false;
+
+                    // 3. Priority: Handle Indentation (Unindent)
+                    if (currentNode.attrs.indentationLevel > 0) {
+                        return chain()
+                            .updateAttributes('taskItem', {
+                                indentationLevel: currentNode.attrs.indentationLevel - 1,
+                            })
+                            .run();
+                    }
+
+                    // 4. Handle Day Break Deletion
+                    // We resolve the position relative to the current TaskItem (depth 1)
+                    // $from.before(1) is the position immediately before the start of the current TaskItem
+                    const currentWrapperPos = $from.before(1);
+                    const resolvedPos = state.doc.resolve(currentWrapperPos);
+
+                    const index = resolvedPos.index(); // Index of this node in its parent
+                    const parent = resolvedPos.parent;
+
+                    if (index > 0) {
+                        const prevNode = parent.child(index - 1);
+
+                        // If previous sibling is a Day Break
+                        if (prevNode.type.name === 'taskItem' && prevNode.attrs.isDayBreak) {
+                            if (dispatch) {
+                                // Calculate the exact range of the previous node
+                                const prevNodeStart = currentWrapperPos - prevNode.nodeSize;
+
+                                // Explicitly DELETE the node (do not merge)
+                                dispatch(state.tr.delete(prevNodeStart, currentWrapperPos));
+                            }
+                            return true;
                         }
                     }
-                    // Otherwise default backspace (merge)
+
+                    // 5. Default Tiptap behavior (Merge normal tasks)
                     return false;
                 });
             },
