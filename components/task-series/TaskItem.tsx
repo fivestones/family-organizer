@@ -86,7 +86,7 @@ const TaskItemComponent = (props: any) => {
                 </button>
 
                 {/* Editor Content */}
-                <div className="flex-grow min-w-0 rounded-sm px-2 py-0.5 bg-transparent">
+                <div className="flex-grow min-w-0 rounded-sm px-2 py-0.5 bg-transparent min-h-[1.5em]">
                     <NodeViewContent className="outline-none" />
                 </div>
 
@@ -202,11 +202,7 @@ export const TaskItemExtension = Node.create({
                 return this.editor.commands.command(({ state, dispatch }) => {
                     const { selection, doc } = state;
                     const { $from, empty } = selection;
-
-                    if (!empty) return false;
-
-                    // Check if we are at the END of the current task
-                    if ($from.parentOffset !== $from.parent.content.size) return false;
+                    if (!empty || $from.parentOffset !== $from.parent.content.size) return false;
 
                     const currentPos = $from.after(1);
                     const resolved = doc.resolve(currentPos);
@@ -218,9 +214,7 @@ export const TaskItemExtension = Node.create({
 
                         // If next node is a Day Break, delete it!
                         if (nextNode.type.name === 'taskItem' && nextNode.attrs.isDayBreak) {
-                            if (dispatch) {
-                                dispatch(state.tr.delete(currentPos, currentPos + nextNode.nodeSize));
-                            }
+                            if (dispatch) dispatch(state.tr.delete(currentPos, currentPos + nextNode.nodeSize));
                             return true;
                         }
                     }
@@ -228,9 +222,8 @@ export const TaskItemExtension = Node.create({
                 });
             },
 
-            // --- 2. UP ARROW (Fix for Stuck Cursor) ---
             ArrowUp: () => {
-                return this.editor.commands.command(({ state, editor }) => {
+                return this.editor.commands.command(({ state, chain }) => {
                     const { selection, doc } = state;
                     const { $from, empty } = selection;
                     const currentNode = $from.node();
@@ -238,32 +231,40 @@ export const TaskItemExtension = Node.create({
                     // Strict check: Cursor must be collapsed
                     if (!empty) return false;
 
-                    // FIX: Use textContent.length for a more robust check of "emptiness"
+                    // 1. We only intervene if we are at the START of the task
+                    if ($from.parentOffset !== 0) return false;
+
+                    // Helper to determine if we must intervene
                     const isEmpty = currentNode.content.size === 0 || currentNode.textContent.length === 0;
+                    const currentPos = $from.before(1);
+                    const resolved = doc.resolve(currentPos);
+                    const index = resolved.index();
 
-                    // Only override behavior if we are at the start of an empty task
-                    if (isEmpty && $from.parentOffset === 0) {
-                        const currentPos = $from.before(1);
-                        const resolved = doc.resolve(currentPos);
-                        const index = resolved.index();
-                        const parent = resolved.parent;
+                    let previousIsBreak = false;
+                    if (index > 0) {
+                        const prev = resolved.parent.child(index - 1);
+                        previousIsBreak = prev.type.name === 'taskItem' && prev.attrs.isDayBreak;
+                    }
 
-                        // Scan backwards for the nearest real task
+                    // If empty OR blocked by a break, manually move up
+                    if (isEmpty || previousIsBreak) {
                         let scanPos = currentPos;
                         for (let i = index - 1; i >= 0; i--) {
-                            const prevNode = parent.child(i);
+                            const prevNode = resolved.parent.child(i);
                             scanPos -= prevNode.nodeSize;
 
                             if (prevNode.type.name === 'taskItem' && !prevNode.attrs.isDayBreak) {
-                                // Move cursor to the END of that previous task
-                                editor.commands.setTextSelection(scanPos + prevNode.nodeSize - 1);
-                                return true;
+                                // FIX: Use chain().focus() to ensure the browser follows the selection
+                                return chain()
+                                    .focus()
+                                    .setTextSelection(scanPos + prevNode.nodeSize - 1)
+                                    .run();
                             }
-                            // Loop continues if Day Break (skipping it)
+                            // Loop continues if we hit a Day Break (effectively skipping it)
                         }
                     }
 
-                    // If task has text, let browser handle natural "visual" navigation
+                    // Otherwise, let the browser handle "Visual" Up movement (preserves horizontal position)
                     return false;
                 });
             },
@@ -296,12 +297,9 @@ export const TaskItemExtension = Node.create({
                     const currentPos = $from.before(1);
                     const resolvedPos = doc.resolve(currentPos);
                     const index = resolvedPos.index();
-                    const parent = resolvedPos.parent;
 
                     if (index > 0) {
-                        const prevNode = parent.child(index - 1);
-
-                        // C. Day Break Logic
+                        const prevNode = resolvedPos.parent.child(index - 1);
                         if (prevNode.type.name === 'taskItem' && prevNode.attrs.isDayBreak) {
                             // UNIFIED LOGIC: If previous is Day Break, DELETE IT.
                             // It doesn't matter if current task is empty or has text.
