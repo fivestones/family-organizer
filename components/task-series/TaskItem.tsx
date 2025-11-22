@@ -426,9 +426,6 @@ export const TaskItemExtension = Node.create({
             // Handles: Stuck cursors in empty tasks AND Skipping over indented tasks
             ArrowUp: () => {
                 return this.editor.commands.command(({ editor, state, view, dispatch }) => {
-                    const isAtTop = view.endOfTextblock('up');
-                    if (!isAtTop) return false;
-
                     const { selection, doc } = state;
                     const { $from, empty } = selection;
                     if (!empty) return false;
@@ -440,6 +437,32 @@ export const TaskItemExtension = Node.create({
                     const currentCoords = view.coordsAtPos($from.pos);
                     const targetX = currentGoal !== undefined ? currentGoal : currentCoords.left;
 
+                    const isAtTop = view.endOfTextblock('up');
+
+                    // --- FIX: Handle Internal Navigation manually to preserve Goal ---
+                    if (!isAtTop) {
+                        // Move visually up within the same node
+                        const targetY = currentCoords.top - 5; // Look slightly above current line
+                        const posResult = view.posAtCoords({ left: targetX, top: targetY });
+
+                        // Ensure we actually move backwards
+                        if (posResult && posResult.pos < $from.pos) {
+                            if (dispatch) {
+                                const tr = state.tr;
+                                const newSelection = TextSelection.near(doc.resolve(posResult.pos));
+                                (newSelection as any).goal = targetX; // <--- Persist goal
+                                tr.setSelection(newSelection);
+                                tr.scrollIntoView();
+                                dispatch(tr);
+                                view.focus();
+                            }
+                            return true;
+                        }
+                        // If manual calc fails, fallback to default (risk losing goal, but better than sticking)
+                        return false;
+                    }
+
+                    // --- Existing Logic for Crossing Nodes ---
                     const currentPos = $from.before(1);
                     const resolved = doc.resolve(currentPos);
                     const index = resolved.index();
@@ -495,46 +518,51 @@ export const TaskItemExtension = Node.create({
 
             ArrowDown: () => {
                 return this.editor.commands.command(({ editor, state, view, dispatch }) => {
-                    console.log('%c--- ARROW DOWN DEBUG START ---', 'color: cyan; font-weight: bold');
-
-                    // 1. Check Tiptap's opinion on position
-                    const isAtBottom = view.endOfTextblock('down');
-                    console.log('1. view.endOfTextblock("down") returned:', isAtBottom);
-
-                    if (!isAtBottom) {
-                        console.log('%c-> Result: Returning FALSE. Letting Browser handle navigation.', 'color: orange');
-                        // This means Tiptap thinks you are inside a multi-line paragraph
-                        // and should move to the next line naturally.
-                        return false;
-                    }
-
                     const { selection, doc } = state;
                     const { $from, empty } = selection;
                     if (!empty) return false;
 
+                    // 1. Goal Column Logic
+                    const currentGoal = (selection as any).goal;
+                    const currentCoords = view.coordsAtPos($from.pos);
+                    const targetX = currentGoal !== undefined ? currentGoal : currentCoords.left;
+
+                    const isAtBottom = view.endOfTextblock('down');
+
+                    // --- FIX: Handle Internal Navigation manually to preserve Goal ---
+                    if (!isAtBottom) {
+                        // Move visually down within the same node
+                        const targetY = currentCoords.bottom + 5; // Look slightly below current line
+                        const posResult = view.posAtCoords({ left: targetX, top: targetY });
+
+                        // Ensure we actually move forwards
+                        if (posResult && posResult.pos > $from.pos) {
+                            if (dispatch) {
+                                const tr = state.tr;
+                                const newSelection = TextSelection.near(doc.resolve(posResult.pos));
+                                (newSelection as any).goal = targetX; // <--- Persist goal
+                                tr.setSelection(newSelection);
+                                tr.scrollIntoView();
+                                dispatch(tr);
+                                view.focus();
+                            }
+                            return true;
+                        }
+                        return false;
+                    }
+
+                    // --- Existing Logic for Crossing Nodes ---
                     const currentPos = $from.before(1);
                     const currentNode = $from.node();
                     const resolved = doc.resolve(currentPos);
                     const index = resolved.index();
                     const parent = resolved.parent;
 
-                    // 2. Goal Column Logic
-                    const currentGoal = (selection as any).goal;
-                    const currentCoords = view.coordsAtPos($from.pos);
-                    const targetX = currentGoal !== undefined ? currentGoal : currentCoords.left;
-
-                    console.log('2. Horizontal Goal (Target X):', targetX);
-                    console.log(`   Current Node Index: ${index}`);
-
-                    // 3. Finding Next Node
                     let nextNode = null;
                     let nextPos = currentPos + currentNode.nodeSize;
 
-                    console.log('3. Scanning siblings...');
                     for (let i = index + 1; i < parent.childCount; i++) {
                         const node = parent.child(i);
-                        console.log(`   Sibling [${i}]: Type=${node.type.name}, Break=${node.attrs.isDayBreak}, Indent=${node.attrs.indentationLevel}`);
-
                         if (node.type.name === 'taskItem' && !node.attrs.isDayBreak) {
                             nextNode = node;
                             break;
@@ -543,42 +571,23 @@ export const TaskItemExtension = Node.create({
                     }
 
                     if (!nextNode) {
-                        console.log('-> Result: End of document. No next node found.');
                         return false;
                     }
 
-                    console.log(`   > FOUND Next Node at pos: ${nextPos}`);
-
-                    // 4. Projection Calculation
-                    let targetPos = nextPos + 1; // Default fallback
+                    let targetPos = nextPos + 1;
 
                     try {
                         const nodeDOM = view.nodeDOM(nextPos) as HTMLElement;
                         if (nodeDOM) {
                             const rect = nodeDOM.getBoundingClientRect();
-                            const targetY = rect.top + 10; // Aim a bit inside the top
-                            console.log(`4. Target Y coord: ${targetY} (Rect Top: ${rect.top})`);
-
-                            // Check what ProseMirror finds at (TargetX, TargetY)
+                            const targetY = rect.top + 10;
                             const posResult = view.posAtCoords({ left: targetX, top: targetY });
-                            console.log('   posAtCoords result:', posResult);
 
                             if (posResult && posResult.pos >= nextPos && posResult.pos < nextPos + nextNode.nodeSize) {
-                                console.log('   > HIT! Calculated position is valid.');
                                 targetPos = posResult.pos;
-                            } else {
-                                console.log('%c   > MISS! posAtCoords landed outside the target node.', 'color: red');
-                                console.log(`     Expected range: ${nextPos} to ${nextPos + nextNode.nodeSize}`);
                             }
-                        } else {
-                            console.log('   > nodeDOM returned null');
                         }
-                    } catch (e) {
-                        console.error('   > Error in projection:', e);
-                    }
-
-                    // 5. Dispatch
-                    console.log(`5. DISPATCHING jump to pos: ${targetPos}`);
+                    } catch (e) {}
 
                     if (dispatch) {
                         const tr = state.tr;
