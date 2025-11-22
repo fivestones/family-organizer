@@ -85,7 +85,7 @@ const getSuggestionItems = ({ query }: { query: string }) => {
                 editor.chain().focus().deleteRange(range).run();
 
                 const { state } = editor;
-                const { selection, doc } = state;
+                const { selection } = state;
                 const { $from } = selection;
 
                 // 2. Analyze the split point
@@ -95,6 +95,9 @@ const getSuggestionItems = ({ query }: { query: string }) => {
                 const fullText = currentNode.textContent;
                 // The offset within the node where the cursor sits
                 const offset = $from.parentOffset;
+
+                // --- FIX: Capture the current indentation level ---
+                const currentIndent = currentNode.attrs.indentationLevel || 0;
 
                 const textBefore = fullText.slice(0, offset);
                 const textAfter = fullText.slice(offset);
@@ -136,6 +139,8 @@ const getSuggestionItems = ({ query }: { query: string }) => {
                         editor.commands.updateAttributes('taskItem', {
                             id: generateId(),
                             isDayBreak: false,
+                            indentationLevel: 0, // New default task at end is usually 0
+                            // ^ is that true?
                         });
                     }
                 };
@@ -148,7 +153,9 @@ const getSuggestionItems = ({ query }: { query: string }) => {
                     editor.commands.updateAttributes('taskItem', {
                         id: breakId,
                         isDayBreak: true,
-                        text: '', // Ensure text is cleared in attributes
+                        text: '',
+                        // Day breaks typically don't visually show indent, but keeping it clean doesn't hurt
+                        indentationLevel: currentIndent,
                     });
 
                     // If there was text after the cursor, move it to a NEW task below
@@ -162,7 +169,12 @@ const getSuggestionItems = ({ query }: { query: string }) => {
                             .chain()
                             .insertContentAt(posAfterBreak, {
                                 type: 'taskItem',
-                                attrs: { id: newId, isDayBreak: false },
+                                attrs: {
+                                    id: newId,
+                                    isDayBreak: false,
+                                    // --- FIX: Apply original indent to the text that was pushed down ---
+                                    indentationLevel: currentIndent,
+                                },
                                 content: [{ type: 'text', text: textAfter }],
                             })
                             // Move cursor to start of new task
@@ -192,15 +204,26 @@ const getSuggestionItems = ({ query }: { query: string }) => {
                 const nodesToInsert: any[] = [
                     {
                         type: 'taskItem',
-                        attrs: { id: generateId(), isDayBreak: true, text: '' },
+                        attrs: {
+                            id: generateId(),
+                            isDayBreak: true,
+                            text: '',
+                            // Optional: inherit indent for the break line itself,
+                            // though visual styling usually ignores it for breaks.
+                            indentationLevel: currentIndent,
+                        },
                     },
                 ];
 
-                // If there was text after, we ALSO insert a new Task with that text
                 if (textAfter) {
                     nodesToInsert.push({
                         type: 'taskItem',
-                        attrs: { id: generateId(), isDayBreak: false },
+                        attrs: {
+                            id: generateId(),
+                            isDayBreak: false,
+                            // --- FIX: Apply original indent to the split-off text ---
+                            indentationLevel: currentIndent,
+                        },
                         content: [{ type: 'text', text: textAfter }],
                     });
                 }
@@ -210,7 +233,10 @@ const getSuggestionItems = ({ query }: { query: string }) => {
 
                 // E. Handle Cursor Placement
                 if (textAfter) {
-                    // Position is: posAfterTruncated + DayBreakSize(2) + 1 (inside new task)
+                    // Position cursor: posAfterTruncated + DayBreak(size) + 1 (inside new task)
+                    // We need to calculate size of the inserted break node to be safe, usually 2 for empty block
+                    // But simpler: just use node size logic or hardcoded +3 if we know the schema closely.
+                    // Tiptap blocks are usually 2 tokens.
                     editor.commands.setTextSelection(posAfterTruncated + 3);
                 } else {
                     // End case: We inserted just a break. Now scan for the next task.
