@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { id as generateId } from '@instantdb/react'; // Import the InstantDB ID generator
+import { TextSelection, Plugin } from 'prosemirror-state';
 
 // --- Context ---
 // Now stores both the visual label and the underlying date object
@@ -172,15 +173,43 @@ export const TaskItemExtension = Node.create({
             },
             Tab: () => {
                 return this.editor.commands.command(({ state, chain }) => {
-                    const { selection } = state;
+                    const { selection, doc } = state;
                     const { $from } = selection;
                     const node = $from.node();
+
                     if (node.type.name !== 'taskItem') return false;
                     if (node.attrs.isDayBreak) return true;
-                    return chain()
-                        .updateAttributes('taskItem', { indentationLevel: node.attrs.indentationLevel + 1 })
-                        .focus()
-                        .run();
+
+                    const currentLevel: number = node.attrs.indentationLevel || 0;
+
+                    // Find the block position for the current task
+                    const blockPos = $from.before(1);
+                    const resolved = doc.resolve(blockPos);
+                    const parent = resolved.parent;
+                    const index = resolved.index();
+
+                    // Default: if no previous task, you can't nest (max 0)
+                    let maxIndent = 0;
+
+                    // Walk backwards to find the previous real taskItem (skip day breaks)
+                    for (let i = index - 1; i >= 0; i--) {
+                        const sibling = parent.child(i);
+                        if (sibling.type.name === 'taskItem' && !sibling.attrs.isDayBreak) {
+                            const siblingIndent = sibling.attrs.indentationLevel || 0;
+                            maxIndent = siblingIndent + 1;
+                            break;
+                        }
+                    }
+
+                    const desiredLevel = currentLevel + 1;
+
+                    // If trying to go deeper than allowed relative to previous sibling, do nothing
+                    if (desiredLevel > maxIndent) {
+                        // We still return true so the browser doesn't insert a tab character.
+                        return true;
+                    }
+
+                    return chain().updateAttributes('taskItem', { indentationLevel: desiredLevel }).focus().run();
                 });
             },
             'Shift-Tab': () => {
@@ -424,6 +453,75 @@ export const TaskItemExtension = Node.create({
                 });
             },
         };
+    },
+
+    addProseMirrorPlugins() {
+        return [
+            new Plugin({
+                appendTransaction(transactions, oldState, newState) {
+                    // Only act on paste transactions
+                    const didPaste = transactions.some((tr) => tr.getMeta('uiEvent') === 'paste');
+                    if (!didPaste) return null;
+
+                    const oldDoc = oldState.doc;
+                    const newDoc = newState.doc;
+
+                    // Collect IDs of all taskItems that existed *before* the paste
+                    const oldIds = new Set<string>();
+                    oldDoc.descendants((node) => {
+                        if (node.type.name === 'taskItem' && node.attrs?.id) {
+                            oldIds.add(node.attrs.id as string);
+                        }
+                        return false;
+                    });
+
+                    // Baseline indentation = indentation of the task where paste happened
+                    let baselineIndentation = 0;
+                    const { $from } = oldState.selection;
+                    const pasteNode = $from.node();
+                    if (pasteNode.type.name === 'taskItem') {
+                        baselineIndentation = pasteNode.attrs.indentationLevel || 0;
+                    }
+
+                    let tr = newState.tr;
+                    let changed = false;
+
+                    // Go through all taskItems in the NEW doc
+                    newDoc.descendants((node, pos) => {
+                        if (node.type.name !== 'taskItem') return false;
+
+                        const id = node.attrs?.id as string | undefined;
+                        const isDayBreak = !!node.attrs?.isDayBreak;
+
+                        // Skip day breaks entirely
+                        if (isDayBreak) return false;
+
+                        // If this node existed before paste, don't touch it
+                        if (id && oldIds.has(id)) return false;
+
+                        // This is a *new* taskItem (created by paste or still missing id)
+                        const currentIndent = node.attrs?.indentationLevel || 0;
+
+                        if (currentIndent !== baselineIndentation) {
+                            tr = tr.setNodeMarkup(
+                                pos,
+                                undefined,
+                                {
+                                    ...node.attrs,
+                                    indentationLevel: baselineIndentation,
+                                },
+                                node.marks
+                            );
+                            changed = true;
+                        }
+
+                        return false;
+                    });
+
+                    return changed ? tr : null;
+                },
+            }),
+        ];
     },
 });
 
