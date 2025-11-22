@@ -145,11 +145,7 @@ export const TaskItemExtension = Node.create({
                 default: false,
                 keepOnSplit: false,
                 parseHTML: (element) => element.getAttribute('data-is-day-break') === 'true',
-                renderHTML: (attributes) => {
-                    return {
-                        'data-is-day-break': attributes.isDayBreak,
-                    };
-                },
+                renderHTML: (attributes) => ({ 'data-is-day-break': attributes.isDayBreak }),
             },
         };
     },
@@ -171,58 +167,119 @@ export const TaskItemExtension = Node.create({
             Enter: () => {
                 return this.editor.chain().splitBlock().updateAttributes('taskItem', { id: generateId(), isDayBreak: false }).run();
             },
+
+            // --- INDENT (Tab) ---
             Tab: () => {
-                return this.editor.commands.command(({ state, chain }) => {
+                return this.editor.commands.command(({ state, dispatch }) => {
                     const { selection, doc } = state;
                     const { $from } = selection;
-                    const node = $from.node();
+                    const currentNode = $from.node();
 
-                    if (node.type.name !== 'taskItem') return false;
-                    if (node.attrs.isDayBreak) return true;
+                    if (currentNode.type.name !== 'taskItem') return false;
+                    if (currentNode.attrs.isDayBreak) return true; // Do nothing, but handle event
 
-                    const currentLevel: number = node.attrs.indentationLevel || 0;
-
-                    // Find the block position for the current task
-                    const blockPos = $from.before(1);
-                    const resolved = doc.resolve(blockPos);
+                    // 1. Calculate Max Indent (Validation)
+                    const currentPos = $from.before(1);
+                    const resolved = doc.resolve(currentPos);
                     const parent = resolved.parent;
                     const index = resolved.index();
 
                     // Default: if no previous task, you can't nest (max 0)
                     let maxIndent = 0;
-
-                    // Walk backwards to find the previous real taskItem (skip day breaks)
+                    // Look backwards for the "parent" of the current node to determine max indentation
                     for (let i = index - 1; i >= 0; i--) {
                         const sibling = parent.child(i);
                         if (sibling.type.name === 'taskItem' && !sibling.attrs.isDayBreak) {
-                            const siblingIndent = sibling.attrs.indentationLevel || 0;
-                            maxIndent = siblingIndent + 1;
+                            maxIndent = sibling.attrs.indentationLevel + 1;
                             break;
                         }
                     }
 
-                    const desiredLevel = currentLevel + 1;
+                    const currentLevel = currentNode.attrs.indentationLevel;
+                    if (currentLevel + 1 > maxIndent) return true; // Cannot indent further
 
-                    // If trying to go deeper than allowed relative to previous sibling, do nothing
-                    if (desiredLevel > maxIndent) {
-                        // We still return true so the browser doesn't insert a tab character.
-                        return true;
+                    if (dispatch) {
+                        const tr = state.tr;
+
+                        // 2. Update Current Node
+                        tr.setNodeMarkup(currentPos, undefined, {
+                            ...currentNode.attrs,
+                            indentationLevel: currentLevel + 1,
+                        });
+
+                        // 3. Update Children (Subtree)
+                        // Scan forward. Any node with indentation > currentLevel is a child.
+                        // Stop at first node with indentation <= currentLevel.
+                        let pos = currentPos + currentNode.nodeSize;
+
+                        while (pos < doc.content.size) {
+                            const node = doc.nodeAt(pos);
+                            if (!node || node.type.name !== 'taskItem') break;
+
+                            // If we hit a DayBreak or a sibling/parent, the subtree ends.
+                            if (node.attrs.isDayBreak || node.attrs.indentationLevel <= currentLevel) {
+                                break;
+                            }
+
+                            // It is a child -> Indent it
+                            tr.setNodeMarkup(pos, undefined, {
+                                ...node.attrs,
+                                indentationLevel: node.attrs.indentationLevel + 1,
+                            });
+
+                            pos += node.nodeSize;
+                        }
+
+                        dispatch(tr);
                     }
-
-                    return chain().updateAttributes('taskItem', { indentationLevel: desiredLevel }).focus().run();
+                    return true;
                 });
             },
+
+            // --- OUTDENT (Shift-Tab) ---
             'Shift-Tab': () => {
-                return this.editor.commands.command(({ state, chain }) => {
-                    const { selection } = state;
+                return this.editor.commands.command(({ state, dispatch }) => {
+                    const { selection, doc } = state;
                     const { $from } = selection;
-                    const node = $from.node();
-                    if (node.type.name !== 'taskItem') return false;
-                    if (node.attrs.indentationLevel > 0) {
-                        return chain()
-                            .updateAttributes('taskItem', { indentationLevel: node.attrs.indentationLevel - 1 })
-                            .focus()
-                            .run();
+                    const currentNode = $from.node();
+
+                    if (currentNode.type.name !== 'taskItem') return false;
+
+                    const currentLevel = currentNode.attrs.indentationLevel;
+                    if (currentLevel === 0) return true; // Cannot outdent further
+
+                    if (dispatch) {
+                        const currentPos = $from.before(1);
+                        const tr = state.tr;
+
+                        // 1. Update Current Node
+                        tr.setNodeMarkup(currentPos, undefined, {
+                            ...currentNode.attrs,
+                            indentationLevel: currentLevel - 1,
+                        });
+
+                        // 2. Update Children (Subtree)
+                        // Scan forward. Logic is identical to indent, but we decrement.
+                        let pos = currentPos + currentNode.nodeSize;
+
+                        while (pos < doc.content.size) {
+                            const node = doc.nodeAt(pos);
+                            if (!node || node.type.name !== 'taskItem') break;
+
+                            // Stop if we hit a node that wasn't part of the subtree
+                            if (node.attrs.isDayBreak || node.attrs.indentationLevel <= currentLevel) {
+                                break;
+                            }
+
+                            tr.setNodeMarkup(pos, undefined, {
+                                ...node.attrs,
+                                indentationLevel: node.attrs.indentationLevel - 1,
+                            });
+
+                            pos += node.nodeSize;
+                        }
+
+                        dispatch(tr);
                     }
                     return true;
                 });
@@ -230,22 +287,84 @@ export const TaskItemExtension = Node.create({
 
             // --- 1. DELETE KEYS (Day Break Management) ---
             Delete: () => {
-                return this.editor.commands.command(({ state, dispatch }) => {
+                return this.editor.commands.command(({ state, dispatch, chain }) => {
                     const { selection, doc } = state;
                     const { $from, empty } = selection;
+
+                    // 1. Check if cursor is at the END of the node
                     if (!empty || $from.parentOffset !== $from.parent.content.size) return false;
 
-                    const currentPos = $from.after(1);
+                    const currentPos = $from.before(1);
                     const resolved = doc.resolve(currentPos);
                     const index = resolved.index();
+                    const currentNode = resolved.parent.child(index);
 
-                    if (index + 1 < resolved.parent.childCount) {
-                        const nextNode = resolved.parent.child(index + 1);
-                        if (nextNode.type.name === 'taskItem' && nextNode.attrs.isDayBreak) {
-                            if (dispatch) dispatch(state.tr.delete(currentPos, currentPos + nextNode.nodeSize));
-                            return true;
+                    // Ensure we are actually in a taskItem
+                    if (currentNode.type.name !== 'taskItem') return false;
+
+                    // 2. Check if there is a Next Node to merge with
+                    if (index + 1 >= resolved.parent.childCount) return false;
+                    const nextNode = resolved.parent.child(index + 1);
+
+                    // --- SCENARIO A: Next Node is a Day Break ---
+                    // (Existing logic: just delete the break line)
+                    if (nextNode.type.name === 'taskItem' && nextNode.attrs.isDayBreak) {
+                        if (dispatch) {
+                            const nextNodePos = currentPos + currentNode.nodeSize;
+                            dispatch(state.tr.delete(nextNodePos, nextNodePos + nextNode.nodeSize));
                         }
+                        return true;
                     }
+
+                    // --- SCENARIO B: Next Node is a Standard Task (The Merge Logic) ---
+                    if (nextNode.type.name === 'taskItem' && !nextNode.attrs.isDayBreak) {
+                        // Calculate the "Pull": How much should the children move left?
+                        // e.g. Current (0) - Next (1) = -1. We shift children by -1.
+                        const indentDiff = currentNode.attrs.indentationLevel - nextNode.attrs.indentationLevel;
+
+                        // Only perform complex logic if there is an indentation difference
+                        // and we are specifically pulling deeper content up to a shallower level
+                        if (indentDiff !== 0 && dispatch) {
+                            const tr = state.tr;
+
+                            // The position of the "Next Node"
+                            const nextNodePos = currentPos + currentNode.nodeSize;
+
+                            // Start scanning for children immediately AFTER the next node
+                            let pos = nextNodePos + nextNode.nodeSize;
+                            const nextNodeBaseIndent = nextNode.attrs.indentationLevel;
+
+                            while (pos < doc.content.size) {
+                                const node = doc.nodeAt(pos);
+                                if (!node || node.type.name !== 'taskItem') break;
+
+                                // STOP if we hit a node that is NOT a child of the 'nextNode'
+                                // (i.e., it has the same or less indentation than the node being merged)
+                                if (node.attrs.isDayBreak || node.attrs.indentationLevel <= nextNodeBaseIndent) {
+                                    break;
+                                }
+
+                                // ADJUST: Apply the calculated difference
+                                // Ensure we don't go below 0
+                                const newLevel = Math.max(0, node.attrs.indentationLevel + indentDiff);
+
+                                tr.setNodeMarkup(pos, undefined, {
+                                    ...node.attrs,
+                                    indentationLevel: newLevel,
+                                });
+
+                                pos += node.nodeSize;
+                            }
+
+                            // Apply the indentation changes first
+                            dispatch(tr);
+                        }
+
+                        // Finally, perform the standard text merge (joinForward)
+                        // We use the chain so it operates on the updated document state
+                        return chain().joinForward().run();
+                    }
+
                     return false;
                 });
             },
@@ -257,11 +376,32 @@ export const TaskItemExtension = Node.create({
                     const currentNode = $from.node();
                     if (currentNode.type.name !== 'taskItem') return false;
 
-                    // Unindent
+                    // Unindent (using the Shift-Tab logic to keep children attached)
                     if (currentNode.attrs.indentationLevel > 0) {
-                        return chain()
-                            .updateAttributes('taskItem', { indentationLevel: currentNode.attrs.indentationLevel - 1 })
-                            .run();
+                        // We delegate to the Shift-Tab command logic we just wrote
+                        // But for simplicity, we can just run the raw chain if we don't care about children here,
+                        // OR manually trigger the outdent logic.
+                        // Users usually expect Backspace at start of line to Outdent AND bring children.
+
+                        // Manually triggering outdent logic:
+                        if (dispatch) {
+                            const currentPos = $from.before(1);
+                            const tr = state.tr;
+                            const currentLevel = currentNode.attrs.indentationLevel;
+
+                            tr.setNodeMarkup(currentPos, undefined, { ...currentNode.attrs, indentationLevel: currentLevel - 1 });
+
+                            // Move children
+                            let pos = currentPos + currentNode.nodeSize;
+                            while (pos < doc.content.size) {
+                                const node = doc.nodeAt(pos);
+                                if (!node || node.type.name !== 'taskItem' || node.attrs.isDayBreak || node.attrs.indentationLevel <= currentLevel) break;
+                                tr.setNodeMarkup(pos, undefined, { ...node.attrs, indentationLevel: node.attrs.indentationLevel - 1 });
+                                pos += node.nodeSize;
+                            }
+                            dispatch(tr);
+                        }
+                        return true;
                     }
 
                     // Delete Day Break (Always)
