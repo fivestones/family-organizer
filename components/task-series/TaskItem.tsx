@@ -73,8 +73,12 @@ const TaskItemComponent = (props: any) => {
                 {dateLabel || '-'}
             </div>
 
-            {/* Content Wrapper */}
-            <div className="flex-grow flex items-start relative" style={{ marginLeft: `${indentationLevel * 2}rem` }}>
+            {/* Content Wrapper 
+            FIX: Changed marginLeft to paddingLeft. 
+            The node now physically occupies the indentation space, so the cursor "hits" it 
+            instead of skipping it.
+        */}
+            <div className="flex-grow flex items-start relative">
                 {/* Drag Handle */}
                 <button
                     ref={dragHandleRef}
@@ -85,9 +89,11 @@ const TaskItemComponent = (props: any) => {
                     <GripVertical size={16} />
                 </button>
 
-                {/* Editor Content */}
+                {/* Editor Content 
+                Keep min-h-[1.5em] to ensure empty tasks have a targetable height 
+            */}
                 <div className="flex-grow min-w-0 rounded-sm px-2 py-0.5 bg-transparent min-h-[1.5em]">
-                    <NodeViewContent className="outline-none" />
+                    <NodeViewContent className="outline-none min-h-[1.5em]" style={{ paddingLeft: `${indentationLevel * 2}rem` }} />
                 </div>
 
                 {/* Metadata Trigger */}
@@ -161,43 +167,39 @@ export const TaskItemExtension = Node.create({
 
     addKeyboardShortcuts() {
         return {
-            // CRITICAL FIX: When hitting Enter, generate a unique ID immediately using InstantDB's id()
             Enter: () => {
-                // If we are IN a day break, Enter should create a new NORMAL task below
-                // But normally Tiptap handles escaping node views well.
                 return this.editor.chain().splitBlock().updateAttributes('taskItem', { id: generateId(), isDayBreak: false }).run();
             },
             Tab: () => {
-                return this.editor.commands.command(({ state }) => {
+                return this.editor.commands.command(({ state, chain }) => {
                     const { selection } = state;
                     const { $from } = selection;
                     const node = $from.node();
-
                     if (node.type.name !== 'taskItem') return false;
-                    if (node.attrs.isDayBreak) return true; // Tab does nothing on breaks
-                    return this.editor.commands.updateAttributes('taskItem', {
-                        indentationLevel: node.attrs.indentationLevel + 1,
-                    });
+                    if (node.attrs.isDayBreak) return true;
+                    return chain()
+                        .updateAttributes('taskItem', { indentationLevel: node.attrs.indentationLevel + 1 })
+                        .focus()
+                        .run();
                 });
             },
             'Shift-Tab': () => {
-                return this.editor.commands.command(({ state }) => {
+                return this.editor.commands.command(({ state, chain }) => {
                     const { selection } = state;
                     const { $from } = selection;
                     const node = $from.node();
-
                     if (node.type.name !== 'taskItem') return false;
-
                     if (node.attrs.indentationLevel > 0) {
-                        return this.editor.commands.updateAttributes('taskItem', {
-                            indentationLevel: node.attrs.indentationLevel - 1,
-                        });
+                        return chain()
+                            .updateAttributes('taskItem', { indentationLevel: node.attrs.indentationLevel - 1 })
+                            .focus()
+                            .run();
                     }
                     return true;
                 });
             },
 
-            // --- 1. FORWARD DELETE (Delete Key) ---
+            // --- 1. DELETE KEYS (Day Break Management) ---
             Delete: () => {
                 return this.editor.commands.command(({ state, dispatch }) => {
                     const { selection, doc } = state;
@@ -208,101 +210,38 @@ export const TaskItemExtension = Node.create({
                     const resolved = doc.resolve(currentPos);
                     const index = resolved.index();
 
-                    // Check if the NEXT sibling exists
                     if (index + 1 < resolved.parent.childCount) {
                         const nextNode = resolved.parent.child(index + 1);
-
-                        // If next node is a Day Break, delete it!
                         if (nextNode.type.name === 'taskItem' && nextNode.attrs.isDayBreak) {
                             if (dispatch) dispatch(state.tr.delete(currentPos, currentPos + nextNode.nodeSize));
                             return true;
                         }
                     }
-                    return false; // Otherwise default behavior
-                });
-            },
-
-            ArrowUp: () => {
-                return this.editor.commands.command(({ state, chain }) => {
-                    const { selection, doc } = state;
-                    const { $from, empty } = selection;
-                    const currentNode = $from.node();
-
-                    // Strict check: Cursor must be collapsed
-                    if (!empty) return false;
-
-                    // 1. We only intervene if we are at the START of the task
-                    if ($from.parentOffset !== 0) return false;
-
-                    // Helper to determine if we must intervene
-                    const isEmpty = currentNode.content.size === 0 || currentNode.textContent.length === 0;
-                    const currentPos = $from.before(1);
-                    const resolved = doc.resolve(currentPos);
-                    const index = resolved.index();
-
-                    let previousIsBreak = false;
-                    if (index > 0) {
-                        const prev = resolved.parent.child(index - 1);
-                        previousIsBreak = prev.type.name === 'taskItem' && prev.attrs.isDayBreak;
-                    }
-
-                    // If empty OR blocked by a break, manually move up
-                    if (isEmpty || previousIsBreak) {
-                        let scanPos = currentPos;
-                        for (let i = index - 1; i >= 0; i--) {
-                            const prevNode = resolved.parent.child(i);
-                            scanPos -= prevNode.nodeSize;
-
-                            if (prevNode.type.name === 'taskItem' && !prevNode.attrs.isDayBreak) {
-                                // FIX: Use chain().focus() to ensure the browser follows the selection
-                                return chain()
-                                    .focus()
-                                    .setTextSelection(scanPos + prevNode.nodeSize - 1)
-                                    .run();
-                            }
-                            // Loop continues if we hit a Day Break (effectively skipping it)
-                        }
-                    }
-
-                    // Otherwise, let the browser handle "Visual" Up movement (preserves horizontal position)
                     return false;
                 });
             },
-
-            // --- 3. BACKSPACE HANDLER ---
             Backspace: () => {
                 return this.editor.commands.command(({ state, chain, dispatch }) => {
                     const { selection, doc } = state;
                     const { $from, empty } = selection;
-
-                    // 1. Only care about a collapsed cursor.
-                    if (!empty) return false;
-
-                    // 2. Only when cursor is at the start of the text within this task.
-                    if ($from.parentOffset !== 0) return false;
-
+                    if (!empty || $from.parentOffset !== 0) return false;
                     const currentNode = $from.node();
                     if (currentNode.type.name !== 'taskItem') return false;
 
-                    // A. Indentation priority
+                    // Unindent
                     if (currentNode.attrs.indentationLevel > 0) {
                         return chain()
-                            .updateAttributes('taskItem', {
-                                indentationLevel: currentNode.attrs.indentationLevel - 1,
-                            })
+                            .updateAttributes('taskItem', { indentationLevel: currentNode.attrs.indentationLevel - 1 })
                             .run();
                     }
 
-                    // B. Check Previous Sibling
+                    // Delete Day Break (Always)
                     const currentPos = $from.before(1);
                     const resolvedPos = doc.resolve(currentPos);
                     const index = resolvedPos.index();
-
                     if (index > 0) {
                         const prevNode = resolvedPos.parent.child(index - 1);
                         if (prevNode.type.name === 'taskItem' && prevNode.attrs.isDayBreak) {
-                            // UNIFIED LOGIC: If previous is Day Break, DELETE IT.
-                            // It doesn't matter if current task is empty or has text.
                             if (dispatch) {
                                 const prevNodeStart = currentPos - prevNode.nodeSize;
                                 dispatch(state.tr.delete(prevNodeStart, currentPos));
@@ -310,9 +249,178 @@ export const TaskItemExtension = Node.create({
                             return true;
                         }
                     }
-
-                    // D. Default Merge (only if no Day Break involved)
                     return chain().joinBackward().run();
+                });
+            },
+
+            // --- 2. SMART NAVIGATION (Arrow Keys) ---
+            // Handles: Stuck cursors in empty tasks AND Skipping over indented tasks
+            ArrowUp: () => {
+                return this.editor.commands.command(({ editor, state, view, dispatch }) => {
+                    const isAtTop = view.endOfTextblock('up');
+                    if (!isAtTop) return false;
+
+                    const { selection, doc } = state;
+                    const { $from, empty } = selection;
+                    if (!empty) return false;
+
+                    // 1. RETRIEVE GOAL COLUMN (The Phantom Cursor)
+                    // If we are in a sequence of Up/Down presses, 'goal' holds the original X.
+                    // Otherwise, we grab the current visual X.
+                    const currentGoal = (selection as any).goal;
+                    const currentCoords = view.coordsAtPos($from.pos);
+                    const targetX = currentGoal !== undefined ? currentGoal : currentCoords.left;
+
+                    const currentPos = $from.before(1);
+                    const resolved = doc.resolve(currentPos);
+                    const index = resolved.index();
+                    const parent = resolved.parent;
+
+                    // 2. Scan Backwards
+                    let prevNode = null;
+                    let prevPos = currentPos;
+
+                    for (let i = index - 1; i >= 0; i--) {
+                        const node = parent.child(i);
+                        prevPos -= node.nodeSize;
+                        if (node.type.name === 'taskItem' && !node.attrs.isDayBreak) {
+                            prevNode = node;
+                            break;
+                        }
+                    }
+
+                    if (!prevNode) return false;
+
+                    // 3. Project Cursor
+                    let targetPos = prevPos + prevNode.nodeSize - 1; // Default fallback
+
+                    try {
+                        const nodeDOM = view.nodeDOM(prevPos) as HTMLElement;
+                        if (nodeDOM) {
+                            const rect = nodeDOM.getBoundingClientRect();
+                            const targetY = rect.bottom - 10;
+                            const posResult = view.posAtCoords({ left: targetX, top: targetY });
+
+                            if (posResult && posResult.pos >= prevPos && posResult.pos < prevPos + prevNode.nodeSize) {
+                                targetPos = posResult.pos;
+                            }
+                        }
+                    } catch (e) {}
+
+                    // 4. DISPATCH WITH GOAL
+                    if (dispatch) {
+                        const tr = state.tr;
+                        // Create the new selection
+                        const newSelection = TextSelection.near(doc.resolve(targetPos));
+                        // PERSIST THE GOAL: Attach the original X to the new selection
+                        (newSelection as any).goal = targetX;
+
+                        tr.setSelection(newSelection);
+                        tr.scrollIntoView();
+                        dispatch(tr);
+                        view.focus();
+                    }
+                    return true;
+                });
+            },
+
+            ArrowDown: () => {
+                return this.editor.commands.command(({ editor, state, view, dispatch }) => {
+                    console.log('%c--- ARROW DOWN DEBUG START ---', 'color: cyan; font-weight: bold');
+
+                    // 1. Check Tiptap's opinion on position
+                    const isAtBottom = view.endOfTextblock('down');
+                    console.log('1. view.endOfTextblock("down") returned:', isAtBottom);
+
+                    if (!isAtBottom) {
+                        console.log('%c-> Result: Returning FALSE. Letting Browser handle navigation.', 'color: orange');
+                        // This means Tiptap thinks you are inside a multi-line paragraph
+                        // and should move to the next line naturally.
+                        return false;
+                    }
+
+                    const { selection, doc } = state;
+                    const { $from, empty } = selection;
+                    if (!empty) return false;
+
+                    const currentPos = $from.before(1);
+                    const currentNode = $from.node();
+                    const resolved = doc.resolve(currentPos);
+                    const index = resolved.index();
+                    const parent = resolved.parent;
+
+                    // 2. Goal Column Logic
+                    const currentGoal = (selection as any).goal;
+                    const currentCoords = view.coordsAtPos($from.pos);
+                    const targetX = currentGoal !== undefined ? currentGoal : currentCoords.left;
+
+                    console.log('2. Horizontal Goal (Target X):', targetX);
+                    console.log(`   Current Node Index: ${index}`);
+
+                    // 3. Finding Next Node
+                    let nextNode = null;
+                    let nextPos = currentPos + currentNode.nodeSize;
+
+                    console.log('3. Scanning siblings...');
+                    for (let i = index + 1; i < parent.childCount; i++) {
+                        const node = parent.child(i);
+                        console.log(`   Sibling [${i}]: Type=${node.type.name}, Break=${node.attrs.isDayBreak}, Indent=${node.attrs.indentationLevel}`);
+
+                        if (node.type.name === 'taskItem' && !node.attrs.isDayBreak) {
+                            nextNode = node;
+                            break;
+                        }
+                        nextPos += node.nodeSize;
+                    }
+
+                    if (!nextNode) {
+                        console.log('-> Result: End of document. No next node found.');
+                        return false;
+                    }
+
+                    console.log(`   > FOUND Next Node at pos: ${nextPos}`);
+
+                    // 4. Projection Calculation
+                    let targetPos = nextPos + 1; // Default fallback
+
+                    try {
+                        const nodeDOM = view.nodeDOM(nextPos) as HTMLElement;
+                        if (nodeDOM) {
+                            const rect = nodeDOM.getBoundingClientRect();
+                            const targetY = rect.top + 10; // Aim a bit inside the top
+                            console.log(`4. Target Y coord: ${targetY} (Rect Top: ${rect.top})`);
+
+                            // Check what ProseMirror finds at (TargetX, TargetY)
+                            const posResult = view.posAtCoords({ left: targetX, top: targetY });
+                            console.log('   posAtCoords result:', posResult);
+
+                            if (posResult && posResult.pos >= nextPos && posResult.pos < nextPos + nextNode.nodeSize) {
+                                console.log('   > HIT! Calculated position is valid.');
+                                targetPos = posResult.pos;
+                            } else {
+                                console.log('%c   > MISS! posAtCoords landed outside the target node.', 'color: red');
+                                console.log(`     Expected range: ${nextPos} to ${nextPos + nextNode.nodeSize}`);
+                            }
+                        } else {
+                            console.log('   > nodeDOM returned null');
+                        }
+                    } catch (e) {
+                        console.error('   > Error in projection:', e);
+                    }
+
+                    // 5. Dispatch
+                    console.log(`5. DISPATCHING jump to pos: ${targetPos}`);
+
+                    if (dispatch) {
+                        const tr = state.tr;
+                        const newSelection = TextSelection.near(doc.resolve(targetPos));
+                        (newSelection as any).goal = targetX;
+                        tr.setSelection(newSelection);
+                        tr.scrollIntoView();
+                        dispatch(tr);
+                        view.focus();
+                    }
+                    return true;
                 });
             },
         };
