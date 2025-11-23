@@ -1,15 +1,16 @@
 // components/task-series/TaskSeriesEditor.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useEditor, EditorContent, JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { id, tx } from '@instantdb/react';
 import { startOfDay, format, parseISO } from 'date-fns';
-import { RRule } from 'rrule'; // Import RRule
+import { RRule } from 'rrule';
 import { Loader2 } from 'lucide-react';
 import { useDebouncedCallback } from 'use-debounce';
 import { SlashCommand, slashCommandSuggestion } from './SlashCommand';
+import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +34,14 @@ interface TaskSeriesEditorProps {
     onClose?: () => void;
 }
 
+type DropState = {
+    isActive: boolean;
+    top: number;
+    left: number;
+    width: number;
+    indentationLevel: number;
+};
+
 const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId, onClose }) => {
     const { toast } = useToast();
     const [seriesId] = useState<string>(initialSeriesId || id());
@@ -43,6 +52,27 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
     const [taskSeriesName, setTaskSeriesName] = useState('');
     const [startDate, setStartDate] = useState<Date>(startOfDay(new Date()));
+
+    // --- Drag and Drop State ---
+    const editorRef = useRef<HTMLDivElement>(null);
+    const [dropState, setDropState] = useState<DropState | null>(null);
+    const [isDraggingGlobal, setIsDraggingGlobal] = useState(false);
+
+    // --- Cursor Hiding Logic ---
+    useEffect(() => {
+        if (isDraggingGlobal) {
+            // Force cursor to grabbing globally to hide text cursor and indicate drag
+            document.body.style.cursor = 'grabbing';
+            document.body.classList.add('select-none'); // Optional: helps prevent text selection
+        } else {
+            document.body.style.cursor = '';
+            document.body.classList.remove('select-none');
+        }
+        return () => {
+            document.body.style.cursor = '';
+            document.body.classList.remove('select-none');
+        };
+    }, [isDraggingGlobal]);
 
     // --- 1. Fetch Data ---
     const { data, isLoading } = db.useQuery({
@@ -103,6 +133,244 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             debouncedSave(editor.getJSON());
         },
     });
+
+    // --- 3. Drag and Drop Logic ---
+    useEffect(() => {
+        if (!editor) return;
+
+        return monitorForElements({
+            onDragStart: () => setIsDraggingGlobal(true),
+            onDrag: ({ location, source }) => {
+                if (source.data.type !== 'task-item') return;
+
+                const container = editorRef.current;
+                if (!container) return;
+
+                const clientX = location.current.input.clientX;
+                const clientY = location.current.input.clientY;
+
+                // 1. Identify Target
+                // Try direct hit first
+                let targetElement = document.elementFromPoint(clientX, clientY)?.closest('[data-task-id]') as HTMLElement | null;
+
+                // GAP FIX: If no direct hit, find nearest task vertically within container
+                if (!targetElement) {
+                    const elements = Array.from(container.querySelectorAll('[data-task-id]'));
+                    let closest: HTMLElement | null = null;
+                    let minDistance = Infinity;
+
+                    for (const el of elements) {
+                        const rect = el.getBoundingClientRect();
+                        // Distance to vertical center of the element
+                        const dist = Math.abs(clientY - (rect.top + rect.height / 2));
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            closest = el as HTMLElement;
+                        }
+                    }
+                    // Only snap if we are relatively close (e.g. within 50px) to prevent snapping from miles away
+                    if (closest && minDistance < 100) {
+                        targetElement = closest;
+                    }
+                }
+
+                if (!targetElement) {
+                    setDropState(null);
+                    return;
+                }
+
+                // 2. Calculate Edges (Top vs Bottom)
+                const rect = targetElement.getBoundingClientRect();
+                const containerRect = container.getBoundingClientRect();
+                const midY = rect.top + rect.height / 2;
+                const isTop = clientY < midY;
+
+                // 3. Determine "Preceding Node" (The parent we are checking against)
+                // If dropping Top: predecessor is the target's previous sibling.
+                // If dropping Bottom: predecessor is the target itself.
+                let precedingElement: HTMLElement | null = null;
+
+                if (isTop) {
+                    // If we are dropping on the top edge of a task,
+                    // effective predecessor is the previous task in the list.
+                    // We loop previousElementSibling to skip over non-task nodes (like drag previews)
+                    let prev = targetElement.previousElementSibling;
+                    while (prev) {
+                        if (prev.hasAttribute('data-task-id')) {
+                            precedingElement = prev as HTMLElement;
+                            break;
+                        }
+                        prev = prev.previousElementSibling;
+                    }
+                } else {
+                    // If dropping on bottom edge, this task itself is the predecessor
+                    precedingElement = targetElement;
+                }
+
+                // 4. Calculate Max Indentation
+                // Max is predecessor's level + 1.
+                // If no predecessor (top of list), Max is 0.
+                let maxIndent = 0;
+                if (precedingElement) {
+                    const prevLevel = parseInt(precedingElement.getAttribute('data-indent-level') || '0', 10);
+                    maxIndent = prevLevel + 1;
+                }
+
+                // 5. Calculate Desired Indentation from Horizontal Mouse Position
+                const INDENT_ZERO_OFFSET = 116; // w-20(80) + pr-3(12) + handle(24)
+                const INDENT_WIDTH = 32; // 2rem
+
+                const mouseXRelative = clientX - containerRect.left;
+                const rawIndent = Math.floor((mouseXRelative - INDENT_ZERO_OFFSET) / INDENT_WIDTH);
+
+                // Clamp indentation between 0 and allowed Max
+                const finalIndent = Math.max(0, Math.min(rawIndent, maxIndent));
+
+                // 6. Set Drop State
+                const visualLeft = INDENT_ZERO_OFFSET + finalIndent * INDENT_WIDTH;
+
+                // Align line exactly with the gap
+                // If Top: line is at top of rect. If Bottom: line is at bottom of rect.
+                const relativeTop = (isTop ? rect.top : rect.bottom) - containerRect.top;
+
+                setDropState({
+                    isActive: true,
+                    top: relativeTop,
+                    left: visualLeft,
+                    width: containerRect.width - visualLeft - 40,
+                    indentationLevel: finalIndent,
+                });
+            },
+            onDrop: ({ location, source }) => {
+                setIsDraggingGlobal(false);
+                setDropState(null);
+                if (source.data.type !== 'task-item') return;
+                if (!editor || editor.isDestroyed) return;
+
+                const draggedId = source.data.id as string;
+
+                // Re-calculate drop target (same logic as onDrag)
+                const container = editorRef.current;
+                if (!container) return;
+
+                const clientX = location.current.input.clientX;
+                const clientY = location.current.input.clientY;
+
+                // --- REPEAT TARGET FINDING LOGIC (Must match onDrag) ---
+                let targetElement = document.elementFromPoint(clientX, clientY)?.closest('[data-task-id]') as HTMLElement | null;
+
+                if (!targetElement) {
+                    const elements = Array.from(container.querySelectorAll('[data-task-id]'));
+                    let closest: HTMLElement | null = null;
+                    let minDistance = Infinity;
+                    for (const el of elements) {
+                        const rect = el.getBoundingClientRect();
+                        const dist = Math.abs(clientY - (rect.top + rect.height / 2));
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            closest = el as HTMLElement;
+                        }
+                    }
+                    if (closest && minDistance < 100) targetElement = closest;
+                }
+                // -------------------------------------------------------
+
+                if (!targetElement) return;
+
+                const targetId = targetElement.getAttribute('data-task-id');
+                if (targetId === draggedId) return;
+
+                // --- Re-calculate logic (must match onDrag exactly) ---
+                const rect = targetElement.getBoundingClientRect();
+                const containerRect = container.getBoundingClientRect();
+                const midY = rect.top + rect.height / 2;
+                const isTop = clientY < midY;
+
+                // --- REPEAT INDENTATION LOGIC ---
+                let precedingElement: HTMLElement | null = null;
+                if (isTop) {
+                    let prev = targetElement.previousElementSibling;
+                    while (prev) {
+                        if (prev.hasAttribute('data-task-id')) {
+                            precedingElement = prev as HTMLElement;
+                            break;
+                        }
+                        prev = prev.previousElementSibling;
+                    }
+                } else {
+                    precedingElement = targetElement;
+                }
+
+                let maxIndent = 0;
+                if (precedingElement) {
+                    const prevLevel = parseInt(precedingElement.getAttribute('data-indent-level') || '0', 10);
+                    maxIndent = prevLevel + 1;
+                }
+
+                const INDENT_ZERO_OFFSET = 116;
+                const INDENT_WIDTH = 32;
+                const mouseXRelative = clientX - containerRect.left;
+                const rawIndent = Math.floor((mouseXRelative - INDENT_ZERO_OFFSET) / INDENT_WIDTH);
+                const finalIndent = Math.max(0, Math.min(rawIndent, maxIndent));
+                // -----------------------------------------------------
+
+                // Execute Transaction
+                editor
+                    .chain()
+                    .command(({ state, dispatch, tr }) => {
+                        const { doc } = state;
+                        let draggedPos: number | null = null;
+                        let draggedNode: any = null;
+                        let targetPos: number | null = null;
+
+                        // Find positions
+                        doc.descendants((node, pos) => {
+                            if (node.attrs.id === draggedId) {
+                                draggedPos = pos;
+                                draggedNode = node;
+                            }
+                            if (node.attrs.id === targetId) {
+                                targetPos = pos;
+                            }
+                        });
+
+                        if (draggedPos === null || targetPos === null || !draggedNode) return false;
+
+                        // 1. Determine Insertion Point
+                        // If isTop, insert before target. If !isTop, insert after target.
+                        // We must account for node size.
+                        const targetNode = doc.nodeAt(targetPos);
+                        if (!targetNode) return false;
+
+                        let insertPos = isTop ? targetPos : targetPos + targetNode.nodeSize;
+
+                        // Adjust insertPos if we are deleting the dragged node *before* the insertion point
+                        // (Logic simplifies if we delete first, but we need to map position)
+
+                        // 2. Delete Dragged Node
+                        tr.delete(draggedPos, draggedPos + draggedNode.nodeSize);
+
+                        // Map insertion position
+                        const mappedInsertPos = tr.mapping.map(insertPos);
+
+                        tr.insert(
+                            mappedInsertPos,
+                            draggedNode.type.create(
+                                {
+                                    ...draggedNode.attrs,
+                                    indentationLevel: finalIndent,
+                                },
+                                draggedNode.content
+                            )
+                        );
+
+                        if (dispatch) dispatch(tr);
+                        return true;
+                    })
+                    .run();
+            },
+        });
+    }, [editor]);
 
     // --- 3. Date Calculation Logic (RRule) ---
     const calculateDates = useCallback(
@@ -174,11 +442,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         [startDate]
     );
 
-    // Recalculate dates if start date changes
-    useEffect(() => {
-        if (editor) calculateDates(editor.getJSON());
-    }, [startDate, editor, calculateDates]);
-
     // --- 4. Hydration (DB -> TipTap) ---
     // We use a ref to ensure we only hydrate ONCE when data is first available
     const hasHydrated = React.useRef(false);
@@ -207,12 +470,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 // Initialize with one empty task if new
                 editor.commands.setContent({
                     type: 'doc',
-                    content: [
-                        {
-                            type: 'taskItem',
-                            attrs: { id: id(), indentationLevel: 0, isDayBreak: false },
-                        },
-                    ],
+                    content: [{ type: 'taskItem', attrs: { id: id(), indentationLevel: 0, isDayBreak: false } }],
                 });
             }
 
@@ -235,9 +493,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             if (node.type !== 'taskItem' || !node.attrs) return;
 
             const taskId = node.attrs.id || id();
-            const isDayBreak = !!node.attrs.isDayBreak; // Strict check
-
-            // CLEANUP: If it's a Day Break, force text to be empty in DB.
+            const isDayBreak = !!node.attrs.isDayBreak;
             const textContent = isDayBreak ? '' : node.content?.[0]?.text || '';
 
             currentIds.add(taskId);
@@ -305,20 +561,35 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             <div className="space-y-4 border p-4 rounded-lg bg-card">
                 <div>
                     <label className="text-sm font-medium">Series Name</label>
-                    <Input
-                        value={taskSeriesName}
-                        onChange={(e) => {
-                            setTaskSeriesName(e.target.value);
-                            // Trigger save manually or via effect
-                        }}
-                        placeholder="Math Homework..."
-                    />
+                    <Input value={taskSeriesName} onChange={(e) => setTaskSeriesName(e.target.value)} placeholder="Math Homework..." />
                 </div>
                 {/* Add other metadata inputs (start date, family member) here */}
             </div>
 
-            {/* The Editor */}
-            <div className="border rounded-lg bg-background shadow-sm min-h-[500px] flex flex-col">
+            {/* FIX: Added onDragOver to prevent Default (Native) drop behavior 
+               This prevents the "black lines" / native insertion cursor from appearing.
+            */}
+            <div
+                ref={editorRef}
+                className="border rounded-lg bg-background shadow-sm min-h-[500px] flex flex-col relative"
+                onDragOver={(e) => e.preventDefault()}
+            >
+                {dropState && dropState.isActive && (
+                    <div
+                        className="absolute pointer-events-none z-50 transition-all duration-75 ease-out"
+                        style={{
+                            top: dropState.top,
+                            left: dropState.left,
+                            width: dropState.width,
+                        }}
+                    >
+                        {/* The Line */}
+                        <div className="border-t-2 border-blue-500 w-full relative">
+                            <div className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-blue-500" />
+                        </div>
+                    </div>
+                )}
+
                 <div className="bg-muted/40 px-4 py-2 border-b text-xs font-medium text-muted-foreground flex">
                     <div className="w-20 text-right pr-3">Date</div>
                     <div>Task</div>

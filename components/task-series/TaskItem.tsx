@@ -3,13 +3,14 @@
 
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { Node, mergeAttributes } from '@tiptap/core';
-import React, { useContext } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import { GripVertical, Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { id as generateId } from '@instantdb/react'; // Import the InstantDB ID generator
 import { TextSelection, Plugin } from 'prosemirror-state';
+import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
 // --- Context ---
 // Now stores both the visual label and the underlying date object
@@ -19,9 +20,10 @@ export const TaskDateContext = React.createContext<Record<string, { label: strin
 const TaskItemComponent = (props: any) => {
     const { node, updateAttributes } = props;
     const { indentationLevel, isDayBreak, id } = node.attrs;
+    const [isDragging, setIsDragging] = useState(false);
 
     // Ensure every taskItem has a stable ID, even after paste.
-    React.useEffect(() => {
+    useEffect(() => {
         if (!id) {
             const newId = generateId();
             updateAttributes({ id: newId });
@@ -34,17 +36,38 @@ const TaskItemComponent = (props: any) => {
     const taskData = id ? dateMap[id] : undefined;
     const dateLabel = taskData?.label;
 
-    // Handle Drag Handle Ref (Placeholder for Pragmatic Drag and Drop)
-    // You would attach your draggable logic to this ref
-    const dragHandleRef = React.useRef<HTMLButtonElement>(null);
+    const dragHandleRef = useRef<HTMLButtonElement>(null);
+    const itemRef = useRef<HTMLDivElement>(null);
 
-    // --- RENDER LOGIC ---
+    // --- DRAGGABLE SETUP ---
+    useEffect(() => {
+        const element = dragHandleRef.current;
+        const container = itemRef.current;
+        if (!element || !container) return;
 
-    // CASE 1: DAY BREAK (Thin Line)
+        return draggable({
+            element,
+            getInitialData: () => ({
+                type: 'task-item',
+                id: id,
+                indentationLevel: indentationLevel,
+            }),
+            onDragStart: () => setIsDragging(true),
+            onDrop: () => setIsDragging(false),
+        });
+    }, [id, indentationLevel]);
+
+    // CASE 1: DAY BREAK
     if (isDayBreak) {
         return (
-            <NodeViewWrapper className="group relative my-4 select-none" contentEditable={false}>
-                {/* Visual Line */}
+            <NodeViewWrapper
+                className="group relative my-4 select-none"
+                contentEditable={false}
+                // Expose attributes for the Drop Monitor
+                data-task-id={id}
+                data-indent-level={indentationLevel}
+                data-is-day-break="true"
+            >
                 <div className="flex items-center justify-center" contentEditable={false}>
                     <div className="h-0.5 w-full bg-border" />
                 </div>
@@ -62,7 +85,14 @@ const TaskItemComponent = (props: any) => {
 
     // CASE 2: STANDARD TASK
     return (
-        <NodeViewWrapper className="flex items-start group relative my-0.5">
+        <NodeViewWrapper
+            ref={itemRef}
+            className={cn('flex items-start group relative my-0.5', isDragging && 'opacity-40')}
+            // Expose attributes for the Drop Monitor
+            data-task-id={id}
+            data-indent-level={indentationLevel}
+            data-is-day-break="false"
+        >
             {/* Date Margin */}
             <div
                 className={cn(
@@ -139,7 +169,9 @@ export const TaskItemExtension = Node.create({
             },
             indentationLevel: {
                 default: 0,
-                keepOnSplit: true, // Inherit indentation on Enter
+                keepOnSplit: true,
+                parseHTML: (element) => parseInt(element.getAttribute('data-indentation-level') || '0', 10),
+                renderHTML: (attributes) => ({ 'data-indentation-level': attributes.indentationLevel }),
             },
             isDayBreak: {
                 default: false,
