@@ -109,8 +109,11 @@ const TaskItemComponent = (props: any) => {
             The node now physically occupies the indentation space, so the cursor "hits" it 
             instead of skipping it.
         */}
-            <div className="flex-grow flex items-start relative">
-                {/* Drag Handle */}
+            <div
+                className="flex-grow flex items-start relative transition-[padding] duration-200 ease-in-out"
+                style={{ paddingLeft: `${indentationLevel * 2}rem` }}
+            >
+                {/* Drag Handle - Now moves with the indent */}
                 <button
                     ref={dragHandleRef}
                     className="mt-1 mr-1 text-gray-400 opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing transition-opacity"
@@ -124,7 +127,10 @@ const TaskItemComponent = (props: any) => {
                 Keep min-h-[1.5em] to ensure empty tasks have a targetable height 
             */}
                 <div className="flex-grow min-w-0 rounded-sm px-2 py-0.5 bg-transparent min-h-[1.5em]">
-                    <NodeViewContent className="outline-none min-h-[1.5em]" style={{ paddingLeft: `${indentationLevel * 2}rem` }} />
+                    <NodeViewContent
+                        className="outline-none min-h-[1.5em]"
+                        // REMOVED: style={{ paddingLeft: ... }}
+                    />
                 </div>
 
                 {/* Metadata Trigger */}

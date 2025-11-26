@@ -109,6 +109,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 heading: false,
                 horizontalRule: false,
 
+                // Disables the default black drop indicator line
+                dropcursor: false,
+                // --------------------
+
                 // Note: We implicitly KEEP 'document', 'text', 'bold', 'history', etc.
             }),
             TaskItemExtension,
@@ -121,6 +125,17 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         editorProps: {
             attributes: {
                 class: 'focus:outline-none min-h-[300px] p-4',
+            },
+            // prevent native drag/drop caret & insertion behavior
+            handleDOMEvents: {
+                dragover: (_view, event) => {
+                    event.preventDefault();
+                    return true;
+                },
+                drop: (_view, event) => {
+                    event.preventDefault();
+                    return true;
+                },
             },
         },
         onUpdate: ({ editor }) => {
@@ -139,7 +154,11 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         if (!editor) return;
 
         return monitorForElements({
-            onDragStart: () => setIsDraggingGlobal(true),
+            onDragStart: ({ source }) => {
+                if (source.data.type !== 'task-item') return;
+                setIsDraggingGlobal(true);
+                editor.commands.blur(); // hide caret while dragging
+            },
             onDrag: ({ location, source }) => {
                 if (source.data.type !== 'task-item') return;
 
@@ -596,7 +615,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 </div>
 
                 <TaskDateContext.Provider value={taskDateMap}>
-                    <EditorContent editor={editor} />
+                    <div style={isDraggingGlobal ? { caretColor: 'transparent' } : undefined}>
+                        <EditorContent editor={editor} />
+                    </div>
                 </TaskDateContext.Provider>
             </div>
 
