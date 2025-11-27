@@ -3,17 +3,22 @@
 import { i } from '@instantdb/react';
 
 const _schema = i.schema({
+    // We inferred 3 attributes!
+    // Take a look at this schema, and if everything looks good,
+    // run `push schema` again to enforce the types.
     entities: {
         $files: i.entity({
             path: i.string().unique().indexed(),
             url: i.string(),
         }),
         $users: i.entity({
-            email: i.string().unique().indexed(),
+            email: i.string().unique().indexed().optional(),
+            imageURL: i.string().optional(),
+            type: i.string().optional(),
         }),
         allowanceEnvelopes: i.entity({
             amount: i.any(),
-            balances: i.json().indexed(),
+            balances: i.any().indexed(),
             currency: i.any(),
             description: i.string(),
             goalAmount: i.number(),
@@ -27,28 +32,18 @@ const _schema = i.schema({
             currency: i.string(),
             description: i.string(),
             transactionType: i.string(),
-            updatedAt: i.string(), // Consider i.date()
+            updatedAt: i.string(),
         }),
         calculatedAllowancePeriods: i.entity({
-            //id: i.string().unique(),
-            familyMemberId: i.string().indexed(),
-            periodStartDate: i.date().indexed(),
-            periodEndDate: i.date().indexed(),
-            totalWeight: i.number(),
-            completedWeight: i.number(),
-            percentage: i.number(),
             calculatedAmount: i.number(),
-            lastCalculatedAt: i.date(),
+            completedWeight: i.number(),
+            familyMemberId: i.string().indexed(),
             isStale: i.boolean().indexed(),
-        }),
-        unitDefinitions: i.entity({
-            code: i.string().unique().indexed(),
-            decimalPlaces: i.number(),
-            isMonetary: i.boolean().indexed(),
-            name: i.string(),
-            symbol: i.string(),
-            symbolPlacement: i.string(),
-            symbolSpacing: i.boolean(),
+            lastCalculatedAt: i.date(),
+            percentage: i.number(),
+            periodEndDate: i.date().indexed(),
+            periodStartDate: i.date().indexed(),
+            totalWeight: i.number(),
         }),
         calendarItems: i.entity({
             dayOfMonth: i.number().indexed(),
@@ -64,19 +59,12 @@ const _schema = i.schema({
             order: i.number(),
         }),
         choreCompletions: i.entity({
-            completed: i.boolean(),
-            dateCompleted: i.string().optional(), // Consider i.date()
-            dateDue: i.string(), // Consider i.date()
             allowanceAwarded: i.boolean().indexed(),
+            completed: i.boolean(),
+            dateCompleted: i.string().optional(),
+            dateDue: i.string(),
         }),
         chores: i.entity({
-            // Required fields (provided by your addChore function)
-            title: i.string(),
-            startDate: i.string(), // Changed from i.any() to match your code
-            done: i.boolean(),
-            rotationType: i.string(),
-
-            // Optional fields (add .optional())
             advanceCompletionLimit: i.any().optional(),
             allowExtraDays: i.any().optional(),
             area: i.any().optional(),
@@ -84,18 +72,22 @@ const _schema = i.schema({
             canCompletePast: i.any().optional(),
             description: i.string().optional(),
             difficultyRating: i.any().optional(),
+            done: i.boolean(),
             dueTimes: i.any().optional(),
             endDate: i.any().optional(),
             imageUrl: i.any().optional(),
             isPaused: i.any().optional(),
+            isUpForGrabs: i.boolean().optional(),
             pastCompletionLimit: i.any().optional(),
             recurrenceRule: i.any().optional(),
-            rrule: i.string().optional(),
-            weight: i.number().optional(),
-            isUpForGrabs: i.boolean().optional(),
-            rewardType: i.string().optional(),
             rewardAmount: i.number().optional(),
             rewardCurrency: i.string().optional(),
+            rewardType: i.string().optional(),
+            rotationType: i.string(),
+            rrule: i.string().optional(),
+            startDate: i.string(),
+            title: i.string(),
+            weight: i.number().optional(),
         }),
         exchangeRates: i.entity({
             baseCurrency: i.string().indexed(),
@@ -104,21 +96,55 @@ const _schema = i.schema({
             targetCurrency: i.string().indexed(),
         }),
         familyMembers: i.entity({
+            allowanceAmount: i.number().optional(),
+            allowanceConfig: i.json().optional(),
+            allowanceCurrency: i.string().optional(),
+            allowancePayoutDelayDays: i.number().optional(),
+            allowanceRrule: i.string().optional(),
+            allowanceStartDate: i.date().optional(),
             email: i.string().indexed().optional(),
             lastDisplayCurrency: i.string().optional(),
             name: i.string(),
-            photoUrls: i.json().optional(),
-            allowanceAmount: i.number().optional(),
-            allowanceCurrency: i.string().optional(),
-            allowanceRrule: i.string().optional(),
-            allowanceStartDate: i.date().optional(),
-            allowanceConfig: i.json().optional(),
-            allowancePayoutDelayDays: i.number().optional(),
             order: i.number().indexed(),
+            photoUrls: i.json().optional(),
         }),
         settings: i.entity({
             name: i.string(),
             value: i.string(),
+        }),
+        taskAttachments: i.entity({
+            createdAt: i.date(),
+            name: i.string(),
+            type: i.string(),
+            updatedAt: i.date(),
+            url: i.string(),
+        }),
+        tasks: i.entity({
+            createdAt: i.date().optional(),
+            indentationLevel: i.number().optional(),
+            isDayBreak: i.boolean(),
+            isCompleted: i.boolean().optional().indexed(),
+            completedAt: i.date().optional(),
+            notes: i.string().optional(),
+            order: i.number(),
+            overrideWorkAhead: i.boolean().optional(),
+            specificTime: i.string().optional(),
+            text: i.string(),
+            updatedAt: i.date().optional(),
+        }),
+        taskSeries: i.entity({
+            breakDelayUnit: i.string().optional(),
+            breakDelayValue: i.number().optional(),
+            breakStartDate: i.date().optional(),
+            breakType: i.string().optional(),
+            createdAt: i.date().optional(),
+            description: i.string().optional(),
+            dependsOnSeriesId: i.string().optional().indexed(),
+            name: i.string(),
+            startDate: i.date().optional(),
+            targetEndDate: i.date().optional(),
+            updatedAt: i.date().optional(),
+            workAheadAllowed: i.boolean().optional(),
         }),
         timeOfDayDefinitions: i.entity({
             endTime: i.string(),
@@ -130,50 +156,30 @@ const _schema = i.schema({
             done: i.boolean(),
             text: i.any(),
         }),
-        // --- Task Series Management ---
-        taskSeries: i.entity({
+        unitDefinitions: i.entity({
+            code: i.string().unique().indexed(),
+            decimalPlaces: i.number(),
+            isMonetary: i.boolean().indexed(),
             name: i.string(),
-            // ALL metadata fields below must be optional because the
-            // editor might not populate them immediately upon creation.
-            description: i.string().optional(),
-            startDate: i.date().optional(),
-            targetEndDate: i.date().optional(),
-            workAheadAllowed: i.boolean().optional(),
-
-            // Break fields are definitely optional (not every series has a break)
-            breakType: i.string().optional(),
-            breakStartDate: i.date().optional(),
-            breakDelayValue: i.number().optional(),
-            breakDelayUnit: i.string().optional(),
-
-            // Timestamps
-            createdAt: i.date().optional(),
-            updatedAt: i.date().optional(),
-        }),
-        tasks: i.entity({
-            text: i.string(),
-            order: i.number(),
-            isDayBreak: i.boolean(),
-
-            // Individual task metadata (UPDATED to be optional)
-            overrideWorkAhead: i.boolean().optional(),
-            notes: i.string().optional(),
-            specificTime: i.string().optional(),
-
-            // Timestamps
-            createdAt: i.date().optional(),
-            updatedAt: i.date().optional(),
-        }),
-        taskAttachments: i.entity({
-            name: i.string(), // Original filename or user-defined name
-            url: i.string(), // Path to the file in /public/uploads/
-            type: i.string(), // e.g., 'pdf', 'image', 'document'
-            // Auto-timestamped fields
-            createdAt: i.date(),
-            updatedAt: i.date(),
+            symbol: i.string(),
+            symbolPlacement: i.string(),
+            symbolSpacing: i.boolean(),
         }),
     },
     links: {
+        $usersLinkedPrimaryUser: {
+            forward: {
+                on: '$users',
+                has: 'one',
+                label: 'linkedPrimaryUser',
+                onDelete: 'cascade',
+            },
+            reverse: {
+                on: '$users',
+                has: 'many',
+                label: 'linkedGuestUsers',
+            },
+        },
         allowanceEnvelopesFamilyMember: {
             forward: {
                 on: 'allowanceEnvelopes',
@@ -258,6 +264,18 @@ const _schema = i.schema({
                 label: 'chore',
             },
         },
+        familyMembersAllowancePeriods: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'allowancePeriods',
+            },
+            reverse: {
+                on: 'calculatedAllowancePeriods',
+                has: 'one',
+                label: 'familyMember',
+            },
+        },
         familyMembersAssignedChores: {
             forward: {
                 on: 'familyMembers',
@@ -282,40 +300,77 @@ const _schema = i.schema({
                 label: 'completedBy',
             },
         },
-        familyMemberAllowancePeriods: {
-            forward: { on: 'familyMembers', has: 'many', label: 'allowancePeriods' },
-            reverse: { on: 'calculatedAllowancePeriods', has: 'one', label: 'familyMember' },
+        tasksAttachments: {
+            forward: {
+                on: 'tasks',
+                has: 'many',
+                label: 'attachments',
+            },
+            reverse: {
+                on: 'taskAttachments',
+                has: 'one',
+                label: 'task',
+            },
         },
-        // --- Task Series Management Links ---
-        taskSeriesOwner: {
-            // Who this task series is for
-            forward: { on: 'taskSeries', has: 'one', label: 'familyMember' },
-            reverse: { on: 'familyMembers', has: 'many', label: 'taskSeries' },
+        tasksParentTask: {
+            forward: {
+                on: 'tasks',
+                has: 'one',
+                label: 'parentTask',
+            },
+            reverse: {
+                on: 'tasks',
+                has: 'many',
+                label: 'subTasks',
+            },
+        },
+        tasksPrerequisites: {
+            forward: {
+                on: 'tasks',
+                has: 'many',
+                label: 'prerequisites',
+            },
+            reverse: {
+                on: 'tasks',
+                has: 'many',
+                label: 'subsequentTasks',
+            },
+        },
+        taskSeriesFamilyMember: {
+            forward: {
+                on: 'taskSeries',
+                has: 'one',
+                label: 'familyMember',
+            },
+            reverse: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'taskSeries',
+            },
         },
         taskSeriesScheduledActivity: {
-            // Link to the chore/scheduled activity
-            forward: { on: 'taskSeries', has: 'one', label: 'scheduledActivity' }, // A series links to one chore
-            reverse: { on: 'chores', has: 'many', label: 'taskSeries' }, // A chore can be linked by multiple series
+            forward: {
+                on: 'taskSeries',
+                has: 'one',
+                label: 'scheduledActivity',
+            },
+            reverse: {
+                on: 'chores',
+                has: 'many',
+                label: 'taskSeries',
+            },
         },
-        seriesTasks: {
-            // Tasks belonging to a series
-            forward: { on: 'taskSeries', has: 'many', label: 'tasks' },
-            reverse: { on: 'tasks', has: 'one', label: 'taskSeries' },
-        },
-        taskParentSubtask: {
-            // For sub-tasks
-            forward: { on: 'tasks', has: 'one', label: 'parentTask' }, // A subtask has one parent
-            reverse: { on: 'tasks', has: 'many', label: 'subTasks' }, // A parent can have many subtasks
-        },
-        taskPrerequisites: {
-            // For task dependencies
-            forward: { on: 'tasks', has: 'many', label: 'prerequisites' }, // A task can have many prerequisites
-            reverse: { on: 'tasks', has: 'many', label: 'subsequentTasks' }, // A task can be a prerequisite for many tasks
-        },
-        taskAttachmentsLink: {
-            // For attachments to a task
-            forward: { on: 'tasks', has: 'many', label: 'attachments' },
-            reverse: { on: 'taskAttachments', has: 'one', label: 'task' },
+        taskSeriesTasks: {
+            forward: {
+                on: 'taskSeries',
+                has: 'many',
+                label: 'tasks',
+            },
+            reverse: {
+                on: 'tasks',
+                has: 'one',
+                label: 'taskSeries',
+            },
         },
     },
     rooms: {},

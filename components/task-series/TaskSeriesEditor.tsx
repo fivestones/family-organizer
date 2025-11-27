@@ -42,8 +42,20 @@ type DropState = {
     indentationLevel: number;
 };
 
+const ensureDate = (value: any): Date | null => {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value === 'string') return parseISO(value);
+    // Fallback: allow timestamp or other serializable forms
+    return new Date(value);
+};
+
 const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId, onClose }) => {
     const { toast } = useToast();
+
+    // If initialSeriesId is present, we know it exists in DB
+    const [hasPersisted, setHasPersisted] = useState<boolean>(!!initialSeriesId);
+
     const [seriesId] = useState<string>(initialSeriesId || id());
     const [isSaving, setIsSaving] = useState(false);
 
@@ -51,7 +63,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     const [taskDateMap, setTaskDateMap] = useState<Record<string, { label: string; date: Date } | undefined>>({});
 
     const [taskSeriesName, setTaskSeriesName] = useState('');
+    const [description, setDescription] = useState('');
     const [startDate, setStartDate] = useState<Date>(startOfDay(new Date()));
+    const [targetEndDate, setTargetEndDate] = useState<Date | null>(null);
+
+    // Links
+    const [familyMemberId, setFamilyMemberId] = useState<string | null>(null);
+    const [scheduledActivityId, setScheduledActivityId] = useState<string | null>(null);
 
     // --- Drag and Drop State ---
     const editorRef = useRef<HTMLDivElement>(null);
@@ -79,6 +97,14 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         taskSeries: {
             $: { where: { id: seriesId } },
             tasks: {},
+            familyMember: {}, // link: taskSeriesOwner
+            scheduledActivity: {}, // link: taskSeriesScheduledActivity (chores)
+        },
+        familyMembers: {
+            $: { order: { order: 'asc' } },
+        },
+        chores: {
+            $: {}, // you can later add filters if this is too broad
         },
     });
 
@@ -88,8 +114,35 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     // Load series metadata
     useEffect(() => {
         if (seriesData) {
+            setHasPersisted(true); // confirms this series exists in DB
+
             setTaskSeriesName(seriesData.name || '');
-            if (seriesData.startDate) setStartDate(parseISO(seriesData.startDate));
+            setDescription(seriesData.description || '');
+
+            const start = ensureDate(seriesData.startDate);
+            if (start) {
+                setStartDate(startOfDay(start));
+            }
+
+            const target = ensureDate(seriesData.targetEndDate);
+            if (target) {
+                setTargetEndDate(startOfDay(target));
+            } else {
+                setTargetEndDate(null);
+            }
+
+            // Linked family member & chore, if present
+            if (seriesData.familyMember) {
+                setFamilyMemberId(seriesData.familyMember.id);
+            } else {
+                setFamilyMemberId(null);
+            }
+
+            if (seriesData.scheduledActivity) {
+                setScheduledActivityId(seriesData.scheduledActivity.id);
+            } else {
+                setScheduledActivityId(null);
+            }
         }
     }, [seriesData]);
 
@@ -502,17 +555,40 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     // --- 5. Saving (TipTap -> DB) ---
     const debouncedSave = useDebouncedCallback(async (json: JSONContent) => {
         if (!json.content) return;
+
+        // 0. Decide if there is any meaningful content
+        const hasMetadataContent = taskSeriesName.trim().length > 0 || description.trim().length > 0;
+
+        let hasTaskContent = false;
+        for (const node of json.content) {
+            if (node.type !== 'taskItem' || !node.content) continue;
+            const textNode = node.content[0];
+            if (textNode?.type === 'text' && textNode.text && textNode.text.trim().length > 0) {
+                hasTaskContent = true;
+                break;
+            }
+        }
+
+        const hasAnyContent = hasMetadataContent || hasTaskContent;
+
+        // If this is a new series and literally nothing has been entered yet,
+        // don't write anything to InstantDB.
+        if (!hasPersisted && !hasAnyContent) {
+            return;
+        }
+
         setIsSaving(true);
 
         const transactions: any[] = [];
         const currentIds = new Set<string>();
 
-        // 1. Prepare Updates/Inserts
+        // 1. Prepare Updates/Inserts for tasks
         json.content.forEach((node, index) => {
             if (node.type !== 'taskItem' || !node.attrs) return;
 
             const taskId = node.attrs.id || id();
             const isDayBreak = !!node.attrs.isDayBreak;
+
             const textContent = isDayBreak ? '' : node.content?.[0]?.text || '';
 
             currentIds.add(taskId);
@@ -523,8 +599,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 text: textContent,
                 order: index,
                 indentationLevel: node.attrs.indentationLevel,
-                isDayBreak: isDayBreak,
-                updatedAt: new Date().toISOString(),
+                isDayBreak,
+                updatedAt: new Date(),
             };
 
             // Upsert task
@@ -542,16 +618,53 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             transactions.push(tx.taskSeries[seriesId].unlink({ tasks: t.id }));
         });
 
-        // 3. Update Series Metadata if needed
-        transactions.push(
-            tx.taskSeries[seriesId].update({
-                name: taskSeriesName,
-                updatedAt: new Date().toISOString(),
-            })
-        );
+        // 3. Update Series Metadata
+        const now = new Date();
+
+        const seriesUpdate: any = {
+            name: taskSeriesName,
+            description,
+            updatedAt: now,
+        };
+
+        // Dates: InstantDB expects Date objects for i.date()
+        if (startDate) {
+            seriesUpdate.startDate = startDate;
+        }
+        if (targetEndDate) {
+            seriesUpdate.targetEndDate = targetEndDate;
+        } else {
+            seriesUpdate.targetEndDate = null;
+        }
+
+        // If this is a brand new series, ensure createdAt is set
+        if (!seriesData?.createdAt && !hasPersisted) {
+            seriesUpdate.createdAt = now;
+        }
+
+        transactions.push(tx.taskSeries[seriesId].update(seriesUpdate));
+
+        // Manage links to familyMember and scheduledActivity
+        if (familyMemberId) {
+            transactions.push(tx.taskSeries[seriesId].link({ familyMember: familyMemberId }));
+        }
+        // NOTE: removing a link (unassigning) would require an explicit unlink;
+        // we can add that later when you want full “clear assignment” support.
+
+        if (scheduledActivityId) {
+            transactions.push(
+                tx.taskSeries[seriesId].link({
+                    scheduledActivity: scheduledActivityId,
+                })
+            );
+        }
 
         try {
             await db.transact(transactions);
+
+            if (!hasPersisted) {
+                setHasPersisted(true); // from now on, always save
+            }
         } catch (err) {
             console.error('Save failed', err);
             toast({ title: 'Save failed', variant: 'destructive' });
@@ -559,6 +672,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             setIsSaving(false);
         }
     }, 1000);
+
+    // Need to call debouncedSave even if the user just types a series name and doesn't edit the tasks
+    useEffect(() => {
+        if (!editor) return;
+        // Use the current editor content as the base
+        debouncedSave(editor.getJSON());
+    }, [taskSeriesName, description, startDate, targetEndDate, familyMemberId, scheduledActivityId, editor, debouncedSave]);
 
     // --- Render ---
     if (isLoading && !hasHydrated.current) {
@@ -580,9 +700,89 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             <div className="space-y-4 border p-4 rounded-lg bg-card">
                 <div>
                     <label className="text-sm font-medium">Series Name</label>
-                    <Input value={taskSeriesName} onChange={(e) => setTaskSeriesName(e.target.value)} placeholder="Math Homework..." />
+                    <Input
+                        value={taskSeriesName}
+                        onChange={(e) => {
+                            setTaskSeriesName(e.target.value);
+                        }}
+                        placeholder="7th Grade Math..."
+                    />
                 </div>
-                {/* Add other metadata inputs (start date, family member) here */}
+
+                <div>
+                    <label className="text-sm font-medium">Description</label>
+                    <textarea
+                        className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        rows={3}
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="Describe this task series (e.g., full 7th grade math curriculum)..."
+                    />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="text-sm font-medium">Assignee</label>
+                        <select
+                            className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={familyMemberId || ''}
+                            onChange={(e) => setFamilyMemberId(e.target.value || null)}
+                        >
+                            <option value="">Unassigned</option>
+                            {data?.familyMembers?.map((fm: any) => (
+                                <option key={fm.id} value={fm.id}>
+                                    {fm.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="text-sm font-medium">Scheduled Activity</label>
+                        <select
+                            className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={scheduledActivityId || ''}
+                            onChange={(e) => setScheduledActivityId(e.target.value || null)}
+                        >
+                            <option value="">Not linked</option>
+                            {data?.chores?.map((chore: any) => (
+                                <option key={chore.id} value={chore.id}>
+                                    {chore.title}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="text-sm font-medium">Start Date</label>
+                        <Input
+                            type="date"
+                            value={startDate ? format(startDate, 'yyyy-MM-dd') : ''}
+                            onChange={(e) => {
+                                if (e.target.value) {
+                                    setStartDate(startOfDay(parseISO(e.target.value)));
+                                }
+                            }}
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-sm font-medium">Target End Date (optional)</label>
+                        <Input
+                            type="date"
+                            value={targetEndDate ? format(targetEndDate, 'yyyy-MM-dd') : ''}
+                            onChange={(e) => {
+                                if (e.target.value) {
+                                    setTargetEndDate(startOfDay(parseISO(e.target.value)));
+                                } else {
+                                    setTargetEndDate(null);
+                                }
+                            }}
+                        />
+                    </div>
+                </div>
             </div>
 
             {/* FIX: Added onDragOver to prevent Default (Native) drop behavior 
@@ -621,11 +821,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 </TaskDateContext.Provider>
             </div>
 
-            <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={onClose}>
-                    Close
-                </Button>
-            </div>
+            {onClose && (
+                <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={onClose}>
+                        Close
+                    </Button>
+                </div>
+            )}
         </div>
     );
 };
