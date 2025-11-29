@@ -18,6 +18,10 @@ export interface Task {
 /**
  * Determines which tasks from a series should be displayed for a specific date
  * based on the "Rolling Queue" logic + Future Simulation.
+ * * Returns:
+ * - Task[]: The list of tasks for the date.
+ * - []: An empty array if the series is active but today is a break day.
+ * - null: If the series is NOT active for this date (before start, finished, or not scheduled).
  */
 export function getTasksForDate(
     allTasks: Task[],
@@ -48,7 +52,7 @@ export function getTasksForDate(
     if (seriesStartDateString) {
         const seriesStart = toUTCDate(new Date(seriesStartDateString));
         if (utcViewDate.getTime() < seriesStart.getTime()) {
-            return [];
+            return []; //series hasn't started yet
         }
     }
 
@@ -64,7 +68,7 @@ export function getTasksForDate(
         return false; // Done in the past
     });
 
-    if (pendingTasks.length === 0) return [];
+    if (pendingTasks.length === 0) return []; // Series is completely finished
 
     // 4. Group remaining work into "Day Blocks"
     // A block is a sequence of tasks terminated by an isDayBreak (or end of list).

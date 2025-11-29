@@ -773,6 +773,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         }
     }, 1000);
 
+    // FIX: Flush pending saves when the component unmounts (modal closes)
+    useEffect(() => {
+        return () => {
+            debouncedSave.flush();
+        };
+    }, [debouncedSave]);
+
     const triggerSave = useCallback(() => {
         if (editor) {
             debouncedSave(editor.getJSON());
