@@ -673,12 +673,11 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         }
     }, 1000);
 
-    // Need to call debouncedSave even if the user just types a series name and doesn't edit the tasks
-    useEffect(() => {
-        if (!editor) return;
-        // Use the current editor content as the base
-        debouncedSave(editor.getJSON());
-    }, [taskSeriesName, description, startDate, targetEndDate, familyMemberId, scheduledActivityId, editor, debouncedSave]);
+    const triggerSave = useCallback(() => {
+        if (editor) {
+            debouncedSave(editor.getJSON());
+        }
+    }, [editor, debouncedSave]);
 
     // --- Render ---
     if (isLoading && !hasHydrated.current) {
@@ -704,6 +703,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                         value={taskSeriesName}
                         onChange={(e) => {
                             setTaskSeriesName(e.target.value);
+                            triggerSave();
                         }}
                         placeholder="7th Grade Math..."
                     />
@@ -715,7 +715,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                         className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                         rows={3}
                         value={description}
-                        onChange={(e) => setDescription(e.target.value)}
+                        onChange={(e) => {
+                            setDescription(e.target.value);
+                            triggerSave(); // <--- Add this
+                        }}
                         placeholder="Describe this task series (e.g., full 7th grade math curriculum)..."
                     />
                 </div>
@@ -726,7 +729,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                         <select
                             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                             value={familyMemberId || ''}
-                            onChange={(e) => setFamilyMemberId(e.target.value || null)}
+                            onChange={(e) => {
+                                setFamilyMemberId(e.target.value || null);
+                                triggerSave(); // <--- Add this
+                            }}
                         >
                             <option value="">Unassigned</option>
                             {data?.familyMembers?.map((fm: any) => (
@@ -742,7 +748,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                         <select
                             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                             value={scheduledActivityId || ''}
-                            onChange={(e) => setScheduledActivityId(e.target.value || null)}
+                            onChange={(e) => {
+                                setScheduledActivityId(e.target.value || null);
+                                triggerSave(); // <--- Add this
+                            }}
                         >
                             <option value="">Not linked</option>
                             {data?.chores?.map((chore: any) => (
@@ -763,6 +772,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                             onChange={(e) => {
                                 if (e.target.value) {
                                     setStartDate(startOfDay(parseISO(e.target.value)));
+                                    triggerSave(); // <--- Add this
                                 }
                             }}
                         />
@@ -779,6 +789,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                                 } else {
                                     setTargetEndDate(null);
                                 }
+                                triggerSave();
                             }}
                         />
                     </div>
