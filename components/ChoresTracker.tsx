@@ -129,6 +129,9 @@ function ChoresTracker() {
             completions: {
                 completedBy: {},
             },
+            taskSeries: {
+                tasks: {}, // Fetch all tasks for the series
+            },
         },
         // **** Fetch unit definitions ****
         unitDefinitions: {},

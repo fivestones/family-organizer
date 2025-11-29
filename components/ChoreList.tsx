@@ -1,16 +1,28 @@
+// components/ChoreList.tsx
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Edit, Trash2 } from 'lucide-react';
 import { createRRuleWithStartDate, getAssignedMembersForChoreOnDate, toUTCDate } from '@/lib/chore-utils';
 import { format } from 'date-fns';
 import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
 import DetailedChoreForm from './DetailedChoreForm';
+import { tx } from '@instantdb/react';
+import { getTasksForDate, Task } from '@/lib/task-scheduler';
+import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggleChoreDone, updateChore, deleteChore, db, unitDefinitions, currencyOptions }) {
     const [editingChore, setEditingChore] = useState(null);
+
+    // Guardrail State for Task Series
+    const [pendingCompletion, setPendingCompletion] = useState<{
+        choreId: string;
+        memberId: string;
+        incompleteTaskIds: string[];
+    } | null>(null);
+
     const safeSelectedDate =
         selectedDate instanceof Date && !isNaN(selectedDate.getTime())
             ? new Date(Date.UTC(selectedDate.getUTCFullYear(), selectedDate.getUTCMonth(), selectedDate.getUTCDate()))
@@ -19,6 +31,8 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
     const isSameDay = (date1, date2) => {
         return date1.getUTCFullYear() === date2.getUTCFullYear() && date1.getUTCMonth() === date2.getUTCMonth() && date1.getUTCDate() === date2.getUTCDate();
     };
+
+    const isToday = isSameDay(safeSelectedDate, toUTCDate(new Date()));
 
     const shouldShowChore = (chore) => {
         if (!chore.rrule) {
@@ -81,6 +95,63 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
         setEditingChore(null);
     };
 
+    // --- Task Series Logic Helpers ---
+
+    const handleTaskToggle = (taskId: string, currentStatus: boolean) => {
+        // Direct DB update for tasks
+        db.transact([
+            tx.tasks[taskId].update({
+                isCompleted: !currentStatus,
+                completedAt: !currentStatus ? new Date() : null,
+            }),
+        ]);
+    };
+
+    const handleAvatarClick = (chore, memberId, visibleTasks: Task[]) => {
+        // 1. Check if already done?
+        const isDone = chore.completions?.some((c) => c.completedBy?.[0]?.id === memberId && c.dateDue === formattedSelectedDate && c.completed);
+
+        if (isDone) {
+            // Unchecking is always allowed
+            toggleChoreDone(chore.id, memberId);
+            return;
+        }
+
+        // 2. Check for incomplete tasks in the CURRENT visible block
+        // If there are no visible tasks (e.g. standard chore), this is empty and we skip the check
+        const incompleteIds = visibleTasks.filter((t) => !t.isCompleted).map((t) => t.id);
+
+        if (incompleteIds.length > 0) {
+            // Guardrail triggered!
+            setPendingCompletion({
+                choreId: chore.id,
+                memberId: memberId,
+                incompleteTaskIds: incompleteIds,
+            });
+        } else {
+            // All good, toggle
+            toggleChoreDone(chore.id, memberId);
+        }
+    };
+
+    const confirmMarkAllAndComplete = () => {
+        if (!pendingCompletion) return;
+
+        const { choreId, memberId, incompleteTaskIds } = pendingCompletion;
+
+        // Batch transaction: Mark tasks done
+        const transactions = incompleteTaskIds.map((tid) => tx.tasks[tid].update({ isCompleted: true, completedAt: new Date() }));
+
+        db.transact(transactions);
+
+        // Small delay to allow DB to process tasks before completing chore
+        setTimeout(() => {
+            toggleChoreDone(choreId, memberId);
+        }, 50);
+
+        setPendingCompletion(null);
+    };
+
     return (
         <ScrollArea className="grow min-h-0">
             {' '}
@@ -110,56 +181,91 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
                     // --- End Check ---
 
                     return (
-                        <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex items-center">
-                            <div className="flex space-x-2 mr-4">
-                                {assignedMembers
-                                    // Filter avatars based on selectedMember OR show all if 'All'
-                                    .filter((assignee) => selectedMember === 'All' || assignee.id === selectedMember)
-                                    .map((assignee) => {
-                                        const completion = chore.completions?.find(
-                                            (c) => c.completedBy?.[0]?.id === assignee.id && c.dateDue === formattedSelectedDate // Safer check for completedBy
-                                        );
-                                        const familyMember = familyMembers.find((fm) => fm.id === assignee.id);
-                                        // +++ Determine if this specific avatar should be disabled +++
-                                        // Disabled if: It's an UpForGrabs chore completed by someone ELSE
-                                        const isDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && assignee.id !== completerIdActual;
-                                        const actualCompleterName = isDisabled ? completerName : ''; // Pass completer name only if disabling this avatar
+                        <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex flex-col">
+                            <div className="flex items-center">
+                                <div className="flex space-x-2 mr-4">
+                                    {assignedMembers
+                                        // Filter avatars based on selectedMember OR show all if 'All'
+                                        .filter((assignee) => selectedMember === 'All' || assignee.id === selectedMember)
+                                        .map((assignee) => {
+                                            const completion = chore.completions?.find(
+                                                (c) => c.completedBy?.[0]?.id === assignee.id && c.dateDue === formattedSelectedDate // Safer check for completedBy
+                                            );
+                                            const familyMember = familyMembers.find((fm) => fm.id === assignee.id);
+                                            // +++ Determine if this specific avatar should be disabled +++
+                                            // Disabled if: It's an UpForGrabs chore completed by someone ELSE
+                                            const isDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && assignee.id !== completerIdActual;
+                                            const actualCompleterName = isDisabled ? completerName : ''; // Pass completer name only if disabling this avatar
 
-                                        return (
-                                            <ToggleableAvatar
-                                                key={assignee.id}
-                                                name={assignee.name}
-                                                photoUrls={familyMember?.photoUrls}
-                                                isComplete={completion?.completed || false}
-                                                // Pass down disabled state and completer info
-                                                isDisabled={isDisabled}
-                                                completerName={actualCompleterName}
-                                                choreTitle={chore.title} // Pass chore title for toast
-                                                onToggle={() => {
-                                                    // Only allow toggle if not disabled
-                                                    if (!isDisabled) {
-                                                        toggleChoreDone(chore.id, assignee.id);
-                                                    }
-                                                }}
-                                            />
-                                        );
-                                    })}
+                                            // --- Task Series Calculation for this Assignee ---
+                                            const taskSeries = chore.taskSeries?.[0];
+                                            let visibleTasks: Task[] = [];
+                                            if (taskSeries && taskSeries.tasks) {
+                                                visibleTasks = getTasksForDate(taskSeries.tasks, chore.rrule, chore.startDate, safeSelectedDate);
+                                            }
+
+                                            return (
+                                                <ToggleableAvatar
+                                                    key={assignee.id}
+                                                    name={assignee.name}
+                                                    photoUrls={familyMember?.photoUrls}
+                                                    isComplete={completion?.completed || false}
+                                                    // Pass down disabled state and completer info
+                                                    isDisabled={isDisabled}
+                                                    completerName={actualCompleterName}
+                                                    choreTitle={chore.title} // Pass chore title for toast
+                                                    onToggle={() => {
+                                                        // Only allow toggle if not disabled
+                                                        if (!isDisabled) {
+                                                            // Use new handler to check for incomplete tasks
+                                                            handleAvatarClick(chore, assignee.id, visibleTasks);
+                                                        }
+                                                    }}
+                                                />
+                                            );
+                                        })}
+                                </div>
+                                {/* +++ Gray out title if disabled (only when a single member is selected) +++ */}
+                                <span
+                                    className={`flex-grow ${
+                                        upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''
+                                    }`}
+                                >
+                                    {chore.title}
+                                    {chore.rrule && <span className="ml-2 text-sm text-gray-500">(Recurring)</span>}
+                                    {chore.taskSeries?.[0] && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Series</span>}
+                                </span>
+                                <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)}>
+                                    <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => deleteChore(chore.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
                             </div>
-                            {/* +++ Gray out title if disabled (only when a single member is selected) +++ */}
-                            <span className={`flex-grow ${upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''}`}>
-                                {chore.title}
-                                {chore.rrule && <span className="ml-2 text-sm text-gray-500">(Recurring)</span>}
-                            </span>
-                            <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)}>
-                                <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => deleteChore(chore.id)}>
-                                <Trash2 className="h-4 w-4" />
-                            </Button>
+
+                            {/* --- Render Task Series Checklist --- */}
+                            {(() => {
+                                // Logic to decide which tasks to show below the header
+                                // If 'All' is selected, we generally show the first relevant person's tasks or none to avoid clutter.
+                                // If a specific member is selected, we show theirs.
+                                const relevantAssignee = selectedMember !== 'All' ? assignedMembers.find((m) => m.id === selectedMember) : assignedMembers[0];
+
+                                if (relevantAssignee && chore.taskSeries?.[0]) {
+                                    const tasks = getTasksForDate(chore.taskSeries[0].tasks, chore.rrule, chore.startDate, safeSelectedDate);
+
+                                    // Don't render if empty or if up-for-grabs disabled it for this user
+                                    const isUpForGrabsDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && relevantAssignee.id !== completerIdActual;
+
+                                    if (tasks.length > 0 && !isUpForGrabsDisabled) {
+                                        return <TaskSeriesChecklist tasks={tasks} onToggle={handleTaskToggle} isReadOnly={!isToday} />;
+                                    }
+                                }
+                            })()}
                         </li>
                     );
                 })}
             </ul>
+            {/* --- Modals --- */}
             <Dialog open={editingChore !== null} onOpenChange={() => setEditingChore(null)}>
                 <DialogContent className="sm:max-w-[500px]">
                     {' '}
@@ -179,6 +285,22 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
                             currencyOptions={currencyOptions}
                         />
                     )}
+                </DialogContent>
+            </Dialog>
+            <Dialog open={pendingCompletion !== null} onOpenChange={(open) => !open && setPendingCompletion(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Unfinished Tasks</DialogTitle>
+                        <DialogDescription>
+                            There are still unchecked tasks in this series for today. Do you want to mark them all as done and complete the chore?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setPendingCompletion(null)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={confirmMarkAllAndComplete}>Mark All Done & Complete</Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </ScrollArea>
