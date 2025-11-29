@@ -68,6 +68,12 @@ export function getTasksForDate(
         return false; // Done in the past
     });
 
+    // --- TRIM TRAILING BREAKS ---
+    // We ignore breaks at the very end of the series so they don't create dangling empty days.
+    while (pendingTasks.length > 0 && pendingTasks[pendingTasks.length - 1].isDayBreak) {
+        pendingTasks.pop();
+    }
+
     if (pendingTasks.length === 0) return []; // Series is completely finished
 
     // 4. Group remaining work into "Day Blocks"
@@ -78,11 +84,11 @@ export function getTasksForDate(
     for (const task of pendingTasks) {
         if (task.isDayBreak) {
             // End of block.
-            // If currentBlock has content, push it.
-            if (currentBlock.length > 0) {
-                blocks.push(currentBlock);
-                currentBlock = [];
-            }
+            // Push currentBlock even if empty. This allows back-to-back breaks to create
+            // explicit "Rest Days" (empty blocks) in the schedule sequence.
+            blocks.push(currentBlock);
+            currentBlock = [];
+
             // DayBreaks themselves are usually invisible structural markers,
             // but if you want to visualize them, add them here. We skip them for the UI list.
         } else {
@@ -114,14 +120,12 @@ export function getTasksForDate(
             return cDate.getTime() === today.getTime();
         });
 
-        // --- FIX STARTS HERE ---
         // blocks[0] contains items from 'pendingTasks'.
         // 'pendingTasks' (from Step 3) deliberately includes tasks completed today.
         // Therefore, we must filter blocks[0] to prevent duplicating items already in 'finishedToday'.
         const remainingInBlock = (blocks[0] || []).filter((t) => !t.isCompleted);
 
         return [...finishedToday, ...remainingInBlock];
-        // --- FIX ENDS HERE ---
     }
 
     // 6. Handle Future Dates (Simulation)
