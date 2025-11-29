@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useEditor, EditorContent, JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { id, tx } from '@instantdb/react';
-import { startOfDay, format, parseISO } from 'date-fns';
+import { startOfDay, format, parseISO, addDays } from 'date-fns';
 import { RRule } from 'rrule';
 import { Loader2 } from 'lucide-react';
 import { useDebouncedCallback } from 'use-debounce';
@@ -111,6 +111,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     const dbTasks: Task[] = data?.taskSeries?.[0]?.tasks || [];
     const seriesData = data?.taskSeries?.[0];
 
+    // Keep a ref of seriesData so debouncedSave can access the *current* DB state
+    // to know what to unlink without needing to be recreated on every render.
+    const seriesDataRef = useRef(seriesData);
+    useEffect(() => {
+        seriesDataRef.current = seriesData;
+    }, [seriesData]);
+
     // Load series metadata
     useEffect(() => {
         if (seriesData) {
@@ -145,6 +152,109 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             }
         }
     }, [seriesData]);
+
+    // --- 3. Date Calculation Logic (RRule) ---
+    // Ref pattern to handle closure staleness in useEditor's onUpdate
+    const calculateDatesRef = useRef<(json: JSONContent) => void>(() => {});
+
+    const calculateDates = useCallback(
+        (json: JSONContent) => {
+            if (!json.content) return;
+
+            const map: Record<string, { label: string; date: Date } | undefined> = {};
+
+            // 1. Determine Logic Strategy
+            // Do we use a Chores RRule? Or Manual Relative Days?
+            const chore = scheduledActivityId ? data?.chores?.find((c: any) => c.id === scheduledActivityId) : null;
+            const useRRule = chore && chore.rrule;
+
+            try {
+                let rruleObj: RRule | null = null;
+                let currentDate: Date = startDate || startOfDay(new Date());
+                let dayCounter = 1; // 1-based index for "Day 1", "Day 2", etc.
+
+                if (useRRule) {
+                    // --- RRULE STRATEGY ---
+                    const rruleOptions = RRule.parseString(chore.rrule);
+                    rruleOptions.dtstart = startDate; // Override start date
+                    rruleObj = new RRule(rruleOptions);
+
+                    // Get first valid date
+                    const firstDate = rruleObj.after(new Date(startDate.getTime() - 24 * 60 * 60 * 1000), true);
+                    if (firstDate) {
+                        currentDate = firstDate;
+                    }
+                } else {
+                    // --- MANUAL STRATEGY ---
+                    // currentDate defaults to startDate (or today).
+                    // We will increment dayCounter on breaks.
+                }
+
+                let lastDisplayedDateLabel = '';
+
+                json.content.forEach((node) => {
+                    if (node.type === 'taskItem' && node.attrs) {
+                        const { id, isDayBreak } = node.attrs;
+
+                        if (isDayBreak) {
+                            // --- HANDLE BREAK ---
+                            if (useRRule && rruleObj) {
+                                // Advance to next scheduled instance
+                                const next = rruleObj.after(currentDate);
+                                if (next) currentDate = next;
+                            } else {
+                                // Advance counter
+                                dayCounter++;
+                                // We increment the date object too, assuming consecutive days for "Day 2", etc.
+                                currentDate = addDays(currentDate, 1);
+                            }
+
+                            // Breaks get the internal date but no label
+                            map[id] = { label: '', date: currentDate };
+                        } else {
+                            // --- STANDARD TASK ---
+                            let dateLabel = '';
+
+                            if (useRRule) {
+                                dateLabel = format(currentDate, 'E, M/d');
+                            } else {
+                                // Manual Strategy
+                                if (dayCounter === 1) {
+                                    // First section shows the actual date
+                                    dateLabel = format(currentDate, 'E, M/d');
+                                } else {
+                                    // Successive sections show "Day X"
+                                    dateLabel = `Day ${dayCounter}`;
+                                }
+                            }
+
+                            const showLabel = dateLabel !== lastDisplayedDateLabel;
+
+                            map[id] = {
+                                label: showLabel ? dateLabel : '',
+                                date: currentDate,
+                            };
+
+                            if (showLabel) {
+                                lastDisplayedDateLabel = dateLabel;
+                            }
+                        }
+                    }
+                });
+
+                setTaskDateMap(map);
+            } catch (err) {
+                console.error('Failed to calculate dates', err);
+                setTaskDateMap({});
+            }
+        },
+        [startDate, scheduledActivityId, data?.chores]
+    );
+
+    // Keep the ref updated with the latest callback
+    useEffect(() => {
+        calculateDatesRef.current = calculateDates;
+    }, [calculateDates]);
 
     // --- 2. Editor Setup ---
     const editor = useEditor({
@@ -194,13 +304,21 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         onUpdate: ({ editor }) => {
             // 1. DATE CALCULATION
             requestAnimationFrame(() => {
-                calculateDates(editor.getJSON());
+                // Use the ref to ensure we use the latest calculateDates logic (with latest startDate/activity)
+                calculateDatesRef.current(editor.getJSON());
             });
 
             // 2. SAVE
             debouncedSave(editor.getJSON());
         },
     });
+
+    // Trigger calculation when dependencies change (so dates update without typing)
+    useEffect(() => {
+        if (editor && !editor.isDestroyed) {
+            calculateDates(editor.getJSON());
+        }
+    }, [calculateDates, editor]);
 
     // --- 3. Drag and Drop Logic ---
     useEffect(() => {
@@ -444,76 +562,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         });
     }, [editor]);
 
-    // --- 3. Date Calculation Logic (RRule) ---
-    const calculateDates = useCallback(
-        (json: JSONContent) => {
-            if (!json.content) return;
-
-            const map: Record<string, { label: string; date: Date } | undefined> = {};
-
-            // 1. Configure RRule
-            // FIX: Use 'byweekday', not 'byday'
-            const rule = new RRule({
-                freq: RRule.MONTHLY,
-                interval: 2,
-                bysetpos: 5,
-                byweekday: RRule.FR,
-                dtstart: startDate,
-            });
-
-            // 2. Determine Start Date
-            // We want the first task to be ON start date (if valid) or the first valid weekday after.
-            // 'inc: true' means "inclusive" - if startDate is valid, return it.
-            // We subtract 1 day locally to ensure 'after' catches today if today is valid.
-            let currentDate = rule.after(new Date(startDate.getTime() - 24 * 60 * 60 * 1000), true);
-
-            // Fallback: If rule fails (rare), default to startDate
-            if (!currentDate) currentDate = startDate;
-
-            // 3. Track the last displayed label to prevent repeats
-            let lastDisplayedDateLabel = '';
-
-            json.content.forEach((node) => {
-                if (node.type === 'taskItem' && node.attrs) {
-                    const { id, isDayBreak } = node.attrs;
-
-                    // STRICT CHECK: Only use the attribute.
-                    // We no longer check text content for "-".
-                    if (isDayBreak) {
-                        // ... (Day break logic - advance date, empty label)
-                        if (currentDate) {
-                            currentDate = rule.after(currentDate) || currentDate;
-                        }
-
-                        // 2. The Break itself gets the NEW date internally (for sorting/storage),
-                        // but we forcefully suppress the label by passing empty string.
-                        map[id] = { label: '', date: currentDate };
-                    } else {
-                        // --- STANDARD TASK ---
-                        if (currentDate) {
-                            const dateLabel = format(currentDate, 'E, M/d');
-
-                            // Only show label if it differs from the previous visible one
-                            const showLabel = dateLabel !== lastDisplayedDateLabel;
-
-                            map[id] = {
-                                label: showLabel ? dateLabel : '',
-                                date: currentDate,
-                            };
-
-                            if (showLabel) {
-                                lastDisplayedDateLabel = dateLabel;
-                            }
-                        }
-                    }
-                }
-            });
-
-            setTaskDateMap(map);
-        },
-        [startDate]
-    );
-
     // --- 4. Hydration (DB -> TipTap) ---
     // We use a ref to ensure we only hydrate ONCE when data is first available
     const hasHydrated = React.useRef(false);
@@ -647,14 +695,23 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         // Manage links to familyMember and scheduledActivity
         if (familyMemberId) {
             transactions.push(tx.taskSeries[seriesId].link({ familyMember: familyMemberId }));
+        } else if (seriesDataRef.current?.familyMember) {
+            // Explicitly unlink if null
+            transactions.push(tx.taskSeries[seriesId].unlink({ familyMember: seriesDataRef.current.familyMember.id }));
         }
-        // NOTE: removing a link (unassigning) would require an explicit unlink;
-        // we can add that later when you want full “clear assignment” support.
 
+        // Manage links to scheduledActivity
         if (scheduledActivityId) {
             transactions.push(
                 tx.taskSeries[seriesId].link({
                     scheduledActivity: scheduledActivityId,
+                })
+            );
+        } else if (seriesDataRef.current?.scheduledActivity) {
+            // Explicitly unlink if null
+            transactions.push(
+                tx.taskSeries[seriesId].unlink({
+                    scheduledActivity: seriesDataRef.current.scheduledActivity.id,
                 })
             );
         }
@@ -717,7 +774,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                         value={description}
                         onChange={(e) => {
                             setDescription(e.target.value);
-                            triggerSave(); // <--- Add this
+                            triggerSave();
                         }}
                         placeholder="Describe this task series (e.g., full 7th grade math curriculum)..."
                     />
@@ -731,7 +788,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                             value={familyMemberId || ''}
                             onChange={(e) => {
                                 setFamilyMemberId(e.target.value || null);
-                                triggerSave(); // <--- Add this
+                                triggerSave();
                             }}
                         >
                             <option value="">Unassigned</option>
@@ -750,7 +807,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                             value={scheduledActivityId || ''}
                             onChange={(e) => {
                                 setScheduledActivityId(e.target.value || null);
-                                triggerSave(); // <--- Add this
+                                triggerSave();
                             }}
                         >
                             <option value="">Not linked</option>
@@ -772,7 +829,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                             onChange={(e) => {
                                 if (e.target.value) {
                                     setStartDate(startOfDay(parseISO(e.target.value)));
-                                    triggerSave(); // <--- Add this
+                                    triggerSave();
                                 }
                             }}
                         />
@@ -813,7 +870,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                             width: dropState.width,
                         }}
                     >
-                        {/* The Line */}
                         <div className="border-t-2 border-blue-500 w-full relative">
                             <div className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-blue-500" />
                         </div>
