@@ -130,7 +130,10 @@ function ChoresTracker() {
                 completedBy: {},
             },
             taskSeries: {
-                tasks: {}, // Fetch all tasks for the series
+                tasks: {
+                    // Fetch all tasks for the series
+                    parentTask: {},
+                },
             },
         },
         // **** Fetch unit definitions ****

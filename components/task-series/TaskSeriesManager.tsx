@@ -1,3 +1,4 @@
+// components/task-series/TaskSeriesManager.tsx
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -8,6 +9,18 @@ import { id, tx } from '@instantdb/react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress'; // if you don’t have this, we can inline a div-based bar
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -21,6 +34,14 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
     const router = useRouter();
     const { toast } = useToast();
     const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all');
+
+    // Selection State
+    const [selectedSeriesIds, setSelectedSeriesIds] = useState<Set<string>>(new Set());
+    const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+
+    // Deletion State
+    const [seriesToDelete, setSeriesToDelete] = useState<string[] | null>(null); // Array of IDs to delete
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
     const { data, isLoading } = db.useQuery({
         taskSeries: {
@@ -173,6 +194,103 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
 
     const filteredSeries = statusFilter === 'all' ? enrichedSeries : enrichedSeries.filter((s) => s.status === statusFilter);
 
+    // --- Selection Handlers ---
+
+    const handleSelectAll = () => {
+        if (selectedSeriesIds.size === filteredSeries.length) {
+            setSelectedSeriesIds(new Set());
+        } else {
+            setSelectedSeriesIds(new Set(filteredSeries.map((s) => s.raw.id)));
+        }
+    };
+
+    const handleSelect = (id: string, event: React.MouseEvent) => {
+        event.stopPropagation(); // Prevent card click
+
+        const newSelected = new Set(selectedSeriesIds);
+
+        // Handle Shift+Click
+        if (event.shiftKey && lastSelectedId) {
+            const lastIndex = filteredSeries.findIndex((s) => s.raw.id === lastSelectedId);
+            const currentIndex = filteredSeries.findIndex((s) => s.raw.id === id);
+
+            if (lastIndex !== -1 && currentIndex !== -1) {
+                const start = Math.min(lastIndex, currentIndex);
+                const end = Math.max(lastIndex, currentIndex);
+
+                for (let i = start; i <= end; i++) {
+                    newSelected.add(filteredSeries[i].raw.id);
+                }
+            }
+        } else {
+            // Normal Toggle
+            if (newSelected.has(id)) {
+                newSelected.delete(id);
+            } else {
+                newSelected.add(id);
+            }
+        }
+
+        setLastSelectedId(id);
+        setSelectedSeriesIds(newSelected);
+    };
+
+    // --- Deletion Logic ---
+
+    const promptDeleteSingle = (id: string, event: React.MouseEvent) => {
+        event.stopPropagation();
+        setSeriesToDelete([id]);
+        setIsDeleteDialogOpen(true);
+    };
+
+    const promptDeleteSelected = () => {
+        setSeriesToDelete(Array.from(selectedSeriesIds));
+        setIsDeleteDialogOpen(true);
+    };
+
+    const performDelete = async () => {
+        if (!seriesToDelete || seriesToDelete.length === 0) return;
+
+        const transactions: any[] = [];
+
+        // 1. Gather all series to delete
+        const targetSeries = seriesList.filter((s: any) => seriesToDelete.includes(s.id));
+
+        for (const series of targetSeries) {
+            // Delete the series entity
+            transactions.push(tx.taskSeries[series.id].delete());
+
+            // Cascade delete: Explicitly delete all tasks linked to this series
+            // Note: Linked FamilyMembers and ScheduledActivities are NOT deleted,
+            // the link is just removed when the series is deleted.
+            if (series.tasks && series.tasks.length > 0) {
+                for (const task of series.tasks) {
+                    transactions.push(tx.tasks[task.id].delete());
+                }
+            }
+        }
+
+        try {
+            await db.transact(transactions);
+            toast({
+                title: 'Deleted',
+                description: `Successfully deleted ${seriesToDelete.length} task series.`,
+            });
+            // Clear selection if successful
+            setSelectedSeriesIds(new Set());
+            setSeriesToDelete(null);
+        } catch (err) {
+            console.error('Delete failed', err);
+            toast({
+                title: 'Error',
+                description: 'Failed to delete task series.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsDeleteDialogOpen(false);
+        }
+    };
+
     const handleOpenSeries = (id: string) => {
         router.push(`/task-series/${id}`);
     };
@@ -268,24 +386,50 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
     return (
         <div className="max-w-6xl mx-auto p-6 space-y-6">
             <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">Task Series</h1>
+                <div className="flex items-center gap-4">
+                    <h1 className="text-2xl font-bold">Task Series</h1>
+                    {selectedSeriesIds.size > 0 && (
+                        <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5 rounded-md border animate-in fade-in slide-in-from-left-2 duration-200">
+                            <span className="text-sm font-medium">{selectedSeriesIds.size} selected</span>
+                            <Button size="sm" variant="destructive" onClick={promptDeleteSelected} className="h-7 px-2 text-xs">
+                                <Trash2 className="h-3 w-3 mr-1.5" />
+                                Delete
+                            </Button>
+                        </div>
+                    )}
+                </div>
                 <Button onClick={handleNewSeries}>New Task Series</Button>
             </div>
 
-            {/* Status Filters */}
-            <div className="flex flex-wrap gap-2">
-                {(['all', 'draft', 'pending', 'in_progress', 'archived'] as const).map((s) => (
-                    <button
-                        key={s}
-                        onClick={() => setStatusFilter(s)}
-                        className={cn(
-                            'px-3 py-1 rounded-full text-xs font-medium border',
-                            statusFilter === s ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-foreground border-border'
-                        )}
-                    >
-                        {s === 'all' ? 'All' : s === 'in_progress' ? 'In Progress' : s.charAt(0).toUpperCase() + s.slice(1)}
-                    </button>
-                ))}
+            {/* Status Filters & Bulk Select Toggle */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap gap-2">
+                    {(['all', 'draft', 'pending', 'in_progress', 'archived'] as const).map((s) => (
+                        <button
+                            key={s}
+                            onClick={() => setStatusFilter(s)}
+                            className={cn(
+                                'px-3 py-1 rounded-full text-xs font-medium border',
+                                statusFilter === s ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-foreground border-border'
+                            )}
+                        >
+                            {s === 'all' ? 'All' : s === 'in_progress' ? 'In Progress' : s.charAt(0).toUpperCase() + s.slice(1)}
+                        </button>
+                    ))}
+                </div>
+
+                {filteredSeries.length > 0 && (
+                    <div className="flex items-center gap-2">
+                        <Checkbox
+                            id="select-all"
+                            checked={selectedSeriesIds.size === filteredSeries.length && filteredSeries.length > 0}
+                            onCheckedChange={handleSelectAll}
+                        />
+                        <label htmlFor="select-all" className="text-sm text-muted-foreground select-none cursor-pointer">
+                            Select All
+                        </label>
+                    </div>
+                )}
             </div>
 
             {/* List */}
@@ -297,14 +441,28 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                 <div className="space-y-3">
                     {filteredSeries.map((item) => {
                         const { raw: s, status, totalTasks, completedTasks, progress } = item;
+                        const isSelected = selectedSeriesIds.has(s.id);
 
                         return (
                             <div
                                 key={s.id}
-                                className="border rounded-lg bg-card p-4 hover:bg-accent/30 cursor-pointer transition-colors flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+                                className={cn(
+                                    'border rounded-lg bg-card p-4 hover:bg-accent/30 cursor-pointer transition-colors flex flex-col md:flex-row md:items-center md:justify-between gap-3 relative group',
+                                    isSelected && 'bg-accent/40 border-primary/50'
+                                )}
                                 onClick={() => handleOpenSeries(s.id)}
                             >
-                                <div className="space-y-1">
+                                {/* Checkbox Overlay/Area */}
+                                <div
+                                    className="absolute top-4 left-4 z-10"
+                                    onClick={(e) => handleSelect(s.id, e)} // Handle select logic
+                                >
+                                    <Checkbox checked={isSelected} />
+                                </div>
+
+                                <div className="space-y-1 pl-8">
+                                    {' '}
+                                    {/* Add padding left for checkbox */}
                                     <div className="flex items-center gap-2">
                                         <h2 className="text-base font-semibold">{s.name || 'Untitled series'}</h2>
                                         {renderStatusBadge(status)}
@@ -317,7 +475,7 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                                     </div>
                                 </div>
 
-                                <div className="w-full md:w-72 flex flex-col items-stretch gap-2">
+                                <div className="w-full md:w-72 flex flex-col items-stretch gap-2 pl-8 md:pl-0">
                                     <div className="flex justify-between text-xs text-muted-foreground">
                                         <span>Progress</span>
                                         {totalTasks > 0 ? (
@@ -330,7 +488,15 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                                     </div>
                                     <Progress value={progress} />
 
-                                    <div className="flex justify-end">
+                                    <div className="flex justify-end gap-2 pt-2 md:pt-0">
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={(e) => promptDeleteSingle(s.id, e)}
+                                            className="text-muted-foreground hover:text-destructive"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
                                         <Button size="sm" variant="outline" onClick={(e) => handleDuplicate(item, e)}>
                                             Duplicate
                                         </Button>
@@ -341,6 +507,31 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                     })}
                 </div>
             )}
+
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {seriesToDelete && seriesToDelete.length > 1
+                                ? `This will permanently delete ${seriesToDelete.length} task series and all associated tasks.`
+                                : `This will permanently delete "${
+                                      seriesList.find((s: any) => s.id === seriesToDelete?.[0])?.name || 'this series'
+                                  }" and all its tasks.`}
+                            <br />
+                            <br />
+                            Linked family members and scheduled activities will not be deleted, just unlinked.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={performDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

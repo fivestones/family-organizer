@@ -25,6 +25,7 @@ interface Task {
     order?: number | null;
     isDayBreak?: boolean | null;
     // ... other DB fields (notes, attachments, etc)
+    parentTask?: { id: string }[]; // Added to track existing parent
 }
 
 interface TaskSeriesEditorProps {
@@ -96,7 +97,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     const { data, isLoading } = db.useQuery({
         taskSeries: {
             $: { where: { id: seriesId } },
-            tasks: {},
+            tasks: {
+                parentTask: {}, // Fetch parentTask so we can unlink if hierarchy changes
+            },
             familyMember: {}, // link: taskSeriesOwner
             scheduledActivity: {}, // link: taskSeriesScheduledActivity (chores)
         },
@@ -630,12 +633,16 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         const transactions: any[] = [];
         const currentIds = new Set<string>();
 
+        // Stack to track hierarchy: Array of { id, level }
+        const stack: { id: string; level: number }[] = [];
+
         // 1. Prepare Updates/Inserts for tasks
         json.content.forEach((node, index) => {
             if (node.type !== 'taskItem' || !node.attrs) return;
 
             const taskId = node.attrs.id || id();
             const isDayBreak = !!node.attrs.isDayBreak;
+            const currentLevel = node.attrs.indentationLevel || 0;
 
             const textContent = isDayBreak ? '' : node.content?.[0]?.text || '';
 
@@ -646,7 +653,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             const taskData = {
                 text: textContent,
                 order: index,
-                indentationLevel: node.attrs.indentationLevel,
+                indentationLevel: currentLevel,
                 isDayBreak,
                 updatedAt: new Date(),
             };
@@ -656,6 +663,42 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
             // Link to series (idempotent)
             transactions.push(tx.taskSeries[seriesId].link({ tasks: taskId }));
+
+            // --- HIERARCHY LOGIC ---
+            // 1. Find the parent
+            // We look backwards in the stack for the first item with a level LESS than currentLevel
+            while (stack.length > 0 && stack[stack.length - 1].level >= currentLevel) {
+                stack.pop();
+            }
+
+            const parent = stack.length > 0 ? stack[stack.length - 1] : null;
+
+            // 2. Determine if we need to update the parent relationship
+            // Check the current DB state for this task's parent
+            const existingTaskInDb = dbTasks.find((t) => t.id === taskId);
+            const existingParentId = existingTaskInDb?.parentTask?.[0]?.id;
+
+            if (parent) {
+                // Should have a parent
+                if (existingParentId !== parent.id) {
+                    // It changed (or didn't exist).
+                    // If it had a different parent before, we should technically unlink it,
+                    // but InstantDB 'link' with 'has: one' (forward) usually overwrites or merges.
+                    // To be safe and explicit based on best practices for moving items:
+                    if (existingParentId) {
+                        transactions.push(tx.tasks[taskId].unlink({ parentTask: existingParentId }));
+                    }
+                    transactions.push(tx.tasks[taskId].link({ parentTask: parent.id }));
+                }
+            } else {
+                // Should NOT have a parent (root level)
+                if (existingParentId) {
+                    transactions.push(tx.tasks[taskId].unlink({ parentTask: existingParentId }));
+                }
+            }
+
+            // 3. Push self to stack
+            stack.push({ id: taskId, level: currentLevel });
         });
 
         // 2. Handle Deletions

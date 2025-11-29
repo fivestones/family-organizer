@@ -9,7 +9,7 @@ import { format } from 'date-fns';
 import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
 import DetailedChoreForm from './DetailedChoreForm';
 import { tx } from '@instantdb/react';
-import { getTasksForDate, Task } from '@/lib/task-scheduler';
+import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions } from '@/lib/task-scheduler'; // Added getRecursiveTaskCompletionTransactions
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 
 // +++ Accept new props passed down from ChoresTracker +++
@@ -90,6 +90,7 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
     const handleUpdateChore = (updatedChore) => {
         if (editingChore?.id) {
             // Ensure editingChore is not null
+            // updateChore(editingChore.id, updatedChore);
             updateChore(editingChore.id, updatedChore);
         }
         setEditingChore(null);
@@ -97,14 +98,10 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
 
     // --- Task Series Logic Helpers ---
 
-    const handleTaskToggle = (taskId: string, currentStatus: boolean) => {
-        // Direct DB update for tasks
-        db.transact([
-            tx.tasks[taskId].update({
-                isCompleted: !currentStatus,
-                completedAt: !currentStatus ? new Date() : null,
-            }),
-        ]);
+    const handleTaskToggle = (taskId: string, currentStatus: boolean, allTasks: Task[]) => {
+        // Calculate recursive transactions
+        const transactions = getRecursiveTaskCompletionTransactions(taskId, !currentStatus, allTasks);
+        db.transact(transactions);
     };
 
     const handleAvatarClick = (chore, memberId, visibleTasks: Task[]) => {
@@ -201,7 +198,13 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
                                             const taskSeries = chore.taskSeries?.[0];
                                             let visibleTasks: Task[] = [];
                                             if (taskSeries && taskSeries.tasks) {
-                                                visibleTasks = getTasksForDate(taskSeries.tasks, chore.rrule, chore.startDate, safeSelectedDate);
+                                                visibleTasks = getTasksForDate(
+                                                    taskSeries.tasks,
+                                                    chore.rrule,
+                                                    chore.startDate,
+                                                    safeSelectedDate,
+                                                    taskSeries.startDate // <--- PASS SERIES START DATE
+                                                );
                                             }
 
                                             return (
@@ -251,13 +254,27 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
                                 const relevantAssignee = selectedMember !== 'All' ? assignedMembers.find((m) => m.id === selectedMember) : assignedMembers[0];
 
                                 if (relevantAssignee && chore.taskSeries?.[0]) {
-                                    const tasks = getTasksForDate(chore.taskSeries[0].tasks, chore.rrule, chore.startDate, safeSelectedDate);
+                                    const allTasks = chore.taskSeries[0].tasks || [];
+                                    const tasks = getTasksForDate(
+                                        allTasks,
+                                        chore.rrule,
+                                        chore.startDate,
+                                        safeSelectedDate,
+                                        chore.taskSeries[0].startDate // <--- PASS SERIES START DATE
+                                    );
 
                                     // Don't render if empty or if up-for-grabs disabled it for this user
                                     const isUpForGrabsDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && relevantAssignee.id !== completerIdActual;
 
                                     if (tasks.length > 0 && !isUpForGrabsDisabled) {
-                                        return <TaskSeriesChecklist tasks={tasks} onToggle={handleTaskToggle} isReadOnly={!isToday} />;
+                                        return (
+                                            <TaskSeriesChecklist
+                                                tasks={tasks}
+                                                allTasks={allTasks}
+                                                onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks)}
+                                                isReadOnly={!isToday}
+                                            />
+                                        );
                                     }
                                 }
                             })()}
