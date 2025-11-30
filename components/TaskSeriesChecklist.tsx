@@ -1,10 +1,10 @@
 // components/TaskSeriesChecklist.tsx
-import React from 'react';
+import React, { useEffect } from 'react'; // Added useEffect
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Task } from '@/lib/task-scheduler';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Info } from 'lucide-react';
+// import { Info } from 'lucide-react'; // Unused
 
 interface Props {
     tasks: Task[]; // These are the "Scheduled" tasks returned by getTasksForDate
@@ -20,41 +20,73 @@ const hasScheduledChildren = (parentId: string, scheduledIds: Set<string>, allTa
 };
 
 export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, allTasks, onToggle, isReadOnly }) => {
+    // --- 1. Compute Visual Tree (Moved outside render return to use in Effect) ---
+    // We need to compute 'visibleNodes' early so we can check for Headers needing auto-completion.
+
+    const visibleNodes: Task[] = React.useMemo(() => {
+        if (!scheduledTasks || scheduledTasks.length === 0) return [];
+
+        // 1. Build the "View Tree"
+        // We need to display not just the scheduled tasks, but their parents (as headers)
+        const scheduledIds = new Set(scheduledTasks.map((t) => t.id));
+        const visibleNodesMap = new Map<string, Task>();
+
+        // Add all scheduled tasks
+        scheduledTasks.forEach((t) => visibleNodesMap.set(t.id, t));
+
+        // Walk up ancestors for all scheduled tasks
+        scheduledTasks.forEach((task) => {
+            let current = task;
+            // Safety: limit depth to avoid infinite loops if data is malformed
+            let depth = 0;
+            while (current.parentTask && current.parentTask.length > 0 && depth < 10) {
+                const parentId = current.parentTask[0].id;
+                // If parent already added, stop walking up (assuming tree is consistent)
+                if (visibleNodesMap.has(parentId)) break;
+
+                const parent = allTasks.find((t) => t.id === parentId);
+                if (parent) {
+                    visibleNodesMap.set(parent.id, parent);
+                    current = parent;
+                } else {
+                    break;
+                }
+                depth++;
+            }
+        });
+
+        // Sort by order
+        return Array.from(visibleNodesMap.values()).sort((a, b) => (a.order || 0) - (b.order || 0));
+    }, [scheduledTasks, allTasks]);
+
+    // --- 2. Auto-Complete Headers Effect ---
+    useEffect(() => {
+        if (isReadOnly) return; // Only apply auto-complete logic for "Today" (interactive mode)
+
+        const scheduledIds = new Set(scheduledTasks.map((t) => t.id));
+
+        visibleNodes.forEach((task) => {
+            const isScheduled = scheduledIds.has(task.id);
+            const isParentGroup = hasScheduledChildren(task.id, scheduledIds, allTasks);
+
+            // Logic: If it is a Header (Parent with visible kids OR not scheduled today but shown as context),
+            // and it is NOT marked complete, mark it complete immediately.
+            const isHeader = isParentGroup || !isScheduled;
+
+            if (isHeader && !task.isCompleted) {
+                // Call onToggle with 'false' (current status), prompting the handler to flip it to 'true'.
+                // The handler in ChoreList will apply the current date.
+                onToggle(task.id, false);
+            }
+        });
+    }, [visibleNodes, scheduledTasks, allTasks, isReadOnly, onToggle]);
+
     if (!scheduledTasks || scheduledTasks.length === 0) return null;
 
-    // 1. Build the "View Tree"
-    // We need to display not just the scheduled tasks, but their parents (as headers)
+    // --- 3. Render ---
+    // (We re-derive isHeader inside the map for rendering convenience, relies on same logic)
     const scheduledIds = new Set(scheduledTasks.map((t) => t.id));
-    const visibleNodesMap = new Map<string, Task>();
 
-    // Add all scheduled tasks
-    scheduledTasks.forEach((t) => visibleNodesMap.set(t.id, t));
-
-    // Walk up ancestors for all scheduled tasks
-    scheduledTasks.forEach((task) => {
-        let current = task;
-        // Safety: limit depth to avoid infinite loops if data is malformed
-        let depth = 0;
-        while (current.parentTask && current.parentTask.length > 0 && depth < 10) {
-            const parentId = current.parentTask[0].id;
-            // If parent already added, stop walking up (assuming tree is consistent)
-            if (visibleNodesMap.has(parentId)) break;
-
-            const parent = allTasks.find((t) => t.id === parentId);
-            if (parent) {
-                visibleNodesMap.set(parent.id, parent);
-                current = parent;
-            } else {
-                break;
-            }
-            depth++;
-        }
-    });
-
-    // 2. Sort visible nodes by 'order'
-    const visibleNodes = Array.from(visibleNodesMap.values()).sort((a, b) => (a.order || 0) - (b.order || 0));
-
-    // 3. Render
     return (
         <div className="mt-3 mb-2 space-y-2 relative">
             {visibleNodes.map((task) => {

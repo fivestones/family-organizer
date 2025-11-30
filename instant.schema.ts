@@ -126,6 +126,7 @@ const _schema = i.schema({
             isCompleted: i.boolean().optional().indexed(),
             completedAt: i.date().optional(), // Keeps exact time of day
             completedOnDate: i.string().optional().indexed(), // <--- NEW: Sticks to the calendar day
+            childTasksComplete: i.boolean().optional(), // <--- NEW: Tracks subtree status
             notes: i.string().optional(),
             order: i.number(),
             overrideWorkAhead: i.boolean().optional(),

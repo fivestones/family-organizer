@@ -659,14 +659,25 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
             currentIds.add(taskId);
 
-            // Note: We aren't saving the calculated date to DB yet, per requirements.
-            // When you are ready, you can grab the date from 'taskDateMap' here using taskId.
-            const taskData = {
+            // --- Determine "Leaf" vs "Parent" Status for childTasksComplete ---
+            // Look ahead to the next node. If it is deeper, this node is a Parent.
+            // If next node is same level or shallower (or doesn't exist), this node is a Leaf.
+            const nextNode = json.content![index + 1];
+            const nextLevel = nextNode?.type === 'taskItem' && nextNode.attrs ? nextNode.attrs.indentationLevel || 0 : 0;
+
+            // A node is a parent if the very next node is indented further
+            const isParent = nextNode && nextLevel > currentLevel;
+
+            const taskData: any = {
                 text: textContent,
                 order: index,
                 indentationLevel: currentLevel,
                 isDayBreak,
                 updatedAt: new Date(),
+                // NEW: Initialize structure logic
+                // If it's a leaf, the subtree is complete (it has no children).
+                // If it's a parent, assume incomplete (wait for children to be checked).
+                childTasksComplete: !isParent,
             };
 
             // Upsert task

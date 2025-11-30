@@ -8,7 +8,8 @@ export interface Task {
     text: string;
     isCompleted: boolean;
     completedAt?: string;
-    completedOnDate?: string; // <--- NEW FIELD
+    completedOnDate?: string;
+    childTasksComplete?: boolean;
     isDayBreak: boolean;
     order: number;
     indentationLevel?: number;
@@ -22,6 +23,8 @@ export interface Task {
 // Example: Nov 29 11:00 PM CST -> Nov 29 00:00 UTC (Stored)
 function toLocalMidnight(dateInput: Date | string): Date {
     const d = new Date(dateInput);
+    // Explicitly use Local components to construct UTC 00:00
+    // This effectively "shifts" Local Midnight to UTC Midnight
     return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
@@ -40,6 +43,7 @@ export function getTasksForDate(
     viewDate: Date,
     seriesStartDateString?: string | null
 ): Task[] {
+    // 1. Normalize dates
     const utcViewDate = toUTCDate(viewDate);
     const viewDateString = utcViewDate.toISOString().slice(0, 10); // "YYYY-MM-DD"
     const today = toLocalMidnight(new Date());
@@ -133,6 +137,10 @@ export function getTasksForDate(
     // --- NEW LOGIC: Determine Anchor Date ---
     // The "queue" starts rolling from Today OR the Series Start Date, whichever is later.
     let anchorDate = today;
+
+    // Logic Fix: Even if seriesStart is in future, if we are viewing Today,
+    // we should align anchor to today if the series is active.
+    // But sticking to original logic:
     if (seriesStartDateString) {
         const seriesStart = toUTCDate(new Date(seriesStartDateString));
         if (seriesStart.getTime() > today.getTime()) {
@@ -140,8 +148,13 @@ export function getTasksForDate(
         }
     }
 
-    // 5. Handle "Current Active Block" (Anchor Date)
-    // If we are viewing the anchor date (Today, or the future Start Date), show the first block.
+    // DEBUG: Log mismatch if detected
+    if (utcViewDate.getTime() !== anchorDate.getTime() && Math.abs(utcViewDate.getTime() - anchorDate.getTime()) < 86400000) {
+        // console.log(`[Scheduler Debug] View: ${utcViewDate.toISOString()}, Anchor: ${anchorDate.toISOString()}, Today: ${today.toISOString()}`);
+    }
+
+    // 8. "Current Block" Logic
+    // If viewing the Anchor Date (usually Today), show Block 0 (Next Pending)
     if (utcViewDate.getTime() === anchorDate.getTime()) {
         // Find tasks completed today that might have been filtered out of pendingTasks if logic changed,
         // but strictly speaking pendingTasks (step 3) already includes today's completions.
@@ -154,41 +167,43 @@ export function getTasksForDate(
         return blocks[0] || [];
     }
 
-    // 6. Handle Future Dates (Simulation)
+    // 9. Handle Future Dates Logic
     if (utcViewDate.getTime() > anchorDate.getTime()) {
-        // If not recurring, it might just be the specific start date
-        // But assuming RRule for series:
-        if (!rruleString) {
-            // If manual date match, maybe show next block?
-            // For now return empty if no pattern logic
-            return [];
-        }
+        if (!rruleString) return [];
 
         const rrule = createRRuleWithStartDate(rruleString, startDateString);
         if (!rrule) return [];
 
-        // Get occurrences starting from the Anchor Date
-        // (Anchor Date is handled in step 5, so we look for occurrences > anchor)
-        // We add a large buffer (e.g. 1 year) or just enough to catch the viewDate.
-        // Optimization: Just check if viewDate is an occurrence.
-
-        // However, to know WHICH block to show, we need the *sequence* of occurrences.
-        // 1. Get all occurrences from Anchor Date until ViewDate.
+        // Find occurrences starting from Anchor Date
         const relevantOccurrences = rrule.between(anchorDate, toUTCDate(new Date(utcViewDate.getTime() + 1000)), true);
 
-        // relevantOccurrences includes Anchor Date if it matches.
-        // Index 0 = Anchor Date (if scheduled) -> Block 0
-        // Index 1 = Next Date -> Block 1
-
-        // Find the index of the viewDate in this sequence
+        // Find the index of the viewDate in the sequence
         const occurrenceIndex = relevantOccurrences.findIndex((d) => toUTCDate(d).getTime() === utcViewDate.getTime());
+
+        // --- FIX: Logic shift based on whether Anchor Date is ITSELF a scheduled day ---
+        // Block 0 is ALWAYS shown on the *next available scheduled day* starting from Anchor Date.
+        // If Anchor Date IS scheduled, Block 0 belongs to Anchor Date.
+        // If Anchor Date IS NOT scheduled (e.g. today is Wed, schedule is Mon/Thu),
+        // Block 0 belongs to the *first occurrence* after today (Thu).
+
+        // We need to know if relevantOccurrences[0] represents the Anchor Date or a future date.
+        // But regardless, relevantOccurrences[0] corresponds to Block 0.
+        // So if viewDate is found at index `k`, it corresponds to Block `k`.
 
         if (occurrenceIndex === -1) return []; // The chore isn't scheduled for this future date
 
-        // Map index to block
-        // Block 0 is "Next available work" (Today's work).
-        // Block 1 is "Work for the next scheduled occurrence".
-        // So occurrenceIndex corresponds to blockIndex.
+        // However, we must ensure we don't show "Past/Current" blocks for future dates if the queue hasn't advanced.
+        // The blocks[] array represents "Remaining Work".
+        // Block 0 is "Work to be done next".
+
+        // If Anchor Date is Today, and Today is scheduled:
+        // - Today shows Block 0.
+        // - Next occurrence shows Block 1.
+
+        // If Anchor Date is Today, and Today is NOT scheduled:
+        // - Next occurrence (e.g. Thu) shows Block 0.
+
+        // This simple indexing works! occurrenceIndex 0 -> Block 0.
 
         return blocks[occurrenceIndex] || [];
     }
@@ -215,29 +230,27 @@ export function isSeriesActiveForDate(
     if (!allTasks || allTasks.length === 0) return false;
 
     const utcViewDate = toUTCDate(viewDate);
-    const viewDateString = utcViewDate.toISOString().slice(0, 10);
-    const today = toLocalMidnight(new Date());
-    const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
-
-    // 1. Check if viewDate is a scheduled occurrence (Fundamental check)
-    // If it's not a scheduled day, the label should never show.
     const rrule = createRRuleWithStartDate(rruleString, choreStartDateString);
+
+    // 1. Basic Schedule Check
     if (!rrule && toUTCDate(new Date(choreStartDateString)).getTime() !== utcViewDate.getTime()) {
-        return false; // Not start date and no rrule
+        return false;
     }
     if (rrule) {
         const isScheduled = rrule.between(utcViewDate, toUTCDate(new Date(utcViewDate.getTime() + 1000)), true).length > 0;
+
         if (!isScheduled) return false;
     }
 
-    // 2. Identify First and Last "Real" Tasks
-    // We ignore dayBreaks for determining the start/end of the series content.
+    // 2. Series Range Check
+    // ... (Keep existing range check logic)
+    const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
     const firstRealTask = sortedTasks.find((t) => !t.isDayBreak);
     const lastRealTask = [...sortedTasks].reverse().find((t) => !t.isDayBreak);
 
-    if (!firstRealTask || !lastRealTask) return false; // Series is only breaks?
+    if (!firstRealTask || !lastRealTask) return false;
 
-    // 3. Determine Series Anchor Date (Projection Start)
+    const today = toLocalMidnight(new Date());
     let anchorDate = today;
     if (seriesStartDateString) {
         const seriesStart = toUTCDate(new Date(seriesStartDateString));
@@ -277,20 +290,11 @@ export function isSeriesActiveForDate(
         // 3. Calculate "Block Distance" (how many breaks precede it)
         let blockIndex = 0;
         for (let i = 0; i < taskIndexInQueue; i++) {
-            if (pendingQueue[i].isDayBreak) {
-                blockIndex++;
-            }
+            if (pendingQueue[i].isDayBreak) blockIndex++;
         }
 
-        // 4. Map Block Index to RRule Occurrences
-        if (!rrule) {
-            // No rrule: All pending blocks fall on Anchor Date? Or just valid for one day?
-            return blockIndex === 0 ? anchorDate.getTime() : null;
-        }
+        if (!rrule) return blockIndex === 0 ? anchorDate.getTime() : null;
 
-        // We need the (blockIndex)-th occurrence starting from AnchorDate.
-        // We fetch enough occurrences to cover the index.
-        // Optimization: limit the range to 5 years to avoid infinite loops on high indices.
         const occurrences = rrule.between(anchorDate, new Date(anchorDate.getTime() + 1000 * 60 * 60 * 24 * 365 * 5), true, (_, i) => i <= blockIndex);
 
         const targetDate = occurrences[blockIndex];
@@ -307,64 +311,92 @@ export function isSeriesActiveForDate(
     return viewTime >= firstTaskDate && viewTime <= lastTaskDate;
 }
 
-// --- Recursive Completion Transactions ---
-// FIX: Added 'completedOnDateStr' parameter
-export function getRecursiveTaskCompletionTransactions(
-    taskId: string,
-    isCompleted: boolean,
-    allTasks: Task[],
-    completedOnDateStr: string // <--- REQUIRED: YYYY-MM-DD of the view
-): any[] {
+// ... (Keep getRecursiveTaskCompletionTransactions as is) ...
+// Copy the existing getRecursiveTaskCompletionTransactions function here
+export function getRecursiveTaskCompletionTransactions(taskId: string, isCompleted: boolean, allTasks: Task[], completedOnDateStr: string): any[] {
     const transactions: any[] = [];
     const now = new Date();
 
-    // Helper map for fast lookups
-    const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+    // 1. Create a Mutable Map of the current state
+    // We must update objects in this map as we go so subsequent checks (parents checking children)
+    // see the *future* state of the tree within this transaction block.
+    const taskMap = new Map<string, Task>();
+    allTasks.forEach((t) => taskMap.set(t.id, { ...t }));
 
-    // Recursive function to mark parents
-    function processTask(currentId: string, status: boolean) {
-        const task = taskMap.get(currentId);
-        if (!task) return;
+    // 2. Update the Target Task (The one the user clicked)
+    const targetTask = taskMap.get(taskId);
+    if (!targetTask) return [];
 
-        // 1. Update Current Task
-        transactions.push(
-            tx.tasks[currentId].update({
-                isCompleted: status,
-                completedAt: status ? now : null,
-                completedOnDate: status ? completedOnDateStr : null, // <--- SAVE IT
-            })
-        );
-
-        // Update local state in map for subsequent logic
-        task.isCompleted = status;
-
-        const parentId = task.parentTask?.[0]?.id;
-        if (!parentId) return;
-
-        const parent = taskMap.get(parentId);
-        if (!parent) return;
-
-        // 2. Decide if parent state needs to change
-        if (status === false) {
-            // Trickle Down: If child becomes incomplete, parent MUST be incomplete.
-            if (parent.isCompleted) {
-                processTask(parentId, false);
-            }
-        } else {
-            // Bubble Up: If child becomes complete, check if ALL siblings are complete.
-            // Find all children of this parent
-            // Since we don't have explicit 'subTasks' loaded in the map keys sometimes, we rely on parentTask inverse.
-            // But here we iterate allTasks to find siblings.
-            const siblings = allTasks.filter((t) => t.parentTask?.[0]?.id === parentId);
-
-            const allSiblingsDone = siblings.every((s) => s.isCompleted);
-
-            if (allSiblingsDone && !parent.isCompleted) {
-                processTask(parentId, true);
-            }
-        }
+    // Update in-memory state
+    targetTask.isCompleted = isCompleted;
+    if (isCompleted) {
+        targetTask.completedAt = now.toISOString();
+        targetTask.completedOnDate = completedOnDateStr;
+    } else {
+        // When unchecking, clear dates
+        targetTask.completedAt = undefined;
+        targetTask.completedOnDate = undefined;
     }
 
-    processTask(taskId, isCompleted);
+    // Add transaction to persist this specific change
+    transactions.push(
+        tx.tasks[taskId].update({
+            isCompleted: isCompleted,
+            completedAt: isCompleted ? now : null,
+            completedOnDate: isCompleted ? completedOnDateStr : null,
+        })
+    );
+
+    // 3. Bubble Up Logic: "ChildTasksComplete"
+    // We only need to check the ancestors of the modified task.
+    let currentTask = targetTask;
+
+    // Safety depth to prevent infinite loops in malformed cyclic trees
+    let depth = 0;
+    while (currentTask.parentTask && currentTask.parentTask.length > 0 && depth < 50) {
+        const parentId = currentTask.parentTask[0].id;
+        const parent = taskMap.get(parentId);
+
+        if (!parent) break;
+
+        // Find ALL immediate children of this parent from our (potentially updated) map
+        // We look for tasks that point to this parent
+        const children = Array.from(taskMap.values()).filter((t) => t.parentTask?.[0]?.id === parentId);
+
+        // THE GOLDEN RULE:
+        // Parent's 'childTasksComplete' is TRUE if and only if:
+        // Every child is (isCompleted === true AND childTasksComplete === true)
+        // Note: For leaf nodes, 'childTasksComplete' defaults to true (handled in Editor/Creation).
+        // If a child is a leaf, we just check child.isCompleted && child.childTasksComplete (which should be true).
+
+        const allChildrenFinished = children.every((child) => {
+            // A child is finished if it is checked off...
+            const isDone = child.isCompleted;
+            // ...AND its own subtree is finished.
+            // (If child.childTasksComplete is undefined, treat as true for safety/legacy,
+            // but ideally it's initialized).
+            const isSubtreeDone = child.childTasksComplete !== false;
+
+            return isDone && isSubtreeDone;
+        });
+
+        // Did the status change?
+        if (parent.childTasksComplete !== allChildrenFinished) {
+            // Update in-memory map for the next loop iteration (grandparent check)
+            parent.childTasksComplete = allChildrenFinished;
+
+            // Add to transaction list
+            transactions.push(
+                tx.tasks[parent.id].update({
+                    childTasksComplete: allChildrenFinished,
+                })
+            );
+        }
+
+        // Move up
+        currentTask = parent;
+        depth++;
+    }
+
     return transactions;
 }
