@@ -15,12 +15,13 @@ export interface Task {
     subTasks?: { id: string }[];
 }
 
-// Helper to get "Today" aligned with the user's local timezone but stored as UTC midnight.
-// This ensures that if it's 9PM on Nov 29 locally, we treat "Today" as Nov 29 (UTC 00:00),
-// rather than Nov 30 (UTC 00:00) which would happen if we used standard UTC conversion of the timestamp.
-function getLocalTodayAsUTC(): Date {
-    const now = new Date();
-    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+// FIX: Helper to convert any timestamp (string or date) into a Date object representing
+// Midnight of that day in the LOCAL timezone, but stored as a UTC object.
+// This ensures comparisons align with "Today" relative to the user, not strict UTC.
+// Example: Nov 29 11:00 PM CST -> Nov 29 00:00 UTC (Stored)
+function toLocalMidnight(dateInput: Date | string): Date {
+    const d = new Date(dateInput);
+    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
 /**
@@ -39,7 +40,7 @@ export function getTasksForDate(
     seriesStartDateString?: string | null // <--- New Argument
 ): Task[] {
     const utcViewDate = toUTCDate(viewDate);
-    const today = getLocalTodayAsUTC(); // <--- FIX: Use local-aligned today
+    const today = toLocalMidnight(new Date()); // FIX: Use new helper
 
     // 1. Sort tasks by order
     const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -49,7 +50,8 @@ export function getTasksForDate(
     if (utcViewDate.getTime() < today.getTime()) {
         return sortedTasks.filter((t) => {
             if (!t.completedAt) return false;
-            const completedDate = toUTCDate(new Date(t.completedAt));
+            // FIX: Use toLocalMidnight to match completion date to view date based on local day
+            const completedDate = toLocalMidnight(t.completedAt);
             return completedDate.getTime() === utcViewDate.getTime();
         });
     }
@@ -70,7 +72,8 @@ export function getTasksForDate(
         if (!t.isCompleted) return true; // Not done yet
         // If it WAS done, but done TODAY, keep it in the list so it doesn't vanish instantly
         if (t.completedAt) {
-            const cDate = toUTCDate(new Date(t.completedAt));
+            // FIX: Use toLocalMidnight so late-night completions count as "Today"
+            const cDate = toLocalMidnight(t.completedAt);
             return cDate.getTime() === today.getTime();
         }
         return false; // Done in the past
@@ -119,21 +122,15 @@ export function getTasksForDate(
     // 5. Handle "Current Active Block" (Anchor Date)
     // If we are viewing the anchor date (Today, or the future Start Date), show the first block.
     if (utcViewDate.getTime() === anchorDate.getTime()) {
-        // Return the first block of uncompleted work
-        // Note: You might also want to append tasks completed *today* to the top of this list
-        // so they don't disappear instantly upon checking.
-        const finishedToday = sortedTasks.filter((t) => {
-            if (!t.isCompleted || !t.completedAt) return false;
-            const cDate = toUTCDate(new Date(t.completedAt));
-            return cDate.getTime() === today.getTime();
-        });
+        // Find tasks completed today that might have been filtered out of pendingTasks if logic changed,
+        // but strictly speaking pendingTasks (step 3) already includes today's completions.
+        // However, we want to ensure we don't show duplicates or miss things.
 
-        // blocks[0] contains items from 'pendingTasks'.
-        // 'pendingTasks' (from Step 3) deliberately includes tasks completed today.
-        // Therefore, we must filter blocks[0] to prevent duplicating items already in 'finishedToday'.
-        const remainingInBlock = (blocks[0] || []).filter((t) => !t.isCompleted);
+        // Retrieve items from pendingTasks (which includes today's completed items + future items in block 0)
+        // Since step 3 already kept "Today's Completed Items", blocks[0] should contain them.
 
-        return [...finishedToday, ...remainingInBlock];
+        // Safety filter to ensure we strictly have block 0
+        return blocks[0] || [];
     }
 
     // 6. Handle Future Dates (Simulation)
@@ -197,7 +194,7 @@ export function isSeriesActiveForDate(
     if (!allTasks || allTasks.length === 0) return false;
 
     const utcViewDate = toUTCDate(viewDate);
-    const today = getLocalTodayAsUTC(); // <--- FIX: Use local-aligned today
+    const today = toLocalMidnight(new Date()); // <--- FIX: Use local-aligned today
     const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
 
     // 1. Check if viewDate is a scheduled occurrence (Fundamental check)
@@ -231,7 +228,8 @@ export function isSeriesActiveForDate(
     const getTaskDate = (task: Task): number | null => {
         // A. If Completed: Use historical date
         if (task.isCompleted && task.completedAt) {
-            return toUTCDate(new Date(task.completedAt)).getTime();
+            // FIX: Use toLocalMidnight
+            return toLocalMidnight(task.completedAt).getTime();
         }
 
         // B. If Pending: Project future date
@@ -240,7 +238,8 @@ export function isSeriesActiveForDate(
         const pendingQueue = sortedTasks.filter((t) => {
             if (!t.isCompleted) return true;
             if (t.completedAt) {
-                const cDate = toUTCDate(new Date(t.completedAt));
+                // FIX: Use toLocalMidnight
+                const cDate = toLocalMidnight(t.completedAt);
                 return cDate.getTime() === today.getTime();
             }
             return false;

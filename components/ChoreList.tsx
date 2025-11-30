@@ -13,7 +13,19 @@ import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions, isSeries
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 
 // +++ Accept new props passed down from ChoresTracker +++
-function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggleChoreDone, updateChore, deleteChore, db, unitDefinitions, currencyOptions }) {
+function ChoreList({
+    chores,
+    familyMembers,
+    selectedMember,
+    selectedDate,
+    toggleChoreDone,
+    updateChore,
+    deleteChore,
+    db,
+    unitDefinitions,
+    currencyOptions,
+    onEditTaskSeries,
+}: any) {
     const [editingChore, setEditingChore] = useState(null);
 
     // Guardrail State for Task Series
@@ -32,7 +44,11 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
         return date1.getUTCFullYear() === date2.getUTCFullYear() && date1.getUTCMonth() === date2.getUTCMonth() && date1.getUTCDate() === date2.getUTCDate();
     };
 
-    const isToday = isSameDay(safeSelectedDate, toUTCDate(new Date()));
+    // FIX: Calculate "Today" based on Local Time mapped to UTC, not raw UTC timestamp.
+    // This matches how 'selectedDate' is created in ChoresTracker and prevents timezone overlap issues (e.g. late night CST vs UTC).
+    const now = new Date();
+    const localToday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    const isToday = isSameDay(safeSelectedDate, localToday);
 
     const shouldShowChore = (chore) => {
         if (!chore.rrule) {
@@ -249,7 +265,14 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
 
                                         if (isActive) {
                                             return (
-                                                <span key={series.id} className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                                                <span
+                                                    key={series.id}
+                                                    className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-blue-200 transition-colors"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (onEditTaskSeries) onEditTaskSeries(series.id);
+                                                    }}
+                                                >
                                                     {series.name}
                                                 </span>
                                             );

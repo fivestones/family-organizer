@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import TaskItemExtension, { TaskDateContext } from './TaskItem';
+import { cn } from '@/lib/utils';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
 interface Task {
@@ -33,6 +34,7 @@ interface TaskSeriesEditorProps {
     initialSeriesId?: string | null;
     initialFamilyMemberId?: string | null;
     onClose?: () => void;
+    className?: string;
 }
 
 type DropState = {
@@ -51,7 +53,16 @@ const ensureDate = (value: any): Date | null => {
     return new Date(value);
 };
 
-const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId, onClose }) => {
+// --- HELPER: Safely extract ID from a relation that might be an Object OR an Array ---
+const getSingleId = (relation: any): string | null => {
+    if (!relation) return null;
+    if (Array.isArray(relation)) {
+        return relation.length > 0 ? relation[0].id : null;
+    }
+    return relation.id || null;
+};
+
+const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId, onClose, className }) => {
     const { toast } = useToast();
 
     // If initialSeriesId is present, we know it exists in DB
@@ -143,13 +154,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
             // Linked family member & chore, if present
             if (seriesData.familyMember) {
-                setFamilyMemberId(seriesData.familyMember.id);
+                setFamilyMemberId(getSingleId(seriesData.familyMember));
             } else {
                 setFamilyMemberId(null);
             }
 
             if (seriesData.scheduledActivity) {
-                setScheduledActivityId(seriesData.scheduledActivity.id);
+                setScheduledActivityId(getSingleId(seriesData.scheduledActivity));
             } else {
                 setScheduledActivityId(null);
             }
@@ -739,8 +750,11 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         if (familyMemberId) {
             transactions.push(tx.taskSeries[seriesId].link({ familyMember: familyMemberId }));
         } else if (seriesDataRef.current?.familyMember) {
-            // Explicitly unlink if null
-            transactions.push(tx.taskSeries[seriesId].unlink({ familyMember: seriesDataRef.current.familyMember.id }));
+            // FIX: Safely get the ID to unlink, handling possible array structure
+            const idToUnlink = getSingleId(seriesDataRef.current.familyMember);
+            if (idToUnlink) {
+                transactions.push(tx.taskSeries[seriesId].unlink({ familyMember: idToUnlink }));
+            }
         }
 
         // Manage links to scheduledActivity
@@ -751,12 +765,15 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 })
             );
         } else if (seriesDataRef.current?.scheduledActivity) {
-            // Explicitly unlink if null
-            transactions.push(
-                tx.taskSeries[seriesId].unlink({
-                    scheduledActivity: seriesDataRef.current.scheduledActivity.id,
-                })
-            );
+            // FIX: Safely get the ID to unlink, handling possible array structure
+            const idToUnlink = getSingleId(seriesDataRef.current.scheduledActivity);
+            if (idToUnlink) {
+                transactions.push(
+                    tx.taskSeries[seriesId].unlink({
+                        scheduledActivity: idToUnlink,
+                    })
+                );
+            }
         }
 
         try {
@@ -765,9 +782,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             if (!hasPersisted) {
                 setHasPersisted(true); // from now on, always save
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error('Save failed', err);
-            toast({ title: 'Save failed', variant: 'destructive' });
+            toast({
+                title: 'Save failed',
+                description: err.message || 'Check console for details',
+                variant: 'destructive',
+            });
         } finally {
             setIsSaving(false);
         }
@@ -796,7 +817,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     }
 
     return (
-        <div className="max-w-4xl mx-auto p-6 space-y-6">
+        // FIX: Use cn() to merge classes.
+        // Default is 'max-w-4xl' (good for page), but can be overridden by 'className' prop (good for modal).
+        <div className={cn('mx-auto p-6 space-y-6', className || 'max-w-4xl')}>
             <div className="flex justify-between items-center">
                 <h1 className="text-2xl font-bold">Task Series Editor</h1>
                 <div className="text-sm text-muted-foreground">{isSaving ? 'Saving...' : 'Saved'}</div>

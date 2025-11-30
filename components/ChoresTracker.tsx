@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useMemo } from 'react'; // Added useMemo
-import { init, tx, id } from '@instantdb/react';
+import { tx, id } from '@instantdb/react'; // Removed init, keep tx/id
+import db from '@/lib/db'; // <--- FIX: Import the global DB instance with full schema
 // import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -15,6 +16,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
 // **** NEW: Import types and utility ****
 import { UnitDefinition, Envelope, computeAllApplicableCurrencyCodes } from '@/lib/currency-utils'; // Import computeMonetaryCurrencies
+import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -66,6 +68,8 @@ interface Chore {
     rewardType?: 'fixed' | 'weight';
     rewardAmount?: number;
     rewardCurrency?: string;
+    // +++ NEW: Add taskSeries for type safety in ChoreList +++
+    taskSeries?: { id: string; name: string; startDate?: string; tasks?: any[] }[];
 }
 
 // +++ Add ChoreCompletion type if not implicitly handled by Schema +++
@@ -78,22 +82,9 @@ interface ChoreCompletion {
     // Add other fields from schema if needed
 }
 
-type Schema = {
-    familyMembers: FamilyMember;
-    chores: Chore;
-    // **** NEW: Add other relevant namespaces ****
-    allowanceEnvelopes: Envelope; // Needed for currency calculation
-    unitDefinitions: UnitDefinition; // Needed for currency selector
-    choreAssignments: any; // Add if needed for delete/update logic
-    choreCompletions: ChoreCompletion; // Use defined interface
-};
-
-const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'df733414-7ccd-45bd-85f3-ffd0b3da8812';
-const db = init<Schema>({
-    appId: APP_ID,
-    apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || 'http://localhost:8888',
-    websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || 'ws://localhost:8888/runtime/session',
-});
+// --- REMOVED: Local Schema definition and local db initialization ---
+// The local schema was missing 'tasks' and 'taskSeries', causing the Save Failed error.
+// We now use the imported `db` which uses the full `instant.schema.ts`.
 
 function ChoresTracker() {
     const [selectedMember, setSelectedMember] = useState<string>('All');
@@ -102,6 +93,7 @@ function ChoresTracker() {
     // const [newChoreTitle, setNewChoreTitle] = useState<string>('');
     // const [newChoreAssignee, setNewChoreAssignee] = useState<string>('');
     const [isDetailedChoreModalOpen, setIsDetailedChoreModalOpen] = useState(false);
+    const [editingTaskSeriesId, setEditingTaskSeriesId] = useState<string | null>(null);
     const [selectedDate, setSelectedDate] = useState<Date>(() => {
         const now = new Date();
         return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
@@ -150,12 +142,14 @@ function ChoresTracker() {
     });
 
     // --- Derived Data ---
-    const familyMembers: FamilyMember[] = useMemo(() => data?.familyMembers || [], [data?.familyMembers]);
-    const chores: Chore[] = useMemo(() => data?.chores || [], [data?.chores]);
-    const unitDefinitions: UnitDefinition[] = useMemo(() => data?.unitDefinitions || [], [data?.unitDefinitions]);
-    const allEnvelopes: Envelope[] = useMemo(() => data?.allowanceEnvelopes || [], [data?.allowanceEnvelopes]); // Get all envelopes from data
+    // Use 'as any' casting if strict schema typing conflicts with the generic interface,
+    // but typically the global db schema inference should align if the interfaces match.
+    const familyMembers: FamilyMember[] = useMemo(() => (data?.familyMembers as any) || [], [data?.familyMembers]);
+    const chores: Chore[] = useMemo(() => (data?.chores as any) || [], [data?.chores]);
+    const unitDefinitions: UnitDefinition[] = useMemo(() => (data?.unitDefinitions as any) || [], [data?.unitDefinitions]);
+    const allEnvelopes: Envelope[] = useMemo(() => (data?.allowanceEnvelopes as any) || [], [data?.allowanceEnvelopes]); // Get all envelopes from data
     // +++ Get top-level completions for the check +++
-    const allChoreCompletions: ChoreCompletion[] = useMemo(() => data?.choreCompletions || [], [data?.choreCompletions]);
+    const allChoreCompletions: ChoreCompletion[] = useMemo(() => (data?.choreCompletions as any) || [], [data?.choreCompletions]);
 
     // --- Compute Balances (existing logic) ---
     const membersBalances = useMemo(() => {
@@ -383,7 +377,7 @@ function ChoresTracker() {
         }
     };
 
-    const updateChore = async (choreId, updatedChoreData) => {
+    const updateChore = async (choreId: any, updatedChoreData: any) => {
         try {
             const transactions = [];
 
@@ -409,12 +403,12 @@ function ChoresTracker() {
             if (!existingChore) throw new Error('Original chore data not found for update.');
 
             // Get IDs of currently selected assignees from the form data
-            const newAssigneeIds = new Set(updatedChoreData.assignees.map((a) => a.id));
+            const newAssigneeIds = new Set(updatedChoreData.assignees.map((a: any) => a.id));
             // Get IDs of existing linked assignees
             const oldAssigneeIds = new Set(existingChore.assignees?.map((a) => a.id) ?? []);
             // Get IDs of existing linked assignments (rotation)
             // --- Fetch existing assignments directly from data if needed ---
-            const existingAssignments = data?.choreAssignments?.filter((a) => a.chore?.[0]?.id === choreId) || []; // Fetch if query includes choreAssignments linked to chore
+            const existingAssignments: any[] = (data?.choreAssignments as any)?.filter((a: any) => a.chore?.[0]?.id === choreId) || []; // Fetch if query includes choreAssignments linked to chore
             const oldAssignmentMemberIds = new Set(existingAssignments?.map((a) => a.familyMember?.[0]?.id) ?? []);
 
             // --- Unlink assignees who are no longer selected ---
@@ -431,7 +425,7 @@ function ChoresTracker() {
             });
 
             // --- Link new assignees ---
-            updatedChoreData.assignees.forEach((assignee) => {
+            updatedChoreData.assignees.forEach((assignee: any) => {
                 if (!oldAssigneeIds.has(assignee.id)) {
                     transactions.push(
                         tx.chores[choreId].link({ assignees: assignee.id }),
@@ -445,7 +439,7 @@ function ChoresTracker() {
 
             // --- Handle Rotation Assignments ---
             const isRotatingNow = updatedChoreData.rotationType !== 'none' && !updatedChoreData.isUpForGrabs;
-            const newRotationMemberIds = updatedChoreData.assignments?.map((a) => a.familyMember.id) ?? [];
+            const newRotationMemberIds = updatedChoreData.assignments?.map((a: any) => a.familyMember.id) ?? [];
 
             // Delete old assignments that are no longer needed
             existingAssignments?.forEach((assignment) => {
@@ -470,7 +464,7 @@ function ChoresTracker() {
 
             // Add/Update new assignments if rotation is active
             if (isRotatingNow && updatedChoreData.assignments) {
-                updatedChoreData.assignments.forEach((assignment, index) => {
+                updatedChoreData.assignments.forEach((assignment: any, index: any) => {
                     const existingAssignment = existingAssignments?.find((a) => a.familyMember?.[0]?.id === assignment.familyMember.id);
                     if (existingAssignment) {
                         // Update existing assignment order if necessary
@@ -519,14 +513,14 @@ function ChoresTracker() {
         }
     };
 
-    const deleteChore = (choreId) => {
+    const deleteChore = (choreId: any) => {
         // Consider implications: Should completions be deleted? Assignments?
         // Simple delete for now:
         db.transact([tx.chores[choreId].delete()])
             .then(() => {
                 toast({ title: 'Chore Deleted' });
             })
-            .catch((err) => {
+            .catch((err: any) => {
                 console.error('Error deleting chore:', err);
                 toast({
                     title: 'Error',
@@ -649,6 +643,7 @@ function ChoresTracker() {
                                 db={db}
                                 unitDefinitions={unitDefinitions}
                                 currencyOptions={currencyOptions}
+                                onEditTaskSeries={(seriesId: string) => setEditingTaskSeriesId(seriesId)}
                             />
                             {/* Optional: Add back allowance balance display if needed */}
                             {/* {selectedMember !== 'All' && ( ... allowance display ... )} */}
@@ -658,6 +653,20 @@ function ChoresTracker() {
                     <div className="flex-grow">Calendar View (Not implemented)</div>
                 )}
             </div>
+
+            {/* Task Series Editor Modal */}
+            <Dialog open={!!editingTaskSeriesId} onOpenChange={(open) => !open && setEditingTaskSeriesId(null)}>
+                <DialogContent className="w-[90vw] max-w-[1400px] h-[85vh] overflow-y-auto p-0">
+                    {editingTaskSeriesId && (
+                        <TaskSeriesEditor
+                            db={db}
+                            initialSeriesId={editingTaskSeriesId}
+                            onClose={() => setEditingTaskSeriesId(null)}
+                            className="w-full max-w-none" // <--- FIX: Force full width inside modal
+                        />
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
