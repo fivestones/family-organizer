@@ -9,7 +9,7 @@ import { format } from 'date-fns';
 import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
 import DetailedChoreForm from './DetailedChoreForm';
 import { tx } from '@instantdb/react';
-import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions } from '@/lib/task-scheduler'; // Added getRecursiveTaskCompletionTransactions
+import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions, isSeriesActiveForDate } from '@/lib/task-scheduler'; // Added getRecursiveTaskCompletionTransactions and isSeriesActiveForDate
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 
 // +++ Accept new props passed down from ChoresTracker +++
@@ -236,7 +236,26 @@ function ChoreList({ chores, familyMembers, selectedMember, selectedDate, toggle
                                 >
                                     {chore.title}
                                     {chore.rrule && <span className="ml-2 text-sm text-gray-500">(Recurring)</span>}
-                                    {chore.taskSeries?.[0] && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Series</span>}
+                                    {/* Updated: Render Label for each Active Task Series */}
+                                    {chore.taskSeries?.map((series: any) => {
+                                        // Determine if this series is active for the current date
+                                        const isActive = isSeriesActiveForDate(
+                                            series.tasks || [],
+                                            chore.rrule || null,
+                                            chore.startDate,
+                                            safeSelectedDate,
+                                            series.startDate || null
+                                        );
+
+                                        if (isActive) {
+                                            return (
+                                                <span key={series.id} className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                                                    {series.name}
+                                                </span>
+                                            );
+                                        }
+                                        return null;
+                                    })}
                                 </span>
                                 <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)}>
                                     <Edit className="h-4 w-4" />
