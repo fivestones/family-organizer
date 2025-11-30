@@ -124,7 +124,8 @@ const _schema = i.schema({
             indentationLevel: i.number().optional(),
             isDayBreak: i.boolean(),
             isCompleted: i.boolean().optional().indexed(),
-            completedAt: i.date().optional(),
+            completedAt: i.date().optional(), // Keeps exact time of day
+            completedOnDate: i.string().optional().indexed(), // <--- NEW: Sticks to the calendar day
             notes: i.string().optional(),
             order: i.number(),
             overrideWorkAhead: i.boolean().optional(),

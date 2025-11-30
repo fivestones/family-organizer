@@ -8,6 +8,7 @@ export interface Task {
     text: string;
     isCompleted: boolean;
     completedAt?: string;
+    completedOnDate?: string; // <--- NEW FIELD
     isDayBreak: boolean;
     order: number;
     indentationLevel?: number;
@@ -37,10 +38,11 @@ export function getTasksForDate(
     rruleString: string | null,
     startDateString: string,
     viewDate: Date,
-    seriesStartDateString?: string | null // <--- New Argument
+    seriesStartDateString?: string | null
 ): Task[] {
     const utcViewDate = toUTCDate(viewDate);
-    const today = toLocalMidnight(new Date()); // FIX: Use new helper
+    const viewDateString = utcViewDate.toISOString().slice(0, 10); // "YYYY-MM-DD"
+    const today = toLocalMidnight(new Date());
 
     // 1. Sort tasks by order
     const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -49,10 +51,16 @@ export function getTasksForDate(
     // If viewing a past date, only show tasks specifically completed on that date.
     if (utcViewDate.getTime() < today.getTime()) {
         return sortedTasks.filter((t) => {
-            if (!t.completedAt) return false;
-            // FIX: Use toLocalMidnight to match completion date to view date based on local day
-            const completedDate = toLocalMidnight(t.completedAt);
-            return completedDate.getTime() === utcViewDate.getTime();
+            // Priority 1: Check Sticky Date (Robust)
+            if (t.isCompleted && t.completedOnDate) {
+                return t.completedOnDate === viewDateString;
+            }
+            // Priority 2: Legacy Check (Fallback for old data)
+            if (t.isCompleted && t.completedAt) {
+                const completedDate = toLocalMidnight(t.completedAt);
+                return completedDate.getTime() === utcViewDate.getTime();
+            }
+            return false;
         });
     }
 
@@ -69,11 +77,24 @@ export function getTasksForDate(
     // 3. Prepare Queue of Remaining Work
     // We filter out anything completed before today (completedAt < today)
     const pendingTasks = sortedTasks.filter((t) => {
-        if (!t.isCompleted) return true; // Not done yet
-        // If it WAS done, but done TODAY, keep it in the list so it doesn't vanish instantly
+        if (!t.isCompleted) return true;
+
+        // IF COMPLETED: Should we show it today?
+        // Yes, if it was completed FOR today (or historically on today).
+
+        // Priority 1: Check Sticky Date
+        if (t.completedOnDate) {
+            // Show if it matches the current view date (which is Today/Future in this block logic)
+            return t.completedOnDate === viewDateString;
+        }
+
+        // Priority 2: Legacy Check
         if (t.completedAt) {
             // FIX: Use toLocalMidnight so late-night completions count as "Today"
             const cDate = toLocalMidnight(t.completedAt);
+            // In the "Pending Queue" logic, we typically look relative to 'today' (Local)
+            // But if we are viewing a specific date, we should match that.
+            // However, the original logic compared to 'today' to keep items visible immediately after checking.
             return cDate.getTime() === today.getTime();
         }
         return false; // Done in the past
@@ -194,7 +215,8 @@ export function isSeriesActiveForDate(
     if (!allTasks || allTasks.length === 0) return false;
 
     const utcViewDate = toUTCDate(viewDate);
-    const today = toLocalMidnight(new Date()); // <--- FIX: Use local-aligned today
+    const viewDateString = utcViewDate.toISOString().slice(0, 10);
+    const today = toLocalMidnight(new Date());
     const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
 
     // 1. Check if viewDate is a scheduled occurrence (Fundamental check)
@@ -226,10 +248,15 @@ export function isSeriesActiveForDate(
 
     // --- Helper: Calculate Date for a Specific Task ---
     const getTaskDate = (task: Task): number | null => {
-        // A. If Completed: Use historical date
-        if (task.isCompleted && task.completedAt) {
-            // FIX: Use toLocalMidnight
-            return toLocalMidnight(task.completedAt).getTime();
+        // A. If Completed
+        if (task.isCompleted) {
+            // FIX: Priority check to completedOnDate
+            if (task.completedOnDate) {
+                return toUTCDate(new Date(task.completedOnDate)).getTime();
+            }
+            if (task.completedAt) {
+                return toLocalMidnight(task.completedAt).getTime();
+            }
         }
 
         // B. If Pending: Project future date
@@ -237,11 +264,9 @@ export function isSeriesActiveForDate(
         //    (Logic must match getTasksForDate queue logic)
         const pendingQueue = sortedTasks.filter((t) => {
             if (!t.isCompleted) return true;
-            if (t.completedAt) {
-                // FIX: Use toLocalMidnight
-                const cDate = toLocalMidnight(t.completedAt);
-                return cDate.getTime() === today.getTime();
-            }
+            // Matches getTasksForDate filtering logic
+            if (t.completedOnDate) return t.completedOnDate === toUTCDate(today).toISOString().slice(0, 10);
+            if (t.completedAt) return toLocalMidnight(t.completedAt).getTime() === today.getTime();
             return false;
         });
 
@@ -283,7 +308,13 @@ export function isSeriesActiveForDate(
 }
 
 // --- Recursive Completion Transactions ---
-export function getRecursiveTaskCompletionTransactions(taskId: string, isCompleted: boolean, allTasks: Task[]): any[] {
+// FIX: Added 'completedOnDateStr' parameter
+export function getRecursiveTaskCompletionTransactions(
+    taskId: string,
+    isCompleted: boolean,
+    allTasks: Task[],
+    completedOnDateStr: string // <--- REQUIRED: YYYY-MM-DD of the view
+): any[] {
     const transactions: any[] = [];
     const now = new Date();
 
@@ -300,6 +331,7 @@ export function getRecursiveTaskCompletionTransactions(taskId: string, isComplet
             tx.tasks[currentId].update({
                 isCompleted: status,
                 completedAt: status ? now : null,
+                completedOnDate: status ? completedOnDateStr : null, // <--- SAVE IT
             })
         );
 

@@ -115,8 +115,8 @@ function ChoreList({
     // --- Task Series Logic Helpers ---
 
     const handleTaskToggle = (taskId: string, currentStatus: boolean, allTasks: Task[]) => {
-        // Calculate recursive transactions
-        const transactions = getRecursiveTaskCompletionTransactions(taskId, !currentStatus, allTasks);
+        // FIX: Pass formattedSelectedDate (YYYY-MM-DD) to lock the completion to the viewed day
+        const transactions = getRecursiveTaskCompletionTransactions(taskId, !currentStatus, allTasks, formattedSelectedDate);
         db.transact(transactions);
     };
 
@@ -152,8 +152,14 @@ function ChoreList({
 
         const { choreId, memberId, incompleteTaskIds } = pendingCompletion;
 
-        // Batch transaction: Mark tasks done
-        const transactions = incompleteTaskIds.map((tid) => tx.tasks[tid].update({ isCompleted: true, completedAt: new Date() }));
+        // FIX: Update batch transaction to include completedOnDate
+        const transactions = incompleteTaskIds.map((tid) =>
+            tx.tasks[tid].update({
+                isCompleted: true,
+                completedAt: new Date(),
+                completedOnDate: formattedSelectedDate, // <--- SAVE IT HERE TOO
+            })
+        );
 
         db.transact(transactions);
 
