@@ -12,6 +12,11 @@ import { tx } from '@instantdb/react';
 import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions, isSeriesActiveForDate } from '@/lib/task-scheduler'; // Added getRecursiveTaskCompletionTransactions and isSeriesActiveForDate
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 
+// Helper: Check if a task functions as a header (has visible children)
+const hasScheduledChildren = (parentId: string, scheduledIds: Set<string>, allTasks: any[]) => {
+    return allTasks.some((t) => t.parentTask?.[0]?.id === parentId && scheduledIds.has(t.id));
+};
+
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({
     chores,
@@ -120,7 +125,8 @@ function ChoreList({
         db.transact(transactions);
     };
 
-    const handleAvatarClick = (chore, memberId, visibleTasks: Task[]) => {
+    // Updated: Accepts allTasks to properly identify parent/header relationships
+    const handleAvatarClick = (chore, memberId, visibleTasks: Task[], allTasks: Task[]) => {
         // 1. Check if already done?
         const isDone = chore.completions?.some((c) => c.completedBy?.[0]?.id === memberId && c.dateDue === formattedSelectedDate && c.completed);
 
@@ -132,7 +138,21 @@ function ChoreList({
 
         // 2. Check for incomplete tasks in the CURRENT visible block
         // If there are no visible tasks (e.g. standard chore), this is empty and we skip the check
-        const incompleteIds = visibleTasks.filter((t) => !t.isCompleted).map((t) => t.id);
+
+        // Identify tasks that are currently visible
+        const scheduledIds = new Set(visibleTasks.map((t) => t.id));
+
+        const incompleteIds = visibleTasks
+            .filter((t) => {
+                if (t.isCompleted) return false;
+
+                // FIX: Check if this task is a header (has visible children) using the full task list
+                // If it is a header, it doesn't have a checkbox, so we ignore it for "incomplete" status
+                const isHeader = hasScheduledChildren(t.id, scheduledIds, allTasks);
+
+                return !isHeader;
+            })
+            .map((t) => t.id);
 
         if (incompleteIds.length > 0) {
             // Guardrail triggered!
@@ -219,9 +239,11 @@ function ChoreList({
                                             // --- Task Series Calculation for this Assignee ---
                                             const taskSeries = chore.taskSeries?.[0];
                                             let visibleTasks: Task[] = [];
+                                            let allTasks: Task[] = []; // Capture all tasks for relationship lookup
                                             if (taskSeries && taskSeries.tasks) {
+                                                allTasks = taskSeries.tasks;
                                                 visibleTasks = getTasksForDate(
-                                                    taskSeries.tasks,
+                                                    allTasks,
                                                     chore.rrule,
                                                     chore.startDate,
                                                     safeSelectedDate,
@@ -242,8 +264,8 @@ function ChoreList({
                                                     onToggle={() => {
                                                         // Only allow toggle if not disabled
                                                         if (!isDisabled) {
-                                                            // Use new handler to check for incomplete tasks
-                                                            handleAvatarClick(chore, assignee.id, visibleTasks);
+                                                            // Use new handler to check for incomplete tasks, passing allTasks for header detection
+                                                            handleAvatarClick(chore, assignee.id, visibleTasks, allTasks);
                                                         }
                                                     }}
                                                 />
