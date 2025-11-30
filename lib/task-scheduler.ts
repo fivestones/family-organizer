@@ -15,6 +15,14 @@ export interface Task {
     subTasks?: { id: string }[];
 }
 
+// Helper to get "Today" aligned with the user's local timezone but stored as UTC midnight.
+// This ensures that if it's 9PM on Nov 29 locally, we treat "Today" as Nov 29 (UTC 00:00),
+// rather than Nov 30 (UTC 00:00) which would happen if we used standard UTC conversion of the timestamp.
+function getLocalTodayAsUTC(): Date {
+    const now = new Date();
+    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
 /**
  * Determines which tasks from a series should be displayed for a specific date
  * based on the "Rolling Queue" logic + Future Simulation.
@@ -31,7 +39,7 @@ export function getTasksForDate(
     seriesStartDateString?: string | null // <--- New Argument
 ): Task[] {
     const utcViewDate = toUTCDate(viewDate);
-    const today = toUTCDate(new Date());
+    const today = getLocalTodayAsUTC(); // <--- FIX: Use local-aligned today
 
     // 1. Sort tasks by order
     const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -170,7 +178,112 @@ export function getTasksForDate(
     return [];
 }
 
-// --- NEW Helper: Recursive Completion Transactions ---
+/**
+ * Checks if the given viewDate falls within the "Active Range" of a task series.
+ * The Active Range is defined as:
+ * - Start: Date of the FIRST non-break task (completed or projected).
+ * - End: Date of the LAST non-break task (completed or projected).
+ * * Returns TRUE if:
+ * 1. viewDate is between Start and End (inclusive).
+ * 2. viewDate is a valid scheduled occurrence for the Chore.
+ */
+export function isSeriesActiveForDate(
+    allTasks: Task[],
+    rruleString: string | null,
+    choreStartDateString: string,
+    viewDate: Date,
+    seriesStartDateString?: string | null
+): boolean {
+    if (!allTasks || allTasks.length === 0) return false;
+
+    const utcViewDate = toUTCDate(viewDate);
+    const today = getLocalTodayAsUTC(); // <--- FIX: Use local-aligned today
+    const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
+
+    // 1. Check if viewDate is a scheduled occurrence (Fundamental check)
+    // If it's not a scheduled day, the label should never show.
+    const rrule = createRRuleWithStartDate(rruleString, choreStartDateString);
+    if (!rrule && toUTCDate(new Date(choreStartDateString)).getTime() !== utcViewDate.getTime()) {
+        return false; // Not start date and no rrule
+    }
+    if (rrule) {
+        const isScheduled = rrule.between(utcViewDate, toUTCDate(new Date(utcViewDate.getTime() + 1000)), true).length > 0;
+        if (!isScheduled) return false;
+    }
+
+    // 2. Identify First and Last "Real" Tasks
+    // We ignore dayBreaks for determining the start/end of the series content.
+    const firstRealTask = sortedTasks.find((t) => !t.isDayBreak);
+    const lastRealTask = [...sortedTasks].reverse().find((t) => !t.isDayBreak);
+
+    if (!firstRealTask || !lastRealTask) return false; // Series is only breaks?
+
+    // 3. Determine Series Anchor Date (Projection Start)
+    let anchorDate = today;
+    if (seriesStartDateString) {
+        const seriesStart = toUTCDate(new Date(seriesStartDateString));
+        if (seriesStart.getTime() > today.getTime()) {
+            anchorDate = seriesStart;
+        }
+    }
+
+    // --- Helper: Calculate Date for a Specific Task ---
+    const getTaskDate = (task: Task): number | null => {
+        // A. If Completed: Use historical date
+        if (task.isCompleted && task.completedAt) {
+            return toUTCDate(new Date(task.completedAt)).getTime();
+        }
+
+        // B. If Pending: Project future date
+        // 1. Filter tasks to just the "Pending Queue" (not completed before today)
+        //    (Logic must match getTasksForDate queue logic)
+        const pendingQueue = sortedTasks.filter((t) => {
+            if (!t.isCompleted) return true;
+            if (t.completedAt) {
+                const cDate = toUTCDate(new Date(t.completedAt));
+                return cDate.getTime() === today.getTime();
+            }
+            return false;
+        });
+
+        // 2. Find where our target task sits in this queue
+        const taskIndexInQueue = pendingQueue.findIndex((t) => t.id === task.id);
+        if (taskIndexInQueue === -1) return null; // Should not happen if logic is consistent
+
+        // 3. Calculate "Block Distance" (how many breaks precede it)
+        let blockIndex = 0;
+        for (let i = 0; i < taskIndexInQueue; i++) {
+            if (pendingQueue[i].isDayBreak) {
+                blockIndex++;
+            }
+        }
+
+        // 4. Map Block Index to RRule Occurrences
+        if (!rrule) {
+            // No rrule: All pending blocks fall on Anchor Date? Or just valid for one day?
+            return blockIndex === 0 ? anchorDate.getTime() : null;
+        }
+
+        // We need the (blockIndex)-th occurrence starting from AnchorDate.
+        // We fetch enough occurrences to cover the index.
+        // Optimization: limit the range to 5 years to avoid infinite loops on high indices.
+        const occurrences = rrule.between(anchorDate, new Date(anchorDate.getTime() + 1000 * 60 * 60 * 24 * 365 * 5), true, (_, i) => i <= blockIndex);
+
+        const targetDate = occurrences[blockIndex];
+        return targetDate ? toUTCDate(targetDate).getTime() : null;
+    };
+
+    const firstTaskDate = getTaskDate(firstRealTask);
+    const lastTaskDate = getTaskDate(lastRealTask);
+
+    if (firstTaskDate === null || lastTaskDate === null) return false;
+
+    // 4. Final Range Check
+    const viewTime = utcViewDate.getTime();
+    return viewTime >= firstTaskDate && viewTime <= lastTaskDate;
+}
+
+// --- Recursive Completion Transactions ---
 export function getRecursiveTaskCompletionTransactions(taskId: string, isCompleted: boolean, allTasks: Task[]): any[] {
     const transactions: any[] = [];
     const now = new Date();
