@@ -103,7 +103,6 @@ function ChoresTracker() {
     // **** UPDATED QUERY: Fetch members + linked envelopes, chores, and unit definitions ****
     const { isLoading, error, data } = db.useQuery({
         familyMembers: {
-            // ADD THIS to sort the results
             $: { order: { order: 'asc' } },
 
             assignedChores: {
@@ -126,6 +125,7 @@ function ChoresTracker() {
                     // Fetch all tasks for the series
                     parentTask: {},
                 },
+                familyMember: {},
             },
         },
         // **** Fetch unit definitions ****

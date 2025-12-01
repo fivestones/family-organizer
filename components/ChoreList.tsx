@@ -237,17 +237,37 @@ function ChoreList({
                                             const actualCompleterName = isDisabled ? completerName : ''; // Pass completer name only if disabling this avatar
 
                                             // --- Task Series Calculation for this Assignee ---
-                                            const taskSeries = chore.taskSeries?.[0];
+                                            // NOTE: When calculating "visibleTasks" for the avatar click handler,
+                                            // we prioritize the specific series assigned to this person if it exists.
                                             let visibleTasks: Task[] = [];
                                             let allTasks: Task[] = []; // Capture all tasks for relationship lookup
-                                            if (taskSeries && taskSeries.tasks) {
-                                                allTasks = taskSeries.tasks;
+
+                                            // FIX: Strict Series Ownership Check
+
+                                            // 1. Priority: Series specifically assigned to this person
+                                            const userSeries = chore.taskSeries?.find((s: any) => {
+                                                const owner = s.familyMember?.[0] || s.familyMember;
+                                                return owner?.id === assignee.id;
+                                            });
+
+                                            // 2. Secondary: Shared Series (No owner assigned at all)
+                                            const sharedSeries = chore.taskSeries?.find((s: any) => {
+                                                const owner = s.familyMember?.[0] || s.familyMember;
+                                                return !owner;
+                                            });
+
+                                            // 3. Selection: Specific > Shared > None
+                                            // (We REMOVED the fallback to index [0] to prevent Bob getting Alice's tasks)
+                                            const targetSeries = userSeries || sharedSeries;
+
+                                            if (targetSeries && targetSeries.tasks) {
+                                                allTasks = targetSeries.tasks;
                                                 visibleTasks = getTasksForDate(
                                                     allTasks,
                                                     chore.rrule,
                                                     chore.startDate,
                                                     safeSelectedDate,
-                                                    taskSeries.startDate // <--- PASS SERIES START DATE
+                                                    targetSeries.startDate // <--- PASS SERIES START DATE
                                                 );
                                             }
 
@@ -316,38 +336,66 @@ function ChoreList({
                                 </Button>
                             </div>
 
-                            {/* --- Render Task Series Checklist --- */}
-                            {(() => {
-                                // Logic to decide which tasks to show below the header
-                                // If 'All' is selected, we generally show the first relevant person's tasks or none to avoid clutter.
-                                // If a specific member is selected, we show theirs.
-                                const relevantAssignee = selectedMember !== 'All' ? assignedMembers.find((m) => m.id === selectedMember) : assignedMembers[0];
+                            {/* --- Render Task Series Checklist(s) --- */}
+                            <div className="flex flex-col gap-2 mt-2 w-full">
+                                {chore.taskSeries?.map((series: any) => {
+                                    // 1. Identify the owner of this specific series
+                                    // Handle both object (single link) and array (InstantDB relation) formats
+                                    const rawOwner = series.familyMember?.[0] || series.familyMember;
+                                    const ownerId = rawOwner?.id;
+                                    const ownerName = rawOwner?.name;
 
-                                if (relevantAssignee && chore.taskSeries?.[0]) {
-                                    const allTasks = chore.taskSeries[0].tasks || [];
+                                    // 2. Filter Logic: Should we show this series?
+
+                                    // A. If the series is assigned to a specific person,
+                                    //    only show it if that person is currently assigned to the chore TODAY.
+                                    //    (This hides "Bob's Series" on days where only Alice is on rotation).
+                                    if (ownerId) {
+                                        const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
+                                        if (!isOwnerAssignedToday) return null;
+                                    }
+
+                                    // B. Apply the global "Selected Member" filter
+                                    //    If a specific person is picked in the sidebar, hide everyone else's series.
+                                    if (selectedMember !== 'All' && ownerId && ownerId !== selectedMember) {
+                                        return null;
+                                    }
+
+                                    // 3. Calculate Tasks for this specific series
+                                    const allTasks = series.tasks || [];
                                     const tasks = getTasksForDate(
                                         allTasks,
-                                        chore.rrule,
-                                        chore.startDate,
+                                        chore.rrule, // Use the Chore's recurrence
+                                        chore.startDate, // Use the Chore's start date
                                         safeSelectedDate,
-                                        chore.taskSeries[0].startDate // <--- PASS SERIES START DATE
+                                        series.startDate // Use the Series specific start date
                                     );
 
-                                    // Don't render if empty or if up-for-grabs disabled it for this user
-                                    const isUpForGrabsDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && relevantAssignee.id !== completerIdActual;
+                                    // 4. Check if Up-For-Grabs logic disables this
+                                    //    (Only applies if specific user logic is active)
+                                    const isUpForGrabsDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && ownerId && ownerId !== completerIdActual;
 
-                                    if (tasks.length > 0 && !isUpForGrabsDisabled) {
-                                        return (
+                                    if (tasks.length === 0 || isUpForGrabsDisabled) return null;
+
+                                    return (
+                                        <div key={series.id} className="border-t pt-2 mt-1 first:border-t-0 first:mt-0">
+                                            {/* Header: Only show if we are in 'All' view to distinguish lists */}
+                                            {selectedMember === 'All' && ownerName && (
+                                                <div className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wider pl-1">
+                                                    {ownerName}'s Checklist
+                                                </div>
+                                            )}
+
                                             <TaskSeriesChecklist
                                                 tasks={tasks}
                                                 allTasks={allTasks}
                                                 onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks)}
                                                 isReadOnly={!isToday}
                                             />
-                                        );
-                                    }
-                                }
-                            })()}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </li>
                     );
                 })}
