@@ -47,13 +47,26 @@ export function getTasksForDate(
     const utcViewDate = toUTCDate(viewDate);
     const viewDateString = utcViewDate.toISOString().slice(0, 10); // "YYYY-MM-DD"
     const today = toLocalMidnight(new Date());
+    const todayString = toUTCDate(today).toISOString().slice(0, 10);
 
     // 1. Sort tasks by order
     const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
 
-    // 2. Handle Past Dates (Historical Record)
-    // If viewing a past date, only show tasks specifically completed on that date.
-    if (utcViewDate.getTime() < today.getTime()) {
+    // --- DETERMINE ANCHOR DATE ---
+    // The "queue" starts rolling from Today OR the Series Start Date, whichever is later.
+    let anchorDate = today;
+    if (seriesStartDateString) {
+        const seriesStart = toUTCDate(new Date(seriesStartDateString));
+        // If series starts in the future relative to today, the anchor is the start date
+        if (seriesStart.getTime() > today.getTime()) {
+            anchorDate = seriesStart;
+        }
+    }
+    const anchorDateString = toUTCDate(anchorDate).toISOString().slice(0, 10);
+
+    // 3. Handle Past Dates (Historical Record)
+    // If viewing a date strictly BEFORE the anchor, only show tasks completed ON that specific date.
+    if (utcViewDate.getTime() < anchorDate.getTime()) {
         return sortedTasks.filter((t) => {
             // Priority 1: Check Sticky Date (Robust)
             if (t.isCompleted && t.completedOnDate) {
@@ -68,45 +81,39 @@ export function getTasksForDate(
         });
     }
 
-    // --- NEW LOGIC: Check Series Start Date ---
-    // If the series hasn't started yet relative to the view date, show nothing
-    // (unless we caught historical data above).
-    if (seriesStartDateString) {
-        const seriesStart = toUTCDate(new Date(seriesStartDateString));
-        if (utcViewDate.getTime() < seriesStart.getTime()) {
-            return []; //series hasn't started yet
-        }
-    }
-
-    // 3. Prepare Queue of Remaining Work
-    // We filter out anything completed before today (completedAt < today)
+    // 4. Prepare Queue of Remaining Work (Projecting from Anchor)
+    // We want the queue state AS OF the Anchor Date.
+    // This includes:
+    //  - All Pending Tasks
+    //  - Tasks Completed ON the Anchor Date (so they occupy Block 0 correctly)
     const pendingTasks = sortedTasks.filter((t) => {
         if (!t.isCompleted) return true;
 
-        // IF COMPLETED: Should we show it today?
-        // Yes, if it was completed FOR today (or historically on today).
+        // IF COMPLETED: Should we show it in the queue?
+        // Yes, if it was completed FOR the Anchor Date (Today).
+        // Crucial: We use anchorDateString here, NOT viewDateString.
+        // This keeps the queue structure stable when we look at future dates.
 
         // Priority 1: Check Sticky Date
         if (t.completedOnDate) {
-            // Show if it matches the current view date (which is Today/Future in this block logic)
-            return t.completedOnDate === viewDateString;
+            return t.completedOnDate === anchorDateString;
         }
 
         // Priority 2: Legacy Check
         if (t.completedAt) {
-            // FIX: Use toLocalMidnight so late-night completions count as "Today"
+            // Use toLocalMidnight so late-night completions count as "Today"
             const cDate = toLocalMidnight(t.completedAt);
             // In the "Pending Queue" logic, we typically look relative to 'today' (Local)
             // But if we are viewing a specific date, we should match that.
             // However, the original logic compared to 'today' to keep items visible immediately after checking.
-            return cDate.getTime() === today.getTime();
+            return cDate.getTime() === anchorDate.getTime();
         }
-        return false; // Done in the past
+        return false; // Done in the past relative to Anchor
     });
 
-    // --- Trim leading ghost breaks ---
-    // If pendingTasks starts with a DayBreak, check if it belongs to a previous (completed) task.
-    if (pendingTasks.length > 0 && pendingTasks[0].isDayBreak) {
+    // --- TRIM LEADING GHOST BREAKS (FIXED: while loop) ---
+    // If pendingTasks starts with DayBreaks that belong to previous (completed & filtered) tasks, trim them.
+    while (pendingTasks.length > 0 && pendingTasks[0].isDayBreak) {
         const firstPendingId = pendingTasks[0].id;
         const allIndex = sortedTasks.findIndex((t) => t.id === firstPendingId);
 
@@ -116,8 +123,10 @@ export function getTasksForDate(
             // AND it is completed (filtered out of pending), then this break is a "ghost" tail.
             if (!prevTask.isDayBreak && prevTask.isCompleted) {
                 pendingTasks.shift();
+                continue; // Check the next item
             }
         }
+        break; // Stop if the break is legitimate
     }
 
     // --- TRIM TRAILING BREAKS ---
@@ -150,36 +159,8 @@ export function getTasksForDate(
     // Push the final block if exists
     if (currentBlock.length > 0) blocks.push(currentBlock);
 
-    // --- NEW LOGIC: Determine Anchor Date ---
-    // The "queue" starts rolling from Today OR the Series Start Date, whichever is later.
-    let anchorDate = today;
-
-    // Logic Fix: Even if seriesStart is in future, if we are viewing Today,
-    // we should align anchor to today if the series is active.
-    // But sticking to original logic:
-    if (seriesStartDateString) {
-        const seriesStart = toUTCDate(new Date(seriesStartDateString));
-        if (seriesStart.getTime() > today.getTime()) {
-            anchorDate = seriesStart;
-        }
-    }
-
-    // DEBUG: Log mismatch if detected
-    if (utcViewDate.getTime() !== anchorDate.getTime() && Math.abs(utcViewDate.getTime() - anchorDate.getTime()) < 86400000) {
-        // console.log(`[Scheduler Debug] View: ${utcViewDate.toISOString()}, Anchor: ${anchorDate.toISOString()}, Today: ${today.toISOString()}`);
-    }
-
-    // 8. "Current Block" Logic
-    // If viewing the Anchor Date (usually Today), show Block 0 (Next Pending)
+    // 6. "Current Block" Logic (Viewing Anchor Date)
     if (utcViewDate.getTime() === anchorDate.getTime()) {
-        // Find tasks completed today that might have been filtered out of pendingTasks if logic changed,
-        // but strictly speaking pendingTasks (step 3) already includes today's completions.
-        // However, we want to ensure we don't show duplicates or miss things.
-
-        // Retrieve items from pendingTasks (which includes today's completed items + future items in block 0)
-        // Since step 3 already kept "Today's Completed Items", blocks[0] should contain them.
-
-        // Safety filter to ensure we strictly have block 0
         return blocks[0] || [];
     }
 
@@ -274,6 +255,7 @@ export function isSeriesActiveForDate(
             anchorDate = seriesStart;
         }
     }
+    const anchorDateString = toUTCDate(anchorDate).toISOString().slice(0, 10);
 
     // --- Helper: Calculate Date for a Specific Task ---
     const getTaskDate = (task: Task): number | null => {
@@ -289,7 +271,7 @@ export function isSeriesActiveForDate(
         }
 
         // B. If Pending: Project future date
-        // 1. Filter tasks to just the "Pending Queue" (not completed before today)
+        // 1. Filter tasks to just the "Pending Queue" relative to Anchor (not completed before today)
         //    (Logic must match getTasksForDate queue logic)
         const pendingQueue = sortedTasks.filter((t) => {
             if (!t.isCompleted) return true;
@@ -299,16 +281,18 @@ export function isSeriesActiveForDate(
             return false;
         });
 
-        // --- Trim leading ghost breaks (Must match getTasksForDate logic) ---
-        if (pendingQueue.length > 0 && pendingQueue[0].isDayBreak) {
+        // --- Trim leading ghost breaks (FIXED: while loop) ---
+        while (pendingQueue.length > 0 && pendingQueue[0].isDayBreak) {
             const firstPendingId = pendingQueue[0].id;
             const allIndex = sortedTasks.findIndex((t) => t.id === firstPendingId);
             if (allIndex > 0) {
                 const prevTask = sortedTasks[allIndex - 1];
                 if (!prevTask.isDayBreak && prevTask.isCompleted) {
                     pendingQueue.shift();
+                    continue;
                 }
             }
+            break;
         }
 
         // 2. Find where our target task sits in this queue
