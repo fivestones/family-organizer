@@ -104,6 +104,22 @@ export function getTasksForDate(
         return false; // Done in the past
     });
 
+    // --- Trim leading ghost breaks ---
+    // If pendingTasks starts with a DayBreak, check if it belongs to a previous (completed) task.
+    if (pendingTasks.length > 0 && pendingTasks[0].isDayBreak) {
+        const firstPendingId = pendingTasks[0].id;
+        const allIndex = sortedTasks.findIndex((t) => t.id === firstPendingId);
+
+        if (allIndex > 0) {
+            const prevTask = sortedTasks[allIndex - 1];
+            // If the task immediately before this break is NOT a break (it was real work)
+            // AND it is completed (filtered out of pending), then this break is a "ghost" tail.
+            if (!prevTask.isDayBreak && prevTask.isCompleted) {
+                pendingTasks.shift();
+            }
+        }
+    }
+
     // --- TRIM TRAILING BREAKS ---
     // We ignore breaks at the very end of the series so they don't create dangling empty days.
     while (pendingTasks.length > 0 && pendingTasks[pendingTasks.length - 1].isDayBreak) {
@@ -282,6 +298,18 @@ export function isSeriesActiveForDate(
             if (t.completedAt) return toLocalMidnight(t.completedAt).getTime() === today.getTime();
             return false;
         });
+
+        // --- Trim leading ghost breaks (Must match getTasksForDate logic) ---
+        if (pendingQueue.length > 0 && pendingQueue[0].isDayBreak) {
+            const firstPendingId = pendingQueue[0].id;
+            const allIndex = sortedTasks.findIndex((t) => t.id === firstPendingId);
+            if (allIndex > 0) {
+                const prevTask = sortedTasks[allIndex - 1];
+                if (!prevTask.isDayBreak && prevTask.isCompleted) {
+                    pendingQueue.shift();
+                }
+            }
+        }
 
         // 2. Find where our target task sits in this queue
         const taskIndexInQueue = pendingQueue.findIndex((t) => t.id === task.id);
