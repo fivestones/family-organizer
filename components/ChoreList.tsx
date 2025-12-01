@@ -302,7 +302,24 @@ function ChoreList({
                                     {chore.rrule && <span className="ml-2 text-sm text-gray-500">(Recurring)</span>}
                                     {/* Updated: Render Label for each Active Task Series */}
                                     {chore.taskSeries?.map((series: any) => {
-                                        // Determine if this series is active for the current date
+                                        // 1. Identify Owner
+                                        const rawOwner = series.familyMember?.[0] || series.familyMember;
+                                        const ownerId = rawOwner?.id;
+
+                                        // 2. Strict Display Logic
+                                        // If a specific member is selected in sidebar, AND this series belongs to someone else -> HIDE
+                                        if (selectedMember !== 'All' && ownerId && ownerId !== selectedMember) {
+                                            return null;
+                                        }
+
+                                        // If 'All' is selected, BUT the owner is not assigned to this chore TODAY -> HIDE
+                                        // (e.g. Rotation has moved to someone else)
+                                        if (selectedMember === 'All' && ownerId) {
+                                            const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
+                                            if (!isOwnerAssignedToday) return null;
+                                        }
+
+                                        // 3. Time Activity Check
                                         const isActive = isSeriesActiveForDate(
                                             series.tasks || [],
                                             chore.rrule || null,
