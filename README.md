@@ -23,6 +23,22 @@ Here's a rundown of what the Thomas Family Organizer offers so far:
         -   Chores can be part of the normal allowance (required for 100% allowance) OR be "up for grabs" with a specific monetary amount or weight attached.
         -   Completed up-for-grabs chores will automatically deposit the specified amount/value into the family member's allowance. This applies to chores with either a direct amount or a weight (allowing for earning more than 100% of assigned chore weight).
 
+-   **Task Series (Advanced Chores / Homeschooling Module):**
+
+    -   A task series is a series of tasks, such as the individual items for each day of a subject in a home school curriculum
+    -   A task series manager is available to create, delete, and manage different task series
+    -   A task series editor allows one to add a list of tasks in a freeform environment. Indent tasks to create sub-tasks/child tasks.
+        -   Use "/" for a slash command drop down that lets you add a day break, showing where in the list of tasks the scheduling should move to the following day
+        -   Assign a task series to a family member, and link it to a specific chore. It will be scheduled out so that the tasks will be shown with that Chore for that person
+    -   Can be used to list homeschool subjects, with specific assignment items (as To-Dos) attached to a school subject chore (not a specific day), marked as starting on a certain date (appearing with that school subject chore on that day or the next scheduled day for that subject)
+    -   Can create nested tasks. Useful for breaking down big tasks.
+    -   Ability to see the whole string of upcoming dependent chores/assignments (and maybe those already completed).
+    -   Assignments for a school subject could function like a playlist. On any given day of the Chore where the task series is active, it will show the next task that hasn't been done. If a task isn't done on a day it is scheduled, it will show up the next time that Chore appears.
+
+-   Time travelling
+
+    -   Simulate different dates to see how things would play out
+
 -   **Allowance & Money Management (Multi-Currency):**
 
     -   Each family member can have multiple "envelopes" to manage their funds.
@@ -79,6 +95,13 @@ This is the stuff I'm actively working on or plan to tackle very soon:
 
     -   Develop a system for managing changes to set allowance amounts (e.g., schedule future raises, change currencies, or apply changes retroactively or from the current time).
 
+-   **Task Series (Advanced Chores / Homeschooling Module) additions:**
+
+    -   Ability for tasks to start when another task is finished (e.g., previous day's assignments). If the preceding assignment is done, the next one appears on the next scheduled day for that subject. This is essentually already implemented, but doesn't yet allow one to have a task's scheduling be based on tasks from other task series.
+    -   Assignments could depend on multiple other tasks (e.g., this one has to be after X but before Y).
+    -   Chores (like school subjects) could change dynamically. For example, "7th Grade English" gets marked as "completely finished" when all its To-Dos are done, and then "8th Grade English" starts if it's after a certain date (e.g., Aug 1st).
+    -   Need a way to work ahead--move on to the next assignment on the same day if desired (get ahead), possibly configurable per subject or assignment.
+
 -   **Bugs on the Radar:**
     -   **Envelopes:** If an empty envelope is deleted, it should just give an "are you sure" message and not ask where to transfer funds to (since there are none).
     -   **Chore System (Up for Grabs):**
@@ -105,17 +128,6 @@ This is where I'd love to take the project eventually. No promises, but these ar
     -   Associate To-Dos with a particular person.
     -   Simple, effective regular lists.
     -   _Maybe To-Dos are just a specific kind of chore that only occurs once? Something to ponder._
-
--   **Advanced Chores / Homeschooling Module:**
-
-    -   A way to list homeschool subjects, with specific assignment items (as To-Dos) attached to particular days.
-    -   Or, assignments attached to a school subject chore (not a specific day), marked as starting on a certain date (appearing with that school subject chore on that day or the next scheduled day for that subject) OR starting when another To-Do is finished (e.g., previous day's assignments). If the preceding assignment is done, the next one appears on the next scheduled day for that subject.
-    -   Assignments could depend on multiple other To-Dos (e.g., this one has to be after X but before Y).
-    -   Is there a need for nested To-Dos if dependencies are handled? Maybe for breaking down big tasks.
-    -   Ability to see the whole string of upcoming dependent chores/assignments (and maybe those already completed).
-    -   It would be cool if Chores (like school subjects) could change dynamically. For example, "7th Grade English" gets marked as "completely finished" when all its To-Dos are done, and then "8th Grade English" starts if it's after a certain date (e.g., Aug 1st).
-    -   Assignments for a school subject could function like a playlist.
-    -   Need a way to move on to the next assignment on the same day if desired (get ahead), possibly configurable per subject or assignment.
 
 -   **Meal Planning:**
 
@@ -154,6 +166,7 @@ This is where I'd love to take the project eventually. No promises, but these ar
     -   Prize system for non-monetary currencies (e.g., 10 stars for candy, 100 for a show).
         -   Maybe a time-limited option to convert stars to monetary currency (e.g., this week 100 stars = $1).
     -   Use the envelope allowance system as a foundation for a full multi-currency, YNAB-style envelope budgeting system.
+    -   Routine manager (e.g., passage of time-aware items to playback as part of a morning routine)
 
 We'll see how far I get!
 
@@ -204,10 +217,10 @@ If you want to get this running yourself, here's a rough guide. It's not super p
         -   This will be easier if you already signed into your local instantdb client in the same browser (see step 3 above)
     -   Initialize an app. Either:
         -   Use the local instantdb client dashboard (http://localhost:3000/dash), which will onboard you to make a new app
-            - Then get the App ID from the web interface and replace what's in the .env file with your new App ID
+            -   Then get the App ID from the web interface and replace what's in the .env file with your new App ID
         -   Or use instant-cli to initialize:
-            - First delete `.env`(maybe? I haven't actually tried this), then
-            - `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest init`
+            -   First delete `.env`(maybe? I haven't actually tried this), then
+            -   `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest init`
     -   At this point your .env file should have `NEXT_PUBLIC_INSTANT_APP_ID=xxxxxxx...` and `INSTANT_APP_ID=xxxxxxx...` which should both list your app's id
     -   Now you can push the schema: `INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest push`
 
