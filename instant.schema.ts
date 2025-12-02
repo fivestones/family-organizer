@@ -17,12 +17,12 @@ const _schema = i.schema({
             type: i.string().optional(),
         }),
         allowanceEnvelopes: i.entity({
-            amount: i.any(),
+            amount: i.any().optional(),
             balances: i.any().indexed(),
-            currency: i.any(),
-            description: i.string(),
-            goalAmount: i.number(),
-            goalCurrency: i.string(),
+            currency: i.any().optional(),
+            description: i.string().optional(),
+            goalAmount: i.number().optional(),
+            goalCurrency: i.string().optional(),
             isDefault: i.boolean(),
             name: i.string(),
         }),
@@ -124,9 +124,9 @@ const _schema = i.schema({
             indentationLevel: i.number().optional(),
             isDayBreak: i.boolean(),
             isCompleted: i.boolean().optional().indexed(),
-            completedAt: i.date().optional(), // Keeps exact time of day
-            completedOnDate: i.string().optional().indexed(), // <--- NEW: Sticks to the calendar day
-            childTasksComplete: i.boolean().optional(), // <--- NEW: Tracks subtree status
+            completedAt: i.date().optional(),
+            completedOnDate: i.string().optional().indexed(),
+            childTasksComplete: i.boolean().optional(),
             notes: i.string().optional(),
             order: i.number(),
             overrideWorkAhead: i.boolean().optional(),
