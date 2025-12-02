@@ -3,9 +3,6 @@
 import { i } from '@instantdb/react';
 
 const _schema = i.schema({
-    // We inferred 3 attributes!
-    // Take a look at this schema, and if everything looks good,
-    // run `push schema` again to enforce the types.
     entities: {
         $files: i.entity({
             path: i.string().unique().indexed(),
@@ -107,6 +104,9 @@ const _schema = i.schema({
             name: i.string(),
             order: i.number().indexed(),
             photoUrls: i.json().optional(),
+            // +++ NEW AUTH FIELDS +++
+            role: i.string().optional(), // 'parent' or 'child'
+            pinHash: i.string().optional(),
         }),
         settings: i.entity({
             name: i.string(),

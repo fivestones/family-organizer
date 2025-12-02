@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { PlusCircle, Trash2, Edit } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
-// Avatar imports removed, as they are now in SortableFamilyMemberItem
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/components/ui/use-toast';
 import Cropper from 'react-easy-crop';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -22,6 +22,11 @@ import { extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/clo
 import { reorderWithEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/util/reorder-with-edge';
 import { SortableFamilyMemberItem } from './SortableFamilyMemberItem'; // <-- Import new component
 
+// +++ NEW: Import RadioGroup for Role selection +++
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+// +++ NEW: Import Hash util +++
+import { hashPin } from '@/lib/auth-utils';
+
 // Define FamilyMember type based on usage
 interface FamilyMember {
     id: string;
@@ -33,6 +38,8 @@ interface FamilyMember {
         '1200'?: string;
     } | null;
     order?: number | null; // <-- Add order
+    // +++ NEW: Add Role +++
+    role?: string | null;
     // Add other fields if needed from the query context (ChoreList vs AllowanceView)
 }
 
@@ -62,6 +69,10 @@ function FamilyMembersList({
     const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
     const [newMemberName, setNewMemberName] = useState('');
     const [newMemberEmail, setNewMemberEmail] = useState('');
+    // +++ NEW State for Add Member +++
+    const [newMemberRole, setNewMemberRole] = useState('child');
+    const [newMemberPin, setNewMemberPin] = useState('');
+
     const [isEditMode, setIsEditMode] = useState(false);
     const { toast } = useToast();
 
@@ -75,6 +86,10 @@ function FamilyMembersList({
     const [editingMember, setEditingMember] = useState<FamilyMember | null>(null); // Type annotation
     const [editMemberName, setEditMemberName] = useState('');
     const [editMemberEmail, setEditMemberEmail] = useState('');
+    // +++ NEW State for Edit Member +++
+    const [editMemberRole, setEditMemberRole] = useState('child');
+    const [editMemberPin, setEditMemberPin] = useState('');
+
     const [editImageSrc, setEditImageSrc] = useState<string | null>(null); // Type annotation
     const [editCrop, setEditCrop] = useState({ x: 0, y: 0 });
     const [editZoom, setEditZoom] = useState(1);
@@ -189,7 +204,8 @@ function FamilyMembersList({
         }
 
         const memberId = id();
-        const memberData: Partial<FamilyMember> = {
+        const memberData: any = {
+            // Use Partial<FamilyMember> or any to include new fields easily
             name,
             email: email || '',
             order: orderedMembers.length, // <-- NEW: Set order to be the last item
@@ -202,7 +218,16 @@ function FamilyMembersList({
             allowanceStartDate: null,
             allowanceConfig: {}, // Default to an empty JSON object
             allowancePayoutDelayDays: 0, // Default to 0 days
+
+            // +++ NEW: Add Role +++
+            role: newMemberRole,
         };
+
+        // +++ NEW: Hash PIN if provided +++
+        if (newMemberPin) {
+            memberData.pinHash = await hashPin(newMemberPin);
+        }
+
         // Only add photoUrls if it is not null (i.e., a photo was uploaded)
         if (photoUrls) {
             memberData.photoUrls = photoUrls;
@@ -240,6 +265,8 @@ function FamilyMembersList({
             // Reset states
             setNewMemberName('');
             setNewMemberEmail('');
+            setNewMemberRole('child'); // Reset role
+            setNewMemberPin(''); // Reset pin
             setImageSrc(null);
             setCrop({ x: 0, y: 0 });
             setZoom(1);
@@ -309,6 +336,10 @@ function FamilyMembersList({
         setEditingMember(member);
         setEditMemberName(member.name);
         setEditMemberEmail(member.email || '');
+        // +++ Populate Role +++
+        setEditMemberRole(member.role || 'child');
+        setEditMemberPin(''); // Always clear PIN input on open
+
         // Check if photoUrls exists and has the 1200 key before accessing
         setEditImageSrc(member.photoUrls?.[1200] ? 'uploads/' + member.photoUrls[1200] : null);
         setEditCrop({ x: 0, y: 0 });
@@ -338,7 +369,13 @@ function FamilyMembersList({
             const updates: { [key: string]: any } = {
                 name: editMemberName,
                 email: editMemberEmail || '',
+                role: editMemberRole,
             };
+
+            // +++ Update PIN only if user typed something +++
+            if (editMemberPin.trim() !== '') {
+                updates.pinHash = await hashPin(editMemberPin);
+            }
 
             // If 'Remove Photo' is checked, delete the photo first
             if (removePhoto) {
@@ -358,9 +395,9 @@ function FamilyMembersList({
                         console.error('Error deleting photo: ', error);
                     }
                 }
-                updates.photoUrls = null; // [cite: 810] // Set photo URLs to null if removed
+                updates.photoUrls = null; // // Set photo URLs to null if removed
             } else if (editImageSrc && editCroppedAreaPixels && !editImageSrc.startsWith('uploads/')) {
-                // Check if it's a new image data URL [cite: 810]
+                // Check if it's a new image data URL
                 // If 'Remove Photo' is not checked, upload new photo if provided
                 console.log('Uploading new photo');
                 try {
@@ -390,7 +427,7 @@ function FamilyMembersList({
                         description: 'Failed to upload photo. Please try again.',
                         variant: 'destructive',
                     });
-                    return; // Stop execution if upload fails [cite: 820]
+                    return; // Stop execution if upload fails
                 }
             }
             // If editImageSrc exists but starts with 'uploads/', it means no new file was selected, keep existing photoUrls
@@ -417,6 +454,8 @@ function FamilyMembersList({
             setEditingMember(null);
             setEditMemberName('');
             setEditMemberEmail('');
+            setEditMemberPin(''); // Reset
+            setEditMemberRole('child'); // Reset
             setEditImageSrc(null);
             setEditCrop({ x: 0, y: 0 });
             setEditZoom(1);
@@ -523,6 +562,40 @@ function FamilyMembersList({
                             </Label>
                             <Input id="email" type="email" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} className="col-span-3" />
                         </div>
+
+                        {/* +++ NEW: Role Selection +++ */}
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">Role</Label>
+                            <RadioGroup value={newMemberRole} onValueChange={setNewMemberRole} className="col-span-3 flex gap-4">
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="parent" id="role-parent-add" />
+                                    <Label htmlFor="role-parent-add">Parent</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="child" id="role-child-add" />
+                                    <Label htmlFor="role-child-add">Child</Label>
+                                </div>
+                            </RadioGroup>
+                        </div>
+
+                        {/* +++ NEW: PIN Input +++ */}
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="pin" className="text-right">
+                                PIN (Numbers)
+                            </Label>
+                            <Input
+                                id="pin"
+                                type="password"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={6}
+                                value={newMemberPin}
+                                onChange={(e) => setNewMemberPin(e.target.value)}
+                                className="col-span-3"
+                                placeholder="4-6 digit code"
+                            />
+                        </div>
+
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="photo" className="text-right">
                                 Photo
@@ -582,6 +655,39 @@ function FamilyMembersList({
                             />
                         </div>
 
+                        {/* +++ NEW: Role Selection +++ */}
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">Role</Label>
+                            <RadioGroup value={editMemberRole} onValueChange={setEditMemberRole} className="col-span-3 flex gap-4">
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="parent" id="role-parent-edit" />
+                                    <Label htmlFor="role-parent-edit">Parent</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="child" id="role-child-edit" />
+                                    <Label htmlFor="role-child-edit">Child</Label>
+                                </div>
+                            </RadioGroup>
+                        </div>
+
+                        {/* +++ NEW: PIN Input +++ */}
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="edit-pin" className="text-right">
+                                New PIN
+                            </Label>
+                            <Input
+                                id="edit-pin"
+                                type="password"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={6}
+                                value={editMemberPin}
+                                onChange={(e) => setEditMemberPin(e.target.value)}
+                                className="col-span-3"
+                                placeholder="Leave blank to keep existing"
+                            />
+                        </div>
+
                         {/* Photo Input and Cropping */}
                         <div className="grid grid-cols-4 items-start gap-4">
                             <Label htmlFor="edit-photo" className="text-right">
@@ -607,10 +713,8 @@ function FamilyMembersList({
                                 {!editImageSrc && editingMember?.photoUrls && (
                                     <div className="mt-4">
                                         <Avatar className="h-16 w-16">
-                                            <AvatarImage
-                                                src={'uploads/' + editingMember.photoUrls['320']} // Use string key
-                                                alt={editingMember.name}
-                                            />
+                                            <AvatarImage src={'uploads/' + editingMember.photoUrls['320']} alt={editingMember.name} className="object-cover" />
+                                            <AvatarFallback className="text-lg">{editingMember.name.charAt(0).toUpperCase()}</AvatarFallback>
                                         </Avatar>
                                     </div>
                                 )}
