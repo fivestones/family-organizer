@@ -5,9 +5,27 @@ import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 
-const s3Client = new S3Client({
+// --- CONFIGURATION ---
+
+// 1. Internal Client (for Server-side operations like ListObjects)
+// Uses the Docker network alias (http://minio:9000)
+const s3Internal = new S3Client({
     region: 'us-east-1',
     endpoint: process.env.S3_ENDPOINT,
+    credentials: {
+        accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+    },
+    forcePathStyle: true,
+});
+
+// 2. Signing Client (for Browser-facing URLs)
+// Uses the Public Hostname (http://localhost:9000)
+const PUBLIC_ENDPOINT = process.env.NEXT_PUBLIC_S3_ENDPOINT || 'http://localhost:9000';
+
+const s3Signer = new S3Client({
+    region: 'us-east-1',
+    endpoint: PUBLIC_ENDPOINT,
     credentials: {
         accessKeyId: process.env.S3_ACCESS_KEY_ID!,
         secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
@@ -26,7 +44,8 @@ export interface S3File {
 // 1. Get List of Files (SIMPLIFIED)
 export async function getFiles(): Promise<S3File[]> {
     try {
-        const { Contents } = await s3Client.send(
+        // Use s3Internal because this happens strictly on the server
+        const { Contents } = await s3Internal.send(
             new ListObjectsV2Command({
                 Bucket: BUCKET_NAME,
             })
@@ -53,7 +72,8 @@ export async function getPresignedUploadUrl(contentType: string, fileName: strin
     const Key = `${randomUUID()}-${fileName}`;
 
     try {
-        const { url, fields } = await createPresignedPost(s3Client, {
+        // Use s3Signer so the URL points to localhost:9000, not minio:9000
+        const { url, fields } = await createPresignedPost(s3Signer, {
             Bucket: BUCKET_NAME,
             Key,
             Conditions: [

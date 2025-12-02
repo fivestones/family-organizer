@@ -4,9 +4,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Task } from '@/lib/task-scheduler';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { File as FileIcon, Loader2, X } from 'lucide-react';
+import { File as FileIcon, Loader2, X, Maximize2, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
+import { PDFPreview } from './PDFPreview';
 
 interface Props {
     tasks: Task[]; // These are the "Scheduled" tasks returned by getTasksForDate
@@ -26,6 +27,7 @@ const hasScheduledChildren = (parentId: string, scheduledIds: Set<string>, allTa
 // --- Helper Component: File Thumbnail (fetches text preview if needed) ---
 const FileThumbnail = ({ file, onClick }: { file: any; onClick: () => void }) => {
     const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(file.url);
+    const isPdf = /\.pdf$/i.test(file.url);
     const isText = /\.(txt|md|csv|log)$/i.test(file.url);
     const [previewText, setPreviewText] = useState<string | null>(null);
 
@@ -50,6 +52,10 @@ const FileThumbnail = ({ file, onClick }: { file: any; onClick: () => void }) =>
         >
             {isImage ? (
                 <img src={`/files/${file.url}`} alt={file.name} className="w-full h-full object-cover" />
+            ) : isPdf ? (
+                <div className="w-full h-full flex items-center justify-center bg-red-50 text-red-500">
+                    <span className="text-[8px] font-bold">PDF</span>
+                </div>
             ) : isText ? (
                 <div className="w-full h-full p-1 bg-gray-50 overflow-hidden">
                     <div className="text-[5px] leading-[6px] text-gray-500 font-mono break-all opacity-70">{previewText || 'Loading...'}</div>
@@ -83,10 +89,16 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
     const [previewFile, setPreviewFile] = useState<any | null>(null);
     const [fullTextContent, setFullTextContent] = useState<string | null>(null);
     const [loadingText, setLoadingText] = useState(false);
+    // New state for expanding the preview modal
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    // +++ ADD THIS HELPER +++
+    const isPreviewPdf = previewFile && /\.pdf$/i.test(previewFile.url);
 
     const openPreview = async (file: any) => {
         setPreviewFile(file);
         setFullTextContent(null);
+        setIsExpanded(false); // Reset expand state on open
 
         if (/\.(txt|md|csv|log)$/i.test(file.url)) {
             setLoadingText(true);
@@ -357,32 +369,76 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
 
             {/* File Preview Modal */}
             <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
-                <DialogContent className="max-w-4xl w-[90vw] max-h-[90vh] flex flex-col p-0 overflow-hidden">
+                <DialogContent
+                    className={cn(
+                        'flex flex-col p-0 overflow-hidden transition-all duration-300',
+                        isExpanded
+                            ? 'w-screen h-screen max-w-none max-h-none rounded-none border-0' // Full screen mode
+                            : cn(
+                                  'max-w-4xl w-[90vw]',
+                                  // FIX: Use fixed height 'h-[85vh]' for PDFs so the canvas has space to draw.
+                                  // Use 'max-h-[85vh]' for images/text so they shrink to fit.
+                                  isPreviewPdf ? 'h-[85vh]' : 'max-h-[85vh]'
+                              )
+                    )}
+                >
                     <DialogHeader className="p-4 border-b flex flex-row items-center justify-between space-y-0 bg-white z-10 shrink-0">
-                        <DialogTitle className="truncate pr-8">{previewFile?.name}</DialogTitle>
-                        <DialogClose className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
-                            <X className="h-4 w-4" />
-                            <span className="sr-only">Close</span>
-                        </DialogClose>
+                        <div className="flex items-center gap-2 overflow-hidden flex-1">
+                            <DialogTitle className="truncate pr-4">{previewFile?.name}</DialogTitle>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                            {/* Expand/Collapse Button */}
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setIsExpanded(!isExpanded)}
+                                className="text-gray-500 hover:bg-gray-100"
+                                title={isExpanded ? 'Exit Full Screen' : 'Full Screen'}
+                            >
+                                {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                            </Button>
+
+                            <DialogClose className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+                                <X className="h-4 w-4" />
+                                <span className="sr-only">Close</span>
+                            </DialogClose>
+                        </div>
                     </DialogHeader>
 
-                    <div className="flex-1 overflow-y-auto bg-gray-50 p-4">
-                        {/* Wrapper to ensure content can scroll properly */}
-                        <div className="min-h-full flex flex-col items-center justify-start">
+                    {/* Content area: Fixed height in default mode, Flex grow in expanded mode */}
+                    <div
+                        className={cn(
+                            'flex-1 bg-gray-50 overflow-auto',
+                            // We can simplify this now since the parent DialogContent enforces the height constraint
+                            'w-full h-full'
+                        )}
+                    >
+                        <div className="min-h-full flex flex-col items-center justify-start h-full">
                             {previewFile && (
                                 <>
                                     {/\.(jpg|jpeg|png|webp|gif)$/i.test(previewFile.url) ? (
-                                        <img src={`/files/${previewFile.url}`} alt={previewFile.name} className="max-w-full object-contain shadow-md rounded" />
+                                        <div className="p-4 w-full flex justify-center">
+                                            <img
+                                                src={`/files/${previewFile.url}`}
+                                                alt={previewFile.name}
+                                                className="max-w-full object-contain shadow-md rounded"
+                                            />
+                                        </div>
+                                    ) : /\.pdf$/i.test(previewFile.url) ? (
+                                        // --- PDF VIEWER ---
+                                        <PDFPreview url={`/files/${previewFile.url}`} />
                                     ) : /\.(txt|md|csv|log)$/i.test(previewFile.url) ? (
-                                        loadingText ? (
-                                            <div className="flex items-center gap-2 text-muted-foreground mt-10">
-                                                <Loader2 className="h-6 w-6 animate-spin" /> Loading text...
-                                            </div>
-                                        ) : (
-                                            <div className="bg-white p-6 shadow-sm border rounded w-full max-w-3xl whitespace-pre-wrap font-mono text-base overflow-hidden">
-                                                {fullTextContent}
-                                            </div>
-                                        )
+                                        <div className="p-4 w-full flex justify-center">
+                                            {loadingText ? (
+                                                <div className="flex items-center gap-2 text-muted-foreground mt-10">
+                                                    <Loader2 className="h-6 w-6 animate-spin" /> Loading text...
+                                                </div>
+                                            ) : (
+                                                <div className="bg-white p-6 shadow-sm border rounded w-full max-w-3xl whitespace-pre-wrap font-mono text-base overflow-hidden">
+                                                    {fullTextContent}
+                                                </div>
+                                            )}
+                                        </div>
                                     ) : (
                                         <div className="text-center mt-10">
                                             <FileIcon className="h-16 w-16 mx-auto text-gray-300 mb-4" />

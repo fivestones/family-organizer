@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-// Initialize Client
-const s3 = new S3Client({
+// 1. PUBLIC ENDPOINT: This is what the BROWSER uses to reach MinIO.
+// We force this for signing so the signature matches the browser's request.
+const PUBLIC_ENDPOINT = process.env.NEXT_PUBLIC_S3_ENDPOINT || 'http://localhost:9000';
+
+// Initialize a specific client just for signing URLs
+const s3Signer = new S3Client({
     region: 'us-east-1',
-    endpoint: process.env.S3_ENDPOINT,
+    endpoint: PUBLIC_ENDPOINT, // <--- Key Fix: Sign for localhost, not minio
     credentials: {
         accessKeyId: process.env.S3_ACCESS_KEY_ID!,
         secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
@@ -13,13 +17,18 @@ const s3 = new S3Client({
     forcePathStyle: true,
 });
 
-export async function GET(request: NextRequest, { params }: { params: { filename: string } }) {
-    // 1. SECURITY CHECK (Placeholder)
-    // In a real app, check your session cookie here:
-    // const session = cookies().get('session_id');
-    // if (!session) return new NextResponse('Unauthorized', { status: 401 });
+// Update the type definition for the second argument
+export async function GET(
+    request: NextRequest,
+    { params }: { params: Promise<{ filename: string }> } // Type as Promise
+) {
+    // 1. AWAIT the params (Fix for Next.js 15+)
+    const { filename } = await params;
 
-    const filename = params.filename;
+    // Safety check
+    if (!filename) {
+        return new NextResponse('Filename missing', { status: 400 });
+    }
 
     try {
         const command = new GetObjectCommand({
@@ -27,12 +36,10 @@ export async function GET(request: NextRequest, { params }: { params: { filename
             Key: filename,
         });
 
-        // 2. GENERATE TEMPORARY PASS
-        // Valid for only 60 seconds because the browser uses it immediately.
-        const signedUrl = await getSignedUrl(s3, command, { expiresIn: 60 });
+        // Generate the URL using the signer client (pointing to localhost)
+        const signedUrl = await getSignedUrl(s3Signer, command, { expiresIn: 3600 });
 
-        // 3. REDIRECT
-        // 307 = Temporary Redirect (forces browser to fetch new link every time)
+        // 307 Redirect: Browser goes directly to MinIO (localhost:9000)
         return NextResponse.redirect(signedUrl, { status: 307 });
     } catch (error) {
         console.error('Error generating redirect:', error);
