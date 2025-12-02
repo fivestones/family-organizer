@@ -1,16 +1,20 @@
 // components/TaskSeriesChecklist.tsx
-import React, { useEffect } from 'react'; // Added useEffect
+import React, { useEffect, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Task } from '@/lib/task-scheduler';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-// import { Info } from 'lucide-react'; // Unused
+import { File as FileIcon, Loader2, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 
 interface Props {
     tasks: Task[]; // These are the "Scheduled" tasks returned by getTasksForDate
     allTasks: Task[]; // The full list of tasks in the series (for context lookup)
     onToggle: (taskId: string, currentStatus: boolean) => void;
     isReadOnly?: boolean;
+    selectedMember: string | null | 'All';
+    showDetails: boolean; // Controlled by parent (global toggle)
 }
 
 // Helper to check if a node has visible children in the current schedule
@@ -19,7 +23,86 @@ const hasScheduledChildren = (parentId: string, scheduledIds: Set<string>, allTa
     return allTasks.some((t) => t.parentTask?.[0]?.id === parentId && scheduledIds.has(t.id));
 };
 
-export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, allTasks, onToggle, isReadOnly }) => {
+// --- Helper Component: File Thumbnail (fetches text preview if needed) ---
+const FileThumbnail = ({ file, onClick }: { file: any; onClick: () => void }) => {
+    const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(file.url);
+    const isText = /\.(txt|md|csv|log)$/i.test(file.url);
+    const [previewText, setPreviewText] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (isText && !previewText) {
+            // Fetch tiny preview
+            fetch(`/files/${file.url}`)
+                .then((res) => res.text())
+                .then((text) => setPreviewText(text.slice(0, 150)))
+                .catch((err) => console.error('Failed to load text preview', err));
+        }
+    }, [isText, file.url, previewText]);
+
+    return (
+        <div
+            onClick={(e) => {
+                e.stopPropagation();
+                onClick();
+            }}
+            className="group relative w-12 h-12 border rounded bg-white overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all flex-shrink-0"
+            title={file.name}
+        >
+            {isImage ? (
+                <img src={`/files/${file.url}`} alt={file.name} className="w-full h-full object-cover" />
+            ) : isText ? (
+                <div className="w-full h-full p-1 bg-gray-50 overflow-hidden">
+                    <div className="text-[5px] leading-[6px] text-gray-500 font-mono break-all opacity-70">{previewText || 'Loading...'}</div>
+                </div>
+            ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                    <FileIcon className="w-5 h-5 text-gray-400" />
+                </div>
+            )}
+        </div>
+    );
+};
+
+export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, allTasks, onToggle, isReadOnly, selectedMember, showDetails }) => {
+    // --- Local Expand State (for "View Details" override) ---
+    const [localExpandedIds, setLocalExpandedIds] = useState<Set<string>>(new Set());
+
+    const toggleLocalExpand = (taskId: string) => {
+        setLocalExpandedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(taskId)) {
+                next.delete(taskId);
+            } else {
+                next.add(taskId);
+            }
+            return next;
+        });
+    };
+
+    // --- Preview Modal State ---
+    const [previewFile, setPreviewFile] = useState<any | null>(null);
+    const [fullTextContent, setFullTextContent] = useState<string | null>(null);
+    const [loadingText, setLoadingText] = useState(false);
+
+    const openPreview = async (file: any) => {
+        setPreviewFile(file);
+        setFullTextContent(null);
+
+        if (/\.(txt|md|csv|log)$/i.test(file.url)) {
+            setLoadingText(true);
+            try {
+                const res = await fetch(`/files/${file.url}`);
+                const text = await res.text();
+                setFullTextContent(text);
+            } catch (err) {
+                console.error('Failed to load full text', err);
+                setFullTextContent('Error loading file content.');
+            } finally {
+                setLoadingText(false);
+            }
+        }
+    };
+
     // --- 1. Compute Visual Tree (Moved outside render return to use in Effect) ---
     // We need to compute 'visibleNodes' early so we can check for Headers needing auto-completion.
 
@@ -89,6 +172,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
 
     return (
         <div className="mt-3 mb-2 space-y-2 relative">
+            {/* Global Visibility Toggle Removed - Now Controlled by Parent */}
+
             {visibleNodes.map((task) => {
                 const isScheduled = scheduledIds.has(task.id);
                 // It is a header if:
@@ -120,7 +205,15 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                     }
                 }
 
-                // Find direct children for Metadata Popover
+                // Check metadata
+                const hasNotes = (task as any).notes && (task as any).notes.trim().length > 0;
+                const attachments = (task as any).attachments || [];
+                const hasAttachments = attachments.length > 0;
+                const hasMetadata = hasNotes || hasAttachments;
+
+                // Determine if this task's details are visible (Global toggle OR Local override)
+                const isDetailsVisible = showDetails || localExpandedIds.has(task.id);
+
                 const directChildren = allTasks
                     .filter((t) => t.parentTask?.[0]?.id === task.id && !t.isDayBreak)
                     .sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -183,49 +276,130 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                                 </Popover>
                             ) : (
                                 // --- CHECKBOX VARIANT ---
-                                <div className="flex items-start space-x-3 w-full">
-                                    {/* Checkbox remains separate from Popover trigger */}
-                                    <Checkbox
-                                        id={`task-${task.id}`}
-                                        checked={task.isCompleted}
-                                        disabled={isReadOnly}
-                                        onCheckedChange={() => onToggle(task.id, task.isCompleted)}
-                                        className="mt-0.5 h-4 w-4 border-muted-foreground/50 data-[state=checked]:bg-primary data-[state=checked]:border-primary flex-shrink-0"
-                                    />
+                                <div className="flex flex-col w-full">
+                                    {/* Main Row: Checkbox + Text */}
+                                    <div className="flex items-start space-x-3 w-full">
+                                        {/* Checkbox remains separate from Popover trigger */}
+                                        <Checkbox
+                                            id={`task-${task.id}`}
+                                            checked={task.isCompleted}
+                                            disabled={isReadOnly}
+                                            onCheckedChange={() => onToggle(task.id, task.isCompleted)}
+                                            className="mt-0.5 h-4 w-4 border-muted-foreground/50 data-[state=checked]:bg-primary data-[state=checked]:border-primary flex-shrink-0"
+                                        />
 
-                                    {/* Text area is the Popover Trigger */}
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                            <div className="flex flex-col cursor-pointer group/text">
-                                                {/* Replaced 'label' with 'span' to decouple from checkbox click */}
-                                                <span
-                                                    className={cn(
-                                                        'text-sm leading-tight select-none transition-colors hover:text-foreground/80',
-                                                        // Add a subtle underline/color shift on hover to indicate interactability
-                                                        'group-hover/text:underline decoration-muted-foreground/30 underline-offset-2',
-                                                        task.isCompleted
-                                                            ? 'text-muted-foreground line-through decoration-muted-foreground/50'
-                                                            : 'text-foreground'
-                                                    )}
-                                                >
-                                                    {task.text}
-                                                </span>
+                                        {/* Split Trigger and Subtitle/Link to avoid nested buttons */}
+                                        <div className="flex flex-col flex-1 min-w-0">
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <span
+                                                        className={cn(
+                                                            'text-sm leading-tight select-none transition-colors hover:text-foreground/80 cursor-pointer w-fit',
+                                                            'group-hover/text:underline decoration-muted-foreground/30 underline-offset-2',
+                                                            task.isCompleted
+                                                                ? 'text-muted-foreground line-through decoration-muted-foreground/50'
+                                                                : 'text-foreground'
+                                                        )}
+                                                    >
+                                                        {task.text}
+                                                    </span>
+                                                </PopoverTrigger>
+                                                {popoverContent}
+                                            </Popover>
+
+                                            {/* Subtitle Line with "View Details" Link */}
+                                            <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
                                                 {subtitle && (
-                                                    <span className="text-[10px] text-muted-foreground mt-0.5 group-hover/text:text-muted-foreground/80">
+                                                    <span className="group-hover/text:text-muted-foreground/80">
                                                         {subtitle}
                                                         {breadcrumbs && ` in ${breadcrumbs}`}
                                                     </span>
                                                 )}
+
+                                                {/* Show link if metadata exists and not already expanded via global toggle */}
+                                                {!showDetails && hasMetadata && (
+                                                    <>
+                                                        {(subtitle || breadcrumbs) && <span> - </span>}
+                                                        <span
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleLocalExpand(task.id);
+                                                            }}
+                                                            className="text-blue-600 hover:underline cursor-pointer font-normal"
+                                                        >
+                                                            {localExpandedIds.has(task.id) ? 'hide details' : 'view details'}
+                                                        </span>
+                                                    </>
+                                                )}
                                             </div>
-                                        </PopoverTrigger>
-                                        {popoverContent}
-                                    </Popover>
+                                        </div>
+                                    </div>
+
+                                    {/* --- Metadata Details (Conditional Render) --- */}
+                                    {isDetailsVisible && hasMetadata && (
+                                        <div className="ml-7 mt-2 mb-1 p-2 bg-blue-50/50 border border-blue-100 rounded-md text-sm">
+                                            {hasNotes && <div className="text-gray-700 whitespace-pre-wrap mb-2 text-xs">{(task as any).notes}</div>}
+                                            {hasAttachments && (
+                                                <div className="flex flex-wrap gap-2">
+                                                    {attachments.map((file: any) => (
+                                                        <FileThumbnail key={file.id} file={file} onClick={() => openPreview(file)} />
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
                     </div>
                 );
             })}
+
+            {/* File Preview Modal */}
+            <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
+                <DialogContent className="max-w-4xl w-[90vw] max-h-[90vh] flex flex-col p-0 overflow-hidden">
+                    <DialogHeader className="p-4 border-b flex flex-row items-center justify-between space-y-0 bg-white z-10 shrink-0">
+                        <DialogTitle className="truncate pr-8">{previewFile?.name}</DialogTitle>
+                        <DialogClose className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+                            <X className="h-4 w-4" />
+                            <span className="sr-only">Close</span>
+                        </DialogClose>
+                    </DialogHeader>
+
+                    <div className="flex-1 overflow-y-auto bg-gray-50 p-4">
+                        {/* Wrapper to ensure content can scroll properly */}
+                        <div className="min-h-full flex flex-col items-center justify-start">
+                            {previewFile && (
+                                <>
+                                    {/\.(jpg|jpeg|png|webp|gif)$/i.test(previewFile.url) ? (
+                                        <img src={`/files/${previewFile.url}`} alt={previewFile.name} className="max-w-full object-contain shadow-md rounded" />
+                                    ) : /\.(txt|md|csv|log)$/i.test(previewFile.url) ? (
+                                        loadingText ? (
+                                            <div className="flex items-center gap-2 text-muted-foreground mt-10">
+                                                <Loader2 className="h-6 w-6 animate-spin" /> Loading text...
+                                            </div>
+                                        ) : (
+                                            <div className="bg-white p-6 shadow-sm border rounded w-full max-w-3xl whitespace-pre-wrap font-mono text-base overflow-hidden">
+                                                {fullTextContent}
+                                            </div>
+                                        )
+                                    ) : (
+                                        <div className="text-center mt-10">
+                                            <FileIcon className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+                                            <p className="text-muted-foreground mb-4">Preview not available for this file type.</p>
+                                            <Button asChild>
+                                                <a href={`/files/${previewFile.url}`} download target="_blank" rel="noreferrer">
+                                                    Download File
+                                                </a>
+                                            </Button>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

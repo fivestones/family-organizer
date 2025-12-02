@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Edit, Trash2 } from 'lucide-react';
+import { Edit, Trash2, BookOpen, BookX } from 'lucide-react'; // Added BookOpen/BookX for toggle
 import { createRRuleWithStartDate, getAssignedMembersForChoreOnDate, toUTCDate } from '@/lib/chore-utils';
 import { format } from 'date-fns';
 import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
@@ -11,6 +11,7 @@ import DetailedChoreForm from './DetailedChoreForm';
 import { tx } from '@instantdb/react';
 import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions, isSeriesActiveForDate } from '@/lib/task-scheduler'; // Added getRecursiveTaskCompletionTransactions and isSeriesActiveForDate
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Added for toggle tooltip
 
 // Helper: Check if a task functions as a header (has visible children)
 const hasScheduledChildren = (parentId: string, scheduledIds: Set<string>, allTasks: any[]) => {
@@ -39,6 +40,17 @@ function ChoreList({
         memberId: string;
         incompleteTaskIds: string[];
     } | null>(null);
+
+    // --- NEW: Manage expanded state for Task Series details (Show/Hide) ---
+    // Key: choreId, Value: boolean (true = visible)
+    const [expandedChores, setExpandedChores] = useState<Record<string, boolean>>({});
+
+    const toggleChoreDetails = (choreId: string) => {
+        setExpandedChores((prev) => ({
+            ...prev,
+            [choreId]: !prev[choreId],
+        }));
+    };
 
     const safeSelectedDate =
         selectedDate instanceof Date && !isNaN(selectedDate.getTime())
@@ -219,6 +231,13 @@ function ChoreList({
                     }
                     // --- End Check ---
 
+                    // --- Determine visibility of details ---
+                    // Default behavior: Open if a specific member is selected, Closed if 'All' is selected.
+                    // This can be overridden by the user toggling it.
+                    const isExplicitlyExpanded = expandedChores[chore.id];
+                    const showDetails = isExplicitlyExpanded !== undefined ? isExplicitlyExpanded : selectedMember !== 'All';
+                    const hasTaskSeries = chore.taskSeries && chore.taskSeries.length > 0;
+
                     return (
                         <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex flex-col">
                             <div className="flex items-center">
@@ -293,13 +312,15 @@ function ChoreList({
                                         })}
                                 </div>
                                 {/* +++ Gray out title if disabled (only when a single member is selected) +++ */}
-                                <span
-                                    className={`flex-grow ${
-                                        upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''
-                                    }`}
-                                >
-                                    {chore.title}
-                                    {chore.rrule && <span className="ml-2 text-sm text-gray-500">(Recurring)</span>}
+                                <div className="flex-grow flex items-center gap-2 min-w-0">
+                                    <span
+                                        className={`truncate ${
+                                            upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''
+                                        }`}
+                                    >
+                                        {chore.title}
+                                        {chore.rrule && <span className="ml-2 text-sm text-gray-500 hidden sm:inline">(Recurring)</span>}
+                                    </span>
                                     {/* Updated: Render Label for each Active Task Series */}
                                     {chore.taskSeries?.map((series: any) => {
                                         // 1. Identify Owner
@@ -332,7 +353,7 @@ function ChoreList({
                                             return (
                                                 <span
                                                     key={series.id}
-                                                    className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-blue-200 transition-colors"
+                                                    className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-blue-200 transition-colors whitespace-nowrap"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         if (onEditTaskSeries) onEditTaskSeries(series.id);
@@ -344,7 +365,29 @@ function ChoreList({
                                         }
                                         return null;
                                     })}
-                                </span>
+
+                                    {/* Show/Hide Details Toggle Button inline with title */}
+                                    {hasTaskSeries && (
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-6 w-6 ml-1 text-muted-foreground hover:text-foreground"
+                                                        onClick={() => toggleChoreDetails(chore.id)}
+                                                    >
+                                                        {showDetails ? <BookOpen className="h-4 w-4" /> : <BookX className="h-4 w-4" />}
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <p>{showDetails ? 'Hide' : 'Show'} details</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    )}
+                                </div>
+
                                 <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)}>
                                     <Edit className="h-4 w-4" />
                                 </Button>
@@ -354,7 +397,7 @@ function ChoreList({
                             </div>
 
                             {/* --- Render Task Series Checklist(s) --- */}
-                            <div className="flex flex-col gap-2 mt-2 w-full">
+                            <div className="flex flex-col gap-2 mt-2 w-full pl-2">
                                 {chore.taskSeries?.map((series: any) => {
                                     // 1. Identify the owner of this specific series
                                     // Handle both object (single link) and array (InstantDB relation) formats
@@ -408,6 +451,8 @@ function ChoreList({
                                                 allTasks={allTasks}
                                                 onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks)}
                                                 isReadOnly={!isToday}
+                                                selectedMember={selectedMember} // <--- PASS DOWN FOR TOGGLE LOGIC
+                                                showDetails={showDetails} // <--- Pass controlled prop
                                             />
                                         </div>
                                     );
@@ -435,6 +480,7 @@ function ChoreList({
                             db={db}
                             unitDefinitions={unitDefinitions}
                             currencyOptions={currencyOptions}
+                            onEditTaskSeries={(seriesId: string) => setEditingTaskSeriesId(seriesId)}
                         />
                     )}
                 </DialogContent>

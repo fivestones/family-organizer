@@ -1,3 +1,4 @@
+// components/ChoresTracker.tsx
 'use client';
 
 import React, { useState, useMemo } from 'react'; // Added useMemo
@@ -124,6 +125,9 @@ function ChoresTracker() {
                 tasks: {
                     // Fetch all tasks for the series
                     parentTask: {},
+                    // +++ NEW: Fetch notes and attachments for metadata display +++
+                    attachments: {},
+                    // Note: notes is a direct field, so it comes automatically with the entity
                 },
                 familyMember: {},
             },

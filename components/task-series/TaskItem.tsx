@@ -4,17 +4,170 @@
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { Node, mergeAttributes } from '@tiptap/core';
 import React, { useContext, useEffect, useRef, useState } from 'react';
-import { GripVertical, Paperclip } from 'lucide-react';
+import { GripVertical, Paperclip, Upload, X, File as FileIcon, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { id as generateId } from '@instantdb/react'; // Import the InstantDB ID generator
+import { id as generateId, tx } from '@instantdb/react'; // Import the InstantDB ID generator
 import { TextSelection, Plugin } from 'prosemirror-state';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import db from '@/lib/db';
+import { useDebouncedCallback } from 'use-debounce';
+import { getPresignedUploadUrl, refreshFiles } from '@/app/actions';
 
 // --- Context ---
 // Now stores both the visual label and the underlying date object
 export const TaskDateContext = React.createContext<Record<string, { label: string; date: Date } | undefined>>({});
+
+// --- Metadata Manager Component (Inside Popover) ---
+const TaskMetadataManager = ({ taskId }: { taskId: string }) => {
+    // 1. Fetch Task Data (Notes & Attachments)
+    const { data, isLoading } = db.useQuery({
+        tasks: {
+            $: { where: { id: taskId } },
+            attachments: {},
+        },
+    });
+
+    const task = data?.tasks?.[0];
+    const [notes, setNotes] = useState(task?.notes || '');
+    const [uploading, setUploading] = useState(false);
+
+    // Sync local notes state if DB updates externally (or on first load)
+    useEffect(() => {
+        if (task) {
+            setNotes(task.notes || '');
+        }
+    }, [task?.notes]);
+
+    // 2. Auto-save Notes (Debounced)
+    const saveNotes = useDebouncedCallback((newNotes: string) => {
+        db.transact(tx.tasks[taskId].update({ notes: newNotes }));
+    }, 1000);
+
+    const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const val = e.target.value;
+        setNotes(val);
+        saveNotes(val);
+    };
+
+    // 3. File Upload Handler
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploading(true);
+        try {
+            // A. Get Presigned URL
+            const { url, fields, key } = await getPresignedUploadUrl(file.type, file.name);
+
+            // B. Upload to S3
+            const formData = new FormData();
+            Object.entries(fields).forEach(([k, v]) => formData.append(k, v as string));
+            formData.append('file', file);
+
+            const uploadRes = await fetch(url, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!uploadRes.ok) throw new Error('Upload failed');
+
+            // C. Create Attachment Record in DB
+            const attachmentId = generateId();
+            db.transact([
+                tx.taskAttachments[attachmentId].update({
+                    name: file.name,
+                    url: key, // We store the S3 key as the URL/Path
+                    type: file.type,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                }),
+                tx.tasks[taskId].link({ attachments: attachmentId }),
+            ]);
+
+            await refreshFiles(); // Optional: Revalidate server cache if needed
+        } catch (error) {
+            console.error('File upload error:', error);
+            alert('Failed to upload file.');
+        } finally {
+            setUploading(false);
+            // Reset input
+            e.target.value = '';
+        }
+    };
+
+    // 4. Delete Attachment
+    const handleDeleteAttachment = (attachmentId: string) => {
+        if (confirm('Are you sure you want to remove this attachment?')) {
+            // We only delete the DB record.
+            // In a production app, you'd likely want a server action to delete from S3 as well.
+            db.transact(tx.taskAttachments[attachmentId].delete());
+        }
+    };
+
+    if (isLoading) return <div className="p-4 text-xs text-muted-foreground">Loading details...</div>;
+
+    return (
+        <div className="flex flex-col gap-4">
+            {/* Notes Section */}
+            <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-700">Notes</label>
+                <textarea
+                    className="w-full min-h-[100px] p-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white/50 resize-y"
+                    placeholder="Add details, instructions, or context..."
+                    value={notes}
+                    onChange={handleNotesChange}
+                />
+                <div className="text-[10px] text-gray-400 text-right">
+                    {/* Visual feedback that it saves automatically */}
+                    Auto-saved
+                </div>
+            </div>
+
+            {/* Attachments Section */}
+            <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-gray-700">Attachments</label>
+                    <label className="cursor-pointer text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded transition-colors">
+                        {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                        <span>{uploading ? 'Uploading...' : 'Upload'}</span>
+                        <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
+                    </label>
+                </div>
+
+                {/* File List */}
+                <div className="flex flex-col gap-2 max-h-[150px] overflow-y-auto pr-1">
+                    {task?.attachments?.length === 0 && (
+                        <div className="text-xs text-gray-400 italic py-2 text-center border border-dashed rounded">No files attached</div>
+                    )}
+                    {task?.attachments?.map((file: any) => (
+                        <div
+                            key={file.id}
+                            className="group flex items-center justify-between gap-2 p-2 rounded border bg-white hover:border-blue-200 transition-all text-xs"
+                        >
+                            <a
+                                href={`/files/${file.url}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-2 flex-1 min-w-0 truncate hover:text-blue-600"
+                            >
+                                <FileIcon className="h-3 w-3 shrink-0 text-gray-400" />
+                                <span className="truncate">{file.name}</span>
+                            </a>
+                            <button
+                                onClick={() => handleDeleteAttachment(file.id)}
+                                className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                                <Trash2 className="h-3 w-3" />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // --- The React Component (UI) ---
 const TaskItemComponent = (props: any) => {
@@ -29,6 +182,19 @@ const TaskItemComponent = (props: any) => {
             updateAttributes({ id: newId });
         }
     }, [id, updateAttributes]);
+
+    // --- Data Fetching for Metadata Indicator ---
+    // We fetch just enough to know if we should highlight the paperclip
+    const { data: metaData } = db.useQuery({
+        tasks: {
+            $: { where: { id: id } },
+            attachments: {},
+        },
+    });
+    const taskRecord = metaData?.tasks?.[0];
+    const hasNotes = taskRecord?.notes && taskRecord.notes.trim().length > 0;
+    const hasAttachments = taskRecord?.attachments && taskRecord.attachments.length > 0;
+    const hasMetadata = hasNotes || hasAttachments;
 
     const dateMap = useContext(TaskDateContext);
 
@@ -134,21 +300,23 @@ const TaskItemComponent = (props: any) => {
                 </div>
 
                 {/* Metadata Trigger */}
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity ml-2" contentEditable={false}>
+                <div className={cn('transition-opacity ml-2', hasMetadata ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')} contentEditable={false}>
                     <Popover>
                         <PopoverTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-6 w-6">
-                                <Paperclip className="h-3 w-3" />
+                            <Button variant="ghost" size="icon" className={cn('h-6 w-6', hasMetadata && 'text-blue-600 hover:text-blue-700 bg-blue-50/50')}>
+                                <Paperclip className={cn('h-3 w-3', hasMetadata && 'fill-current')} />
                             </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-80">
+                        <PopoverContent className="w-80" align="end">
                             <div className="space-y-2">
-                                <h4 className="font-medium leading-none">Attachments</h4>
-                                <p className="text-sm text-muted-foreground">Metadata UI goes here.</p>
-                                <div className="text-xs text-gray-400 pt-2 border-t mt-2">
-                                    <div>Task ID: {id}</div>
+                                <h4 className="font-medium leading-none">Task Details</h4>
+                                <div className="text-xs text-gray-400 pt-1 pb-3 border-b mb-3">
+                                    <div>Task ID: {id?.slice(0, 8)}...</div>
                                     {taskData?.date && <div>Assigned Date: {taskData.date.toDateString()}</div>}
                                 </div>
+
+                                {/* Insert Metadata Manager here */}
+                                {id && <TaskMetadataManager taskId={id} />}
                             </div>
                         </PopoverContent>
                     </Popover>
