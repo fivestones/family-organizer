@@ -1,6 +1,7 @@
+// components/AuthProvider.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, ReactNode } from 'react';
 import db from '@/lib/db';
 
 // Define the shape of our User context
@@ -36,6 +37,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (storedId) {
             setCurrentUserId(storedId);
         }
+
+        // Listen for changes in other tabs to sync login state immediately
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === STORAGE_KEY) {
+                // e.newValue will be the new ID on login, or null on logout
+                setCurrentUserId(e.newValue);
+            }
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
     }, []);
 
     // 2. Sync currentUserId with actual FamilyMember data

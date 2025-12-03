@@ -160,12 +160,18 @@ const _schema = i.schema({
         }),
         unitDefinitions: i.entity({
             code: i.string().unique().indexed(),
-            decimalPlaces: i.number(),
+            decimalPlaces: i.number().optional(),
             isMonetary: i.boolean().indexed(),
             name: i.string(),
             symbol: i.string(),
             symbolPlacement: i.string(),
-            symbolSpacing: i.boolean(),
+            symbolSpacing: i.boolean().optional(),
+        }),
+        // Add this to your schema entities
+        deviceSessions: i.entity({
+            deviceId: i.string().unique().indexed(), // The unique ID of the browser
+            userId: i.string(), // The ID of the family member logged in
+            lastActiveAt: i.string(), // For auto-logout logic
         }),
     },
     links: {
