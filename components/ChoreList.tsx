@@ -471,7 +471,8 @@ function ChoreList({
                                     return (
                                         <div key={series.id} className="border-t pt-2 mt-1 first:border-t-0 first:mt-0">
                                             {/* Header: Only show if we are in 'All' view to distinguish lists */}
-                                            {selectedMember === 'All' && ownerName && (
+                                            {/* FIX: Only show header if multiple people are assigned to the chore AND it's a personal list */}
+                                            {selectedMember === 'All' && ownerName && assignedMembers.length > 1 && (
                                                 <div className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wider pl-1">
                                                     {ownerName}'s Checklist
                                                 </div>

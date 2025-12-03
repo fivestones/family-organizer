@@ -1,3 +1,4 @@
+// components/NavbarDate.tsx
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -20,7 +21,8 @@ export const NavbarDate = () => {
     // Return null on server/first render to avoid hydration mismatch
     if (!dateStr) return null;
 
-    return <span className="mr-4 hidden sm:inline-block font-medium">{dateStr}</span>;
+    // Added text-sm to match the navbar buttons
+    return <span className="mr-4 hidden sm:inline-block text-sm font-medium">{dateStr}</span>;
 };
 
 export default NavbarDate;

@@ -26,6 +26,8 @@ import { SortableFamilyMemberItem } from './SortableFamilyMemberItem'; // <-- Im
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 // +++ NEW: Import Hash util +++
 import { hashPin } from '@/lib/auth-utils';
+// +++ NEW: Import Auth Hook +++
+import { useAuth } from '@/components/AuthProvider';
 
 // Define FamilyMember type based on usage
 interface FamilyMember {
@@ -66,6 +68,7 @@ function FamilyMembersList({
     unitDefinitions = [], // Default to empty array
 }: FamilyMembersListProps) {
     // **** UPDATED: Removed props ****
+    const { currentUser } = useAuth(); // +++ Get current user +++
     const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
     const [newMemberName, setNewMemberName] = useState('');
     const [newMemberEmail, setNewMemberEmail] = useState('');
@@ -496,6 +499,9 @@ function FamilyMembersList({
         });
     };
 
+    // +++ Helper to detect if the logged-in child is editing themselves +++
+    const isChildSelfEdit = currentUser?.role === 'child' && currentUser?.id === editingMember?.id;
+
     return (
         <div className="w-full h-full flex flex-col">
             <div className="flex justify-between items-center mb-4">
@@ -531,6 +537,7 @@ function FamilyMembersList({
                             unitDefinitions={unitDefinitions}
                             handleEditMember={handleEditMember}
                             handleDeleteMember={handleDeleteMember}
+                            currentUser={currentUser} // <--- Added this prop
                         />
                     );
                 })}
@@ -630,50 +637,60 @@ function FamilyMembersList({
             <Dialog open={editingMember !== null} onOpenChange={() => setEditingMember(null)}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Edit Family Member</DialogTitle>
+                        <DialogTitle>{isChildSelfEdit ? 'Update Profile' : 'Edit Family Member'}</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         {/* Name Field */}
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-name" className="text-right">
-                                Name
-                            </Label>
-                            <Input id="edit-name" value={editMemberName} onChange={(e) => setEditMemberName(e.target.value)} className="col-span-3" />
-                        </div>
+                        {isChildSelfEdit ? (
+                            <div className="flex justify-center py-4">
+                                <h3 className="text-2xl font-bold">{editingMember?.name}</h3>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="edit-name" className="text-right">
+                                    Name
+                                </Label>
+                                <Input id="edit-name" value={editMemberName} onChange={(e) => setEditMemberName(e.target.value)} className="col-span-3" />
+                            </div>
+                        )}
 
-                        {/* Email Field */}
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-email" className="text-right">
-                                Email (optional)
-                            </Label>
-                            <Input
-                                id="edit-email"
-                                type="email"
-                                value={editMemberEmail}
-                                onChange={(e) => setEditMemberEmail(e.target.value)}
-                                className="col-span-3"
-                            />
-                        </div>
+                        {/* Email Field - Hidden if Child Self Edit */}
+                        {!isChildSelfEdit && (
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="edit-email" className="text-right">
+                                    Email (optional)
+                                </Label>
+                                <Input
+                                    id="edit-email"
+                                    type="email"
+                                    value={editMemberEmail}
+                                    onChange={(e) => setEditMemberEmail(e.target.value)}
+                                    className="col-span-3"
+                                />
+                            </div>
+                        )}
 
-                        {/* +++ NEW: Role Selection +++ */}
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Role</Label>
-                            <RadioGroup value={editMemberRole} onValueChange={setEditMemberRole} className="col-span-3 flex gap-4">
-                                <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="parent" id="role-parent-edit" />
-                                    <Label htmlFor="role-parent-edit">Parent</Label>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="child" id="role-child-edit" />
-                                    <Label htmlFor="role-child-edit">Child</Label>
-                                </div>
-                            </RadioGroup>
-                        </div>
+                        {/* +++ NEW: Role Selection - Hidden if Child Self Edit +++ */}
+                        {!isChildSelfEdit && (
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label className="text-right">Role</Label>
+                                <RadioGroup value={editMemberRole} onValueChange={setEditMemberRole} className="col-span-3 flex gap-4">
+                                    <div className="flex items-center space-x-2">
+                                        <RadioGroupItem value="parent" id="role-parent-edit" />
+                                        <Label htmlFor="role-parent-edit">Parent</Label>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <RadioGroupItem value="child" id="role-child-edit" />
+                                        <Label htmlFor="role-child-edit">Child</Label>
+                                    </div>
+                                </RadioGroup>
+                            </div>
+                        )}
 
-                        {/* +++ NEW: PIN Input +++ */}
+                        {/* +++ NEW: PIN Input - Always Visible +++ */}
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-pin" className="text-right">
-                                New PIN
+                            <Label htmlFor="edit-pin" className={isChildSelfEdit ? 'text-right font-semibold' : 'text-right'}>
+                                {isChildSelfEdit ? 'New PIN' : 'New PIN'}
                             </Label>
                             <Input
                                 id="edit-pin"
@@ -684,45 +701,62 @@ function FamilyMembersList({
                                 value={editMemberPin}
                                 onChange={(e) => setEditMemberPin(e.target.value)}
                                 className="col-span-3"
-                                placeholder="Leave blank to keep existing"
+                                placeholder={isChildSelfEdit ? 'Enter new PIN to change' : 'Leave blank to keep existing'}
                             />
                         </div>
 
                         {/* Photo Input and Cropping */}
-                        <div className="grid grid-cols-4 items-start gap-4">
-                            <Label htmlFor="edit-photo" className="text-right">
-                                Photo
-                            </Label>
-                            <div className="col-span-3">
-                                <Input id="edit-photo" type="file" accept="image/*" onChange={onEditFileChange} />
-                                {editImageSrc && (
-                                    <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
-                                        <Cropper
-                                            image={editImageSrc}
-                                            crop={editCrop}
-                                            zoom={editZoom}
-                                            aspect={1}
-                                            cropShape="round"
-                                            showGrid={false}
-                                            onCropChange={setEditCrop}
-                                            onZoomChange={setEditZoom}
-                                            onCropComplete={onEditCropComplete}
-                                        />
-                                    </div>
-                                )}
-                                {!editImageSrc && editingMember?.photoUrls && (
-                                    <div className="mt-4">
-                                        <Avatar className="h-16 w-16">
-                                            <AvatarImage src={'uploads/' + editingMember.photoUrls['320']} alt={editingMember.name} className="object-cover" />
-                                            <AvatarFallback className="text-lg">{editingMember.name.charAt(0).toUpperCase()}</AvatarFallback>
-                                        </Avatar>
-                                    </div>
-                                )}
+                        {isChildSelfEdit ? (
+                            <div className="flex justify-center mt-4 mb-4">
+                                <Avatar className="h-32 w-32">
+                                    <AvatarImage
+                                        src={editingMember?.photoUrls?.['320'] ? `uploads/${editingMember.photoUrls['320']}` : undefined}
+                                        alt={editingMember?.name}
+                                        className="object-cover"
+                                    />
+                                    <AvatarFallback className="text-4xl">{editingMember?.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                                </Avatar>
                             </div>
-                        </div>
+                        ) : (
+                            <div className="grid grid-cols-4 items-start gap-4">
+                                <Label htmlFor="edit-photo" className="text-right">
+                                    Photo
+                                </Label>
+                                <div className="col-span-3">
+                                    <Input id="edit-photo" type="file" accept="image/*" onChange={onEditFileChange} />
+                                    {editImageSrc && (
+                                        <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
+                                            <Cropper
+                                                image={editImageSrc}
+                                                crop={editCrop}
+                                                zoom={editZoom}
+                                                aspect={1}
+                                                cropShape="round"
+                                                showGrid={false}
+                                                onCropChange={setEditCrop}
+                                                onZoomChange={setEditZoom}
+                                                onCropComplete={onEditCropComplete}
+                                            />
+                                        </div>
+                                    )}
+                                    {!editImageSrc && editingMember?.photoUrls && (
+                                        <div className="mt-4">
+                                            <Avatar className="h-16 w-16">
+                                                <AvatarImage
+                                                    src={'uploads/' + editingMember.photoUrls['320']}
+                                                    alt={editingMember.name}
+                                                    className="object-cover"
+                                                />
+                                                <AvatarFallback className="text-lg">{editingMember.name.charAt(0).toUpperCase()}</AvatarFallback>
+                                            </Avatar>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
-                        {/* Remove Photo Checkbox */}
-                        {editingMember?.photoUrls && (
+                        {/* Remove Photo Checkbox - Hidden if Child Self Edit */}
+                        {!isChildSelfEdit && editingMember?.photoUrls && (
                             <div className="flex items-center">
                                 <Checkbox id="remove-photo" checked={removePhoto} onCheckedChange={(checked) => setRemovePhoto(checked === true)} />
                                 <Label htmlFor="remove-photo" className="ml-2">

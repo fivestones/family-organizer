@@ -7,9 +7,9 @@ import DebugTimeWidget from '@/components/debug/DebugTimeWidget';
 import { AuthProvider } from '@/components/AuthProvider';
 import { UserMenu } from '@/components/auth/UserMenu';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import NavbarDate from '@/components/NavbarDate'; // Import the new date component
 
+import NavbarDate from '@/components/NavbarDate';
+import { MainNav } from '@/components/MainNav';
 // Import local Inter font
 const inter = localFont({
     src: '../public/fonts/Inter_18pt-Regular.ttf',
@@ -105,26 +105,8 @@ export default function RootLayout({
                             <Link href="/" className="text-xl font-bold tracking-tight hover:opacity-80 transition-opacity">
                                 Family Organizer
                             </Link>
-                            <nav className="flex items-center gap-2">
-                                <Link href="/">
-                                    <Button variant="ghost">Chores</Button>
-                                </Link>
-                                <Link href="/calendar">
-                                    <Button variant="ghost">Calendar</Button>
-                                </Link>
-                                <Link href="/task-series">
-                                    <Button variant="ghost">Task Series</Button>
-                                </Link>
-                                <Link href="/familyMemberDetail">
-                                    <Button variant="ghost">Manage Allowance and Finances</Button>
-                                </Link>
-                                <Link href="/allowance-distribution">
-                                    <Button variant="ghost">Allowance Distribution</Button>
-                                </Link>
-                                <Link href="/settings">
-                                    <Button variant="ghost">Settings</Button>
-                                </Link>
-                            </nav>
+                            {/* +++ Swapped inline nav for the new Client Component +++ */}
+                            <MainNav />
                         </div>
                         <div className="flex items-center">
                             <NavbarDate />
