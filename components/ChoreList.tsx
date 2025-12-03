@@ -12,6 +12,8 @@ import { tx } from '@instantdb/react';
 import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions, isSeriesActiveForDate } from '@/lib/task-scheduler'; // Added getRecursiveTaskCompletionTransactions and isSeriesActiveForDate
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Added for toggle tooltip
+// +++ NEW IMPORT +++
+import { useToast } from '@/components/ui/use-toast';
 
 // Helper: Check if a task functions as a header (has visible children)
 const hasScheduledChildren = (parentId: string, scheduledIds: Set<string>, allTasks: any[]) => {
@@ -31,6 +33,9 @@ function ChoreList({
     unitDefinitions,
     currencyOptions,
     onEditTaskSeries,
+    // +++ NEW PROPS +++
+    currentUser,
+    canEditChores,
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
 
@@ -44,6 +49,8 @@ function ChoreList({
     // --- NEW: Manage expanded state for Task Series details (Show/Hide) ---
     // Key: choreId, Value: boolean (true = visible)
     const [expandedChores, setExpandedChores] = useState<Record<string, boolean>>({});
+    // +++ NEW HOOK +++
+    const { toast } = useToast();
 
     const toggleChoreDetails = (choreId: string) => {
         setExpandedChores((prev) => ({
@@ -117,7 +124,21 @@ function ChoreList({
     const formattedSelectedDate = safeSelectedDate.toISOString().slice(0, 10); // Use safeSelectedDate
 
     const handleEditChore = (chore) => {
+        // +++ CHECK AUTH +++
+        if (!canEditChores) {
+            toast({ title: 'Access Denied', description: 'Only parents can edit chores.', variant: 'destructive' });
+            return;
+        }
         setEditingChore(chore);
+    };
+
+    // +++ NEW HELPER +++
+    const handleDeleteChore = (id: string) => {
+        if (!canEditChores) {
+            toast({ title: 'Access Denied', description: 'Only parents can delete chores.', variant: 'destructive' });
+            return;
+        }
+        deleteChore(id);
     };
 
     const handleUpdateChore = (updatedChore) => {
@@ -139,12 +160,19 @@ function ChoreList({
 
     // Updated: Accepts allTasks to properly identify parent/header relationships
     const handleAvatarClick = (chore, memberId, visibleTasks: Task[], allTasks: Task[]) => {
+        // +++ CHECK AUTH +++
+        if (!currentUser) {
+            toast({ title: 'Login Required', description: 'Please log in to mark chores as complete.', variant: 'destructive' });
+            return;
+        }
+
         // 1. Check if already done?
         const isDone = chore.completions?.some((c) => c.completedBy?.[0]?.id === memberId && c.dateDue === formattedSelectedDate && c.completed);
 
         if (isDone) {
             // Unchecking is always allowed
-            toggleChoreDone(chore.id, memberId);
+            // +++ Pass currentUser.id as executor +++
+            toggleChoreDone(chore.id, memberId, currentUser.id);
             return;
         }
 
@@ -175,7 +203,8 @@ function ChoreList({
             });
         } else {
             // All good, toggle
-            toggleChoreDone(chore.id, memberId);
+            // +++ Pass currentUser.id as executor +++
+            toggleChoreDone(chore.id, memberId, currentUser.id);
         }
     };
 
@@ -197,7 +226,8 @@ function ChoreList({
 
         // Small delay to allow DB to process tasks before completing chore
         setTimeout(() => {
-            toggleChoreDone(choreId, memberId);
+            // +++ Pass currentUser.id as executor +++
+            toggleChoreDone(choreId, memberId, currentUser?.id);
         }, 50);
 
         setPendingCompletion(null);
@@ -388,10 +418,11 @@ function ChoreList({
                                     )}
                                 </div>
 
-                                <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)}>
+                                {/* +++ Add opacity styling if restricted +++ */}
+                                <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)} className={!canEditChores ? 'opacity-50' : ''}>
                                     <Edit className="h-4 w-4" />
                                 </Button>
-                                <Button variant="ghost" size="icon" onClick={() => deleteChore(chore.id)}>
+                                <Button variant="ghost" size="icon" onClick={() => handleDeleteChore(chore.id)} className={!canEditChores ? 'opacity-50' : ''}>
                                     <Trash2 className="h-4 w-4" />
                                 </Button>
                             </div>

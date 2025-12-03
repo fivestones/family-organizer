@@ -5,7 +5,7 @@ import React, { createContext, useContext, useEffect, useState, useMemo, useCall
 import db from '@/lib/db';
 
 // Define the shape of our User context
-interface FamilyMemberUser {
+export interface FamilyMemberUser {
     id: string;
     name: string;
     role?: 'parent' | 'child' | string;

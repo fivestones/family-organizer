@@ -1,3 +1,4 @@
+// instant.schema.ts
 // Docs: https://www.instantdb.com/docs/modeling-data
 
 import { i } from '@instantdb/react';
@@ -246,6 +247,18 @@ const _schema = i.schema({
                 on: 'familyMembers',
                 has: 'many',
                 label: 'choreAssignments',
+            },
+        },
+        choreCompletionsMarkedBy: {
+            forward: {
+                on: 'choreCompletions',
+                has: 'one',
+                label: 'markedBy',
+            },
+            reverse: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'markedCompletions',
             },
         },
         choresAssignments: {

@@ -19,6 +19,10 @@ import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
 import { UnitDefinition, Envelope, computeAllApplicableCurrencyCodes } from '@/lib/currency-utils'; // Import computeMonetaryCurrencies
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 
+// +++ NEW IMPORTS +++
+import { useAuth } from '@/components/AuthProvider';
+import { RestrictedButton } from '@/components/ui/RestrictedButton';
+
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
 // Define interfaces for our data structures
@@ -40,6 +44,8 @@ interface FamilyMember {
     allowanceStartDate?: string | null; // Schema is i.date(), so this will be an ISO string or null
     allowanceConfig?: any | null; // Using 'any' for the JSON object
     allowancePayoutDelayDays?: number | null;
+    // +++ ADD ROLE +++
+    role?: string | null;
 }
 
 // Updated Chore interface
@@ -101,6 +107,9 @@ function ChoresTracker() {
     });
     const { toast } = useToast();
 
+    // +++ NEW: Get Auth +++
+    const { currentUser } = useAuth();
+
     // **** UPDATED QUERY: Fetch members + linked envelopes, chores, and unit definitions ****
     const { isLoading, error, data } = db.useQuery({
         familyMembers: {
@@ -142,6 +151,8 @@ function ChoresTracker() {
             // Fetch top-level completions needed for the check
             chore: {},
             completedBy: {},
+            // +++ NEW: Fetch markedBy +++
+            markedBy: {},
         },
     });
 
@@ -287,7 +298,8 @@ function ChoresTracker() {
     // **** REMOVED: addFamilyMember function ****
     // **** REMOVED: deleteFamilyMember function ****
 
-    const toggleChoreDone = async (choreId: string, familyMemberId: string) => {
+    // **** UPDATED: toggleChoreDone now accepts executorId ****
+    const toggleChoreDone = async (choreId: string, familyMemberId: string, executorId?: string) => {
         const chore = chores.find((c) => c.id === choreId);
         // +++ Add check for Up for Grabs +++
         const isUpForGrabsChore = chore?.isUpForGrabs ?? false;
@@ -313,7 +325,7 @@ function ChoresTracker() {
             const completionsOnDate = allChoreCompletions.filter((c: any) => c.chore?.[0]?.id === choreId && c.dateDue === formattedDate && c.completed);
             if (completionsOnDate.length > 0) {
                 // Check if the current user is trying to mark it complete AGAIN (allow unchecking)
-                const currentUserCompletion = completionsOnDate.find((c) => c.completedBy?.[0]?.id === familyMemberId);
+                const currentUserCompletion = completionsOnDate.find((c: any) => c.completedBy?.[0]?.id === familyMemberId);
                 if (!currentUserCompletion) {
                     // Someone else completed it, prevent current user from completing
                     // Try to find the completer's name (might need fuller data fetch)
@@ -357,7 +369,7 @@ function ChoresTracker() {
             } else {
                 // Create new completion
                 const newCompletionId = id();
-                db.transact([
+                const transactions: any[] = [
                     tx.choreCompletions[newCompletionId].update({
                         dateDue: formattedDate,
                         dateCompleted: new Date().toISOString(), // Set completion time
@@ -368,7 +380,14 @@ function ChoresTracker() {
                     tx.familyMembers[familyMemberId].link({
                         completedChores: newCompletionId,
                     }),
-                ]);
+                ];
+
+                // +++ NEW: Link markedBy if executor exists +++
+                if (executorId) {
+                    transactions.push(tx.familyMembers[executorId].link({ markedCompletions: newCompletionId }));
+                }
+
+                db.transact(transactions);
                 toast({ title: 'Chore Marked Done' });
             }
         } catch (err: any) {
@@ -555,6 +574,10 @@ function ChoresTracker() {
         }
     });
 
+    // +++ Logic for Add Button +++
+    const isParent = currentUser?.role === 'parent';
+    const canAddChore = isParent;
+
     return (
         <div className="min-h-screen flex">
             {/* left sidebar */}
@@ -603,11 +626,22 @@ function ChoresTracker() {
                 {/* Add Chore Button */}
                 <div className="flex-shrink-0 text-right">
                     <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
-                        <DialogTrigger asChild>
-                            <Button variant="default">
+                        {/* +++ Use RestrictedButton Trigger Logic +++ */}
+                        {/* Since DialogTrigger wraps a child, we need to handle the click intercept *before* the dialog opens if restricted. 
+                            However, Shadcn DialogTrigger is tricky with conditional prevention.
+                            Simpler approach: Render RestrictedButton. If not restricted, it acts as trigger.
+                        */}
+                        {canAddChore ? (
+                            <DialogTrigger asChild>
+                                <Button variant="default">
+                                    <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
+                                </Button>
+                            </DialogTrigger>
+                        ) : (
+                            <RestrictedButton isRestricted={true} restrictionMessage="Only parents can add chores." variant="default">
                                 <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
-                            </Button>
-                        </DialogTrigger>
+                            </RestrictedButton>
+                        )}
                         <DialogContent className="sm:max-w-[500px]">
                             {' '}
                             {/* Adjust width as needed */}
@@ -648,6 +682,9 @@ function ChoresTracker() {
                                 unitDefinitions={unitDefinitions}
                                 currencyOptions={currencyOptions}
                                 onEditTaskSeries={(seriesId: string) => setEditingTaskSeriesId(seriesId)}
+                                // +++ NEW PROPS +++
+                                currentUser={currentUser}
+                                canEditChores={isParent} // Only parents can edit/delete
                             />
                             {/* Optional: Add back allowance balance display if needed */}
                             {/* {selectedMember !== 'All' && ( ... allowance display ... )} */}

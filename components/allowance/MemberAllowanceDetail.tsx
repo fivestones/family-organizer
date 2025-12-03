@@ -52,6 +52,11 @@ import {
     GoalProgressResult, // Ensure this is imported if used elsewhere
 } from '@/lib/currency-utils';
 
+// +++ NEW IMPORTS +++
+import { useAuth } from '@/components/AuthProvider';
+import { validateRestriction } from '@/lib/auth-utils';
+import { RestrictedButton } from '@/components/ui/RestrictedButton';
+
 // --- Types ---
 interface BasicFamilyMember {
     id: string;
@@ -98,10 +103,10 @@ interface MemberAllowanceDetailProps {
 // });
 
 // Define props for the component
-interface MemberAllowanceDetailProps {
-    // [cite: 101]
-    memberId: string; // [cite: 102]
-}
+// interface MemberAllowanceDetailProps {
+//     //
+//     memberId: string; //
+// }
 
 const BASE_CURRENCY = 'USD'; // API Base
 
@@ -114,6 +119,9 @@ export default function MemberAllowanceDetail({
     db, // Destructure db prop
 }: MemberAllowanceDetailProps) {
     const { toast } = useToast();
+    // +++ NEW: Get Auth Context +++
+    const { currentUser } = useAuth();
+
     const hasInitializedEnvelope = useRef(false);
     const rateCalculationController = useRef<AbortController | null>(null);
     const isFetchingApiRates = useRef(false);
@@ -651,7 +659,7 @@ export default function MemberAllowanceDetail({
             }
         },
         [envelopes, isLastEnvelope, toast]
-    ); // Added isLastEnvelope and toast dependencies // [cite: 100]
+    ); // Added isLastEnvelope and toast dependencies //
 
     // **** NEW: Handler for Withdraw Button Click ****
     const handleWithdrawClick = () => {
@@ -700,14 +708,14 @@ export default function MemberAllowanceDetail({
     // ... (handleTransferSubmit, handleDeleteConfirm, handleUnitDefined, handleWithdrawSubmit, handleTransferToPersonSubmit) ...
     const handleTransferSubmit = async (amount: number, currency: string, destinationEnvelopeId: string) => {
         // Basic validation moved to form, but keep checks here too
-        if (!db || !transferSourceEnvelopeId || !destinationEnvelopeId || amount <= 0) return; // [cite: 112]
+        if (!db || !transferSourceEnvelopeId || !destinationEnvelopeId || amount <= 0) return; //
 
-        const sourceEnvelope = envelopes.find((e) => e.id === transferSourceEnvelopeId); // [cite: 113]
-        const destinationEnvelope = envelopes.find((e) => e.id === destinationEnvelopeId); // [cite: 113]
+        const sourceEnvelope = envelopes.find((e) => e.id === transferSourceEnvelopeId); //
+        const destinationEnvelope = envelopes.find((e) => e.id === destinationEnvelopeId); //
 
         if (!sourceEnvelope || !destinationEnvelope) {
-            toast({ title: 'Error', description: 'Could not find source or destination envelope.', variant: 'destructive' }); // [cite: 114]
-            return; // [cite: 115]
+            toast({ title: 'Error', description: 'Could not find source or destination envelope.', variant: 'destructive' }); //
+            return; //
         }
 
         // More robust validation before calling utility
@@ -722,18 +730,18 @@ export default function MemberAllowanceDetail({
         }
 
         try {
-            await transferFunds(db, sourceEnvelope, destinationEnvelope, amount, currency); // [cite: 116]
-            toast({ title: 'Success', description: 'Funds transferred.' }); // [cite: 116, 117]
-            setIsTransferModalOpen(false); // [cite: 117]
-            setTransferSourceEnvelopeId(null); // [cite: 117]
+            await transferFunds(db, sourceEnvelope, destinationEnvelope, amount, currency); //
+            toast({ title: 'Success', description: 'Funds transferred.' }); //
+            setIsTransferModalOpen(false); //
+            setTransferSourceEnvelopeId(null); //
         } catch (err: any) {
-            toast({ title: 'Transfer Failed', description: err.message, variant: 'destructive' }); // [cite: 118]
+            toast({ title: 'Transfer Failed', description: err.message, variant: 'destructive' }); //
             // Don't close modal on error? Or handle within form? Decide on desired UX.
         }
     };
 
     const handleDeleteConfirm = async (transferTargetId: string, newDefaultId: string | null) => {
-        if (!db || !envelopeToDelete || !transferTargetId) return; // [cite: 119]
+        if (!db || !envelopeToDelete || !transferTargetId) return; //
         // Added check: prevent deletion if it's the last one (belt-and-suspenders)
         if (envelopes.length <= 1) {
             toast({ title: 'Delete Failed', description: 'Cannot delete the last envelope.', variant: 'destructive' });
@@ -743,12 +751,12 @@ export default function MemberAllowanceDetail({
         }
 
         try {
-            await deleteEnvelope(db, envelopes, envelopeToDelete.id, transferTargetId, newDefaultId); // [cite: 120]
-            toast({ title: 'Success', description: `Envelope '${envelopeToDelete.name}' deleted.` }); // [cite: 121]
-            setIsDeleteModalOpen(false); // [cite: 121]
-            setEnvelopeToDelete(null); // [cite: 121]
+            await deleteEnvelope(db, envelopes, envelopeToDelete.id, transferTargetId, newDefaultId); //
+            toast({ title: 'Success', description: `Envelope '${envelopeToDelete.name}' deleted.` }); //
+            setIsDeleteModalOpen(false); //
+            setEnvelopeToDelete(null); //
         } catch (err: any) {
-            toast({ title: 'Delete Failed', description: err.message, variant: 'destructive' }); // [cite: 122]
+            toast({ title: 'Delete Failed', description: err.message, variant: 'destructive' }); //
             // Consider keeping modal open on failure?
         }
     };
@@ -833,6 +841,12 @@ export default function MemberAllowanceDetail({
         );
     }
 
+    // +++ Permission Logic +++
+    const isParent = currentUser?.role === 'parent';
+    const isSelf = currentUser?.id === memberId;
+    const canInteract = isParent || isSelf;
+    const restrictionMsg = `You need to be logged in as ${member.name} or a parent to use this function.`;
+
     // --- Original Allowance Detail View ---
     return (
         // Use h-full and flex/flex-col if needed to ensure height consistency
@@ -850,168 +864,172 @@ export default function MemberAllowanceDetail({
             <ScrollArea className="flex-grow -mr-4 pr-4">
                 <div className="space-y-6 pb-4">
                     {/* +++ NEW: Allowance Settings Section +++ */}
-                    <Card>
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-lg flex items-center">
-                                <Settings className="mr-2 h-5 w-5" />
-                                Allowance Configuration
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                {/* Amount */}
+                    {isParent && (
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-lg flex items-center">
+                                    <Settings className="mr-2 h-5 w-5" />
+                                    Allowance Configuration
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {/* Amount */}
+                                    <div>
+                                        <Label htmlFor="allowance-amount">Amount per Period</Label>
+                                        <Input
+                                            id="allowance-amount"
+                                            type="number"
+                                            value={allowanceAmountInput}
+                                            onChange={(e) => setAllowanceAmountInput(e.target.value)}
+                                            placeholder="e.g., 10.00"
+                                            step="0.01"
+                                            min="0" // Generally allowance is non-negative
+                                            disabled={isSavingAllowance}
+                                        />
+                                    </div>
+                                    {/* Currency */}
+                                    <div>
+                                        <Label htmlFor="allowance-currency-input">Currency/Unit</Label>
+                                        {/* +++ Use CurrencySelector for Allowance +++ */}
+                                        <CurrencySelector
+                                            db={db}
+                                            value={allowanceCurrencyInput}
+                                            onChange={setAllowanceCurrencyInput}
+                                            currencyOptions={depositAndAllowanceCurrencyOptions} // Use same options as deposit
+                                            unitDefinitions={unitDefinitions}
+                                            disabled={isSavingAllowance}
+                                            placeholder="Select or type unit..."
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Recurrence Settings */}
+                                <div className="space-y-3 pt-3 border-t">
+                                    <Label className="text-base font-medium">Frequency & Schedule</Label>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                                        {' '}
+                                        {/* Use grid for side-by-side layout */}
+                                        {/* Left Column: Start Date & Recurrence Form */}
+                                        <div className="space-y-3">
+                                            <div className="grid w-full items-center gap-1.5">
+                                                <Label htmlFor="allowance-start-date">Schedule Start Date</Label>
+                                                <Input
+                                                    id="allowance-start-date"
+                                                    type="date"
+                                                    value={allowanceStartDateInput}
+                                                    onChange={(e) => setAllowanceStartDateInput(e.target.value)}
+                                                    disabled={isSavingAllowance}
+                                                />
+                                                <p className="text-xs text-muted-foreground">The date the allowance schedule begins.</p>
+                                            </div>
+                                            <RecurrenceRuleForm
+                                                key={memberId} // Re-initialize when member changes
+                                                onSave={(options) => {
+                                                    console.log('Recurrence options saved:', options);
+                                                    setAllowanceRecurrenceOptions(options); // Update state
+                                                }}
+                                                initialOptions={allowanceRecurrenceOptions}
+                                            />
+                                        </div>
+                                        {/* Right Column: Delay and Week Start */}
+                                        <div className="space-y-3">
+                                            {/* +++ NEW: Payout Delay Input +++ */}
+                                            <div className="grid w-full items-center gap-1.5">
+                                                <Label htmlFor="allowance-delay-days">Calculation Delay (Days)</Label>
+                                                <Input
+                                                    id="allowance-delay-days"
+                                                    type="number"
+                                                    value={allowanceDelayDaysInput}
+                                                    onChange={(e) => setAllowanceDelayDaysInput(e.target.value)}
+                                                    placeholder="e.g., 1"
+                                                    min="0" // Ensures non-negative input in browser
+                                                    step="1" // Allows only whole numbers
+                                                    disabled={isSavingAllowance}
+                                                />
+                                                <p className="text-xs text-muted-foreground">
+                                                    Days after period ends to calculate/payout allowance (0 = same day).
+                                                </p>
+                                            </div>
+
+                                            {/* *** REMOVED Weekly Start Day Select *** */}
+                                        </div>
+                                    </div>
+                                </div>
+                            </CardContent>
+                            <CardFooter>
+                                <Button onClick={handleSaveAllowanceSettings} disabled={isSavingAllowance}>
+                                    {isSavingAllowance ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Save className="mr-2 h-4 w-4" /> Save Settings
+                                        </>
+                                    )}
+                                </Button>
+                            </CardFooter>
+                        </Card>
+                    )}
+
+                    {/* Deposit Section */}
+                    {isParent && (
+                        <section className="p-4 border rounded-md">
+                            <h3 className="text-lg font-semibold mb-3">Add to Allowance (Manual Deposit)</h3>
+                            <form onSubmit={handleDeposit} className="space-y-3">
+                                {/* Deposit Amount */}
                                 <div>
-                                    <Label htmlFor="allowance-amount">Amount per Period</Label>
+                                    <Label htmlFor="deposit-amount">Amount</Label>
                                     <Input
-                                        id="allowance-amount"
+                                        id="deposit-amount"
                                         type="number"
-                                        value={allowanceAmountInput}
-                                        onChange={(e) => setAllowanceAmountInput(e.target.value)}
+                                        value={depositAmount}
+                                        onChange={(e) => setDepositAmount(e.target.value)}
                                         placeholder="e.g., 10.00"
                                         step="0.01"
-                                        min="0" // Generally allowance is non-negative
-                                        disabled={isSavingAllowance}
+                                        required
+                                        disabled={isDepositing}
                                     />
                                 </div>
-                                {/* Currency */}
+                                {/* Deposit Currency */}
                                 <div>
-                                    <Label htmlFor="allowance-currency-input">Currency/Unit</Label>
-                                    {/* +++ Use CurrencySelector for Allowance +++ */}
+                                    <Label htmlFor="deposit-currency-input">Currency/Unit</Label>
+                                    {/* +++ Use CurrencySelector for Deposit +++ */}
                                     <CurrencySelector
                                         db={db}
-                                        value={allowanceCurrencyInput}
-                                        onChange={setAllowanceCurrencyInput}
-                                        currencyOptions={depositAndAllowanceCurrencyOptions} // Use same options as deposit
+                                        value={depositCurrency}
+                                        onChange={setDepositCurrency}
+                                        currencyOptions={depositAndAllowanceCurrencyOptions}
                                         unitDefinitions={unitDefinitions}
-                                        disabled={isSavingAllowance}
+                                        disabled={isDepositing}
                                         placeholder="Select or type unit..."
                                     />
                                 </div>
-                            </div>
-
-                            {/* Recurrence Settings */}
-                            <div className="space-y-3 pt-3 border-t">
-                                <Label className="text-base font-medium">Frequency & Schedule</Label>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                                    {' '}
-                                    {/* Use grid for side-by-side layout */}
-                                    {/* Left Column: Start Date & Recurrence Form */}
-                                    <div className="space-y-3">
-                                        <div className="grid w-full items-center gap-1.5">
-                                            <Label htmlFor="allowance-start-date">Schedule Start Date</Label>
-                                            <Input
-                                                id="allowance-start-date"
-                                                type="date"
-                                                value={allowanceStartDateInput}
-                                                onChange={(e) => setAllowanceStartDateInput(e.target.value)}
-                                                disabled={isSavingAllowance}
-                                            />
-                                            <p className="text-xs text-muted-foreground">The date the allowance schedule begins.</p>
-                                        </div>
-                                        <RecurrenceRuleForm
-                                            key={memberId} // Re-initialize when member changes
-                                            onSave={(options) => {
-                                                console.log('Recurrence options saved:', options);
-                                                setAllowanceRecurrenceOptions(options); // Update state
-                                            }}
-                                            initialOptions={allowanceRecurrenceOptions}
-                                        />
-                                    </div>
-                                    {/* Right Column: Delay and Week Start */}
-                                    <div className="space-y-3">
-                                        {/* +++ NEW: Payout Delay Input +++ */}
-                                        <div className="grid w-full items-center gap-1.5">
-                                            <Label htmlFor="allowance-delay-days">Calculation Delay (Days)</Label>
-                                            <Input
-                                                id="allowance-delay-days"
-                                                type="number"
-                                                value={allowanceDelayDaysInput}
-                                                onChange={(e) => setAllowanceDelayDaysInput(e.target.value)}
-                                                placeholder="e.g., 1"
-                                                min="0" // Ensures non-negative input in browser
-                                                step="1" // Allows only whole numbers
-                                                disabled={isSavingAllowance}
-                                            />
-                                            <p className="text-xs text-muted-foreground">
-                                                Days after period ends to calculate/payout allowance (0 = same day).
-                                            </p>
-                                        </div>
-
-                                        {/* *** REMOVED Weekly Start Day Select *** */}
-                                    </div>
+                                {/* Deposit Description */}
+                                <div>
+                                    <Label htmlFor="deposit-description">Description (Optional)</Label>
+                                    <Input
+                                        id="deposit-description"
+                                        type="text"
+                                        value={depositDescription}
+                                        onChange={(e) => setDepositDescription(e.target.value)}
+                                        placeholder="e.g., Weekly allowance"
+                                        disabled={isDepositing}
+                                    />
                                 </div>
-                            </div>
-                        </CardContent>
-                        <CardFooter>
-                            <Button onClick={handleSaveAllowanceSettings} disabled={isSavingAllowance}>
-                                {isSavingAllowance ? (
-                                    <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Save className="mr-2 h-4 w-4" /> Save Settings
-                                    </>
-                                )}
-                            </Button>
-                        </CardFooter>
-                    </Card>
-
-                    {/* Deposit Section */}
-                    <section className="p-4 border rounded-md">
-                        <h3 className="text-lg font-semibold mb-3">Add to Allowance (Manual Deposit)</h3>
-                        <form onSubmit={handleDeposit} className="space-y-3">
-                            {/* Deposit Amount */}
-                            <div>
-                                <Label htmlFor="deposit-amount">Amount</Label>
-                                <Input
-                                    id="deposit-amount"
-                                    type="number"
-                                    value={depositAmount}
-                                    onChange={(e) => setDepositAmount(e.target.value)}
-                                    placeholder="e.g., 10.00"
-                                    step="0.01"
-                                    required
-                                    disabled={isDepositing}
-                                />
-                            </div>
-                            {/* Deposit Currency */}
-                            <div>
-                                <Label htmlFor="deposit-currency-input">Currency/Unit</Label>
-                                {/* +++ Use CurrencySelector for Deposit +++ */}
-                                <CurrencySelector
-                                    db={db}
-                                    value={depositCurrency}
-                                    onChange={setDepositCurrency}
-                                    currencyOptions={depositAndAllowanceCurrencyOptions}
-                                    unitDefinitions={unitDefinitions}
-                                    disabled={isDepositing}
-                                    placeholder="Select or type unit..."
-                                />
-                            </div>
-                            {/* Deposit Description */}
-                            <div>
-                                <Label htmlFor="deposit-description">Description (Optional)</Label>
-                                <Input
-                                    id="deposit-description"
-                                    type="text"
-                                    value={depositDescription}
-                                    onChange={(e) => setDepositDescription(e.target.value)}
-                                    placeholder="e.g., Weekly allowance"
-                                    disabled={isDepositing}
-                                />
-                            </div>
-                            <Button type="submit" disabled={isDepositing}>
-                                {isDepositing ? (
-                                    <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Depositing...
-                                    </>
-                                ) : (
-                                    'Deposit Funds'
-                                )}
-                            </Button>
-                        </form>
-                    </section>
+                                <Button type="submit" disabled={isDepositing}>
+                                    {isDepositing ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Depositing...
+                                        </>
+                                    ) : (
+                                        'Deposit Funds'
+                                    )}
+                                </Button>
+                            </form>
+                        </section>
+                    )}
 
                     {/* Total Allowance Display & Actions */}
                     <section className="p-4 border rounded-md bg-muted/50">
@@ -1041,15 +1059,25 @@ export default function MemberAllowanceDetail({
                             </div>
                             {/* Action Buttons */}
                             <div className="flex flex-col sm:flex-row gap-2 shrink-0 pt-1">
-                                <Button variant="outline" onClick={handleWithdrawClick}>
+                                <RestrictedButton
+                                    isRestricted={!canInteract}
+                                    restrictionMessage={restrictionMsg}
+                                    variant="outline"
+                                    onClick={handleWithdrawClick}
+                                >
                                     {' '}
                                     <MinusCircle className="mr-2 h-4 w-4" /> Withdraw{' '}
-                                </Button>
+                                </RestrictedButton>
                                 {/* **** UPDATED: Added onClick handler **** */}
-                                <Button variant="outline" onClick={handleTransferToPersonClick}>
+                                <RestrictedButton
+                                    isRestricted={!canInteract}
+                                    restrictionMessage={restrictionMsg}
+                                    variant="outline"
+                                    onClick={handleTransferToPersonClick}
+                                >
                                     {' '}
                                     <Users className="mr-2 h-4 w-4" /> Transfer to Person{' '}
-                                </Button>
+                                </RestrictedButton>
                             </div>
                         </div>
                     </section>
@@ -1059,9 +1087,9 @@ export default function MemberAllowanceDetail({
                         {/* ... Envelope list mapping EnvelopeItem ... */}
                         <div className="flex justify-between items-center mb-3">
                             <h3 className="text-lg font-semibold">Envelopes</h3>
-                            <Button onClick={handleAddClick} size="sm">
+                            <RestrictedButton isRestricted={!canInteract} restrictionMessage={restrictionMsg} onClick={handleAddClick} size="sm">
                                 + Add Envelope
-                            </Button>
+                            </RestrictedButton>
                         </div>
                         {/* ... loading/empty states ... */}
                         {envelopes.length === 0 && !isLoadingData && <p className="text-muted-foreground italic">No envelopes created yet.</p>}
@@ -1076,9 +1104,18 @@ export default function MemberAllowanceDetail({
                                     unitDefinitions={unitDefinitions}
                                     // **** Pass cached rates down ****
                                     allCachedRates={allCachedRates}
-                                    onEdit={handleEditClick}
-                                    onTransfer={handleTransferClick}
-                                    onDelete={handleDeleteClick}
+                                    onEdit={(id) => {
+                                        if (!validateRestriction(currentUser, memberId, member.name)) return;
+                                        handleEditClick(id);
+                                    }}
+                                    onTransfer={(id) => {
+                                        if (!validateRestriction(currentUser, memberId, member.name)) return;
+                                        handleTransferClick(id);
+                                    }}
+                                    onDelete={(id) => {
+                                        if (!validateRestriction(currentUser, memberId, member.name)) return;
+                                        handleDeleteClick(id);
+                                    }}
                                 />
                             ))}
                         </div>

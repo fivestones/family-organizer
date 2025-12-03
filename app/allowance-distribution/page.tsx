@@ -25,6 +25,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
+import { ParentGate } from '@/components/auth/ParentGate'; // +++ Added
 
 // --- Component Types ---
 
@@ -630,390 +631,396 @@ export default function AllowanceDistributionPage() {
     const showLoading = isLoading || isDataLoading;
 
     return (
-        <div className="container mx-auto p-4 md:p-8 space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                <h1 className="text-3xl font-bold">Allowance Distribution</h1>
-                <div className="flex items-center gap-2">
-                    <Label htmlFor="simulated-date" className="whitespace-nowrap">
-                        Simulated Date:
-                    </Label>
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                                variant={'outline'}
-                                className={cn('w-[200px] justify-start text-left font-normal', !simulatedDate && 'text-muted-foreground')}
-                            >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {simulatedDate ? format(simulatedDate, 'PPP') : <span>Pick a date</span>}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                            <Calendar
-                                mode="single"
-                                selected={simulatedDate}
-                                onSelect={(date) => setSimulatedDate(date ? startOfDay(date) : startOfDay(new Date()))}
-                                initialFocus
-                            />
-                        </PopoverContent>
-                    </Popover>
+        <ParentGate>
+            <div className="container mx-auto p-4 md:p-8 space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                    <h1 className="text-3xl font-bold">Allowance Distribution</h1>
+                    <div className="flex items-center gap-2">
+                        <Label htmlFor="simulated-date" className="whitespace-nowrap">
+                            Simulated Date:
+                        </Label>
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant={'outline'}
+                                    className={cn('w-[200px] justify-start text-left font-normal', !simulatedDate && 'text-muted-foreground')}
+                                >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {simulatedDate ? format(simulatedDate, 'PPP') : <span>Pick a date</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                                <Calendar
+                                    mode="single"
+                                    selected={simulatedDate}
+                                    onSelect={(date) => setSimulatedDate(date ? startOfDay(date) : startOfDay(new Date()))}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                    </div>
                 </div>
-            </div>
 
-            {showLoading && (
-                <div className="p-4 flex items-center justify-center ">
-                    <Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading allowance data...
-                </div>
-            )}
+                {showLoading && (
+                    <div className="p-4 flex items-center justify-center ">
+                        <Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading allowance data...
+                    </div>
+                )}
 
-            {!showLoading && (error || dataError) && (
-                <div className="p-4 text-red-600 text-center">Error loading data: {error?.message || dataError?.message}</div>
-            )}
+                {!showLoading && (error || dataError) && (
+                    <div className="p-4 text-red-600 text-center">Error loading data: {error?.message || dataError?.message}</div>
+                )}
 
-            {!showLoading &&
-                !(error || dataError) &&
-                ((typedData?.familyMembers || []).length === 0 ? (
-                    <p className="text-muted-foreground italic text-center py-10">No family members found.</p>
-                ) : (
-                    (typedData?.familyMembers || []).map((member) => {
-                        const allowanceInfo = processedAllowances.find((pa) => pa.member.id === member.id);
-                        const hasAnyPeriodsToShow = allowanceInfo && allowanceInfo.pendingPeriods.length > 0;
-                        // Use totalDue from allowanceInfo which now includes primary fixed rewards
-                        const currentTotalDue = allowanceInfo?.totalDue ?? 0;
-                        const displayEditableAmount = editableAmounts[member.id] ?? String(currentTotalDue.toFixed(2)); // Footer total display
+                {!showLoading &&
+                    !(error || dataError) &&
+                    ((typedData?.familyMembers || []).length === 0 ? (
+                        <p className="text-muted-foreground italic text-center py-10">No family members found.</p>
+                    ) : (
+                        (typedData?.familyMembers || []).map((member) => {
+                            const allowanceInfo = processedAllowances.find((pa) => pa.member.id === member.id);
+                            const hasAnyPeriodsToShow = allowanceInfo && allowanceInfo.pendingPeriods.length > 0;
+                            // Use totalDue from allowanceInfo which now includes primary fixed rewards
+                            const currentTotalDue = allowanceInfo?.totalDue ?? 0;
+                            const displayEditableAmount = editableAmounts[member.id] ?? String(currentTotalDue.toFixed(2)); // Footer total display
 
-                        const memberBaseAllowanceText =
-                            member.allowanceAmount && member.allowanceCurrency
-                                ? `${formatBalances(
-                                      {
-                                          [member.allowanceCurrency]: member.allowanceAmount,
-                                      },
-                                      typedData?.unitDefinitions || []
-                                  )} / period`
-                                : 'Not Configured';
+                            const memberBaseAllowanceText =
+                                member.allowanceAmount && member.allowanceCurrency
+                                    ? `${formatBalances(
+                                          {
+                                              [member.allowanceCurrency]: member.allowanceAmount,
+                                          },
+                                          typedData?.unitDefinitions || []
+                                      )} / period`
+                                    : 'Not Configured';
 
-                        return (
-                            <Card key={member.id} className="overflow-hidden shadow-md mb-6">
-                                <CardHeader className="bg-gray-50 dark:bg-gray-800">
-                                    <CardTitle className="text-xl">{member.name}</CardTitle>
-                                    <p className="text-sm text-muted-foreground">Base Allowance: {memberBaseAllowanceText}</p>
-                                </CardHeader>
-                                <CardContent className="p-4 space-y-4">
-                                    <h3 className="text-lg font-semibold mb-2 border-b pb-2">
-                                        Pending Allowance Periods (up to {format(simulatedDate, 'PPP')})
-                                    </h3>
-                                    {!hasAnyPeriodsToShow ? (
-                                        <div className="flex items-center text-muted-foreground text-sm p-3 bg-secondary rounded-md">
-                                            <Info className="h-4 w-4 mr-2 flex-shrink-0" />
-                                            <span>No allowance periods due for {member.name} based on the current settings and simulated date.</span>
-                                        </div>
-                                    ) : (
-                                        allowanceInfo.pendingPeriods.map((period) => {
-                                            // +++ UPDATED Date Formatting Logic +++
-                                            const startYear = period.periodStartDate.getFullYear();
-                                            const endYear = period.periodEndDate.getFullYear();
-                                            let displayDateRange = '';
+                            return (
+                                <Card key={member.id} className="overflow-hidden shadow-md mb-6">
+                                    <CardHeader className="bg-gray-50 dark:bg-gray-800">
+                                        <CardTitle className="text-xl">{member.name}</CardTitle>
+                                        <p className="text-sm text-muted-foreground">Base Allowance: {memberBaseAllowanceText}</p>
+                                    </CardHeader>
+                                    <CardContent className="p-4 space-y-4">
+                                        <h3 className="text-lg font-semibold mb-2 border-b pb-2">
+                                            Pending Allowance Periods (up to {format(simulatedDate, 'PPP')})
+                                        </h3>
+                                        {!hasAnyPeriodsToShow ? (
+                                            <div className="flex items-center text-muted-foreground text-sm p-3 bg-secondary rounded-md">
+                                                <Info className="h-4 w-4 mr-2 flex-shrink-0" />
+                                                <span>No allowance periods due for {member.name} based on the current settings and simulated date.</span>
+                                            </div>
+                                        ) : (
+                                            allowanceInfo.pendingPeriods.map((period) => {
+                                                // +++ UPDATED Date Formatting Logic +++
+                                                const startYear = period.periodStartDate.getFullYear();
+                                                const endYear = period.periodEndDate.getFullYear();
+                                                let displayDateRange = '';
 
-                                            if (isEqual(startOfDay(period.periodStartDate), startOfDay(period.periodEndDate))) {
-                                                // Single-day period
-                                                displayDateRange = format(period.periodStartDate, 'MMM d, yyyy');
-                                            } else {
-                                                // Multi-day period
-                                                const startDateFormatted = format(period.periodStartDate, 'MMM d');
-                                                // Format end date, adding year conditionally
-                                                const endDateFormatted = format(period.periodEndDate, startYear === endYear ? 'MMM d, yyyy' : 'MMM d, yyyy');
-                                                displayDateRange = `${startDateFormatted}${
-                                                    startYear !== endYear ? ', ' + startYear : ''
-                                                } - ${endDateFormatted}`;
-                                            }
+                                                if (isEqual(startOfDay(period.periodStartDate), startOfDay(period.periodEndDate))) {
+                                                    // Single-day period
+                                                    displayDateRange = format(period.periodStartDate, 'MMM d, yyyy');
+                                                } else {
+                                                    // Multi-day period
+                                                    const startDateFormatted = format(period.periodStartDate, 'MMM d');
+                                                    // Format end date, adding year conditionally
+                                                    const endDateFormatted = format(
+                                                        period.periodEndDate,
+                                                        startYear === endYear ? 'MMM d, yyyy' : 'MMM d, yyyy'
+                                                    );
+                                                    displayDateRange = `${startDateFormatted}${
+                                                        startYear !== endYear ? ', ' + startYear : ''
+                                                    } - ${endDateFormatted}`;
+                                                }
 
-                                            const isInProgress = period.status === 'in-progress';
-                                            const periodFixedPrimary = allowanceInfo.member.allowanceCurrency
-                                                ? period.fixedRewardsEarned?.[allowanceInfo.member.allowanceCurrency.toUpperCase()] || 0
-                                                : 0;
-                                            const periodFixedOther = {
-                                                ...period.fixedRewardsEarned,
-                                            };
-                                            if (allowanceInfo.member.allowanceCurrency)
-                                                delete periodFixedOther[allowanceInfo.member.allowanceCurrency.toUpperCase()];
+                                                const isInProgress = period.status === 'in-progress';
+                                                const periodFixedPrimary = allowanceInfo.member.allowanceCurrency
+                                                    ? period.fixedRewardsEarned?.[allowanceInfo.member.allowanceCurrency.toUpperCase()] || 0
+                                                    : 0;
+                                                const periodFixedOther = {
+                                                    ...period.fixedRewardsEarned,
+                                                };
+                                                if (allowanceInfo.member.allowanceCurrency)
+                                                    delete periodFixedOther[allowanceInfo.member.allowanceCurrency.toUpperCase()];
 
-                                            return (
-                                                <div
-                                                    key={period.id}
-                                                    className="p-3 border rounded bg-white dark:bg-gray-700 space-y-1 flex justify-between items-start gap-2"
-                                                >
-                                                    <div className="flex-grow">
-                                                        {/* Use the calculated displayDateRange */}
-                                                        <p className="font-medium text-base">
-                                                            {displayDateRange}{' '}
-                                                            {isInProgress && (
-                                                                <span className="text-xs font-normal text-blue-600 dark:text-blue-400 italic ml-1">
-                                                                    (In Progress)
-                                                                </span>
-                                                            )}
-                                                        </p>
-                                                        {/* ... rest of the details (weights, amount, etc.) ... */}
-                                                        {/* +++ Display weight details +++ */}
-                                                        <div className="text-xs grid grid-cols-2 gap-x-2">
-                                                            <span>
-                                                                Total Wt: <span className="font-mono">{period.totalWeight.toFixed(2)}</span>
-                                                            </span>
-                                                            <span>
-                                                                Completed Wt: <span className="font-mono">{period.completedWeight.toFixed(2)}</span>
-                                                            </span>
-                                                            {/* +++ Update Percentage Display +++ */}
-                                                            <span>
-                                                                Completion: <span className="font-mono">{period.percentage.toFixed(1)}%</span>
-                                                                {/* +++ Add Note for Up-for-Grabs Contribution +++ */}
-                                                                {period.upForGrabsContributionPercentage > 0 && (
-                                                                    <span className="text-xs italic text-muted-foreground ml-1">
-                                                                        (incl. {period.upForGrabsContributionPercentage.toFixed(1)}% from up-for-grabs)
+                                                return (
+                                                    <div
+                                                        key={period.id}
+                                                        className="p-3 border rounded bg-white dark:bg-gray-700 space-y-1 flex justify-between items-start gap-2"
+                                                    >
+                                                        <div className="flex-grow">
+                                                            {/* Use the calculated displayDateRange */}
+                                                            <p className="font-medium text-base">
+                                                                {displayDateRange}{' '}
+                                                                {isInProgress && (
+                                                                    <span className="text-xs font-normal text-blue-600 dark:text-blue-400 italic ml-1">
+                                                                        (In Progress)
                                                                     </span>
                                                                 )}
-                                                            </span>
-                                                            <span>
-                                                                Calc Amt:{' '}
-                                                                <span className="font-mono">
-                                                                    {formatBalances(
-                                                                        {
-                                                                            [allowanceInfo.member.allowanceCurrency!]: period.calculatedAmount,
-                                                                        },
-                                                                        typedData?.unitDefinitions || []
+                                                            </p>
+                                                            {/* ... rest of the details (weights, amount, etc.) ... */}
+                                                            {/* +++ Display weight details +++ */}
+                                                            <div className="text-xs grid grid-cols-2 gap-x-2">
+                                                                <span>
+                                                                    Total Wt: <span className="font-mono">{period.totalWeight.toFixed(2)}</span>
+                                                                </span>
+                                                                <span>
+                                                                    Completed Wt: <span className="font-mono">{period.completedWeight.toFixed(2)}</span>
+                                                                </span>
+                                                                {/* +++ Update Percentage Display +++ */}
+                                                                <span>
+                                                                    Completion: <span className="font-mono">{period.percentage.toFixed(1)}%</span>
+                                                                    {/* +++ Add Note for Up-for-Grabs Contribution +++ */}
+                                                                    {period.upForGrabsContributionPercentage > 0 && (
+                                                                        <span className="text-xs italic text-muted-foreground ml-1">
+                                                                            (incl. {period.upForGrabsContributionPercentage.toFixed(1)}% from up-for-grabs)
+                                                                        </span>
                                                                     )}
                                                                 </span>
-                                                            </span>
-                                                        </div>
-                                                        {/* +++ Display fixed reward details for the period +++ */}
-                                                        {(periodFixedPrimary > 0 || Object.keys(periodFixedOther).length > 0) && (
-                                                            <div className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
-                                                                Fixed Rewards:
-                                                                {periodFixedPrimary > 0 &&
-                                                                    ` ${formatBalances(
-                                                                        {
-                                                                            [allowanceInfo.member.allowanceCurrency!]: periodFixedPrimary,
-                                                                        },
-                                                                        typedData?.unitDefinitions || []
-                                                                    )}`}
-                                                                {Object.keys(periodFixedOther).length > 0 &&
-                                                                    `${periodFixedPrimary > 0 ? ' + ' : ''}${formatBalances(
-                                                                        periodFixedOther,
-                                                                        typedData?.unitDefinitions || []
-                                                                    )}`}
-                                                            </div>
-                                                        )}
-                                                    </div>
-
-                                                    {/* +++ NEW: Per-period Edit/Deposit/Skip controls (Right Aligned) +++ */}
-                                                    <div className="flex flex-col items-end gap-1">
-                                                        {' '}
-                                                        {/* Wrap controls in flex-col for alignment */}
-                                                        {!isInProgress && ( // Only show edit/deposit for pending periods
-                                                            <div className="flex items-center gap-1 justify-end">
-                                                                {/* +++ Input now only shows the calculated weight-based amount +++ */}
-                                                                <div className="flex items-center bg-white dark:bg-gray-900 border rounded-md overflow-hidden h-8">
-                                                                    <span className="pl-1.5 pr-0.5 text-sm font-semibold">
-                                                                        {allowanceInfo.member.allowanceCurrency}
-                                                                    </span>
-                                                                    <Input
-                                                                        id={`periodAmount-${period.id}`}
-                                                                        type="number"
-                                                                        step="0.01"
-                                                                        value={editablePeriodAmounts[period.id] ?? '0'} // Editable part
-                                                                        onChange={(e) => handlePeriodAmountChange(period.id, member.id, e.target.value)}
-                                                                        className="w-20 text-sm font-semibold border-0 rounded-none focus-visible:ring-0 h-full p-1" // Adjust size/padding
-                                                                        disabled={processingMemberId === member.id}
-                                                                    />
-                                                                </div>
-                                                                <Button
-                                                                    size="sm" // Smaller button
-                                                                    className="h-8" // Match input height
-                                                                    onClick={() => handleDepositWithdrawPeriod(member.id, period)} // Use updated handler
-                                                                    // Deposit button considers editable amount + fixed primary amount for enabling/styling
-                                                                    disabled={
-                                                                        processingMemberId === member.id ||
-                                                                        parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary === 0
-                                                                    }
-                                                                    variant={
-                                                                        parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary < 0
-                                                                            ? 'destructive'
-                                                                            : 'default'
-                                                                    }
-                                                                >
-                                                                    {processingMemberId === member.id ? (
-                                                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                                                    ) : // Check combined amount for icon
-                                                                    parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary < 0 ? (
-                                                                        <TrendingDown className="h-4 w-4" />
-                                                                    ) : (
-                                                                        <DollarSign className="h-4 w-4" />
-                                                                    )}
-                                                                    <span className="sr-only">
-                                                                        {parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary < 0
-                                                                            ? 'Withdraw'
-                                                                            : 'Deposit'}{' '}
-                                                                        Period
-                                                                    </span>
-                                                                </Button>
-                                                            </div>
-                                                        )}
-                                                        {/* +++ Add Per-Period Breakdown Text Here +++ */}
-                                                        {!isInProgress && (periodFixedPrimary > 0 || Object.keys(periodFixedOther).length > 0) && (
-                                                            <div className="text-xs text-muted-foreground text-right w-full pr-1 mt-0.5">
-                                                                {' '}
-                                                                {/* Align text right, add slight margin-top */}
-                                                                {/* Case 1: Both primary and other currency fixed rewards */}
-                                                                {periodFixedPrimary > 0 && Object.keys(periodFixedOther).length > 0 && (
-                                                                    <span>
-                                                                        (Deposit includes{' '}
+                                                                <span>
+                                                                    Calc Amt:{' '}
+                                                                    <span className="font-mono">
                                                                         {formatBalances(
-                                                                            { [allowanceInfo.member.allowanceCurrency!]: periodFixedPrimary },
+                                                                            {
+                                                                                [allowanceInfo.member.allowanceCurrency!]: period.calculatedAmount,
+                                                                            },
                                                                             typedData?.unitDefinitions || []
                                                                         )}
-                                                                        . Also includes {formatBalances(periodFixedOther, typedData?.unitDefinitions || [])}.)
                                                                     </span>
-                                                                )}
-                                                                {/* Case 2: Only primary currency fixed rewards */}
-                                                                {periodFixedPrimary > 0 && Object.keys(periodFixedOther).length === 0 && (
-                                                                    <span>
-                                                                        (Deposit includes{' '}
-                                                                        {formatBalances(
-                                                                            { [allowanceInfo.member.allowanceCurrency!]: periodFixedPrimary },
-                                                                            typedData?.unitDefinitions || []
-                                                                        )}{' '}
-                                                                        from fixed rewards.)
-                                                                    </span>
-                                                                )}
-                                                                {/* Case 3: Only other currency fixed rewards */}
-                                                                {periodFixedPrimary === 0 && Object.keys(periodFixedOther).length > 0 && (
-                                                                    <span>
-                                                                        (Also includes {formatBalances(periodFixedOther, typedData?.unitDefinitions || [])} from
-                                                                        fixed rewards.)
-                                                                    </span>
-                                                                )}
+                                                                </span>
                                                             </div>
-                                                        )}
-                                                        {/* Original Skip Button */}
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="text-xs text-muted-foreground hover:text-destructive"
-                                                            onClick={() => handleSkipPeriod(member.id, period)}
-                                                            disabled={processingMemberId === member.id || isInProgress} // Disable skip for in-progress
-                                                            title={
-                                                                isInProgress
-                                                                    ? 'Cannot skip period in progress'
-                                                                    : 'Mark period as processed without deposit/withdrawal'
-                                                            }
-                                                        >
-                                                            <XCircle className="h-4 w-4 mr-1" /> Skip
-                                                        </Button>
+                                                            {/* +++ Display fixed reward details for the period +++ */}
+                                                            {(periodFixedPrimary > 0 || Object.keys(periodFixedOther).length > 0) && (
+                                                                <div className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
+                                                                    Fixed Rewards:
+                                                                    {periodFixedPrimary > 0 &&
+                                                                        ` ${formatBalances(
+                                                                            {
+                                                                                [allowanceInfo.member.allowanceCurrency!]: periodFixedPrimary,
+                                                                            },
+                                                                            typedData?.unitDefinitions || []
+                                                                        )}`}
+                                                                    {Object.keys(periodFixedOther).length > 0 &&
+                                                                        `${periodFixedPrimary > 0 ? ' + ' : ''}${formatBalances(
+                                                                            periodFixedOther,
+                                                                            typedData?.unitDefinitions || []
+                                                                        )}`}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* +++ NEW: Per-period Edit/Deposit/Skip controls (Right Aligned) +++ */}
+                                                        <div className="flex flex-col items-end gap-1">
+                                                            {' '}
+                                                            {/* Wrap controls in flex-col for alignment */}
+                                                            {!isInProgress && ( // Only show edit/deposit for pending periods
+                                                                <div className="flex items-center gap-1 justify-end">
+                                                                    {/* +++ Input now only shows the calculated weight-based amount +++ */}
+                                                                    <div className="flex items-center bg-white dark:bg-gray-900 border rounded-md overflow-hidden h-8">
+                                                                        <span className="pl-1.5 pr-0.5 text-sm font-semibold">
+                                                                            {allowanceInfo.member.allowanceCurrency}
+                                                                        </span>
+                                                                        <Input
+                                                                            id={`periodAmount-${period.id}`}
+                                                                            type="number"
+                                                                            step="0.01"
+                                                                            value={editablePeriodAmounts[period.id] ?? '0'} // Editable part
+                                                                            onChange={(e) => handlePeriodAmountChange(period.id, member.id, e.target.value)}
+                                                                            className="w-20 text-sm font-semibold border-0 rounded-none focus-visible:ring-0 h-full p-1" // Adjust size/padding
+                                                                            disabled={processingMemberId === member.id}
+                                                                        />
+                                                                    </div>
+                                                                    <Button
+                                                                        size="sm" // Smaller button
+                                                                        className="h-8" // Match input height
+                                                                        onClick={() => handleDepositWithdrawPeriod(member.id, period)} // Use updated handler
+                                                                        // Deposit button considers editable amount + fixed primary amount for enabling/styling
+                                                                        disabled={
+                                                                            processingMemberId === member.id ||
+                                                                            parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary === 0
+                                                                        }
+                                                                        variant={
+                                                                            parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary < 0
+                                                                                ? 'destructive'
+                                                                                : 'default'
+                                                                        }
+                                                                    >
+                                                                        {processingMemberId === member.id ? (
+                                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                                        ) : // Check combined amount for icon
+                                                                        parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary < 0 ? (
+                                                                            <TrendingDown className="h-4 w-4" />
+                                                                        ) : (
+                                                                            <DollarSign className="h-4 w-4" />
+                                                                        )}
+                                                                        <span className="sr-only">
+                                                                            {parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary < 0
+                                                                                ? 'Withdraw'
+                                                                                : 'Deposit'}{' '}
+                                                                            Period
+                                                                        </span>
+                                                                    </Button>
+                                                                </div>
+                                                            )}
+                                                            {/* +++ Add Per-Period Breakdown Text Here +++ */}
+                                                            {!isInProgress && (periodFixedPrimary > 0 || Object.keys(periodFixedOther).length > 0) && (
+                                                                <div className="text-xs text-muted-foreground text-right w-full pr-1 mt-0.5">
+                                                                    {' '}
+                                                                    {/* Align text right, add slight margin-top */}
+                                                                    {/* Case 1: Both primary and other currency fixed rewards */}
+                                                                    {periodFixedPrimary > 0 && Object.keys(periodFixedOther).length > 0 && (
+                                                                        <span>
+                                                                            (Deposit includes{' '}
+                                                                            {formatBalances(
+                                                                                { [allowanceInfo.member.allowanceCurrency!]: periodFixedPrimary },
+                                                                                typedData?.unitDefinitions || []
+                                                                            )}
+                                                                            . Also includes {formatBalances(periodFixedOther, typedData?.unitDefinitions || [])}
+                                                                            .)
+                                                                        </span>
+                                                                    )}
+                                                                    {/* Case 2: Only primary currency fixed rewards */}
+                                                                    {periodFixedPrimary > 0 && Object.keys(periodFixedOther).length === 0 && (
+                                                                        <span>
+                                                                            (Deposit includes{' '}
+                                                                            {formatBalances(
+                                                                                { [allowanceInfo.member.allowanceCurrency!]: periodFixedPrimary },
+                                                                                typedData?.unitDefinitions || []
+                                                                            )}{' '}
+                                                                            from fixed rewards.)
+                                                                        </span>
+                                                                    )}
+                                                                    {/* Case 3: Only other currency fixed rewards */}
+                                                                    {periodFixedPrimary === 0 && Object.keys(periodFixedOther).length > 0 && (
+                                                                        <span>
+                                                                            (Also includes {formatBalances(periodFixedOther, typedData?.unitDefinitions || [])}{' '}
+                                                                            from fixed rewards.)
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                            {/* Original Skip Button */}
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="text-xs text-muted-foreground hover:text-destructive"
+                                                                onClick={() => handleSkipPeriod(member.id, period)}
+                                                                disabled={processingMemberId === member.id || isInProgress} // Disable skip for in-progress
+                                                                title={
+                                                                    isInProgress
+                                                                        ? 'Cannot skip period in progress'
+                                                                        : 'Mark period as processed without deposit/withdrawal'
+                                                                }
+                                                            >
+                                                                <XCircle className="h-4 w-4 mr-1" /> Skip
+                                                            </Button>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        })
-                                    )}
-                                </CardContent>
-                                {/* Footer only shown if there are ANY periods to show (pending or in-progress) */}
-                                {hasAnyPeriodsToShow && allowanceInfo && (
-                                    <CardFooter className="bg-gray-100 dark:bg-gray-800/50 p-4 flex flex-col items-start space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-                                        <div className="flex flex-col items-start gap-1">
-                                            {' '}
-                                            {/* Use flex-col for label and breakdown */}
-                                            <div className="flex items-center gap-2 flex-wrap">
+                                                );
+                                            })
+                                        )}
+                                    </CardContent>
+                                    {/* Footer only shown if there are ANY periods to show (pending or in-progress) */}
+                                    {hasAnyPeriodsToShow && allowanceInfo && (
+                                        <CardFooter className="bg-gray-100 dark:bg-gray-800/50 p-4 flex flex-col items-start space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+                                            <div className="flex flex-col items-start gap-1">
                                                 {' '}
-                                                {/* Keep amount/input horizontal */}
-                                                <Label htmlFor={`editAmount-${member.id}`} className="font-semibold text-lg whitespace-nowrap">
-                                                    {/* Use calculated totalDue which excludes in-progress */}
-                                                    Total Due:
-                                                </Label>
-                                                <div className="flex items-center bg-white dark:bg-gray-900 border rounded-md overflow-hidden">
-                                                    <span className="pl-2 pr-1 text-lg font-semibold">{allowanceInfo.member.allowanceCurrency}</span>
-                                                    <Input
-                                                        id={`editAmount-${member.id}`}
-                                                        type="number"
-                                                        step="0.01"
-                                                        // Bind value to the specific member's editable amount state
-                                                        value={displayEditableAmount} // This now includes primary fixed rewards
-                                                        onChange={(e) => handleAmountChange(member.id, e.target.value)}
-                                                        className="w-28 text-lg font-semibold border-0 rounded-none focus-visible:ring-0"
-                                                        disabled={processingMemberId === member.id}
-                                                    />
+                                                {/* Use flex-col for label and breakdown */}
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    {' '}
+                                                    {/* Keep amount/input horizontal */}
+                                                    <Label htmlFor={`editAmount-${member.id}`} className="font-semibold text-lg whitespace-nowrap">
+                                                        {/* Use calculated totalDue which excludes in-progress */}
+                                                        Total Due:
+                                                    </Label>
+                                                    <div className="flex items-center bg-white dark:bg-gray-900 border rounded-md overflow-hidden">
+                                                        <span className="pl-2 pr-1 text-lg font-semibold">{allowanceInfo.member.allowanceCurrency}</span>
+                                                        <Input
+                                                            id={`editAmount-${member.id}`}
+                                                            type="number"
+                                                            step="0.01"
+                                                            // Bind value to the specific member's editable amount state
+                                                            value={displayEditableAmount} // This now includes primary fixed rewards
+                                                            onChange={(e) => handleAmountChange(member.id, e.target.value)}
+                                                            className="w-28 text-lg font-semibold border-0 rounded-none focus-visible:ring-0"
+                                                            disabled={processingMemberId === member.id}
+                                                        />
+                                                    </div>
+                                                    <Edit className="h-4 w-4 text-muted-foreground ml-1" title="Amount can be edited" />
                                                 </div>
-                                                <Edit className="h-4 w-4 text-muted-foreground ml-1" title="Amount can be edited" />
+                                                {/* +++ Enhanced Footer Breakdown Text Logic +++ */}
+                                                <div className="text-xs text-muted-foreground pl-1 h-4">
+                                                    {' '}
+                                                    {/* Ensure consistent height */}
+                                                    {/* Check if there are ANY fixed rewards (primary or other) */}
+                                                    {allowanceInfo.totalFixedRewardsInPrimaryCurrency === 0 &&
+                                                    Object.keys(allowanceInfo.totalFixedRewardsInOtherCurrencies).length === 0 ? (
+                                                        <span>&nbsp;</span> // Render nothing or placeholder if no fixed rewards
+                                                    ) : (
+                                                        <>
+                                                            {'('} {/* Opening parenthesis */}
+                                                            {allowanceInfo.totalFixedRewardsInPrimaryCurrency > 0 && (
+                                                                <span>
+                                                                    Deposit amount includes{' '}
+                                                                    {formatBalances(
+                                                                        {
+                                                                            [allowanceInfo.member.allowanceCurrency!]:
+                                                                                allowanceInfo.totalFixedRewardsInPrimaryCurrency,
+                                                                        },
+                                                                        typedData?.unitDefinitions || []
+                                                                    )}
+                                                                </span>
+                                                            )}
+                                                            {allowanceInfo.totalFixedRewardsInPrimaryCurrency > 0 &&
+                                                                Object.keys(allowanceInfo.totalFixedRewardsInOtherCurrencies).length > 0 && <span>. </span>}
+                                                            {/* Separator */}
+                                                            {Object.keys(allowanceInfo.totalFixedRewardsInOtherCurrencies).length > 0 && (
+                                                                <span>
+                                                                    Also depositing{' '}
+                                                                    {formatBalances(
+                                                                        allowanceInfo.totalFixedRewardsInOtherCurrencies,
+                                                                        typedData?.unitDefinitions || []
+                                                                    )}
+                                                                </span>
+                                                            )}
+                                                            {/* Add closing text only if there were rewards */}
+                                                            {allowanceInfo.totalFixedRewardsInPrimaryCurrency > 0 ||
+                                                            Object.keys(allowanceInfo.totalFixedRewardsInOtherCurrencies).length > 0 ? (
+                                                                allowanceInfo.totalFixedRewardsInPrimaryCurrency > 0 ? (
+                                                                    <span> from fixed rewards.)</span>
+                                                                ) : (
+                                                                    <span>.)</span>
+                                                                )
+                                                            ) : null}
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
-                                            {/* +++ Enhanced Footer Breakdown Text Logic +++ */}
-                                            <div className="text-xs text-muted-foreground pl-1 h-4">
-                                                {' '}
-                                                {/* Ensure consistent height */}
-                                                {/* Check if there are ANY fixed rewards (primary or other) */}
-                                                {allowanceInfo.totalFixedRewardsInPrimaryCurrency === 0 &&
-                                                Object.keys(allowanceInfo.totalFixedRewardsInOtherCurrencies).length === 0 ? (
-                                                    <span>&nbsp;</span> // Render nothing or placeholder if no fixed rewards
+                                            <Button
+                                                onClick={() => handleDepositWithdraw(member.id)} // Pass memberId only
+                                                // Disable button based on the PARSED value of the editable amount
+                                                disabled={processingMemberId === member.id || parseFloat(displayEditableAmount || '0') === 0}
+                                                variant={parseFloat(displayEditableAmount || '0') < 0 ? 'destructive' : 'default'}
+                                                size="lg"
+                                            >
+                                                {processingMemberId === member.id ? (
+                                                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                                                ) : parseFloat(displayEditableAmount || '0') < 0 ? (
+                                                    <TrendingDown className="h-5 w-5 mr-2" />
                                                 ) : (
-                                                    <>
-                                                        {'('} {/* Opening parenthesis */}
-                                                        {allowanceInfo.totalFixedRewardsInPrimaryCurrency > 0 && (
-                                                            <span>
-                                                                Deposit amount includes{' '}
-                                                                {formatBalances(
-                                                                    {
-                                                                        [allowanceInfo.member.allowanceCurrency!]:
-                                                                            allowanceInfo.totalFixedRewardsInPrimaryCurrency,
-                                                                    },
-                                                                    typedData?.unitDefinitions || []
-                                                                )}
-                                                            </span>
-                                                        )}
-                                                        {allowanceInfo.totalFixedRewardsInPrimaryCurrency > 0 &&
-                                                            Object.keys(allowanceInfo.totalFixedRewardsInOtherCurrencies).length > 0 && <span>. </span>}
-                                                        {/* Separator */}
-                                                        {Object.keys(allowanceInfo.totalFixedRewardsInOtherCurrencies).length > 0 && (
-                                                            <span>
-                                                                Also depositing{' '}
-                                                                {formatBalances(
-                                                                    allowanceInfo.totalFixedRewardsInOtherCurrencies,
-                                                                    typedData?.unitDefinitions || []
-                                                                )}
-                                                            </span>
-                                                        )}
-                                                        {/* Add closing text only if there were rewards */}
-                                                        {allowanceInfo.totalFixedRewardsInPrimaryCurrency > 0 ||
-                                                        Object.keys(allowanceInfo.totalFixedRewardsInOtherCurrencies).length > 0 ? (
-                                                            allowanceInfo.totalFixedRewardsInPrimaryCurrency > 0 ? (
-                                                                <span> from fixed rewards.)</span>
-                                                            ) : (
-                                                                <span>.)</span>
-                                                            )
-                                                        ) : null}
-                                                    </>
+                                                    <DollarSign className="h-5 w-5 mr-2" />
                                                 )}
-                                            </div>
-                                        </div>
-                                        <Button
-                                            onClick={() => handleDepositWithdraw(member.id)} // Pass memberId only
-                                            // Disable button based on the PARSED value of the editable amount
-                                            disabled={processingMemberId === member.id || parseFloat(displayEditableAmount || '0') === 0}
-                                            variant={parseFloat(displayEditableAmount || '0') < 0 ? 'destructive' : 'default'}
-                                            size="lg"
-                                        >
-                                            {processingMemberId === member.id ? (
-                                                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                            ) : parseFloat(displayEditableAmount || '0') < 0 ? (
-                                                <TrendingDown className="h-5 w-5 mr-2" />
-                                            ) : (
-                                                <DollarSign className="h-5 w-5 mr-2" />
-                                            )}
-                                            {processingMemberId === member.id
-                                                ? 'Processing...'
-                                                : parseFloat(displayEditableAmount || '0') < 0
-                                                ? 'Withdraw Amount'
-                                                : 'Deposit Amount'}
-                                        </Button>
-                                    </CardFooter>
-                                )}
-                            </Card>
-                        );
-                    })
-                ))}
-        </div>
+                                                {processingMemberId === member.id
+                                                    ? 'Processing...'
+                                                    : parseFloat(displayEditableAmount || '0') < 0
+                                                    ? 'Withdraw Amount'
+                                                    : 'Deposit Amount'}
+                                            </Button>
+                                        </CardFooter>
+                                    )}
+                                </Card>
+                            );
+                        })
+                    ))}
+            </div>
+        </ParentGate>
     );
 }

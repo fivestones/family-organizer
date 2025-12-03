@@ -5,6 +5,7 @@ import React from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import db from '@/lib/db';
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
+import { ParentGate } from '@/components/auth/ParentGate';
 
 export default function TaskSeriesDetailPage() {
     const params = useParams();
@@ -15,5 +16,9 @@ export default function TaskSeriesDetailPage() {
         return <div className="p-4 text-sm text-red-600">Missing series id.</div>;
     }
 
-    return <TaskSeriesEditor db={db} initialSeriesId={seriesId} onClose={() => router.push('/task-series')} />;
+    return (
+        <ParentGate>
+            <TaskSeriesEditor db={db} initialSeriesId={seriesId} onClose={() => router.push('/task-series')} />
+        </ParentGate>
+    );
 }
