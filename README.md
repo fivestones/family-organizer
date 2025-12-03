@@ -6,11 +6,13 @@ Hey! This is the code for our family's organizer. I'm building this to help us (
 
 Here's a rundown of what the Thomas Family Organizer offers so far:
 
--   **Comprehensive Calendar:**
+-   **Calendar:**
 
     -   Add, remove, and view calendar items easily.
     -   Includes a multi-month view for better planning.
     -   Supports both Gregorian and Bikram Samvat calendars, and you can choose to show either or both.
+    -   Needs work:
+        -   Planning to have other views, lazy loading with scrolling to other weeks/months/years, week view, full year view, better controls to turn on/off Gregorian and Bikram Samvat, maybe syncing with google or apple calendars.
 
 -   **Chore Assignment and Tracking:**
 
@@ -34,8 +36,9 @@ Here's a rundown of what the Thomas Family Organizer offers so far:
     -   Can create nested tasks. Useful for breaking down big tasks.
     -   Ability to see the whole string of upcoming dependent chores/assignments (and maybe those already completed).
     -   Assignments for a school subject could function like a playlist. On any given day of the Chore where the task series is active, it will show the next task that hasn't been done. If a task isn't done on a day it is scheduled, it will show up the next time that Chore appears.
+    -   Attach files and notes to individual tasks, see the notes and view images/text files/pdfs from where the task is shown as due
 
--   Time travelling
+-   **Time travelling**
 
     -   Simulate different dates to see how things would play out
 
@@ -59,6 +62,13 @@ Here's a rundown of what the Thomas Family Organizer offers so far:
         -   If a chore is unchecked after being marked done, it correctly no longer counts towards the allowance.
         -   View current stats for chores completed and the allowance due.
         -   Automatically (or with a click) deposit the calculated percentage of a family member's weekly allowance into their default envelope.
+
+-   **Role-based User Access**
+
+    -   Family members are users. Set PINs for each family members. Can set role (Parent or Child) for each user.
+    -   Log in and log out, switch user
+    -   Parents can do anything, children can only manage their own finances. Children can mark Chores or Tasks as done for someone else but the system keeps track of who marked it
+    -   When not logged in, limited to viewing but can't make changes.
 
 -   **Tech & Sync:**
     -   **Instant Sync:** Changes are reflected immediately across all connected clients.
@@ -162,6 +172,7 @@ This is where I'd love to take the project eventually. No promises, but these ar
 
 -   **"Maybe Someday" Ideas:**
     -   Simple messaging between family members within the app.
+    -   Email inside the app. Maybe.
     -   Goals/goal tracking (beyond just envelope savings goals).
     -   Prize system for non-monetary currencies (e.g., 10 stars for candy, 100 for a show).
         -   Maybe a time-limited option to convert stars to monetary currency (e.g., this week 100 stars = $1).
