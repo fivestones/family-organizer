@@ -7,6 +7,8 @@ import DebugTimeWidget from '@/components/debug/DebugTimeWidget';
 import { AuthProvider } from '@/components/AuthProvider';
 import { UserMenu } from '@/components/auth/UserMenu';
 import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import NavbarDate from '@/components/NavbarDate'; // Import the new date component
 
 // Import local Inter font
 const inter = localFont({
@@ -99,10 +101,35 @@ export default function RootLayout({
                 <AuthProvider>
                     {/* +++ Global Header +++ */}
                     <header className="flex items-center justify-between px-6 py-3 border-b bg-card">
-                        <Link href="/" className="text-xl font-bold tracking-tight hover:opacity-80 transition-opacity">
-                            Family Organizer
-                        </Link>
-                        <UserMenu />
+                        <div className="flex items-center gap-6">
+                            <Link href="/" className="text-xl font-bold tracking-tight hover:opacity-80 transition-opacity">
+                                Family Organizer
+                            </Link>
+                            <nav className="flex items-center gap-2">
+                                <Link href="/">
+                                    <Button variant="ghost">Chores</Button>
+                                </Link>
+                                <Link href="/calendar">
+                                    <Button variant="ghost">Calendar</Button>
+                                </Link>
+                                <Link href="/task-series">
+                                    <Button variant="ghost">Task Series</Button>
+                                </Link>
+                                <Link href="/familyMemberDetail">
+                                    <Button variant="ghost">Manage Allowance and Finances</Button>
+                                </Link>
+                                <Link href="/allowance-distribution">
+                                    <Button variant="ghost">Allowance Distribution</Button>
+                                </Link>
+                                <Link href="/settings">
+                                    <Button variant="ghost">Settings</Button>
+                                </Link>
+                            </nav>
+                        </div>
+                        <div className="flex items-center">
+                            <NavbarDate />
+                            <UserMenu />
+                        </div>
                     </header>
 
                     {/* +++ Main Content +++ */}
