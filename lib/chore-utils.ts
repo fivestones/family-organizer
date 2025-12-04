@@ -36,8 +36,9 @@ interface ChoreCompletion {
     id: string;
     completed: boolean;
     dateDue: string; // ISO string date
-    completedBy: { id: string }[]; // Link to family member
-    allowanceAwarded: boolean;
+    completedBy?: { id: string }; // Link to family member
+    allowanceAwarded?: boolean;
+    dateCompleted?: string;
     chore?: { id: string; weight?: number | null }; // Optional link back to chore with weight
 }
 

@@ -68,14 +68,14 @@ interface Chore {
         id: string;
         completed: boolean;
         dateDue: string; // Assuming string based on ChoreList usage
-        completedBy: { id: string }[]; // Assuming link structure
+        completedBy: { id: string }; // Assuming link structure
+        allowanceAwarded?: boolean;
+        dateCompleted?: string;
     }[];
-    // +++ NEW: Add up-for-grabs fields +++
     isUpForGrabs?: boolean;
     rewardType?: 'fixed' | 'weight';
     rewardAmount?: number;
     rewardCurrency?: string;
-    // +++ NEW: Add taskSeries for type safety in ChoreList +++
     taskSeries?: { id: string; name: string; startDate?: string; tasks?: any[] }[];
 }
 
@@ -84,8 +84,8 @@ interface ChoreCompletion {
     id: string;
     completed: boolean;
     dateDue: string;
-    chore?: { id: string }[]; // Link to chore
-    completedBy?: { id: string }[]; // Link to member
+    chore?: { id: string }; // Link to chore
+    completedBy?: { id: string }; // Link to member
     // Add other fields from schema if needed
 }
 
@@ -329,7 +329,7 @@ function ChoresTracker() {
                 if (!currentUserCompletion) {
                     // Someone else completed it, prevent current user from completing
                     // Try to find the completer's name (might need fuller data fetch)
-                    const completerId = completionsOnDate[0].completedBy?.[0]?.id;
+                    const completerId = completionsOnDate[0].completedBy?.id;
                     const completer = familyMembers.find((fm) => fm.id === completerId);
                     toast({
                         title: 'Chore Already Completed',
