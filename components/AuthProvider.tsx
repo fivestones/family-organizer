@@ -17,6 +17,8 @@ interface AuthContextType {
     login: (user: FamilyMemberUser) => void;
     logout: () => void;
     isAuthenticated: boolean;
+    // +++ CHANGED: Expose loading state to consumers +++
+    isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,7 +31,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [currentUser, setCurrentUser] = useState<FamilyMemberUser | null>(null);
 
     // Fetch family members to resolve ID to actual user object
-    const { data } = db.useQuery({ familyMembers: {} });
+    // +++ CHANGED: Destructure isLoading +++
+    const { data, isLoading } = db.useQuery({ familyMembers: {} });
 
     // 1. Initialize from LocalStorage
     useEffect(() => {
@@ -52,6 +55,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // 2. Sync currentUserId with actual FamilyMember data
     useEffect(() => {
+        // +++ CHANGED: Do not attempt to sync or logout while DB is loading +++
+        if (isLoading) return;
+
         if (currentUserId && data?.familyMembers) {
             const foundMember = data.familyMembers.find((m: any) => m.id === currentUserId);
             if (foundMember) {
@@ -68,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else if (!currentUserId) {
             setCurrentUser(null);
         }
-    }, [currentUserId, data]);
+    }, [currentUserId, data, isLoading]); // +++ CHANGED: Added isLoading dependency
 
     const login = useCallback((user: FamilyMemberUser) => {
         localStorage.setItem(STORAGE_KEY, user.id);
@@ -114,7 +120,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
     }, [currentUser, logout]);
 
-    return <AuthContext.Provider value={{ currentUser, login, logout, isAuthenticated: !!currentUser }}>{children}</AuthContext.Provider>;
+    return (
+        // +++ CHANGED: Pass isLoading to provider +++
+        <AuthContext.Provider value={{ currentUser, login, logout, isAuthenticated: !!currentUser, isLoading }}>{children}</AuthContext.Provider>
+    );
 }
 
 export function useAuth() {

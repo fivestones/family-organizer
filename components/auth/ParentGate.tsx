@@ -12,26 +12,23 @@ interface ParentGateProps {
 }
 
 export function ParentGate({ children }: ParentGateProps) {
-    const { currentUser, isAuthenticated } = useAuth();
+    // +++ CHANGED: Consume isLoading from context +++
+    const { currentUser, isAuthenticated, isLoading } = useAuth();
     const [isLoginOpen, setIsLoginOpen] = useState(false);
-    const [hasChecked, setHasChecked] = useState(false);
 
+    // +++ CHANGED: Logic update.
+    // Instead of a timer, we react to the loading state finishing.
+    // If loading finishes and we aren't authorized, open the modal.
     useEffect(() => {
-        // Simple check to avoid flashing restricted content before auth loads
-        // Assuming AuthProvider resolves quickly from localStorage
-        const timer = setTimeout(() => setHasChecked(true), 100);
-        return () => clearTimeout(timer);
-    }, []);
-
-    useEffect(() => {
-        if (hasChecked) {
+        if (!isLoading) {
             if (!isAuthenticated || currentUser?.role !== 'parent') {
                 setIsLoginOpen(true);
             }
         }
-    }, [hasChecked, isAuthenticated, currentUser]);
+    }, [isLoading, isAuthenticated, currentUser]);
 
-    if (!hasChecked) {
+    // +++ CHANGED: Show loader while AuthProvider is initializing or DB is fetching +++
+    if (isLoading) {
         return (
             <div className="flex h-[50vh] items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

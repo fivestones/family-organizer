@@ -8,7 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import db from '@/lib/db';
 import { useAuth } from '@/components/AuthProvider';
-import { hashPin } from '@/lib/auth-utils';
+// +++ CHANGED: Import hashPin from server actions +++
+import { hashPin } from '@/app/actions';
 import { useToast } from '@/components/ui/use-toast';
 
 interface LoginModalProps {

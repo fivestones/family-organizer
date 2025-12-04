@@ -3,7 +3,7 @@
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { revalidatePath } from 'next/cache';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 
 // --- CONFIGURATION ---
 
@@ -93,4 +93,10 @@ export async function getPresignedUploadUrl(contentType: string, fileName: strin
 
 export async function refreshFiles() {
     revalidatePath('/');
+}
+
+// 3. Auth Helper (Server Side)
+// Replaces client-side crypto.subtle to allow login over HTTP (non-secure context)
+export async function hashPin(pin: string): Promise<string> {
+    return createHash('sha256').update(pin).digest('hex');
 }

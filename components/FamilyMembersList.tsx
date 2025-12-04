@@ -25,7 +25,7 @@ import { SortableFamilyMemberItem } from './SortableFamilyMemberItem'; // <-- Im
 // +++ NEW: Import RadioGroup for Role selection +++
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 // +++ NEW: Import Hash util +++
-import { hashPin } from '@/lib/auth-utils';
+import { hashPin } from '@/app/actions';
 // +++ NEW: Import Auth Hook +++
 import { useAuth } from '@/components/AuthProvider';
 
