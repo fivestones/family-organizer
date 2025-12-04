@@ -325,7 +325,7 @@ function ChoresTracker() {
             const completionsOnDate = allChoreCompletions.filter((c: any) => c.chore?.[0]?.id === choreId && c.dateDue === formattedDate && c.completed);
             if (completionsOnDate.length > 0) {
                 // Check if the current user is trying to mark it complete AGAIN (allow unchecking)
-                const currentUserCompletion = completionsOnDate.find((c: any) => c.completedBy?.[0]?.id === familyMemberId);
+                const currentUserCompletion = completionsOnDate.find((c: any) => c.completedBy?.id === familyMemberId);
                 if (!currentUserCompletion) {
                     // Someone else completed it, prevent current user from completing
                     // Try to find the completer's name (might need fuller data fetch)
@@ -347,7 +347,7 @@ function ChoresTracker() {
         const currentCompletions = chore.completions || [];
         const existingCompletion = currentCompletions.find(
             (completion) =>
-                completion.completedBy?.[0]?.id === familyMemberId && // Safer access
+                completion.completedBy?.id === familyMemberId && // Safer access
                 completion.dateDue === formattedDate
         );
 

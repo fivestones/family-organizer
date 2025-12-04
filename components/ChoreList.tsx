@@ -167,7 +167,7 @@ function ChoreList({
         }
 
         // 1. Check if already done?
-        const isDone = chore.completions?.some((c) => c.completedBy?.[0]?.id === memberId && c.dateDue === formattedSelectedDate && c.completed);
+        const isDone = chore.completions?.some((c) => c.completedBy?.id === memberId && c.dateDue === formattedSelectedDate && c.completed);
 
         if (isDone) {
             // Unchecking is always allowed
@@ -249,7 +249,7 @@ function ChoreList({
                         // Find the first completion for this chore on this date
                         const completionOnDate = (chore.completions || []).find((c) => c.dateDue === formattedSelectedDate && c.completed);
                         if (completionOnDate) {
-                            completerIdActual = completionOnDate.completedBy?.[0]?.id;
+                            completerIdActual = completionOnDate.completedBy?.id;
                             if (completerIdActual) {
                                 // If a completer exists, set the flag
                                 upForGrabsCompletedByOther = true; // It's completed by *someone*
@@ -277,7 +277,7 @@ function ChoreList({
                                         .filter((assignee) => selectedMember === 'All' || assignee.id === selectedMember)
                                         .map((assignee) => {
                                             const completion = chore.completions?.find(
-                                                (c) => c.completedBy?.[0]?.id === assignee.id && c.dateDue === formattedSelectedDate // Safer check for completedBy
+                                                (c) => c.completedBy?.id === assignee.id && c.dateDue === formattedSelectedDate // Safer check for completedBy
                                             );
                                             const familyMember = familyMembers.find((fm) => fm.id === assignee.id);
                                             // +++ Determine if this specific avatar should be disabled +++
