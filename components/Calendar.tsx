@@ -1,14 +1,18 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import styles from '../styles/Calendar.module.css';
 import { format, addDays, startOfWeek, getMonth, getDate, parseISO, addWeeks, differenceInDays } from 'date-fns';
 import { init, tx } from '@instantdb/react';
 import NepaliDate from 'nepali-date-converter';
 import AddEventForm from './AddEvent';
-import { Dialog, DialogContent } from '../components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import localFont from 'next/font/local';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { DroppableDayCell } from './DroppableDayCell'; // Import new component
-import { DraggableCalendarEvent } from './DraggableCalendarEvent'; // Import new component
+// Import the component and the interface
+import { DraggableCalendarEvent, CalendarItem } from './DraggableCalendarEvent';
+
 const APP_ID = 'df733414-7ccd-45bd-85f3-ffd0b3da8812'; //kepler.local
 const db = init({
     appId: APP_ID,
@@ -22,13 +26,19 @@ const ebGaramond = localFont({
     display: 'swap',
 });
 
-const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) => {
+interface CalendarProps {
+    currentDate?: Date;
+    numWeeks?: number;
+    displayBS?: boolean;
+}
+
+const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: CalendarProps) => {
     // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
     // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
     // and displayMonthNumber = false, to display the month number as well as the name.
-    const [calendarItems, setCalendarItems] = useState([]);
-    const [selectedDate, setSelectedDate] = useState(null);
-    const [selectedEvent, setSelectedEvent] = useState(null);
+    const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
+    const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+    const [selectedEvent, setSelectedEvent] = useState<CalendarItem | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     // Calculate the start date of the calendar
@@ -36,7 +46,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
 
     // Generate an array of dates to cover the specified number of weeks
     const totalDays = numWeeks * 7;
-    const days = [];
+    const days: Date[] = [];
     let day = startDate;
     for (let i = 0; i < totalDays; i++) {
         days.push(day);
@@ -84,13 +94,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
         conditions.push({ year: endYear, month: { in: endYearMonths } });
     }
 
-    const handleDayClick = (day) => {
+    const handleDayClick = (day: Date) => {
         setSelectedDate(day);
         setSelectedEvent(null);
         setIsModalOpen(true);
     };
 
-    const handleEventClick = (e, calendarEvent) => {
+    const handleEventClick = (e: React.MouseEvent, calendarEvent: CalendarItem) => {
         e.stopPropagation();
         setSelectedDate(parseISO(calendarEvent.startDate));
         setSelectedEvent(calendarEvent);
@@ -105,7 +115,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
 
     // Code to allow dragging items from one day to another
     // --- REMOVE OLD onDragEnd FUNCTION ---
-    // const onDragEnd = (result) => { ... } [cite: 612-622]
+    // const onDragEnd = (result) => { ... }
 
     // +++ ADD NEW PDND MONITORING EFFECT +++
     useEffect(() => {
@@ -116,12 +126,16 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                 const destination = location.current.dropTargets[0];
 
                 // Ensure we are dropping a calendar event onto a calendar day
-                if (!destination || source.data.type !== 'calendar-event' || destination.data.type !== 'calendar-day') {
+                // Type guard checks
+                const sourceData = source.data;
+                const destData = destination?.data;
+
+                if (!destination || sourceData.type !== 'calendar-event' || destData?.type !== 'calendar-day') {
                     return;
                 }
 
-                const event = source.data.event; // Get the event object
-                const destinationDateStr = destination.data.dateStr; // Get the YYYY-MM-DD string
+                const event = sourceData.event as CalendarItem; // Get the event object
+                const destinationDateStr = destData.dateStr as string; // Get the YYYY-MM-DD string
 
                 // --- Start of logic adapted from old onDragEnd ---
                 const sourceDate = parseISO(event.isAllDay ? event.startDate : format(parseISO(event.startDate), 'yyyy-MM-dd'));
@@ -182,15 +196,16 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
     var { isLoading, error, data } = db.useQuery(query);
 
     useEffect(() => {
-        if (!isLoading && !error) {
-            setCalendarItems(data.calendarItems);
+        if (!isLoading && !error && data) {
+            setCalendarItems(data.calendarItems as CalendarItem[]);
         }
-    }, [isLoading, data]);
+    }, [isLoading, data, error]);
 
     // console.log(calendarItems);
 
     // Convert Gregorian date to Nepali date
-    const toNepaliDate = (date) => {
+    const toNepaliDate = (date: Date) => {
+        // @ts-ignore
         const nepaliDate = new NepaliDate(date);
         return {
             year: nepaliDate.getYear(),
@@ -225,13 +240,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
     const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     // Chunk days into weeks for table rows
-    const weeks = [];
+    const weeks: Date[][] = [];
     for (let i = 0; i < days.length; i += 7) {
         weeks.push(days.slice(i, i + 7));
     }
 
-    let lastMonth = null; // To keep track of the last displayed month
-    let lastNepaliMonth = null; // To keep track of the last displayed Nepali month
+    let lastMonth: Date | null = null; // To keep track of the last displayed month
+    let lastNepaliMonth: any = null; // To keep track of the last displayed Nepali month
     let isYearSet = false; // Flag to check if the year has been displayed
     let isNepaliYearSet = false; // Flag to check if the Nepali year has been displayed
     let displayNepaliMonthName = false; //set to false, since we don't usually want to display it for any given day. We'll set it to true for days where it is the first day of the Nepali month
@@ -256,6 +271,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                     {weeks.map((week, weekIndex) => (
                         <tr key={weekIndex}>
                             {week.map((day, dayIndex) => {
+                                // @ts-ignore
                                 const nepaliDate = new NepaliDate(day);
                                 const currentMonth = format(day, 'MMMM');
                                 const currentNepaliMonth = nepaliMonthsFormalRoman[nepaliDate.getMonth()];
@@ -357,7 +373,6 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }) 
                                         } ${displayBS && isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''} ${
                                             displayBS && isFirstWeekOfNepaliMonthButNotFirstDay ? styles.firstWeekOfNepaliMonth : ''
                                         }`}
-                                        onClick={() => handleDayClick(day)}
                                     >
                                         {shouldDisplayYear && <div className={styles.yearNumber}>{year}</div>}
                                         {shouldDisplayNepaliYear && <div className={styles.nepaliYearNumber}>{nepaliYear}</div>}

@@ -1,10 +1,30 @@
-// components/DraggableCalendarEvent.js
+// components/DraggableCalendarEvent.tsx
+'use client';
+
 import React, { useRef, useEffect, useState } from 'react';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import styles from '../styles/Calendar.module.css'; // Import your calendar styles
 
-export const DraggableCalendarEvent = ({ item, index, onClick }) => {
-    const eventRef = useRef(null);
+// Defining this interface here for now so we can type the props
+export interface CalendarItem {
+    id: string;
+    title: string;
+    startDate: string;
+    endDate: string;
+    isAllDay: boolean;
+    description?: string;
+    // Allow flexible properties for InstantDB data
+    [key: string]: any;
+}
+
+interface DraggableCalendarEventProps {
+    item: CalendarItem;
+    index: number;
+    onClick: (e: React.MouseEvent) => void;
+}
+
+export const DraggableCalendarEvent = ({ item, index, onClick }: DraggableCalendarEventProps) => {
+    const eventRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
 
     useEffect(() => {

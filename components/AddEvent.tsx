@@ -10,14 +10,46 @@ import { Switch } from '@/components/ui/switch';
 import { format, addHours, addDays, parse, parseISO } from 'date-fns';
 
 const APP_ID = 'df733414-7ccd-45bd-85f3-ffd0b3da8812'; //kepler.local
+
+// Define a local interface for the event structure
+interface CalendarItem {
+    id: string;
+    title: string;
+    description?: string;
+    startDate: string;
+    endDate: string;
+    isAllDay: boolean;
+    [key: string]: any;
+}
+
+interface AddEventFormProps {
+    selectedDate: Date | null;
+    selectedEvent: CalendarItem | null;
+    onClose: () => void;
+    defaultStartTime?: string;
+}
+
+// RENAMED: Changed from FormData to EventFormData to avoid conflict with built-in Browser FormData
+interface EventFormData {
+    id: string;
+    title: string;
+    description: string;
+    startDate: string;
+    endDate: string;
+    startTime: string;
+    endTime: string;
+    isAllDay: boolean;
+}
+
 const db = init({
     appId: APP_ID,
     apiURI: 'http://localhost:8888',
     websocketURI: 'ws://localhost:8888/runtime/session',
 });
 
-const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime = '10:00' }) => {
-    const [formData, setFormData] = useState({
+const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime = '10:00' }: AddEventFormProps) => {
+    // FIX: Ensure there is a ( immediately after the generic >
+    const [formData, setFormData] = useState<EventFormData>({
         id: '',
         title: '',
         description: '',
@@ -70,14 +102,14 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         }
     }, [selectedDate, selectedEvent, defaultStartTime]);
 
-    const handleChange = (e) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setFormData((prevState) => {
             const newState = { ...prevState, [name]: value };
 
             if (name === 'startTime' && !prevState.isAllDay) {
                 const startDateTime = parse(value, 'HH:mm', new Date());
-                const timeDiff = parse(prevState.endTime, 'HH:mm', new Date()) - parse(prevState.startTime, 'HH:mm', new Date());
+                const timeDiff = parse(prevState.endTime, 'HH:mm', new Date()).getTime() - parse(prevState.startTime, 'HH:mm', new Date()).getTime();
                 const newEndTime = addHours(startDateTime, timeDiff / (60 * 60 * 1000));
                 newState.endTime = format(newEndTime, 'HH:mm');
             }
@@ -86,7 +118,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         });
     };
 
-    const handleAllDayToggle = (checked) => {
+    const handleAllDayToggle = (checked: boolean) => {
         setFormData((prevState) => ({
             ...prevState,
             isAllDay: checked,
@@ -94,7 +126,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         }));
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         let startDateObj, endDateObj;
 

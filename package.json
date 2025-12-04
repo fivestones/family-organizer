@@ -33,7 +33,7 @@
     "formidable": "^3.5.2",
     "lucide-react": "^0.437.0",
     "minio": "^8.0.6",
-    "nepali-date-converter": "^3.3.2",
+    "nepali-date-converter": "^3.4.0",
     "next": "^16.0.6",
     "pdfjs-dist": "^4.4.168",
     "prosemirror-state": "^1.4.4",
