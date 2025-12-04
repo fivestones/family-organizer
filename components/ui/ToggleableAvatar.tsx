@@ -1,5 +1,6 @@
 // components/ui/ToggleableAvatar.tsx
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom'; // +++ Import createPortal +++
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/use-toast';
@@ -58,9 +59,13 @@ const ToggleableAvatar = ({ name, photoUrls, isComplete, onToggle, isDisabled = 
     // State now holds the array of sparkle data instead of just a boolean
     const [sparkles, setSparkles] = useState<SparkleConfig[]>([]);
 
-    // Use a ref to track if this is the first render to avoid sparkles on page load
-    // (Remove this ref logic if you DO want it to sparkle when loading a completed page)
-    const isFirstRender = useRef(true);
+    // +++ New State for Portal Positioning +++
+    const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, height: 0 });
+    const buttonRef = useRef<HTMLButtonElement>(null); // Ref to measure the avatar button
+
+    // We use this ref to track if the completion was triggered by a user click.
+    // This prevents sparkles from showing when navigating to a day where the task is already complete.
+    const wasToggledRef = useRef(false);
 
     const initials = name
         .split(' ')
@@ -101,23 +106,33 @@ const ToggleableAvatar = ({ name, photoUrls, isComplete, onToggle, isDisabled = 
 
     // +++ Effect to handle the temporary sparkle state +++
     useEffect(() => {
-        // Skip the check on the very first render
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-            return;
-        }
+        // Only trigger sparkles if complete, not disabled, AND the user just toggled it.
+        if (isComplete && !isDisabled && wasToggledRef.current) {
+            // 1. Capture current position for the Portal
+            if (buttonRef.current) {
+                const rect = buttonRef.current.getBoundingClientRect();
+                setCoords({
+                    top: rect.top,
+                    left: rect.left,
+                    width: rect.width,
+                    height: rect.height,
+                });
+            }
 
-        if (isComplete && !isDisabled) {
-            // 1. Generate random sparkles and set state
+            // 2. Generate random sparkles and set state
             setSparkles(generateSparkles());
 
-            // 2. Clear sparkles after 2 seconds
+            // 2. Clear sparkles after 2.5 seconds
             const timer = setTimeout(() => {
                 setSparkles([]);
-            }, 2000); // Sparkles last for 2 seconds
+            }, 2500);
+
+            // Reset the toggle ref so it doesn't fire again on re-renders/navigation
+            wasToggledRef.current = false;
+
             return () => clearTimeout(timer);
-        } else {
-            // If toggled off, clear immediately
+        } else if (!isComplete) {
+            // If toggled off (or loaded as incomplete), clear immediately
             setSparkles([]);
         }
     }, [isComplete, isDisabled]);
@@ -131,6 +146,8 @@ const ToggleableAvatar = ({ name, photoUrls, isComplete, onToggle, isDisabled = 
             });
         } else {
             // +++ Call original onToggle only if not disabled +++
+            // Record that this action came from the user
+            wasToggledRef.current = pressed;
             onToggle(pressed);
         }
     };
@@ -154,12 +171,13 @@ const ToggleableAvatar = ({ name, photoUrls, isComplete, onToggle, isDisabled = 
                     }
                 }
                 .animate-sparkle {
-                    // Using 'forwards' ensures it doesn't loop endlessly if the JS timeout fails
-                    animation: sparkle-spin 1000ms linear forwards;
+                    // Changed 'forwards' to 'both' to ensure opacity:0 applies during the animation-delay
+                    animation: sparkle-spin 1000ms linear both;
                 }
             `}</style>
 
             <Toggle
+                ref={buttonRef} // +++ Attach Ref here +++
                 pressed={isComplete && !isDisabled} // Visually unpress if disabled, even if technically complete by user
                 // +++ Use the new handler +++
                 onPressedChange={handleToggle}
@@ -171,15 +189,26 @@ const ToggleableAvatar = ({ name, photoUrls, isComplete, onToggle, isDisabled = 
                 // +++ Disable the underlying button semantics +++
                 disabled={isDisabled}
             >
-                {/* --- Sparkles Overlay Container --- */}
-                {/* Rendered outside the main avatar div so they can spill out of the bounding box easily */}
-                {sparkles.length > 0 && (
-                    <div className="absolute inset-0 pointer-events-none overflow-visible">
-                        {sparkles.map((sparkle) => (
-                            <Sparkle key={sparkle.id} data={sparkle} />
-                        ))}
-                    </div>
-                )}
+                {/* --- Sparkles Portal --- */}
+                {/* By moving this to a Portal, we break out of the overflow:hidden/scroll containers of the list */}
+                {sparkles.length > 0 &&
+                    typeof document !== 'undefined' &&
+                    createPortal(
+                        <div
+                            className="fixed z-[9999] pointer-events-none overflow-visible"
+                            style={{
+                                top: coords.top,
+                                left: coords.left,
+                                width: coords.width,
+                                height: coords.height,
+                            }}
+                        >
+                            {sparkles.map((sparkle) => (
+                                <Sparkle key={sparkle.id} data={sparkle} />
+                            ))}
+                        </div>,
+                        document.body
+                    )}
 
                 <div
                     className={cn(
