@@ -8,6 +8,8 @@ import { File as FileIcon, Loader2, X, Maximize2, Minimize2 } from 'lucide-react
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { PDFPreview } from './PDFPreview';
+// +++ NEW IMPORT +++
+import { Fireworks } from '@/components/ui/fireworks';
 
 interface Props {
     tasks: Task[]; // These are the "Scheduled" tasks returned by getTasksForDate
@@ -292,13 +294,17 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                                     {/* Main Row: Checkbox + Text */}
                                     <div className="flex items-start space-x-3 w-full">
                                         {/* Checkbox remains separate from Popover trigger */}
-                                        <Checkbox
-                                            id={`task-${task.id}`}
-                                            checked={task.isCompleted}
-                                            disabled={isReadOnly}
-                                            onCheckedChange={() => onToggle(task.id, task.isCompleted)}
-                                            className="mt-0.5 h-4 w-4 border-muted-foreground/50 data-[state=checked]:bg-primary data-[state=checked]:border-primary flex-shrink-0"
-                                        />
+
+                                        <div className="relative">
+                                            <Fireworks active={task.isCompleted} />
+                                            <Checkbox
+                                                id={`task-${task.id}`}
+                                                checked={task.isCompleted}
+                                                disabled={isReadOnly}
+                                                onCheckedChange={() => onToggle(task.id, task.isCompleted)}
+                                                className="mt-0.5 h-4 w-4 border-muted-foreground/50 data-[state=checked]:bg-primary data-[state=checked]:border-primary flex-shrink-0 relative z-10"
+                                            />
+                                        </div>
 
                                         {/* Split Trigger and Subtitle/Link to avoid nested buttons */}
                                         <div className="flex flex-col flex-1 min-w-0">
