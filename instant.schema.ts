@@ -76,6 +76,7 @@ const _schema = i.schema({
             imageUrl: i.any().optional(),
             isPaused: i.any().optional(),
             isUpForGrabs: i.boolean().optional(),
+            isJoint: i.boolean().optional(),
             pastCompletionLimit: i.any().optional(),
             recurrenceRule: i.any().optional(),
             rewardAmount: i.number().optional(),

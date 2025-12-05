@@ -265,6 +265,25 @@ function ChoreList({
                 {filteredChores.map((chore) => {
                     // Determine assigned members for THIS specific date
                     const assignedMembers = getAssignedMembersForChoreOnDate(chore, safeSelectedDate);
+
+                    // +++ Logic for "with..." text +++
+                    let withOthersText = null;
+                    // +++ Check isJoint constraint +++
+                    if (selectedMember !== 'All' && chore.isJoint) {
+                        const otherAssignees = assignedMembers.filter((m) => m.id !== selectedMember);
+                        if (otherAssignees.length > 0) {
+                            const names = otherAssignees.map((m) => m.name).filter(Boolean);
+                            if (names.length === 1) {
+                                withOthersText = `with ${names[0]}`;
+                            } else if (names.length === 2) {
+                                withOthersText = `with ${names[0]} and ${names[1]}`;
+                            } else if (names.length > 2) {
+                                const last = names.pop();
+                                withOthersText = `with ${names.join(', ')}, and ${last}`;
+                            }
+                        }
+                    }
+
                     // +++ Check if UpForGrabs and completed by someone else +++
                     let upForGrabsCompletedByOther = false;
                     let completerName = '';
@@ -380,6 +399,9 @@ function ChoreList({
                                         >
                                             {chore.title}
                                         </span>
+                                        {/* +++ ADDED: "with..." Text +++ */}
+                                        {withOthersText && <span className="text-xs text-muted-foreground whitespace-nowrap">{withOthersText}</span>}
+
                                         <span className="text-xs text-muted-foreground whitespace-nowrap">XP: {chore.weight ?? 0}</span>
                                         {/* +++ ADDED: Up for Grabs Label +++ */}
                                         {chore.isUpForGrabs && (

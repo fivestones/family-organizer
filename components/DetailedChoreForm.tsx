@@ -34,8 +34,8 @@ interface ChoreSaveData {
     rotationType: 'none' | 'daily' | 'weekly' | 'monthly';
     assignments: { order: number; familyMember: any }[] | null; // Adjust 'any' if FamilyMember type is available here
     weight?: number | null;
-    // +++ NEW: Fields for up-for-grabs chores +++
     isUpForGrabs?: boolean | null;
+    isJoint?: boolean | null;
     rewardType?: 'fixed' | 'weight' | null;
     rewardAmount?: number | null;
     rewardCurrency?: string | null;
@@ -69,10 +69,9 @@ function DetailedChoreForm({
     const [rotationType, setRotationType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
     const [rotationOrder, setRotationOrder] = useState<string[]>([]);
     const [useRotation, setUseRotation] = useState(false);
-    // +++ NEW: State for chore weight +++
     const [weight, setWeight] = useState<string>('0'); // Default to '0'
-    // +++ NEW: State for up-for-grabs fields +++
     const [isUpForGrabs, setIsUpForGrabs] = useState(false);
+    const [isJoint, setIsJoint] = useState(false);
     const [rewardType, setRewardType] = useState<'fixed' | 'weight'>('weight'); // Default to weight-based
     const [rewardAmount, setRewardAmount] = useState<string>('');
     const [rewardCurrency, setRewardCurrency] = useState<string>('');
@@ -111,10 +110,12 @@ function DetailedChoreForm({
             setTitle(initialChore.title);
             setDescription(initialChore.description || '');
             setStartDate(toUTCDate(new Date(initialChore.startDate)));
-            // +++ NEW: Set initial weight +++
+            // +++ Set initial weight +++
             setWeight(initialChore.weight !== null && initialChore.weight !== undefined ? String(initialChore.weight) : '');
-            // +++ NEW: Set initial up-for-grabs state +++
+            // +++ Set initial up-for-grabs state +++
             setIsUpForGrabs(initialChore.isUpForGrabs ?? false);
+            // +++ Set initial joint state +++
+            setIsJoint(initialChore.isJoint ?? false);
             setRewardType(initialChore.rewardType === 'fixed' ? 'fixed' : 'weight'); // Default to weight if not set
             setRewardAmount(initialChore.rewardAmount !== null && initialChore.rewardAmount !== undefined ? String(initialChore.rewardAmount) : '');
             setRewardCurrency(initialChore.rewardCurrency || '');
@@ -177,6 +178,7 @@ function DetailedChoreForm({
             setWeight('0'); // Reset to '0' instead of ''
             // +++ NEW: Reset up-for-grabs fields +++
             setIsUpForGrabs(false);
+            setIsJoint(false);
             setRewardType('weight');
             setRewardAmount('');
             setRewardCurrency('');
@@ -207,19 +209,6 @@ function DetailedChoreForm({
         }
         // We're not setting rotationOrder to an empty array if assignees is empty
     }, [assignees, useRotation, isUpForGrabs]); // +++ Added isUpForGrabs dependency +++
-
-    // useEffect(() => {
-    //   console.log("Current state:", {
-    //     title,
-    //     assignees,
-    //     description,
-    //     startDate,
-    //     recurrenceOptions,
-    //     rotationType,
-    //     rotationOrder,
-    //     useRotation
-    //   });
-    // });
 
     const handleAssigneeToggle = (memberId: string) => {
         const currentlySelected = assignees.includes(memberId);
@@ -329,8 +318,8 @@ function DetailedChoreForm({
                       }))
                     : null, // Send null if not using rotation or no one is in rotation order
             weight: finalWeight, // Use parsed weight or null
-            // +++ NEW: Add up-for-grabs fields +++
             isUpForGrabs: isUpForGrabs,
+            isJoint: isJoint,
             rewardType: isUpForGrabs ? rewardType : null, // Only set rewardType if up for grabs
             rewardAmount: finalRewardAmount,
             rewardCurrency: finalRewardCurrency,
@@ -397,8 +386,8 @@ function DetailedChoreForm({
             : assignees.length > 0
             ? assignees.map((id) => familyMembers.find((m) => m.id === id)).filter(Boolean)
             : [], // Direct assignees if rotation is off
-        // +++ Add preview fields +++
         isUpForGrabs: isUpForGrabs,
+        isJoint: isJoint,
         rewardType: isUpForGrabs ? rewardType : null,
         rewardAmount: isUpForGrabs && rewardType === 'fixed' ? parseFloat(rewardAmount) || 0 : null,
         rewardCurrency: isUpForGrabs && rewardType === 'fixed' ? rewardCurrency : null,
@@ -431,7 +420,14 @@ function DetailedChoreForm({
             {/* +++ NEW: Up for Grabs Toggle +++ */}
             <div className="space-y-3 pt-3 border-t">
                 <div className="flex items-center space-x-2">
-                    <Switch id="isUpForGrabs" checked={isUpForGrabs} onCheckedChange={setIsUpForGrabs} />
+                    <Switch
+                        id="isUpForGrabs"
+                        checked={isUpForGrabs}
+                        onCheckedChange={(checked) => {
+                            setIsUpForGrabs(checked);
+                            if (checked) setIsJoint(false); // Mutually exclusive
+                        }}
+                    />
                     <Label htmlFor="isUpForGrabs">Up for Grabs Chore</Label>
                 </div>
                 <p className="text-xs text-muted-foreground pl-8">
@@ -589,6 +585,20 @@ function DetailedChoreForm({
                 </div>
                 {assignees.length === 0 && <p className="text-xs text-destructive">At least one assignee is required.</p>}
             </div>
+
+            {/* +++ NEW: Joint Chore Checkbox (Condition: >1 assignee AND NOT Up for Grabs) +++ */}
+            {assignees.length > 1 && !isUpForGrabs && (
+                <div className="space-y-2 pt-2">
+                    <div className="flex items-center space-x-2">
+                        <Switch id="isJoint" checked={isJoint} onCheckedChange={setIsJoint} />
+                        <Label htmlFor="isJoint">Joint Chore</Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground pl-8">
+                        Check this if the selected members work together to complete one single task (e.g., 'Clean Game Room'). Leave unchecked if they each do
+                        their own individual task (e.g., 'Math Practice').
+                    </p>
+                </div>
+            )}
 
             {/* Rotation Options - Only show if more than one assignee selected AND NOT Up for Grabs */}
             {assignees.length > 1 && !isUpForGrabs && (

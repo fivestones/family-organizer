@@ -79,6 +79,7 @@ interface Chore {
         dateCompleted?: string;
     }[];
     isUpForGrabs?: boolean;
+    isJoint?: boolean;
     rewardType?: 'fixed' | 'weight';
     rewardAmount?: number;
     rewardCurrency?: string;
@@ -253,8 +254,8 @@ function ChoresTracker() {
                 rrule: choreData.rrule || null,
                 rotationType: choreData.rotationType || 'none',
                 weight: choreData.weight ?? null, // Save weight, null if undefined
-                // +++ NEW: Save up-for-grabs fields +++
                 isUpForGrabs: choreData.isUpForGrabs ?? false,
+                isJoint: choreData.isJoint ?? false,
                 rewardType: choreData.rewardType ?? null,
                 rewardAmount: choreData.rewardAmount ?? null,
                 rewardCurrency: choreData.rewardCurrency ?? null,
@@ -419,8 +420,8 @@ function ChoresTracker() {
                     rrule: updatedChoreData.rrule,
                     rotationType: updatedChoreData.rotationType,
                     weight: updatedChoreData.weight ?? null,
-                    // +++ NEW: Update up-for-grabs fields +++
                     isUpForGrabs: updatedChoreData.isUpForGrabs ?? false,
+                    isJoint: updatedChoreData.isJoint ?? false,
                     rewardType: updatedChoreData.rewardType ?? null,
                     rewardAmount: updatedChoreData.rewardAmount ?? null,
                     rewardCurrency: updatedChoreData.rewardCurrency ?? null,
