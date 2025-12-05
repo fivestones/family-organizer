@@ -69,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 });
             } else {
                 // ID exists in storage but not in DB (maybe deleted?), clear it
-                logout();
+                // logout(); // <--- DISABLED: Prevents logout on HMR/Fast Refresh updates
             }
         } else if (!currentUserId) {
             setCurrentUser(null);
