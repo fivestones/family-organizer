@@ -365,15 +365,23 @@ export function getRecursiveTaskCompletionTransactions(taskId: string, isComplet
 
     // Safety depth to prevent infinite loops in malformed cyclic trees
     let depth = 0;
-    while (currentTask.parentTask && currentTask.parentTask.length > 0 && depth < 50) {
-        const parentId = currentTask.parentTask[0].id;
+
+    // FIX: Safely access parentId here
+    const getSafeParentId = (t: Task) => {
+        if (Array.isArray(t.parentTask)) return t.parentTask[0]?.id;
+        return (t.parentTask as any)?.id;
+    };
+
+    let parentId = getSafeParentId(currentTask);
+
+    while (parentId && depth < 50) {
         const parent = taskMap.get(parentId);
 
         if (!parent) break;
 
         // Find ALL immediate children of this parent from our (potentially updated) map
         // We look for tasks that point to this parent
-        const children = Array.from(taskMap.values()).filter((t) => t.parentTask?.[0]?.id === parentId);
+        const children = Array.from(taskMap.values()).filter((t) => getSafeParentId(t) === parentId);
 
         // THE GOLDEN RULE:
         // Parent's 'childTasksComplete' is TRUE if and only if:
@@ -407,6 +415,7 @@ export function getRecursiveTaskCompletionTransactions(taskId: string, isComplet
 
         // Move up
         currentTask = parent;
+        parentId = getSafeParentId(currentTask);
         depth++;
     }
 

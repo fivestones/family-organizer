@@ -17,13 +17,24 @@ interface Props {
     onToggle: (taskId: string, currentStatus: boolean) => void;
     isReadOnly?: boolean;
     selectedMember: string | null | 'All';
-    showDetails: boolean; // Controlled by parent (global toggle)
+    showDetails: boolean;
 }
+
+// --- SAFE ACCESSOR HELPER ---
+const getParentId = (task: Task): string | undefined => {
+    if (!task.parentTask) return undefined;
+    if (Array.isArray(task.parentTask)) {
+        return task.parentTask[0]?.id;
+    }
+    return (task.parentTask as any).id;
+};
 
 // Helper to check if a node has visible children in the current schedule
 const hasScheduledChildren = (parentId: string, scheduledIds: Set<string>, allTasks: Task[]) => {
-    // Look for any task in 'allTasks' that points to 'parentId' AND is in 'scheduledIds'
-    return allTasks.some((t) => t.parentTask?.[0]?.id === parentId && scheduledIds.has(t.id));
+    return allTasks.some((t) => {
+        const pId = getParentId(t);
+        return pId === parentId && scheduledIds.has(t.id);
+    });
 };
 
 // --- Helper Component: File Thumbnail (fetches text preview if needed) ---
@@ -136,15 +147,18 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
             let current = task;
             // Safety: limit depth to avoid infinite loops if data is malformed
             let depth = 0;
-            while (current.parentTask && current.parentTask.length > 0 && depth < 10) {
-                const parentId = current.parentTask[0].id;
-                // If parent already added, stop walking up (assuming tree is consistent)
+            // FIX: Use safe getParentId helper in loop
+            let parentId = getParentId(current);
+
+            while (parentId && depth < 10) {
+                // If parent already added, stop walking up
                 if (visibleNodesMap.has(parentId)) break;
 
                 const parent = allTasks.find((t) => t.id === parentId);
                 if (parent) {
                     visibleNodesMap.set(parent.id, parent);
                     current = parent;
+                    parentId = getParentId(current); // Update for next iteration
                 } else {
                     break;
                 }
@@ -196,8 +210,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                 const isParentGroup = hasScheduledChildren(task.id, scheduledIds, allTasks);
                 const isHeader = isParentGroup || !isScheduled;
 
-                // Subtitle Logic: "Task X of Y"
-                const parentId = task.parentTask?.[0]?.id;
+                // Subtitle Logic
+                const parentId = getParentId(task);
                 let subtitle = null;
                 let breadcrumbs = '';
 
@@ -206,9 +220,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                     if (parent) {
                         breadcrumbs = parent.text;
                         // Find siblings AND filter out day breaks so they don't inflate the count
-                        const siblings = allTasks
-                            .filter((t) => t.parentTask?.[0]?.id === parentId && !t.isDayBreak)
-                            .sort((a, b) => (a.order || 0) - (b.order || 0));
+                        const siblings = allTasks.filter((t) => getParentId(t) === parentId && !t.isDayBreak).sort((a, b) => (a.order || 0) - (b.order || 0));
                         const index = siblings.findIndex((t) => t.id === task.id) + 1;
                         const total = siblings.length;
 
@@ -228,9 +240,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                 // Determine if this task's details are visible (Global toggle OR Local override)
                 const isDetailsVisible = showDetails || localExpandedIds.has(task.id);
 
-                const directChildren = allTasks
-                    .filter((t) => t.parentTask?.[0]?.id === task.id && !t.isDayBreak)
-                    .sort((a, b) => (a.order || 0) - (b.order || 0));
+                const directChildren = allTasks.filter((t) => getParentId(t) === task.id && !t.isDayBreak).sort((a, b) => (a.order || 0) - (b.order || 0));
 
                 // Shared Popover Content Definition to avoid duplication in JSX
                 const popoverContent = (
