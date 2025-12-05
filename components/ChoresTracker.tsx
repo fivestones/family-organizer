@@ -599,66 +599,56 @@ function ChoresTracker() {
             <div className="w-3/4 p-4 flex flex-col h-screen space-y-4">
                 {' '}
                 {/* h-screen on Right Panel: Sets a fixed boundary for the right panel based on the viewport height. Content exceeding this won't cause page scroll if overflow is handled internally. */}
-                <h2 className="text-xl font-bold flex-shrink-0">
-                    {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find((m) => m.id === selectedMember)?.name}'s Chores`}
-                </h2>
-                {/* View Toggle Buttons */}
-                {/* <div className="flex-shrink-0">
-          <Button
-            variant={viewMode === 'list' ? 'default' : 'outline'}
-            className="mr-2"
-            onClick={() => setViewMode('list')}
-          >
-            List View
-          </Button>
-          <Button
-            variant={viewMode === 'calendar' ? 'default' : 'outline'}
-            onClick={() => setViewMode('calendar')}
-          >
-            Calendar View
-          </Button>
-              </div> */}
-                {/* DateCarousel */}
-                <div className="mb-4 flex-shrink-0">
-                    {/* Pass UTC date to initialDate */}
-                    <DateCarousel onDateSelect={handleDateSelect} initialDate={selectedDate} />
-                </div>
-                {/* Add Chore Button */}
-                <div className="flex-shrink-0 text-right">
-                    <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
-                        {/* +++ Use RestrictedButton Trigger Logic +++ */}
-                        {/* Since DialogTrigger wraps a child, we need to handle the click intercept *before* the dialog opens if restricted. 
+                {/* +++ UPDATED LAYOUT: Top Bar Container +++ */}
+                <div className="flex items-center justify-between gap-4 flex-shrink-0">
+                    {/* 1. Header Title */}
+                    <h2 className="text-xl font-bold whitespace-nowrap">
+                        {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find((m) => m.id === selectedMember)?.name}'s Chores`}
+                    </h2>
+
+                    {/* 2. DateCarousel (Centered and Flexible) */}
+                    <div className="flex-grow flex justify-center min-w-0">
+                        {/* Pass UTC date to initialDate */}
+                        <DateCarousel onDateSelect={handleDateSelect} initialDate={selectedDate} />
+                    </div>
+
+                    {/* 3. Add Chore Button */}
+                    <div className="flex-shrink-0">
+                        <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
+                            {/* +++ Use RestrictedButton Trigger Logic +++ */}
+                            {/* Since DialogTrigger wraps a child, we need to handle the click intercept *before* the dialog opens if restricted. 
                             However, Shadcn DialogTrigger is tricky with conditional prevention.
                             Simpler approach: Render RestrictedButton. If not restricted, it acts as trigger.
                         */}
-                        {canAddChore ? (
-                            <DialogTrigger asChild>
-                                <Button variant="default">
+                            {canAddChore ? (
+                                <DialogTrigger asChild>
+                                    <Button variant="default">
+                                        <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
+                                    </Button>
+                                </DialogTrigger>
+                            ) : (
+                                <RestrictedButton isRestricted={true} restrictionMessage="Only parents can add chores." variant="default">
                                     <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
-                                </Button>
-                            </DialogTrigger>
-                        ) : (
-                            <RestrictedButton isRestricted={true} restrictionMessage="Only parents can add chores." variant="default">
-                                <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
-                            </RestrictedButton>
-                        )}
-                        <DialogContent className="sm:max-w-[500px]">
-                            {' '}
-                            {/* Adjust width as needed */}
-                            <DialogHeader>
-                                <DialogTitle>Add New Chore</DialogTitle>
-                            </DialogHeader>
-                            {/* Pass computed currencyOptions and other necessary props */}
-                            <DetailedChoreForm
-                                familyMembers={familyMembers}
-                                onSave={addChore}
-                                initialDate={selectedDate} // Pass the selected date
-                                db={db} // Pass db instance
-                                unitDefinitions={unitDefinitions} // Pass definitions
-                                currencyOptions={currencyOptions} // Pass computed options
-                            />
-                        </DialogContent>
-                    </Dialog>
+                                </RestrictedButton>
+                            )}
+                            <DialogContent className="sm:max-w-[500px]">
+                                {' '}
+                                {/* Adjust width as needed */}
+                                <DialogHeader>
+                                    <DialogTitle>Add New Chore</DialogTitle>
+                                </DialogHeader>
+                                {/* Pass computed currencyOptions and other necessary props */}
+                                <DetailedChoreForm
+                                    familyMembers={familyMembers}
+                                    onSave={addChore}
+                                    initialDate={selectedDate} // Pass the selected date
+                                    db={db} // Pass db instance
+                                    unitDefinitions={unitDefinitions} // Pass definitions
+                                    currencyOptions={currencyOptions} // Pass computed options
+                                />
+                            </DialogContent>
+                        </Dialog>
+                    </div>
                 </div>
                 {/* Chores List Area */}
                 {viewMode === 'list' ? (
