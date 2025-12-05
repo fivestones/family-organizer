@@ -7,7 +7,7 @@ import db from '@/lib/db'; // <--- FIX: Import the global DB instance with full 
 // import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, SlidersHorizontal } from 'lucide-react';
 import FamilyMembersList from './FamilyMembersList';
 import ChoreList from './ChoreList';
 import DetailedChoreForm from './DetailedChoreForm';
@@ -22,6 +22,9 @@ import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 // +++ NEW IMPORTS +++
 import { useAuth } from '@/components/AuthProvider';
 import { RestrictedButton } from '@/components/ui/RestrictedButton';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -46,6 +49,9 @@ interface FamilyMember {
     allowancePayoutDelayDays?: number | null;
     // +++ ADD ROLE +++
     role?: string | null;
+    // +++ VIEW SETTINGS +++
+    viewShowChoreDescriptions?: boolean;
+    viewShowTaskDetails?: boolean;
 }
 
 // Updated Chore interface
@@ -409,7 +415,7 @@ function ChoresTracker() {
                 tx.chores[choreId].update({
                     title: updatedChoreData.title,
                     description: updatedChoreData.description,
-                    startDate: updatedChoreData.startDate, // Already ISO string from form
+                    startDate: updatedChoreData.startDate,
                     rrule: updatedChoreData.rrule,
                     rotationType: updatedChoreData.rotationType,
                     weight: updatedChoreData.weight ?? null,
@@ -492,25 +498,15 @@ function ChoresTracker() {
                     if (existingAssignment) {
                         // Update existing assignment order if necessary
                         if (existingAssignment.order !== index) {
-                            transactions.push(
-                                tx.choreAssignments[existingAssignment.id].update({
-                                    order: index,
-                                })
-                            );
+                            transactions.push(tx.choreAssignments[existingAssignment.id].update({ order: index }));
                         }
                     } else {
                         // Create new assignment
                         const newAssignmentId = id();
                         transactions.push(
-                            tx.choreAssignments[newAssignmentId].update({
-                                order: index,
-                            }),
-                            tx.chores[choreId].link({
-                                assignments: newAssignmentId,
-                            }),
-                            tx.familyMembers[assignment.familyMember.id].link({
-                                choreAssignments: newAssignmentId,
-                            })
+                            tx.choreAssignments[newAssignmentId].update({ order: index }),
+                            tx.chores[choreId].link({ assignments: newAssignmentId }),
+                            tx.familyMembers[assignment.familyMember.id].link({ choreAssignments: newAssignmentId })
                         );
                     }
                 });
@@ -578,6 +574,25 @@ function ChoresTracker() {
     const isParent = currentUser?.role === 'parent';
     const canAddChore = isParent;
 
+    // +++ Persistence for View Settings +++
+    // We assume 'currentUser' is available and synced with familyMembers in the DB.
+    // If not authenticated, default to false.
+    const loggedInMember = familyMembers.find((m) => m.id === currentUser?.id);
+
+    // +++ FIX: Default Settings Logic +++
+    // If viewing a specific person (not 'All'), default to TRUE (Show everything).
+    // If viewing 'All', default to FALSE (Hide details to reduce clutter).
+    // This applies if the user is Logged Out OR if they haven't explicitly set a preference (value is null/undefined).
+    const defaultViewSetting = selectedMember !== 'All';
+
+    const showChoreDescriptions = loggedInMember?.viewShowChoreDescriptions ?? defaultViewSetting;
+    const showTaskDetails = loggedInMember?.viewShowTaskDetails ?? defaultViewSetting;
+
+    const toggleViewSetting = (setting: 'viewShowChoreDescriptions' | 'viewShowTaskDetails', value: boolean) => {
+        if (!loggedInMember) return;
+        db.transact(tx.familyMembers[loggedInMember.id].update({ [setting]: value }));
+    };
+
     return (
         <div className="min-h-screen flex">
             {/* left sidebar */}
@@ -601,10 +616,45 @@ function ChoresTracker() {
                 {/* h-screen on Right Panel: Sets a fixed boundary for the right panel based on the viewport height. Content exceeding this won't cause page scroll if overflow is handled internally. */}
                 {/* +++ UPDATED LAYOUT: Top Bar Container +++ */}
                 <div className="flex items-center justify-between gap-4 flex-shrink-0">
-                    {/* 1. Header Title */}
-                    <h2 className="text-xl font-bold whitespace-nowrap">
-                        {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find((m) => m.id === selectedMember)?.name}'s Chores`}
-                    </h2>
+                    {/* 1. Header Title & Add Chore Button Column */}
+                    <div className="flex flex-col gap-2">
+                        <h2 className="text-xl font-bold whitespace-nowrap">
+                            {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find((m) => m.id === selectedMember)?.name}'s Chores`}
+                        </h2>
+
+                        <div className="flex-shrink-0">
+                            <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
+                                {/* +++ Use RestrictedButton Trigger Logic +++ */}
+                                {canAddChore ? (
+                                    <DialogTrigger asChild>
+                                        <Button variant="default" size="sm">
+                                            <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
+                                        </Button>
+                                    </DialogTrigger>
+                                ) : (
+                                    <RestrictedButton isRestricted={true} restrictionMessage="Only parents can add chores." variant="default" size="sm">
+                                        <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
+                                    </RestrictedButton>
+                                )}
+                                <DialogContent className="sm:max-w-[500px]">
+                                    {' '}
+                                    {/* Adjust width as needed */}
+                                    <DialogHeader>
+                                        <DialogTitle>Add New Chore</DialogTitle>
+                                    </DialogHeader>
+                                    {/* Pass computed currencyOptions and other necessary props */}
+                                    <DetailedChoreForm
+                                        familyMembers={familyMembers}
+                                        onSave={addChore}
+                                        initialDate={selectedDate} // Pass the selected date
+                                        db={db} // Pass db instance
+                                        unitDefinitions={unitDefinitions} // Pass definitions
+                                        currencyOptions={currencyOptions} // Pass computed options
+                                    />
+                                </DialogContent>
+                            </Dialog>
+                        </div>
+                    </div>
 
                     {/* 2. DateCarousel (Centered and Flexible) */}
                     <div className="flex-grow flex justify-center min-w-0">
@@ -612,42 +662,43 @@ function ChoresTracker() {
                         <DateCarousel onDateSelect={handleDateSelect} initialDate={selectedDate} />
                     </div>
 
-                    {/* 3. Add Chore Button */}
+                    {/* 3. Settings Button (Right side) */}
                     <div className="flex-shrink-0">
-                        <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
-                            {/* +++ Use RestrictedButton Trigger Logic +++ */}
-                            {/* Since DialogTrigger wraps a child, we need to handle the click intercept *before* the dialog opens if restricted. 
-                            However, Shadcn DialogTrigger is tricky with conditional prevention.
-                            Simpler approach: Render RestrictedButton. If not restricted, it acts as trigger.
-                        */}
-                            {canAddChore ? (
-                                <DialogTrigger asChild>
-                                    <Button variant="default">
-                                        <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
-                                    </Button>
-                                </DialogTrigger>
-                            ) : (
-                                <RestrictedButton isRestricted={true} restrictionMessage="Only parents can add chores." variant="default">
-                                    <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
-                                </RestrictedButton>
-                            )}
-                            <DialogContent className="sm:max-w-[500px]">
-                                {' '}
-                                {/* Adjust width as needed */}
-                                <DialogHeader>
-                                    <DialogTitle>Add New Chore</DialogTitle>
-                                </DialogHeader>
-                                {/* Pass computed currencyOptions and other necessary props */}
-                                <DetailedChoreForm
-                                    familyMembers={familyMembers}
-                                    onSave={addChore}
-                                    initialDate={selectedDate} // Pass the selected date
-                                    db={db} // Pass db instance
-                                    unitDefinitions={unitDefinitions} // Pass definitions
-                                    currencyOptions={currencyOptions} // Pass computed options
-                                />
-                            </DialogContent>
-                        </Dialog>
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="outline" size="icon">
+                                    <SlidersHorizontal className="h-4 w-4" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-60" align="end">
+                                <div className="grid gap-4">
+                                    <div className="space-y-2">
+                                        <h4 className="font-medium leading-none">View Options</h4>
+                                        <p className="text-sm text-muted-foreground">Customize your chore list view.</p>
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="show-descriptions">Chore Descriptions</Label>
+                                            <Switch
+                                                id="show-descriptions"
+                                                checked={showChoreDescriptions}
+                                                onCheckedChange={(val) => toggleViewSetting('viewShowChoreDescriptions', val)}
+                                                disabled={!loggedInMember} // Disable if not logged in
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="show-details">Show Task Details</Label>
+                                            <Switch
+                                                id="show-details"
+                                                checked={showTaskDetails}
+                                                onCheckedChange={(val) => toggleViewSetting('viewShowTaskDetails', val)}
+                                                disabled={!loggedInMember}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </PopoverContent>
+                        </Popover>
                     </div>
                 </div>
                 {/* Chores List Area */}
@@ -675,6 +726,8 @@ function ChoresTracker() {
                                 // +++ NEW PROPS +++
                                 currentUser={currentUser}
                                 canEditChores={isParent} // Only parents can edit/delete
+                                showChoreDescriptions={showChoreDescriptions}
+                                showTaskDetails={showTaskDetails}
                             />
                             {/* Optional: Add back allowance balance display if needed */}
                             {/* {selectedMember !== 'All' && ( ... allowance display ... )} */}

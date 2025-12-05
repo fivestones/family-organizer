@@ -105,9 +105,10 @@ const _schema = i.schema({
             name: i.string(),
             order: i.number().indexed(),
             photoUrls: i.json().optional(),
-            // +++ NEW AUTH FIELDS +++
             role: i.string().optional(), // 'parent' or 'child'
             pinHash: i.string().optional(),
+            viewShowChoreDescriptions: i.boolean().optional(),
+            viewShowTaskDetails: i.boolean().optional(),
         }),
         settings: i.entity({
             name: i.string(),

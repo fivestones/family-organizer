@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Edit, Trash2, BookOpen, BookX } from 'lucide-react'; // Added BookOpen/BookX for toggle
+import { Edit, Trash2 } from 'lucide-react';
 import { createRRuleWithStartDate, getAssignedMembersForChoreOnDate, toUTCDate } from '@/lib/chore-utils';
 import { format } from 'date-fns';
 import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
@@ -11,8 +11,6 @@ import DetailedChoreForm from './DetailedChoreForm';
 import { tx } from '@instantdb/react';
 import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions, isSeriesActiveForDate } from '@/lib/task-scheduler'; // Added getRecursiveTaskCompletionTransactions and isSeriesActiveForDate
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Added for toggle tooltip
-// +++ NEW IMPORT +++
 import { useToast } from '@/components/ui/use-toast';
 
 // Helper: Check if a task functions as a header (has visible children)
@@ -36,6 +34,8 @@ function ChoreList({
     // +++ NEW PROPS +++
     currentUser,
     canEditChores,
+    showChoreDescriptions, // View Setting
+    showTaskDetails, // View Setting
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
 
@@ -48,16 +48,27 @@ function ChoreList({
 
     // --- NEW: Manage expanded state for Task Series details (Show/Hide) ---
     // Key: choreId, Value: boolean (true = visible)
-    const [expandedChores, setExpandedChores] = useState<Record<string, boolean>>({});
+    // NOTE: This now serves as a LOCAL override for the global showTaskDetails setting.
+    // However, since we removed the book icon, user can't toggle this manually for the whole chore anymore.
+    // The requirement is: "We will remove the book icon... But we will leave in place the 'view details' link in tasks"
+    // The "view details" link inside TaskSeriesChecklist handles its OWN local state.
+    // So this `expandedChores` state might be redundant unless we want to keep it for some reason?
+    // Actually, `TaskSeriesChecklist` takes `showDetails`. We should pass the GLOBAL setting there.
+    // The `TaskSeriesChecklist` component has its own `localExpandedIds` state for individual task overrides.
+    // So we don't need `expandedChores` at this level anymore.
+
+    // const [expandedChores, setExpandedChores] = useState<Record<string, boolean>>({});
+
     // +++ NEW HOOK +++
     const { toast } = useToast();
 
-    const toggleChoreDetails = (choreId: string) => {
+    /* const toggleChoreDetails = (choreId: string) => {
         setExpandedChores((prev) => ({
             ...prev,
             [choreId]: !prev[choreId],
         }));
     };
+    */
 
     const safeSelectedDate =
         selectedDate instanceof Date && !isNaN(selectedDate.getTime())
@@ -265,8 +276,13 @@ function ChoreList({
                     // --- Determine visibility of details ---
                     // Default behavior: Open if a specific member is selected, Closed if 'All' is selected.
                     // This can be overridden by the user toggling it.
-                    const isExplicitlyExpanded = expandedChores[chore.id];
-                    const showDetails = isExplicitlyExpanded !== undefined ? isExplicitlyExpanded : selectedMember !== 'All';
+                    // const isExplicitlyExpanded = expandedChores[chore.id];
+                    // const showDetails = isExplicitlyExpanded !== undefined ? isExplicitlyExpanded : selectedMember !== 'All';
+
+                    // +++ UPDATE: Use Global View Setting +++
+                    const showDetails = showTaskDetails; // We simply pass the global boolean.
+                    // Individual task expansion inside the checklist is handled by `TaskSeriesChecklist`'s local state.
+
                     const hasTaskSeries = chore.taskSeries && chore.taskSeries.length > 0;
 
                     return (
@@ -343,79 +359,66 @@ function ChoreList({
                                         })}
                                 </div>
                                 {/* +++ Gray out title if disabled (only when a single member is selected) +++ */}
-                                <div className="flex-grow flex items-center gap-2 min-w-0">
-                                    <span
-                                        className={`truncate ${
-                                            upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''
-                                        }`}
-                                    >
-                                        {chore.title}
-                                        {chore.rrule && <span className="ml-2 text-sm text-gray-500 hidden sm:inline">(Recurring)</span>}
-                                    </span>
-                                    {/* Updated: Render Label for each Active Task Series */}
-                                    {chore.taskSeries?.map((series: any) => {
-                                        // 1. Identify Owner
-                                        const rawOwner = series.familyMember?.[0] || series.familyMember;
-                                        const ownerId = rawOwner?.id;
+                                <div className="flex-grow flex flex-col min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <span
+                                            className={`truncate ${
+                                                upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''
+                                            }`}
+                                        >
+                                            {chore.title}
+                                        </span>
+                                        {/* Updated: Render Label for each Active Task Series */}
+                                        {chore.taskSeries?.map((series: any) => {
+                                            // 1. Identify Owner
+                                            const rawOwner = series.familyMember?.[0] || series.familyMember;
+                                            const ownerId = rawOwner?.id;
 
-                                        // 2. Strict Display Logic
-                                        // If a specific member is selected in sidebar, AND this series belongs to someone else -> HIDE
-                                        if (selectedMember !== 'All' && ownerId && ownerId !== selectedMember) {
-                                            return null;
-                                        }
+                                            // 2. Strict Display Logic
+                                            // If a specific member is selected in sidebar, AND this series belongs to someone else -> HIDE
+                                            if (selectedMember !== 'All' && ownerId && ownerId !== selectedMember) {
+                                                return null;
+                                            }
 
-                                        // If 'All' is selected, BUT the owner is not assigned to this chore TODAY -> HIDE
-                                        // (e.g. Rotation has moved to someone else)
-                                        if (selectedMember === 'All' && ownerId) {
-                                            const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
-                                            if (!isOwnerAssignedToday) return null;
-                                        }
+                                            // If 'All' is selected, BUT the owner is not assigned to this chore TODAY -> HIDE
+                                            // (e.g. Rotation has moved to someone else)
+                                            if (selectedMember === 'All' && ownerId) {
+                                                const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
+                                                if (!isOwnerAssignedToday) return null;
+                                            }
 
-                                        // 3. Time Activity Check
-                                        const isActive = isSeriesActiveForDate(
-                                            series.tasks || [],
-                                            chore.rrule || null,
-                                            chore.startDate,
-                                            safeSelectedDate,
-                                            series.startDate || null
-                                        );
-
-                                        if (isActive) {
-                                            return (
-                                                <span
-                                                    key={series.id}
-                                                    className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-blue-200 transition-colors whitespace-nowrap"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        if (onEditTaskSeries) onEditTaskSeries(series.id);
-                                                    }}
-                                                >
-                                                    {series.name}
-                                                </span>
+                                            // 3. Time Activity Check
+                                            const isActive = isSeriesActiveForDate(
+                                                series.tasks || [],
+                                                chore.rrule || null,
+                                                chore.startDate,
+                                                safeSelectedDate,
+                                                series.startDate || null
                                             );
-                                        }
-                                        return null;
-                                    })}
 
-                                    {/* Show/Hide Details Toggle Button inline with title */}
-                                    {hasTaskSeries && (
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-6 w-6 ml-1 text-muted-foreground hover:text-foreground"
-                                                        onClick={() => toggleChoreDetails(chore.id)}
+                                            if (isActive) {
+                                                return (
+                                                    <span
+                                                        key={series.id}
+                                                        className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-blue-200 transition-colors whitespace-nowrap"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (onEditTaskSeries) onEditTaskSeries(series.id);
+                                                        }}
                                                     >
-                                                        {showDetails ? <BookOpen className="h-4 w-4" /> : <BookX className="h-4 w-4" />}
-                                                    </Button>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>{showDetails ? 'Hide' : 'Show'} details</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
+                                                        {series.name}
+                                                    </span>
+                                                );
+                                            }
+                                            return null;
+                                        })}
+
+                                        {/* +++ REMOVED BookOpen/BookX Button and TooltipProvider +++ */}
+                                    </div>
+
+                                    {/* +++ SHOW DESCRIPTION CONDITIONALLY +++ */}
+                                    {showChoreDescriptions && chore.description && (
+                                        <div className="text-xs text-muted-foreground mt-0.5">{chore.description}</div>
                                     )}
                                 </div>
 
@@ -485,7 +488,7 @@ function ChoreList({
                                                 onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks)}
                                                 isReadOnly={!isToday}
                                                 selectedMember={selectedMember} // <--- PASS DOWN FOR TOGGLE LOGIC
-                                                showDetails={showDetails} // <--- Pass controlled prop
+                                                showDetails={showDetails} // <--- Pass controlled prop (GLOBAL SETTING)
                                             />
                                         </div>
                                     );
