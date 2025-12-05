@@ -20,8 +20,8 @@ const s3Internal = new S3Client({
 });
 
 // 2. Signing Client (for Browser-facing URLs)
-// Uses the Public Hostname (http://localhost:9000)
-const PUBLIC_ENDPOINT = process.env.NEXT_PUBLIC_S3_ENDPOINT || 'http://localhost:9000';
+// Uses the Public Hostname (http://fam.yapmf.com:9000)
+const PUBLIC_ENDPOINT = process.env.NEXT_PUBLIC_S3_ENDPOINT || 'http://fam.yapnf.com:9000';
 
 const s3Signer = new S3Client({
     region: 'us-east-1',
@@ -72,7 +72,7 @@ export async function getPresignedUploadUrl(contentType: string, fileName: strin
     const Key = `${randomUUID()}-${fileName}`;
 
     try {
-        // Use s3Signer so the URL points to localhost:9000, not minio:9000
+        // Use s3Signer so the URL points to fam.yapnf.com:9000, not minio:9000
         const { url, fields } = await createPresignedPost(s3Signer, {
             Bucket: BUCKET_NAME,
             Key,

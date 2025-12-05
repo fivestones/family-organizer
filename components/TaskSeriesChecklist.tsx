@@ -432,7 +432,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                                         </div>
                                     ) : /\.pdf$/i.test(previewFile.url) ? (
                                         // --- PDF VIEWER ---
-                                        <PDFPreview url={`/files/${previewFile.url}`} />
+                                        <PDFPreview url={`/files/${encodeURIComponent(previewFile.url)}`} />
                                     ) : /\.(txt|md|csv|log)$/i.test(previewFile.url) ? (
                                         <div className="p-4 w-full flex justify-center">
                                             {loadingText ? (

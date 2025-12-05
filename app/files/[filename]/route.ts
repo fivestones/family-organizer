@@ -4,7 +4,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // 1. PUBLIC ENDPOINT: This is what the BROWSER uses to reach MinIO.
 // We force this for signing so the signature matches the browser's request.
-const PUBLIC_ENDPOINT = process.env.NEXT_PUBLIC_S3_ENDPOINT || 'http://localhost:9000';
+const PUBLIC_ENDPOINT = process.env.NEXT_PUBLIC_S3_ENDPOINT || 'http://fam.yapnf.com:9000';
 
 // Initialize a specific client just for signing URLs
 const s3Signer = new S3Client({
@@ -39,7 +39,7 @@ export async function GET(
         // Generate the URL using the signer client (pointing to localhost)
         const signedUrl = await getSignedUrl(s3Signer, command, { expiresIn: 3600 });
 
-        // 307 Redirect: Browser goes directly to MinIO (localhost:9000)
+        // 307 Redirect: Browser goes directly to MinIO (fam.yapnf.com:9000)
         return NextResponse.redirect(signedUrl, { status: 307 });
     } catch (error) {
         console.error('Error generating redirect:', error);

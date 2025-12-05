@@ -1,12 +1,16 @@
 'use client';
 
 import React from 'react';
-import { PdfLoader, PdfHighlighter } from 'react-pdf-highlighter';
+// --- CHANGE: Use dynamic imports for the library components ---
+import dynamic from 'next/dynamic';
 import { Loader2 } from 'lucide-react';
 
 // --- ADD THIS IMPORT ---
 import 'react-pdf-highlighter/dist/style.css';
-// -----------------------
+
+// Dynamically import PdfLoader and PdfHighlighter with SSR disabled
+const PdfLoader = dynamic(() => import('react-pdf-highlighter').then((mod) => mod.PdfLoader), { ssr: false });
+const PdfHighlighter = dynamic(() => import('react-pdf-highlighter').then((mod) => mod.PdfHighlighter), { ssr: false });
 
 interface Props {
     url: string;
