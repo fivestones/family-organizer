@@ -46,6 +46,9 @@ function ChoreList({
         incompleteTaskIds: string[];
     } | null>(null);
 
+    // +++ NEW STATE: Track chore for deletion confirmation +++
+    const [choreToDelete, setChoreToDelete] = useState<string | null>(null);
+
     // --- NEW: Manage expanded state for Task Series details (Show/Hide) ---
     // Key: choreId, Value: boolean (true = visible)
     // NOTE: This now serves as a LOCAL override for the global showTaskDetails setting.
@@ -149,7 +152,16 @@ function ChoreList({
             toast({ title: 'Access Denied', description: 'Only parents can delete chores.', variant: 'destructive' });
             return;
         }
-        deleteChore(id);
+        // +++ CHANGE: Set state for confirmation instead of deleting immediately +++
+        setChoreToDelete(id);
+    };
+
+    // +++ CONFIRM DELETE HANDLER +++
+    const confirmDeleteChore = () => {
+        if (choreToDelete) {
+            deleteChore(choreToDelete);
+            setChoreToDelete(null);
+        }
     };
 
     const handleUpdateChore = (updatedChore) => {
@@ -368,6 +380,13 @@ function ChoreList({
                                         >
                                             {chore.title}
                                         </span>
+                                        <span className="text-xs text-muted-foreground whitespace-nowrap">XP: {chore.weight ?? 0}</span>
+                                        {/* +++ ADDED: Up for Grabs Label +++ */}
+                                        {chore.isUpForGrabs && (
+                                            <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 border border-green-200">
+                                                Up for Grabs
+                                            </span>
+                                        )}
                                         {/* Updated: Render Label for each Active Task Series */}
                                         {chore.taskSeries?.map((series: any) => {
                                             // 1. Identify Owner
@@ -412,8 +431,6 @@ function ChoreList({
                                             }
                                             return null;
                                         })}
-
-                                        {/* +++ REMOVED BookOpen/BookX Button and TooltipProvider +++ */}
                                     </div>
 
                                     {/* +++ SHOW DESCRIPTION CONDITIONALLY +++ */}
@@ -534,6 +551,23 @@ function ChoreList({
                             Cancel
                         </Button>
                         <Button onClick={confirmMarkAllAndComplete}>Mark All Done & Complete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            {/* +++ Delete Confirmation Dialog +++ */}
+            <Dialog open={!!choreToDelete} onOpenChange={(open) => !open && setChoreToDelete(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Chore</DialogTitle>
+                        <DialogDescription>Are you sure you want to delete this chore? This action cannot be undone.</DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setChoreToDelete(null)}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={confirmDeleteChore}>
+                            Delete
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
