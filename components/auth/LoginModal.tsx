@@ -8,7 +8,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import db from '@/lib/db';
 import { useAuth } from '@/components/AuthProvider';
-// +++ CHANGED: Import hashPin from server actions +++
 import { hashPin } from '@/app/actions';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -23,6 +22,29 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
     const [pin, setPin] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
+
+    // +++ NEW: Force cleanup of pointer-events on Body +++
+    // This implements the fix found on GitHub to prevent the app from freezing
+    // when the modal unmounts or closes.
+    useEffect(() => {
+        if (isOpen) {
+            // Optional: Remove the lock immediately while open (if Overlay handles clicks)
+            // This mirrors the solution you found:
+            const timer = setTimeout(() => {
+                document.body.style.pointerEvents = '';
+            }, 0);
+            return () => clearTimeout(timer);
+        } else {
+            // Ensure interactions are enabled when closed
+            document.body.style.pointerEvents = 'auto';
+        }
+
+        // IMPORTANT: Cleanup on unmount
+        // This catches the case where ParentGate unmounts this component immediately after login
+        return () => {
+            document.body.style.pointerEvents = 'auto';
+        };
+    }, [isOpen]);
 
     // Fetch members with necessary fields
     const { data, isLoading } = db.useQuery({
@@ -57,8 +79,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         try {
             // Check if member has a PIN set
             if (!member.pinHash) {
-                // If no PIN set, allow login immediately (Setup phase behavior)
-                // Or you might want to block this. For now, assuming friendly access:
+                // If no PIN set, login immediately
                 login({
                     id: member.id,
                     name: member.name,
