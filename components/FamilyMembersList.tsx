@@ -28,6 +28,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { hashPin } from '@/app/actions';
 // +++ NEW: Import Auth Hook +++
 import { useAuth } from '@/components/AuthProvider';
+// +++ NEW: Import Utils for Internal Calculation +++
+import { calculateDailyXP } from '@/lib/chore-utils';
 
 // Define FamilyMember type based on usage
 interface FamilyMember {
@@ -53,8 +55,10 @@ interface FamilyMembersListProps {
     db: any; // InstantDB instance
     // **** NEW Props for balance display ****
     showBalances?: boolean; // To control the feature
-    membersBalances?: { [memberId: string]: { [currency: string]: number } }; // Optional balances map
-    unitDefinitions?: UnitDefinition[]; // Optional currency definitions
+    // +++ OPTIONAL OVERRIDES (If parent wants to force specific data, otherwise calculated internally) +++
+    membersBalances?: { [memberId: string]: { [currency: string]: number } };
+    unitDefinitions?: UnitDefinition[];
+    membersXP?: { [memberId: string]: { current: number; possible: number } };
 }
 
 function FamilyMembersList({
@@ -64,11 +68,82 @@ function FamilyMembersList({
     db,
     // **** Destructure new props ****
     showBalances = false, // Default to false if not provided
-    membersBalances,
-    unitDefinitions = [], // Default to empty array
+    // +++ Default these to undefined so we can check if we need to fetch them +++
+    membersBalances: propBalances,
+    unitDefinitions: propUnitDefs,
+    membersXP: propXP,
 }: FamilyMembersListProps) {
     // **** UPDATED: Removed props ****
     const { currentUser } = useAuth(); // +++ Get current user +++
+
+    // +++ INTERNAL DATA FETCHING (Make component smart) +++
+    // We only fetch if the props weren't provided. This allows backward compatibility/overrides.
+    const shouldFetchData = !propBalances || !propUnitDefs || !propXP;
+
+    const { data: internalData } = db.useQuery(
+        shouldFetchData
+            ? {
+                  // Fetch Chores for XP
+                  chores: {
+                      assignees: {},
+                      assignments: { familyMember: {} },
+                      completions: { completedBy: {} },
+                  },
+                  // Fetch Members+Envelopes for Balances
+                  familyMembers: {
+                      allowanceEnvelopes: {},
+                  },
+                  // Fetch Units for formatting
+                  unitDefinitions: {},
+              }
+            : null
+    );
+
+    // +++ INTERNAL CALCULATIONS +++
+
+    // 1. Resolve Unit Definitions
+    const unitDefinitions = useMemo(() => {
+        return propUnitDefs || (internalData?.unitDefinitions as UnitDefinition[]) || [];
+    }, [propUnitDefs, internalData?.unitDefinitions]);
+
+    // 2. Resolve Balances
+    const membersBalances = useMemo(() => {
+        if (propBalances) return propBalances;
+
+        const balances: { [memberId: string]: { [currency: string]: number } } = {};
+        const membersList = (internalData?.familyMembers as any[]) || [];
+
+        membersList.forEach((member) => {
+            const memberId = member.id;
+            balances[memberId] = {};
+            (member.allowanceEnvelopes || []).forEach((envelope: any) => {
+                if (envelope.balances) {
+                    Object.entries(envelope.balances).forEach(([currency, amount]) => {
+                        const upperCaseCurrency = currency.toUpperCase();
+                        balances[memberId][upperCaseCurrency] = (balances[memberId][upperCaseCurrency] || 0) + (amount as number);
+                    });
+                }
+            });
+        });
+        return balances;
+    }, [propBalances, internalData?.familyMembers]);
+
+    // 3. Resolve XP
+    const membersXP = useMemo(() => {
+        if (propXP) return propXP;
+
+        const chores = internalData?.chores || [];
+        // We use the familyMembers prop for the list of people to calculate for,
+        // ensuring consistency with the list being displayed.
+        // However, calculateDailyXP expects objects with IDs.
+        const now = new Date();
+        const realWorldToday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+
+        return calculateDailyXP(chores, familyMembers, realWorldToday);
+    }, [propXP, internalData?.chores, familyMembers]);
+
+    // --- End Internal Calculation ---
+
     const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
     const [newMemberName, setNewMemberName] = useState('');
     const [newMemberEmail, setNewMemberEmail] = useState('');
@@ -533,11 +608,13 @@ function FamilyMembersList({
                             selectedMember={selectedMember}
                             setSelectedMember={setSelectedMember}
                             showBalances={showBalances}
-                            membersBalances={membersBalances}
-                            unitDefinitions={unitDefinitions}
+                            membersBalances={membersBalances} // +++ Pass calculated or prop balances +++
+                            unitDefinitions={unitDefinitions} // +++ Pass calculated or prop definitions +++
                             handleEditMember={handleEditMember}
                             handleDeleteMember={handleDeleteMember}
                             currentUser={currentUser} // <--- Added this prop
+                            // +++ Pass XP Data +++
+                            xpData={membersXP?.[member.id]}
                         />
                     );
                 })}

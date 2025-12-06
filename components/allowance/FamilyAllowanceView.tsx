@@ -11,6 +11,7 @@ import MemberAllowanceDetail from '@/components/allowance/MemberAllowanceDetail'
 
 // **** Import types ****
 import { UnitDefinition, Envelope, computeMonetaryCurrencies } from '@/lib/currency-utils';
+import { calculateDailyXP } from '@/lib/chore-utils'; // +++ Added Import +++
 
 // It's generally better to initialize db once, perhaps in a central file
 // If initializing here, ensure Schema type is imported
@@ -72,25 +73,6 @@ export default function FamilyAllowanceView() {
     const allEnvelopes: Envelope[] = useMemo(() => appData?.allowanceEnvelopes || [], [appData?.allowanceEnvelopes]);
     const unitDefinitions: UnitDefinition[] = useMemo(() => appData?.unitDefinitions || [], [appData?.unitDefinitions]);
 
-    // **** NEW: Compute total balances per member ****
-    const membersBalances = useMemo(() => {
-        const balances: { [memberId: string]: { [currency: string]: number } } = {};
-        // Use appData.familyMembers which directly links envelopes to members
-        (appData?.familyMembers || []).forEach((member) => {
-            const memberId = member.id;
-            balances[memberId] = {}; // Initialize balance object for member
-            (member.allowanceEnvelopes || []).forEach((envelope) => {
-                if (envelope.balances) {
-                    Object.entries(envelope.balances).forEach(([currency, amount]) => {
-                        const upperCaseCurrency = currency.toUpperCase();
-                        balances[memberId][upperCaseCurrency] = (balances[memberId][upperCaseCurrency] || 0) + amount;
-                    });
-                }
-            });
-        });
-        return balances;
-    }, [appData?.familyMembers]); // Depend on the queried data structure
-
     // +++ Use the new utility function +++
     const allMonetaryCurrenciesInUse = useMemo(() => {
         return computeMonetaryCurrencies(allEnvelopes, unitDefinitions);
@@ -120,8 +102,14 @@ export default function FamilyAllowanceView() {
                     db={db}
                     // **** NEW: Pass balance data ****
                     showBalances={true} // Enable balance display
-                    membersBalances={membersBalances}
+                    // membersBalances and unitDefinitions are now optional.
+                    // FamilyMembersList will fetch them internally if not passed.
+                    // But since we have them here already, passing them is fine too.
+                    // Actually, let's let the component handle it to prove it works.
+                    // But for efficiency, if we have them, we should pass them.
+                    // Let's pass the unitDefinitions at least as they are cheap.
                     unitDefinitions={unitDefinitions}
+                    membersXP={membersXP} // +++ Pass XP Data +++
                 />
             </div>
 

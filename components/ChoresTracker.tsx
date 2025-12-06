@@ -12,7 +12,7 @@ import FamilyMembersList from './FamilyMembersList';
 import ChoreList from './ChoreList';
 import DetailedChoreForm from './DetailedChoreForm';
 import DateCarousel from '@/components/ui/DateCarousel';
-import { createRRuleWithStartDate, getNextOccurrence, toUTCDate } from '@/lib/chore-utils'; // Ensure toUTCDate is imported
+import { createRRuleWithStartDate, getNextOccurrence, toUTCDate, calculateDailyXP } from '@/lib/chore-utils'; // +++ Added calculateDailyXP +++
 import { useToast } from '@/components/ui/use-toast';
 import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
 // **** NEW: Import types and utility ****
@@ -191,6 +191,15 @@ function ChoresTracker() {
         });
         return balances;
     }, [familyMembers]); // Recalculate when familyMembers data changes
+
+    // +++ NEW: Compute XP for "Real-World Today" +++
+    const membersXP = useMemo(() => {
+        const now = new Date();
+        // Create UTC midnight for today
+        const realWorldToday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+
+        return calculateDailyXP(chores, familyMembers, realWorldToday);
+    }, [chores, familyMembers]);
 
     // +++ Compute Currency Data +++
     const allMonetaryCurrenciesInUse = useMemo(() => {
@@ -608,6 +617,8 @@ function ChoresTracker() {
                     showBalances={true} // Enable balance display
                     membersBalances={membersBalances}
                     unitDefinitions={unitDefinitions}
+                    // +++ NEW: Pass XP data +++
+                    membersXP={membersXP}
                 />
             </div>
 

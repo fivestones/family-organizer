@@ -23,7 +23,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 const STORAGE_KEY = 'family_organizer_user_id';
 
 export function AuthProvider({ children }: { children: ReactNode }) {

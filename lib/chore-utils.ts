@@ -713,3 +713,87 @@ export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Dat
 
     return dateAssignments;
 };
+
+// +++ NEW: Calculate XP Function +++
+/**
+ * Calculates XP (Current and Possible) for all family members for a specific date.
+ * Rules:
+ * 1. Fixed Reward chores = 0 XP.
+ * 2. Zero weight chores = 0 XP.
+ * 3. Up For Grabs:
+ * - If unclaimed: Counts to Possible for all assignees.
+ * - If claimed by A: Counts to Possible/Current for A. Removed from Possible for others.
+ */
+export const calculateDailyXP = (chores: any[], familyMembers: any[], date: Date): { [memberId: string]: { current: number; possible: number } } => {
+    const xpMap: { [memberId: string]: { current: number; possible: number } } = {};
+
+    // Initialize map
+    familyMembers.forEach((m) => {
+        xpMap[m.id] = { current: 0, possible: 0 };
+    });
+
+    const dateStr = date.toISOString().slice(0, 10);
+
+    // Helper to safely extract ID from potential Array or Object relation
+    const getCompleterId = (completion: any) => {
+        const raw = completion?.completedBy;
+        return Array.isArray(raw) ? raw[0]?.id : raw?.id;
+    };
+
+    chores.forEach((chore) => {
+        // 1. Skip if Fixed Reward (Currency) or No Weight
+        if (chore.rewardType === 'fixed') return;
+        const weight = chore.weight || 0;
+        if (weight === 0) return;
+
+        // 2. Determine Assignment
+        const assignedMembers = getAssignedMembersForChoreOnDate(chore, date);
+        if (assignedMembers.length === 0) return;
+
+        // 3. Get ALL completions for this date (Fix: use filter, not find)
+        const completionsForDate = chore.completions?.filter((c: any) => c.dateDue === dateStr && c.completed) || [];
+
+        // 4. Calculate Logic
+        if (chore.isUpForGrabs) {
+            // Logic: Up For Grabs usually has only ONE completion.
+            // If it exists, it counts for that person(s) ONLY.
+            // If it doesn't exist, it is possible for EVERYONE.
+
+            if (completionsForDate.length > 0) {
+                // Case: Claimed
+                completionsForDate.forEach((c: any) => {
+                    const completerId = getCompleterId(c);
+                    if (completerId && xpMap[completerId]) {
+                        xpMap[completerId].possible += weight;
+                        xpMap[completerId].current += weight;
+                    }
+                });
+            } else {
+                // Case: Unclaimed (Up for Grabs)
+                // Add to 'possible' for ALL assignees
+                assignedMembers.forEach((assignee) => {
+                    if (xpMap[assignee.id]) {
+                        xpMap[assignee.id].possible += weight;
+                    }
+                });
+            }
+        } else {
+            // Case: Standard Chore (Assigned to multiple people, multiple people can do it)
+            assignedMembers.forEach((assignee) => {
+                if (xpMap[assignee.id]) {
+                    // It is always POSSIBLE for an assignee
+                    xpMap[assignee.id].possible += weight;
+
+                    // Check if THIS SPECIFIC assignee has a completion record
+                    const hasCompleted = completionsForDate.some((c: any) => getCompleterId(c) === assignee.id);
+
+                    if (hasCompleted) {
+                        xpMap[assignee.id].current += weight;
+                    }
+                }
+            });
+        }
+    });
+
+    return xpMap;
+};

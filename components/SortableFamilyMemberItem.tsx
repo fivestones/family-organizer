@@ -36,6 +36,8 @@ interface SortableFamilyMemberItemProps {
     handleEditMember: (member: FamilyMember) => void;
     handleDeleteMember: (memberId: string) => void;
     currentUser: any; // +++ NEW PROP +++
+    // +++ NEW: XP Data +++
+    xpData?: { current: number; possible: number };
 }
 
 type DropIndicatorEdge = Edge | null; // 'top' | 'bottom' | 'left' | 'right' | null
@@ -52,6 +54,7 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
     handleEditMember,
     handleDeleteMember,
     currentUser, // +++ Destructure +++
+    xpData, // +++ Destructure +++
 }) => {
     const itemRef = useRef<HTMLDivElement>(null);
     const handleRef = useRef<HTMLButtonElement>(null);
@@ -166,10 +169,20 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
                                     </AvatarFallback>
                                 )}
                             </Avatar>
-                            <span className="flex-grow font-medium">{member.name}</span>
-                            {/* Balance Display */}
+                            {/* +++ Layout Change: Column for Name + XP +++ */}
+                            <div className="flex flex-col flex-grow min-w-0">
+                                <span className="font-medium truncate">{member.name}</span>
+                                {/* +++ XP Display +++ */}
+                                {xpData && (
+                                    <span className="text-xs text-muted-foreground">
+                                        {xpData.current} XP (of {xpData.possible} possible today)
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Balance Display - Right Aligned */}
                             {showBalances && hasBalanceData && (
-                                <div className="ml-auto pl-2 flex-shrink-0 text-xs">
+                                <div className="ml-auto pl-2 flex-shrink-0 text-xs self-center">
                                     <CombinedBalanceDisplay
                                         totalBalances={memberBalance!}
                                         unitDefinitions={unitDefinitions}
@@ -180,7 +193,7 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
                                 </div>
                             )}
                             {showBalances && !hasBalanceData && (
-                                <div className="ml-auto pl-2 flex-shrink-0 text-xs text-muted-foreground italic">No balance</div>
+                                <div className="ml-auto pl-2 flex-shrink-0 text-xs text-muted-foreground italic self-center">No balance</div>
                             )}
                         </div>
                     </Button>
