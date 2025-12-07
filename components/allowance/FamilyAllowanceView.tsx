@@ -11,7 +11,6 @@ import MemberAllowanceDetail from '@/components/allowance/MemberAllowanceDetail'
 
 // **** Import types ****
 import { UnitDefinition, Envelope, computeMonetaryCurrencies } from '@/lib/currency-utils';
-import { calculateDailyXP } from '@/lib/chore-utils'; // +++ Added Import +++
 
 // It's generally better to initialize db once, perhaps in a central file
 // If initializing here, ensure Schema type is imported
@@ -109,7 +108,6 @@ export default function FamilyAllowanceView() {
                     // But for efficiency, if we have them, we should pass them.
                     // Let's pass the unitDefinitions at least as they are cheap.
                     unitDefinitions={unitDefinitions}
-                    membersXP={membersXP} // +++ Pass XP Data +++
                 />
             </div>
 

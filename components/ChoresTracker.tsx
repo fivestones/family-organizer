@@ -197,15 +197,6 @@ function ChoresTracker() {
         return balances;
     }, [familyMembers]); // Recalculate when familyMembers data changes
 
-    // +++ NEW: Compute XP for "Real-World Today" +++
-    const membersXP = useMemo(() => {
-        const now = new Date();
-        // Create UTC midnight for today
-        const realWorldToday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-
-        return calculateDailyXP(chores, familyMembers, realWorldToday);
-    }, [chores, familyMembers]);
-
     // +++ Compute Currency Data +++
     const allMonetaryCurrenciesInUse = useMemo(() => {
         // Use the utility function imported from currency-utils
@@ -643,8 +634,6 @@ function ChoresTracker() {
                     showBalances={true} // Enable balance display
                     membersBalances={membersBalances}
                     unitDefinitions={unitDefinitions}
-                    // +++ NEW: Pass XP data +++
-                    membersXP={membersXP}
                 />
             </div>
 
