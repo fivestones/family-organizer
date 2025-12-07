@@ -1,7 +1,7 @@
 // components/ChoresTracker.tsx
 'use client';
 
-import React, { useState, useMemo } from 'react'; // Added useMemo
+import React, { useState, useMemo } from 'react'; // Removed useEffect
 import { tx, id } from '@instantdb/react'; // Removed init, keep tx/id
 import db from '@/lib/db'; // <--- FIX: Import the global DB instance with full schema
 // import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -153,7 +153,12 @@ function ChoresTracker() {
         // **** Fetch all envelopes for currency computation ****
         allowanceEnvelopes: {}, // Fetch all top-level envelopes
         // **** Fetch chore assignments and completions if needed for update/delete logic ****
-        choreAssignments: {}, // Example: Fetch needed for update/delete
+
+        // +++ FIX: Request 'chore' relation so we can filter by it in updateChore +++
+        choreAssignments: {
+            chore: {}, // Ensure we fetch the parent chore
+        },
+
         choreCompletions: {
             // Fetch top-level completions needed for the check
             chore: {},
@@ -447,7 +452,20 @@ function ChoresTracker() {
             const oldAssigneeIds = new Set(existingChore.assignees?.map((a) => a.id) ?? []);
             // Get IDs of existing linked assignments (rotation)
             // --- Fetch existing assignments directly from data if needed ---
-            const existingAssignments: any[] = (data?.choreAssignments as any)?.filter((a: any) => a.chore?.[0]?.id === choreId) || []; // Fetch if query includes choreAssignments linked to chore
+
+            // --- FILTER: Attempt to find assignments for this chore
+            // The logic below handles BOTH 'Array' (standard) and 'Object' (possible edge case) relations
+            const existingAssignments: any[] =
+                (data?.choreAssignments as any)?.filter((a: any) => {
+                    if (!a.chore) return false;
+                    // Check if array
+                    if (Array.isArray(a.chore)) {
+                        return a.chore[0]?.id === choreId;
+                    }
+                    // Check if direct object
+                    return (a.chore as any).id === choreId;
+                }) || [];
+
             const oldAssignmentMemberIds = new Set(existingAssignments?.map((a) => a.familyMember?.[0]?.id) ?? []);
 
             // --- Unlink assignees who are no longer selected ---
@@ -482,15 +500,18 @@ function ChoresTracker() {
 
             // Delete old assignments that are no longer needed
             existingAssignments?.forEach((assignment) => {
+                // Determine member ID safely
+                const memberId = Array.isArray(assignment.familyMember) ? assignment.familyMember[0]?.id : assignment.familyMember?.id;
+
                 // Use fetched assignments
-                if (!isRotatingNow || !newRotationMemberIds.includes(assignment.familyMember?.[0]?.id)) {
+                if (!isRotatingNow || !newRotationMemberIds.includes(memberId)) {
                     // Check if assignment.id exists before trying to delete
                     if (assignment.id) {
                         transactions.push(tx.choreAssignments[assignment.id].delete());
                         // Unlink from member? Depends if choreAssignments link exists
-                        if (assignment.familyMember?.[0]?.id) {
+                        if (memberId) {
                             transactions.push(
-                                tx.familyMembers[assignment.familyMember[0].id].unlink({
+                                tx.familyMembers[memberId].unlink({
                                     choreAssignments: assignment.id,
                                 })
                             );
@@ -504,7 +525,12 @@ function ChoresTracker() {
             // Add/Update new assignments if rotation is active
             if (isRotatingNow && updatedChoreData.assignments) {
                 updatedChoreData.assignments.forEach((assignment: any, index: any) => {
-                    const existingAssignment = existingAssignments?.find((a) => a.familyMember?.[0]?.id === assignment.familyMember.id);
+                    // Find existing by member ID
+                    const existingAssignment = existingAssignments?.find((a) => {
+                        const memberId = Array.isArray(a.familyMember) ? a.familyMember[0]?.id : a.familyMember?.id;
+                        return memberId === assignment.familyMember.id;
+                    });
+
                     if (existingAssignment) {
                         // Update existing assignment order if necessary
                         if (existingAssignment.order !== index) {

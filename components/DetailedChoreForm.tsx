@@ -107,6 +107,7 @@ function DetailedChoreForm({
 
     useEffect(() => {
         if (initialChore) {
+            console.log('DEBUG: Opening Edit Modal for:', initialChore.title);
             setTitle(initialChore.title);
             setDescription(initialChore.description || '');
             setStartDate(toUTCDate(new Date(initialChore.startDate)));
@@ -152,12 +153,36 @@ function DetailedChoreForm({
             setRotationType(initialChore.rotationType);
 
             if (isRotatingChore && initialChore.assignments) {
-                const rotationIds = initialChore.assignments.filter((assignment) => assignment.familyMember).map((assignment) => assignment.familyMember.id);
+                // +++ DEBUG: Log raw assignments +++
+                console.log('DEBUG: Initial Assignments Raw:', JSON.stringify(initialChore.assignments, null, 2));
+
+                const sortedAssignments = [...initialChore.assignments].sort((a: any, b: any) => {
+                    const orderA = a.order ?? 0;
+                    const orderB = b.order ?? 0;
+                    return orderA - orderB;
+                });
+
+                // +++ DEBUG: Log sorted assignments +++
+                console.log(
+                    'DEBUG: Sorted Assignments:',
+                    sortedAssignments.map((a: any) => `id=${a.id}, order=${a.order}, member=${a.familyMember?.id}`)
+                );
+
+                const rotationIds = sortedAssignments
+                    .map((assignment: any) => {
+                        // Handle potential array vs object structure for familyMember
+                        const fm = Array.isArray(assignment.familyMember) ? assignment.familyMember[0] : assignment.familyMember;
+                        return fm?.id;
+                    })
+                    .filter((id: any) => !!id);
+
+                console.log('DEBUG: Final Rotation IDs:', rotationIds);
+
                 setRotationOrder(rotationIds);
-                const assigneeIds = initialChore.assignees.map((a) => a.id);
+                const assigneeIds = initialChore.assignees.map((a: any) => a.id);
                 setAssignees(assigneeIds);
             } else if (!isRotatingChore && initialChore.assignees) {
-                const assigneeIds = initialChore.assignees.map((a) => a.id);
+                const assigneeIds = initialChore.assignees.map((a: any) => a.id);
                 setAssignees(assigneeIds);
                 // Ensure rotationOrder is empty if not using rotation
                 setRotationOrder([]);
