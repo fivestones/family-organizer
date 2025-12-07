@@ -316,6 +316,9 @@ function ChoreList({
 
                     const hasTaskSeries = chore.taskSeries && chore.taskSeries.length > 0;
 
+                    // +++ Check for negative weight +++
+                    const isNegative = (chore.weight ?? 0) < 0;
+
                     return (
                         <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex flex-col">
                             <div className="flex items-center">
@@ -378,6 +381,7 @@ function ChoreList({
                                                     isDisabled={isDisabled}
                                                     completerName={actualCompleterName}
                                                     choreTitle={chore.title} // Pass chore title for toast
+                                                    isNegative={isNegative} // +++ PASS NEGATIVE FLAG +++
                                                     onToggle={() => {
                                                         // Only allow toggle if not disabled
                                                         if (!isDisabled) {
