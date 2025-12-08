@@ -1,5 +1,5 @@
 import localFont from 'next/font/local';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next'; // Added Viewport type
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import DebugTimeWidget from '@/components/debug/DebugTimeWidget';
@@ -126,7 +126,10 @@ export default function RootLayout({
                                 Family Organizer
                             </Link>
                             {/* +++ Swapped inline nav for the new Client Component +++ */}
-                            <MainNav />
+                            {/* +++ FIX: Wrap MainNav in hidden md:block to explicitly hide on mobile +++ */}
+                            <div className="hidden md:block">
+                                <MainNav />
+                            </div>
                         </div>
                         <div className="flex items-center">
                             <NavbarDate />

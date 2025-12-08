@@ -7,7 +7,18 @@ import db from '@/lib/db'; // <--- FIX: Import the global DB instance with full 
 // import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { PlusCircle, SlidersHorizontal } from 'lucide-react';
+import {
+    PlusCircle,
+    SlidersHorizontal,
+    Menu,
+    Calendar as CalendarIcon,
+    MoreHorizontal,
+    CheckSquare,
+    ListTodo,
+    CreditCard,
+    Settings,
+    Users,
+} from 'lucide-react';
 import FamilyMembersList from './FamilyMembersList';
 import ChoreList from './ChoreList';
 import DetailedChoreForm from './DetailedChoreForm';
@@ -23,8 +34,11 @@ import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 import { useAuth } from '@/components/AuthProvider';
 import { RestrictedButton } from '@/components/ui/RestrictedButton';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils'; // Import cn for class merging
+import Link from 'next/link';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -112,6 +126,10 @@ function ChoresTracker() {
         const now = new Date();
         return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     });
+    // +++ MOBILE STATE +++
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isMobileDateVisible, setIsMobileDateVisible] = useState(false);
+
     const { toast } = useToast();
 
     // +++ NEW: Get Auth +++
@@ -621,9 +639,9 @@ function ChoresTracker() {
     };
 
     return (
-        <div className="min-h-screen flex">
-            {/* left sidebar */}
-            <div className="w-1/4 bg-gray-100 p-4 flex-shrink-0 border-r">
+        <div className="min-h-screen flex flex-col md:flex-row">
+            {/* Left Sidebar (Desktop Only) */}
+            <div className="hidden md:block w-1/4 bg-gray-100 p-4 flex-shrink-0 border-r min-h-screen">
                 <FamilyMembersList
                     familyMembers={familyMembers}
                     selectedMember={selectedMember}
@@ -637,60 +655,167 @@ function ChoresTracker() {
                 />
             </div>
 
-            {/* right content area */}
-            <div className="w-3/4 p-4 flex flex-col h-screen space-y-4">
+            {/* Mobile Menu Modal (New Layout) */}
+            <Dialog open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+                <DialogContent
+                    className={cn(
+                        'fixed z-50 flex flex-col gap-4 bg-background shadow-lg transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',
+                        'w-screen h-[100dvh] max-w-none m-0 rounded-none border-0 top-0 left-0 translate-x-0 translate-y-0',
+                        'pt-12 pb-6 px-4'
+                    )}
+                >
+                    {/* Header Removed (Menu title) */}
+
+                    {/* 1. Top Buttons Grid */}
+                    <div className="grid grid-cols-3 gap-3 mb-2 shrink-0">
+                        {/* Chores Button */}
+                        <Link href="/" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="outline" className="w-full flex flex-col h-auto py-3 gap-1 hover:bg-accent/50">
+                                <CheckSquare className="h-6 w-6 text-primary" />
+                                <span className="text-xs font-medium">Chores</span>
+                            </Button>
+                        </Link>
+
+                        {/* Calendar Button */}
+                        <Link href="/calendar" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="outline" className="w-full flex flex-col h-auto py-3 gap-1 hover:bg-accent/50">
+                                <CalendarIcon className="h-6 w-6 text-blue-500" />
+                                <span className="text-xs font-medium">Calendar</span>
+                            </Button>
+                        </Link>
+
+                        {/* More Button (Dropdown) */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" className="w-full flex flex-col h-auto py-3 gap-1 hover:bg-accent/50">
+                                    <MoreHorizontal className="h-6 w-6 text-muted-foreground" />
+                                    <span className="text-xs font-medium">More</span>
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56" sideOffset={8}>
+                                <Link href="/task-series" onClick={() => setIsMobileMenuOpen(false)}>
+                                    <DropdownMenuItem className="cursor-pointer gap-2">
+                                        <ListTodo className="h-4 w-4" /> Task Series
+                                    </DropdownMenuItem>
+                                </Link>
+                                <Link href="/familyMemberDetail" onClick={() => setIsMobileMenuOpen(false)}>
+                                    <DropdownMenuItem className="cursor-pointer gap-2">
+                                        <CreditCard className="h-4 w-4" /> Manage Finances
+                                    </DropdownMenuItem>
+                                </Link>
+                                <Link href="/allowance-distribution" onClick={() => setIsMobileMenuOpen(false)}>
+                                    <DropdownMenuItem className="cursor-pointer gap-2">
+                                        <Users className="h-4 w-4" /> Allowance Dist.
+                                    </DropdownMenuItem>
+                                </Link>
+                                <Link href="/settings" onClick={() => setIsMobileMenuOpen(false)}>
+                                    <DropdownMenuItem className="cursor-pointer gap-2">
+                                        <Settings className="h-4 w-4" /> Settings
+                                    </DropdownMenuItem>
+                                </Link>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+
+                    {/* 2. Family Members (Takes remaining space) */}
+                    <div className="flex-grow flex flex-col min-h-0 bg-gray-50/50 rounded-xl border p-2 overflow-hidden">
+                        {/* Removed Label "Family & Balance" */}
+                        <div className="flex-grow overflow-y-auto">
+                            <FamilyMembersList
+                                familyMembers={familyMembers}
+                                selectedMember={selectedMember}
+                                setSelectedMember={(id) => {
+                                    setSelectedMember(id);
+                                    setIsMobileMenuOpen(false); // Close menu on selection
+                                }}
+                                db={db}
+                                showBalances={true}
+                                membersBalances={membersBalances}
+                                unitDefinitions={unitDefinitions}
+                            />
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Right content area */}
+            <div className="w-full md:w-3/4 p-4 flex flex-col h-screen space-y-4">
                 {' '}
                 {/* h-screen on Right Panel: Sets a fixed boundary for the right panel based on the viewport height. Content exceeding this won't cause page scroll if overflow is handled internally. */}
                 {/* +++ UPDATED LAYOUT: Top Bar Container +++ */}
-                <div className="flex items-center justify-between gap-4 flex-shrink-0">
+                <div className="flex items-center justify-between gap-2 md:gap-4 flex-shrink-0">
                     {/* 1. Header Title & Add Chore Button Column */}
-                    <div className="flex flex-col gap-2">
-                        <h2 className="text-xl font-bold whitespace-nowrap">
-                            {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find((m) => m.id === selectedMember)?.name}'s Chores`}
-                        </h2>
+                    <div className="flex items-center gap-3">
+                        {/* Mobile Menu Button */}
+                        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsMobileMenuOpen(true)}>
+                            <Menu className="h-5 w-5" />
+                        </Button>
 
-                        <div className="flex-shrink-0">
-                            <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
-                                {/* +++ Use RestrictedButton Trigger Logic +++ */}
-                                {canAddChore ? (
-                                    <DialogTrigger asChild>
-                                        <Button variant="default" size="sm">
+                        <div className="flex flex-col gap-2">
+                            <h2 className="text-lg md:text-xl font-bold whitespace-nowrap">
+                                {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find((m) => m.id === selectedMember)?.name}'s Chores`}
+                            </h2>
+
+                            <div className="flex-shrink-0">
+                                <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
+                                    {/* +++ Use RestrictedButton Trigger Logic +++ */}
+                                    {canAddChore ? (
+                                        <DialogTrigger asChild>
+                                            <Button variant="default" size="sm">
+                                                <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
+                                            </Button>
+                                        </DialogTrigger>
+                                    ) : (
+                                        <RestrictedButton isRestricted={true} restrictionMessage="Only parents can add chores." variant="default" size="sm">
                                             <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
-                                        </Button>
-                                    </DialogTrigger>
-                                ) : (
-                                    <RestrictedButton isRestricted={true} restrictionMessage="Only parents can add chores." variant="default" size="sm">
-                                        <PlusCircle className="mr-2 h-4 w-4" /> Add Chore
-                                    </RestrictedButton>
-                                )}
-                                <DialogContent className="sm:max-w-[500px]">
-                                    {' '}
-                                    {/* Adjust width as needed */}
-                                    <DialogHeader>
-                                        <DialogTitle>Add New Chore</DialogTitle>
-                                    </DialogHeader>
-                                    {/* Pass computed currencyOptions and other necessary props */}
-                                    <DetailedChoreForm
-                                        familyMembers={familyMembers}
-                                        onSave={addChore}
-                                        initialDate={selectedDate} // Pass the selected date
-                                        db={db} // Pass db instance
-                                        unitDefinitions={unitDefinitions} // Pass definitions
-                                        currencyOptions={currencyOptions} // Pass computed options
-                                    />
-                                </DialogContent>
-                            </Dialog>
+                                        </RestrictedButton>
+                                    )}
+                                    <DialogContent className="sm:max-w-[500px]">
+                                        {' '}
+                                        {/* Adjust width as needed */}
+                                        <DialogHeader>
+                                            <DialogTitle>Add New Chore</DialogTitle>
+                                        </DialogHeader>
+                                        {/* Pass computed currencyOptions and other necessary props */}
+                                        <DetailedChoreForm
+                                            familyMembers={familyMembers}
+                                            onSave={addChore}
+                                            initialDate={selectedDate} // Pass the selected date
+                                            db={db} // Pass db instance
+                                            unitDefinitions={unitDefinitions} // Pass definitions
+                                            currencyOptions={currencyOptions} // Pass computed options
+                                        />
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
                         </div>
                     </div>
 
                     {/* 2. DateCarousel (Centered and Flexible) */}
-                    <div className="flex-grow flex justify-center min-w-0">
+                    {/* Desktop: Visible / Mobile: Controlled by toggle */}
+                    <div
+                        className={`
+                        absolute md:static top-[120px] left-0 right-0 z-20 bg-background md:bg-transparent shadow-md md:shadow-none p-2 md:p-0
+                        ${isMobileDateVisible ? 'flex' : 'hidden'} md:flex
+                        flex-grow justify-center min-w-0
+                    `}
+                    >
                         {/* Pass UTC date to initialDate */}
                         <DateCarousel onDateSelect={handleDateSelect} initialDate={selectedDate} />
                     </div>
 
-                    {/* 3. Settings Button (Right side) */}
-                    <div className="flex-shrink-0">
+                    {/* 3. Settings & Mobile Calendar Toggle (Right side) */}
+                    <div className="flex-shrink-0 flex items-center gap-2">
+                        {/* Mobile Date Toggle */}
+                        <Button
+                            variant={isMobileDateVisible ? 'secondary' : 'outline'}
+                            size="icon"
+                            className="md:hidden"
+                            onClick={() => setIsMobileDateVisible(!isMobileDateVisible)}
+                        >
+                            <CalendarIcon className="h-4 w-4" />
+                        </Button>
+
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button variant="outline" size="icon">

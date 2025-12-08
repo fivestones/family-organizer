@@ -6,7 +6,13 @@ import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-export function MainNav() {
+// +++ Added className and onNavigate props for mobile menu reuse +++
+interface MainNavProps {
+    className?: string;
+    onNavigate?: () => void;
+}
+
+export function MainNav({ className, onNavigate }: MainNavProps) {
     const pathname = usePathname();
 
     const links = [
@@ -26,14 +32,16 @@ export function MainNav() {
     };
 
     return (
-        <nav className="flex items-center gap-2">
+        <nav className={cn('flex items-center gap-2', className)}>
             {links.map(({ href, label }) => (
-                <Link key={href} href={href}>
+                <Link key={href} href={href} onClick={onNavigate}>
                     <Button
                         variant="ghost"
                         className={cn(
                             // If active, force the "accent" background (same as hover state)
-                            isActive(href) && 'bg-accent text-accent-foreground'
+                            isActive(href) && 'bg-accent text-accent-foreground',
+                            // +++ Add w-full for mobile vertical layout +++
+                            'w-full justify-start'
                         )}
                     >
                         {label}

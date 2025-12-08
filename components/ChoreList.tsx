@@ -319,224 +319,268 @@ function ChoreList({
                     // +++ Check for negative weight +++
                     const isNegative = (chore.weight ?? 0) < 0;
 
-                    return (
-                        <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex flex-col">
-                            <div className="flex items-center">
-                                <div className="flex space-x-2 mr-4">
-                                    {assignedMembers
-                                        // Filter avatars based on selectedMember OR show all if 'All'
-                                        .filter((assignee) => selectedMember === 'All' || assignee.id === selectedMember)
-                                        .map((assignee) => {
-                                            const completion = chore.completions?.find(
-                                                (c) => c.completedBy?.id === assignee.id && c.dateDue === formattedSelectedDate // Safer check for completedBy
-                                            );
-                                            const familyMember = familyMembers.find((fm) => fm.id === assignee.id);
-                                            // +++ Determine if this specific avatar should be disabled +++
-                                            // Disabled if: It's an UpForGrabs chore completed by someone ELSE
-                                            const isDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && assignee.id !== completerIdActual;
-                                            const actualCompleterName = isDisabled ? completerName : ''; // Pass completer name only if disabling this avatar
+                    // --- COMPONENT EXTRACTION: Render Avatars ---
+                    const renderAvatars = () => (
+                        <div className="flex flex-wrap gap-2">
+                            {assignedMembers
+                                // Filter avatars based on selectedMember OR show all if 'All'
+                                .filter((assignee) => selectedMember === 'All' || assignee.id === selectedMember)
+                                .map((assignee) => {
+                                    const completion = chore.completions?.find(
+                                        (c) => c.completedBy?.id === assignee.id && c.dateDue === formattedSelectedDate // Safer check for completedBy
+                                    );
+                                    const familyMember = familyMembers.find((fm) => fm.id === assignee.id);
+                                    // +++ Determine if this specific avatar should be disabled +++
+                                    // Disabled if: It's an UpForGrabs chore completed by someone ELSE
+                                    const isDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && assignee.id !== completerIdActual;
+                                    const actualCompleterName = isDisabled ? completerName : ''; // Pass completer name only if disabling this avatar
 
-                                            // --- Task Series Calculation for this Assignee ---
-                                            // NOTE: When calculating "visibleTasks" for the avatar click handler,
-                                            // we prioritize the specific series assigned to this person if it exists.
-                                            let visibleTasks: Task[] = [];
-                                            let allTasks: Task[] = []; // Capture all tasks for relationship lookup
+                                    // --- Task Series Calculation for this Assignee ---
+                                    // NOTE: When calculating "visibleTasks" for the avatar click handler,
+                                    // we prioritize the specific series assigned to this person if it exists.
+                                    let visibleTasks: Task[] = [];
+                                    let allTasks: Task[] = []; // Capture all tasks for relationship lookup
 
-                                            // FIX: Strict Series Ownership Check
+                                    // FIX: Strict Series Ownership Check
 
-                                            // 1. Priority: Series specifically assigned to this person
-                                            const userSeries = chore.taskSeries?.find((s: any) => {
-                                                const owner = s.familyMember?.[0] || s.familyMember;
-                                                return owner?.id === assignee.id;
-                                            });
+                                    // 1. Priority: Series specifically assigned to this person
+                                    const userSeries = chore.taskSeries?.find((s: any) => {
+                                        const owner = s.familyMember?.[0] || s.familyMember;
+                                        return owner?.id === assignee.id;
+                                    });
 
-                                            // 2. Secondary: Shared Series (No owner assigned at all)
-                                            const sharedSeries = chore.taskSeries?.find((s: any) => {
-                                                const owner = s.familyMember?.[0] || s.familyMember;
-                                                return !owner;
-                                            });
+                                    // 2. Secondary: Shared Series (No owner assigned at all)
+                                    const sharedSeries = chore.taskSeries?.find((s: any) => {
+                                        const owner = s.familyMember?.[0] || s.familyMember;
+                                        return !owner;
+                                    });
 
-                                            // 3. Selection: Specific > Shared > None
-                                            // (We REMOVED the fallback to index [0] to prevent Bob getting Alice's tasks)
-                                            const targetSeries = userSeries || sharedSeries;
+                                    // 3. Selection: Specific > Shared > None
+                                    const targetSeries = userSeries || sharedSeries;
 
-                                            if (targetSeries && targetSeries.tasks) {
-                                                allTasks = targetSeries.tasks;
-                                                visibleTasks = getTasksForDate(
-                                                    allTasks,
-                                                    chore.rrule,
-                                                    chore.startDate,
-                                                    safeSelectedDate,
-                                                    targetSeries.startDate // <--- PASS SERIES START DATE
-                                                );
-                                            }
-
-                                            return (
-                                                <ToggleableAvatar
-                                                    key={assignee.id}
-                                                    name={assignee.name}
-                                                    photoUrls={familyMember?.photoUrls}
-                                                    isComplete={completion?.completed || false}
-                                                    // Pass down disabled state and completer info
-                                                    isDisabled={isDisabled}
-                                                    completerName={actualCompleterName}
-                                                    choreTitle={chore.title} // Pass chore title for toast
-                                                    isNegative={isNegative} // +++ PASS NEGATIVE FLAG +++
-                                                    onToggle={() => {
-                                                        // Only allow toggle if not disabled
-                                                        if (!isDisabled) {
-                                                            // Use new handler to check for incomplete tasks, passing allTasks for header detection
-                                                            handleAvatarClick(chore, assignee.id, visibleTasks, allTasks);
-                                                        }
-                                                    }}
-                                                />
-                                            );
-                                        })}
-                                </div>
-                                {/* +++ Gray out title if disabled (only when a single member is selected) +++ */}
-                                <div className="flex-grow flex flex-col min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <span
-                                            className={`truncate ${
-                                                upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''
-                                            }`}
-                                        >
-                                            {chore.title}
-                                        </span>
-                                        {/* +++ ADDED: "with..." Text +++ */}
-                                        {withOthersText && <span className="text-xs text-muted-foreground whitespace-nowrap">{withOthersText}</span>}
-
-                                        <span className="text-xs text-muted-foreground whitespace-nowrap">XP: {chore.weight ?? 0}</span>
-                                        {/* +++ ADDED: Up for Grabs Label +++ */}
-                                        {chore.isUpForGrabs && (
-                                            <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 border border-green-200">
-                                                Up for Grabs
-                                            </span>
-                                        )}
-                                        {/* Updated: Render Label for each Active Task Series */}
-                                        {chore.taskSeries?.map((series: any) => {
-                                            // 1. Identify Owner
-                                            const rawOwner = series.familyMember?.[0] || series.familyMember;
-                                            const ownerId = rawOwner?.id;
-
-                                            // 2. Strict Display Logic
-                                            // If a specific member is selected in sidebar, AND this series belongs to someone else -> HIDE
-                                            if (selectedMember !== 'All' && ownerId && ownerId !== selectedMember) {
-                                                return null;
-                                            }
-
-                                            // If 'All' is selected, BUT the owner is not assigned to this chore TODAY -> HIDE
-                                            // (e.g. Rotation has moved to someone else)
-                                            if (selectedMember === 'All' && ownerId) {
-                                                const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
-                                                if (!isOwnerAssignedToday) return null;
-                                            }
-
-                                            // 3. Time Activity Check
-                                            const isActive = isSeriesActiveForDate(
-                                                series.tasks || [],
-                                                chore.rrule || null,
-                                                chore.startDate,
-                                                safeSelectedDate,
-                                                series.startDate || null
-                                            );
-
-                                            if (isActive) {
-                                                return (
-                                                    <span
-                                                        key={series.id}
-                                                        className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-blue-200 transition-colors whitespace-nowrap"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            if (onEditTaskSeries) onEditTaskSeries(series.id);
-                                                        }}
-                                                    >
-                                                        {series.name}
-                                                    </span>
-                                                );
-                                            }
-                                            return null;
-                                        })}
-                                    </div>
-
-                                    {/* +++ SHOW DESCRIPTION CONDITIONALLY +++ */}
-                                    {showChoreDescriptions && chore.description && (
-                                        <div className="text-xs text-muted-foreground mt-0.5">{chore.description}</div>
-                                    )}
-                                </div>
-
-                                {/* +++ Add opacity styling if restricted +++ */}
-                                <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)} className={!canEditChores ? 'opacity-50' : ''}>
-                                    <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button variant="ghost" size="icon" onClick={() => handleDeleteChore(chore.id)} className={!canEditChores ? 'opacity-50' : ''}>
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                            </div>
-
-                            {/* --- Render Task Series Checklist(s) --- */}
-                            <div className="flex flex-col gap-2 mt-2 w-full pl-2">
-                                {chore.taskSeries?.map((series: any) => {
-                                    // 1. Identify the owner of this specific series
-                                    // Handle both object (single link) and array (InstantDB relation) formats
-                                    const rawOwner = series.familyMember?.[0] || series.familyMember;
-                                    const ownerId = rawOwner?.id;
-                                    const ownerName = rawOwner?.name;
-
-                                    // 2. Filter Logic: Should we show this series?
-
-                                    // A. If the series is assigned to a specific person,
-                                    //    only show it if that person is currently assigned to the chore TODAY.
-                                    //    (This hides "Bob's Series" on days where only Alice is on rotation).
-                                    if (ownerId) {
-                                        const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
-                                        if (!isOwnerAssignedToday) return null;
+                                    if (targetSeries && targetSeries.tasks) {
+                                        allTasks = targetSeries.tasks;
+                                        visibleTasks = getTasksForDate(
+                                            allTasks,
+                                            chore.rrule,
+                                            chore.startDate,
+                                            safeSelectedDate,
+                                            targetSeries.startDate // <--- PASS SERIES START DATE
+                                        );
                                     }
 
-                                    // B. Apply the global "Selected Member" filter
-                                    //    If a specific person is picked in the sidebar, hide everyone else's series.
+                                    return (
+                                        <ToggleableAvatar
+                                            key={assignee.id}
+                                            name={assignee.name}
+                                            photoUrls={familyMember?.photoUrls}
+                                            isComplete={completion?.completed || false}
+                                            // Pass down disabled state and completer info
+                                            isDisabled={isDisabled}
+                                            completerName={actualCompleterName}
+                                            choreTitle={chore.title} // Pass chore title for toast
+                                            isNegative={isNegative} // +++ PASS NEGATIVE FLAG +++
+                                            onToggle={() => {
+                                                // Only allow toggle if not disabled
+                                                if (!isDisabled) {
+                                                    // Use new handler to check for incomplete tasks, passing allTasks for header detection
+                                                    handleAvatarClick(chore, assignee.id, visibleTasks, allTasks);
+                                                }
+                                            }}
+                                        />
+                                    );
+                                })}
+                        </div>
+                    );
+
+                    // --- COMPONENT EXTRACTION: Render Details (Title, Desc, Labels) ---
+                    const renderDetails = () => (
+                        <div className="flex-grow flex flex-col min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span
+                                    className={`truncate font-medium ${
+                                        upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''
+                                    }`}
+                                >
+                                    {chore.title}
+                                </span>
+                                {/* +++ ADDED: "with..." Text +++ */}
+                                {withOthersText && <span className="text-xs text-muted-foreground whitespace-nowrap">{withOthersText}</span>}
+
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">XP: {chore.weight ?? 0}</span>
+                                {/* +++ ADDED: Up for Grabs Label +++ */}
+                                {chore.isUpForGrabs && (
+                                    <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 border border-green-200">
+                                        Up for Grabs
+                                    </span>
+                                )}
+                                {/* Updated: Render Label for each Active Task Series */}
+                                {chore.taskSeries?.map((series: any) => {
+                                    // 1. Identify Owner
+                                    const rawOwner = series.familyMember?.[0] || series.familyMember;
+                                    const ownerId = rawOwner?.id;
+
+                                    // 2. Strict Display Logic
+                                    // If a specific member is selected in sidebar, AND this series belongs to someone else -> HIDE
                                     if (selectedMember !== 'All' && ownerId && ownerId !== selectedMember) {
                                         return null;
                                     }
 
-                                    // 3. Calculate Tasks for this specific series
-                                    const allTasks = series.tasks || [];
-                                    const tasks = getTasksForDate(
-                                        allTasks,
-                                        chore.rrule, // Use the Chore's recurrence
-                                        chore.startDate, // Use the Chore's start date
+                                    // If 'All' is selected, BUT the owner is not assigned to this chore TODAY -> HIDE
+                                    // (e.g. Rotation has moved to someone else)
+                                    if (selectedMember === 'All' && ownerId) {
+                                        const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
+                                        if (!isOwnerAssignedToday) return null;
+                                    }
+
+                                    // 3. Time Activity Check
+                                    const isActive = isSeriesActiveForDate(
+                                        series.tasks || [],
+                                        chore.rrule || null,
+                                        chore.startDate,
                                         safeSelectedDate,
-                                        series.startDate // Use the Series specific start date
+                                        series.startDate || null
                                     );
 
-                                    // 4. Check if Up-For-Grabs logic disables this
-                                    //    (Only applies if specific user logic is active)
-                                    const isUpForGrabsDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && ownerId && ownerId !== completerIdActual;
-
-                                    if (tasks.length === 0 || isUpForGrabsDisabled) return null;
-
-                                    return (
-                                        <div key={series.id} className="border-t pt-2 mt-1 first:border-t-0 first:mt-0">
-                                            {/* Header: Only show if we are in 'All' view to distinguish lists */}
-                                            {/* FIX: Only show header if multiple people are assigned to the chore AND it's a personal list */}
-                                            {selectedMember === 'All' && ownerName && assignedMembers.length > 1 && (
-                                                <div className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wider pl-1">
-                                                    {ownerName}'s Checklist
-                                                </div>
-                                            )}
-
-                                            <TaskSeriesChecklist
-                                                tasks={tasks}
-                                                allTasks={allTasks}
-                                                onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks)}
-                                                isReadOnly={!isToday}
-                                                selectedMember={selectedMember} // <--- PASS DOWN FOR TOGGLE LOGIC
-                                                showDetails={showDetails} // <--- Pass controlled prop (GLOBAL SETTING)
-                                            />
-                                        </div>
-                                    );
+                                    if (isActive) {
+                                        return (
+                                            <span
+                                                key={series.id}
+                                                className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-blue-200 transition-colors whitespace-nowrap"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (onEditTaskSeries) onEditTaskSeries(series.id);
+                                                }}
+                                            >
+                                                {series.name}
+                                            </span>
+                                        );
+                                    }
+                                    return null;
                                 })}
                             </div>
+
+                            {/* +++ SHOW DESCRIPTION CONDITIONALLY +++ */}
+                            {showChoreDescriptions && chore.description && <div className="text-xs text-muted-foreground mt-0.5">{chore.description}</div>}
+                        </div>
+                    );
+
+                    // --- COMPONENT EXTRACTION: Render Buttons ---
+                    const renderButtons = () => (
+                        <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)} className={!canEditChores ? 'opacity-50' : ''}>
+                                <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleDeleteChore(chore.id)} className={!canEditChores ? 'opacity-50' : ''}>
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    );
+
+                    // --- COMPONENT EXTRACTION: Render Task Series ---
+                    const renderTaskSeries = () => (
+                        <div className="flex flex-col gap-2 mt-2 w-full pl-2">
+                            {chore.taskSeries?.map((series: any) => {
+                                // 1. Identify the owner of this specific series
+                                // Handle both object (single link) and array (InstantDB relation) formats
+                                const rawOwner = series.familyMember?.[0] || series.familyMember;
+                                const ownerId = rawOwner?.id;
+                                const ownerName = rawOwner?.name;
+
+                                // 2. Filter Logic: Should we show this series?
+
+                                // A. If the series is assigned to a specific person,
+                                //    only show it if that person is currently assigned to the chore TODAY.
+                                //    (This hides "Bob's Series" on days where only Alice is on rotation).
+                                if (ownerId) {
+                                    const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
+                                    if (!isOwnerAssignedToday) return null;
+                                }
+
+                                // B. Apply the global "Selected Member" filter
+                                //    If a specific person is picked in the sidebar, hide everyone else's series.
+                                if (selectedMember !== 'All' && ownerId && ownerId !== selectedMember) {
+                                    return null;
+                                }
+
+                                // 3. Calculate Tasks for this specific series
+                                const allTasks = series.tasks || [];
+                                const tasks = getTasksForDate(
+                                    allTasks,
+                                    chore.rrule, // Use the Chore's recurrence
+                                    chore.startDate, // Use the Chore's start date
+                                    safeSelectedDate,
+                                    series.startDate // Use the Series specific start date
+                                );
+
+                                // 4. Check if Up-For-Grabs logic disables this
+                                //    (Only applies if specific user logic is active)
+                                const isUpForGrabsDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && ownerId && ownerId !== completerIdActual;
+
+                                if (tasks.length === 0 || isUpForGrabsDisabled) return null;
+
+                                return (
+                                    <div key={series.id} className="border-t pt-2 mt-1 first:border-t-0 first:mt-0">
+                                        {/* Header: Only show if we are in 'All' view to distinguish lists */}
+                                        {/* FIX: Only show header if multiple people are assigned to the chore AND it's a personal list */}
+                                        {selectedMember === 'All' && ownerName && assignedMembers.length > 1 && (
+                                            <div className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wider pl-1">
+                                                {ownerName}'s Checklist
+                                            </div>
+                                        )}
+
+                                        <TaskSeriesChecklist
+                                            tasks={tasks}
+                                            allTasks={allTasks}
+                                            onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks)}
+                                            isReadOnly={!isToday}
+                                            selectedMember={selectedMember} // <--- PASS DOWN FOR TOGGLE LOGIC
+                                            showDetails={showDetails} // <--- Pass controlled prop (GLOBAL SETTING)
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+
+                    return (
+                        <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex flex-col">
+                            {/* --- DESKTOP VIEW (Hidden on Mobile) --- */}
+                            <div className="hidden md:flex items-center">
+                                <div className="flex space-x-2 mr-4">{renderAvatars()}</div>
+                                {renderDetails()}
+                                {renderButtons()}
+                            </div>
+
+                            {/* --- MOBILE VIEW (Visible on Mobile) --- */}
+                            {selectedMember === 'All' ? (
+                                // Mobile "All" View: Card Layout
+                                <div className="flex md:hidden flex-col gap-2">
+                                    {/* Row 1: Title/XP + Buttons */}
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex-1 mr-2">{renderDetails()}</div>
+                                        {renderButtons()}
+                                    </div>
+                                    {/* Row 2: Avatars */}
+                                    <div className="mt-1">{renderAvatars()}</div>
+                                </div>
+                            ) : (
+                                // Mobile "Single" View: Horizontal Flex
+                                <div className="flex md:hidden gap-3">
+                                    {/* Left: Avatar */}
+                                    <div className="flex-shrink-0 pt-1">{renderAvatars()}</div>
+                                    {/* Right: Content */}
+                                    <div className="flex flex-col flex-1 min-w-0">
+                                        <div className="flex justify-between items-start mb-1">
+                                            {renderDetails()}
+                                            {renderButtons()}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- Task Series (Shared across views, just rendered below) --- */}
+                            {renderTaskSeries()}
                         </li>
                     );
                 })}
