@@ -43,9 +43,28 @@ const ebGaramond = localFont({
     display: 'swap',
 });
 
+// +++ NEW: Viewport configuration for PWA behavior +++
+export const viewport: Viewport = {
+    themeColor: '#ffffff', // Changes the color of the status bar on iOS
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1, // Disables auto-zoom on inputs, making it feel like a native app
+    userScalable: false, // Prevents pinch-to-zoom
+};
+
+// +++ MODIFIED: Metadata for iOS PWA support +++
 export const metadata: Metadata = {
     title: 'Family Organizer',
     description: 'Family Organizer App',
+    manifest: '/manifest.json', // You must create this file in /public
+    appleWebApp: {
+        capable: true, // This is crucial: it hides the Safari UI (address bar)
+        statusBarStyle: 'default', // Options: 'default', 'black', or 'black-translucent'
+        title: 'Family Org', // The short name shown under the icon on the home screen
+    },
+    formatDetection: {
+        telephone: false, // Prevents phone numbers from turning into blue links
+    },
 };
 
 // Inline script to patch Date before hydration starts
@@ -97,7 +116,8 @@ export default function RootLayout({
                 <script dangerouslySetInnerHTML={{ __html: timeMachineScript }} />
             </head>
             {/* Added flex column structure to body to support the sticky header behavior */}
-            <body className={`${inter.className} min-h-screen flex flex-col bg-background text-foreground`}>
+            {/* Added 'overscroll-none' to prevent that bouncy "rubber banding" effect at the top/bottom */}
+            <body className={`${inter.className} min-h-screen flex flex-col bg-background text-foreground overscroll-none`}>
                 <AuthProvider>
                     {/* +++ Global Header +++ */}
                     <header className="flex items-center justify-between px-6 py-3 border-b bg-card">
