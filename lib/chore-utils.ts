@@ -764,7 +764,10 @@ export const calculateDailyXP = (chores: any[], familyMembers: any[], date: Date
                 completionsForDate.forEach((c: any) => {
                     const completerId = getCompleterId(c);
                     if (completerId && xpMap[completerId]) {
-                        xpMap[completerId].possible += weight;
+                        // +++ CHANGE: Only add to possible if positive +++
+                        if (weight > 0) {
+                            xpMap[completerId].possible += weight;
+                        }
                         xpMap[completerId].current += weight;
                     }
                 });
@@ -773,7 +776,10 @@ export const calculateDailyXP = (chores: any[], familyMembers: any[], date: Date
                 // Add to 'possible' for ALL assignees
                 assignedMembers.forEach((assignee) => {
                     if (xpMap[assignee.id]) {
-                        xpMap[assignee.id].possible += weight;
+                        // +++ CHANGE: Only add to possible if positive +++
+                        if (weight > 0) {
+                            xpMap[assignee.id].possible += weight;
+                        }
                     }
                 });
             }
@@ -782,7 +788,10 @@ export const calculateDailyXP = (chores: any[], familyMembers: any[], date: Date
             assignedMembers.forEach((assignee) => {
                 if (xpMap[assignee.id]) {
                     // It is always POSSIBLE for an assignee
-                    xpMap[assignee.id].possible += weight;
+                    // +++ CHANGE: Only add to possible if positive +++
+                    if (weight > 0) {
+                        xpMap[assignee.id].possible += weight;
+                    }
 
                     // Check if THIS SPECIFIC assignee has a completion record
                     const hasCompleted = completionsForDate.some((c: any) => getCompleterId(c) === assignee.id);
