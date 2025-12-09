@@ -1,0 +1,82 @@
+// middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+// 1. Configuration
+const SECRET_KEY = process.env.DEVICE_ACCESS_KEY;
+const COOKIE_NAME = 'family_device_auth';
+const COOKIE_DURATION = 60 * 60 * 24 * 400; // 400 days (approx 1 year + buffer)
+
+// 2. Paths that are always allowed (e.g., static assets, manifest)
+// You might want to allow manifest.json so the PWA is recognized,
+// but blocking it until auth is also fine.
+const PUBLIC_FILE_EXTENSIONS = ['.ico', '.png', '.jpg', '.jpeg', '.svg', '.css', '.js', '.ttf', '.woff', '.woff2'];
+
+export function middleware(request: NextRequest) {
+    const { pathname, searchParams } = request.nextUrl;
+
+    // --- A. PASS: Check if the request is for a static asset ---
+    // We generally allow static files to pass so we don't break browser defaults,
+    // but you can block these too if you want extreme strictness.
+    if (PUBLIC_FILE_EXTENSIONS.some((ext) => pathname.endsWith(ext))) {
+        return NextResponse.next();
+    }
+
+    // --- B. PASS: Check if device is already authenticated ---
+    const deviceCookie = request.cookies.get(COOKIE_NAME);
+    if (deviceCookie && deviceCookie.value === 'true') {
+        return NextResponse.next();
+    }
+
+    // --- C. ACTIVATE: Check if this is the Magic Link ---
+    // URL Pattern: https://your-site.com/?activate=SUPER_SECRET_KEY
+    const activationKey = searchParams.get('activate');
+
+    if (activationKey === SECRET_KEY) {
+        // 1. Create a response that redirects to the home page (removing the query param)
+        const response = NextResponse.redirect(new URL('/', request.url));
+
+        // 2. Stamp the "Badge" (Set the long-lived cookie)
+        response.cookies.set(COOKIE_NAME, 'true', {
+            maxAge: COOKIE_DURATION,
+            path: '/',
+            httpOnly: true, // Javascript cannot read this (security best practice)
+            secure: process.env.NODE_ENV === 'production', // Only send over HTTPS in prod
+            sameSite: 'lax',
+        });
+
+        return response;
+    }
+
+    // --- D. BLOCK: Deny everything else ---
+    // If they aren't authorized and aren't providing the key,
+    // rewrite the URL to a 404 page or return a raw 404/403.
+
+    // Option 1: Rewrite to a custom "Not Found" page (Recommended if you have a custom 404)
+    // return NextResponse.rewrite(new URL('/404', request.url));
+
+    // Option 2: Return a raw JSON error (Good for APIs)
+    if (pathname.startsWith('/api')) {
+        return new NextResponse(JSON.stringify({ error: 'Unauthorized Device' }), {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+        });
+    }
+
+    // Option 3: Hard 404 for the main page.
+    // This effectively makes the server "ghost" the user.
+    return new NextResponse('Not Found', { status: 404 });
+}
+
+// Configure which paths this middleware runs on
+export const config = {
+    matcher: [
+        /*
+         * Match all request paths except for the ones starting with:
+         * - _next/static (static files)
+         * - _next/image (image optimization files)
+         * - favicon.ico (favicon file)
+         */
+        '/((?!_next/static|_next/image|favicon.ico).*)',
+    ],
+};

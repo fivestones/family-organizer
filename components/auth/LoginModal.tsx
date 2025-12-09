@@ -1,3 +1,4 @@
+// components/auth/LoginModal.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -5,6 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import db from '@/lib/db';
 import { useAuth } from '@/components/AuthProvider';
@@ -22,6 +25,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
     const [pin, setPin] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
+    const [rememberMe, setRememberMe] = useState(false);
 
     // +++ NEW: Force cleanup of pointer-events on Body +++
     // This implements the fix found on GitHub to prevent the app from freezing
@@ -59,12 +63,14 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             setSelectedMemberId(null);
             setPin('');
             setIsVerifying(false);
+            setRememberMe(false);
         }
     }, [isOpen]);
 
     const handleMemberSelect = (id: string) => {
         setSelectedMemberId(id);
         setPin(''); // Clear any previous PIN attempt
+        setRememberMe(false);
     };
 
     const handlePinSubmit = async (e?: React.FormEvent) => {
@@ -80,12 +86,15 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             // Check if member has a PIN set
             if (!member.pinHash) {
                 // If no PIN set, login immediately
-                login({
-                    id: member.id,
-                    name: member.name,
-                    role: member.role,
-                    photoUrls: member.photoUrls,
-                });
+                login(
+                    {
+                        id: member.id,
+                        name: member.name,
+                        role: member.role,
+                        photoUrls: member.photoUrls,
+                    },
+                    rememberMe
+                );
                 toast({ title: `Welcome back, ${member.name}!` });
                 onClose();
                 return;
@@ -93,12 +102,15 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
             const hashedInput = await hashPin(pin);
             if (hashedInput === member.pinHash) {
-                login({
-                    id: member.id,
-                    name: member.name,
-                    role: member.role,
-                    photoUrls: member.photoUrls,
-                });
+                login(
+                    {
+                        id: member.id,
+                        name: member.name,
+                        role: member.role,
+                        photoUrls: member.photoUrls,
+                    },
+                    rememberMe
+                );
                 toast({ title: `Welcome back, ${member.name}!` });
                 onClose();
             } else {
@@ -175,6 +187,17 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                                             pattern="[0-9]*"
                                         />
                                     </div>
+
+                                    <div className="flex items-center justify-center space-x-2">
+                                        <Checkbox id="remember" checked={rememberMe} onCheckedChange={(checked) => setRememberMe(checked as boolean)} />
+                                        <Label
+                                            htmlFor="remember"
+                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                        >
+                                            Remember me on this device
+                                        </Label>
+                                    </div>
+
                                     <div className="flex justify-between items-center px-4">
                                         <Button type="button" variant="ghost" onClick={() => setSelectedMemberId(null)}>
                                             <ArrowLeft className="mr-2 h-4 w-4" /> Back
