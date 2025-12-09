@@ -9,20 +9,17 @@ services:
         ports:
             - '${APP_PORT}:3000'
         environment:
-        # Public URLs (Browser Access) - These must match the mapped host ports
-        NEXT_PUBLIC_S3_ENDPOINT: 'http://localhost:${MINIO_PORT}'
-        NEXT_PUBLIC_INSTANT_API_URI: 'http://localhost:${INSTANT_PORT}'
-        NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: 'ws://localhost:${INSTANT_PORT}/runtime/session'
-        NEXT_PUBLIC_INSTANT_APP_ID:
-            '${NEXT_PUBLIC_INSTANT_APP_ID}'
-
+            # Public URLs
+            - NEXT_PUBLIC_S3_ENDPOINT=http://localhost:${MINIO_PORT}
+            - NEXT_PUBLIC_INSTANT_API_URI=http://localhost:${INSTANT_PORT}
+            - NEXT_PUBLIC_INSTANT_WEBSOCKET_URI=ws://localhost:${INSTANT_PORT}/runtime/session
+            - NEXT_PUBLIC_INSTANT_APP_ID=${NEXT_PUBLIC_INSTANT_APP_ID}
             # Internal Secrets & Config
-        # INTERNAL docker networking uses the standard internal ports (9000/8888)
-        S3_ENDPOINT: 'http://minio:9000'
-        S3_ACCESS_KEY_ID: '${S3_ACCESS_KEY_ID}'
-        S3_SECRET_ACCESS_KEY: '${S3_SECRET_ACCESS_KEY}'
-        S3_BUCKET_NAME: 'family-organizer'
-        DEVICE_ACCESS_KEY: '${DEVICE_ACCESS_KEY}'
+            - S3_ENDPOINT=http://minio:9000
+            - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
+            - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
+            - S3_BUCKET_NAME=family-organizer
+            - DEVICE_ACCESS_KEY=${DEVICE_ACCESS_KEY}
         depends_on:
             - minio
             - instant-server
@@ -33,11 +30,11 @@ services:
         container_name: minio
         command: server /data --console-address ":9001"
         ports:
-            - '${MINIO_PORT}:9000' # Dynamic Host Port -> Fixed Container Port
+            - '${MINIO_PORT}:9000'
             - '${MINIO_CONSOLE_PORT}:9001'
         environment:
-            MINIO_ROOT_USER: '${S3_ACCESS_KEY_ID}'
-            MINIO_ROOT_PASSWORD: '${S3_SECRET_ACCESS_KEY}'
+            - MINIO_ROOT_USER=${S3_ACCESS_KEY_ID}
+            - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY}
         volumes:
             - minio_data:/data
 
@@ -47,7 +44,7 @@ services:
         depends_on:
             - minio
         entrypoint: >
-            /bin/sh -c " # We use the INTERNAL hostname 'minio' and INTERNAL port '9000' here /usr/bin/mc config host add myminio http://minio:9000 ${S3_ACCESS_KEY_ID} ${S3_SECRET_ACCESS_KEY}; /usr/bin/mc mb myminio/family-organizer; /usr/bin/mc anonymous set download myminio/family-organizer; exit 0; "
+            /bin/sh -c " /usr/bin/mc config host add myminio http://minio:9000 ${S3_ACCESS_KEY_ID} ${S3_SECRET_ACCESS_KEY}; /usr/bin/mc mb myminio/family-organizer; /usr/bin/mc anonymous set download myminio/family-organizer; exit 0; "
 
 
     # --- 3. InstantDB Services ---
@@ -55,9 +52,9 @@ services:
         image: postgres:16-alpine
         container_name: instant-postgres
         environment:
-            POSTGRES_USER: instant
-            POSTGRES_PASSWORD: '${INSTANT_DB_PASSWORD:-instant_password}'
-            POSTGRES_DB: instant
+            - POSTGRES_USER=instant
+            - POSTGRES_PASSWORD=${INSTANT_DB_PASSWORD:-instant_password}
+            - POSTGRES_DB=instant
         volumes:
             - instant_data:/var/lib/postgresql/data
         healthcheck:
@@ -66,30 +63,25 @@ services:
             timeout: 5s
             retries: 5
 
-    # We use the generic java/clojure container to run the server dev command
     instant-server:
         image: clojure:tools-deps
         container_name: instant-server
         working_dir: /app/server
-        # Clones the repo if missing, then starts the dev server
         command: >
             /bin/bash -c " if [ ! -d '/app/.git' ]; then
-                    echo 'Cloning InstantDB repo...';
-                    git clone https://github.com/instantdb/instant.git /app;
+              echo 'Cloning InstantDB repo...';
+              git clone https://github.com/instantdb/instant.git /app;
             fi cd /app/server &&  clj -M:dev "
 
         ports:
-            - '${INSTANT_PORT}:8888' # Dynamic Host Port -> Fixed Container Port
+            - '${INSTANT_PORT}:8888'
         environment:
-            # Dummy AWS Creds (Required by InstantDB to start)
-            AWS_REGION: 'us-east-1'
-            AWS_ACCESS_KEY_ID: 'dummy'
-            AWS_SECRET_ACCESS_KEY: 'dummy'
-            # DB Connection
-            DATABASE_URL: 'jdbc:postgresql://instant-postgres:5432/instant?user=instant&password=${INSTANT_DB_PASSWORD:-instant_password}'
-            # Secrets
-            INSTANT_JWT_SECRET: '${INSTANT_JWT_SECRET}'
-            INSTANT_SESSION_SECRET: '${INSTANT_SESSION_SECRET}'
+            - AWS_REGION=us-east-1
+            - AWS_ACCESS_KEY_ID=dummy
+            - AWS_SECRET_ACCESS_KEY=dummy
+            - DATABASE_URL=jdbc:postgresql://instant-postgres:5432/instant?user=instant&password=${INSTANT_DB_PASSWORD:-instant_password}
+            - INSTANT_JWT_SECRET=${INSTANT_JWT_SECRET}
+            - INSTANT_SESSION_SECRET=${INSTANT_SESSION_SECRET}
         volumes:
             - instant-repo-cache:/app
         depends_on:
