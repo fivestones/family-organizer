@@ -66,7 +66,8 @@ services:
     instant-server:
         image: clojure:tools-deps
         container_name: instant-server
-        working_dir: /app/server
+        # CHANGE: Start in the volume root, not the non-existent server subfolder
+        working_dir: /app
         command: >
             /bin/bash -c "
             
@@ -81,7 +82,7 @@ services:
             
             # 2. Start Server
             
-            cd /app/server &&  clj -M:dev "
+            echo 'Starting InstantDB Server...'; cd /app/server &&  clj -M:dev"
 
 
         ports:
