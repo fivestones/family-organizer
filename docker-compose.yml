@@ -71,7 +71,8 @@ services:
             /bin/bash -c " if [ ! -d '/app/.git' ]; then
               echo 'Cloning InstantDB repo...';
               git clone https://github.com/instantdb/instant.git /app;
-            fi cd /app/server &&  clj -M:dev "
+            fi; cd /app/server && clj -M:dev "
+
 
         ports:
             - '${INSTANT_PORT}:8888'
