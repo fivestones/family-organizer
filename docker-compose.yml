@@ -7,22 +7,22 @@ services:
         container_name: family-app
         restart: unless-stopped
         ports:
-            - '3000:3000'
+            - '${APP_PORT}:3000'
         environment:
-            # Public URLs (Browser Access)
-            # In production, these should be your domain (e.g., https://minio.your-site.com)
-            # For local testing, localhost is fine.
-            NEXT_PUBLIC_S3_ENDPOINT: '${NEXT_PUBLIC_S3_ENDPOINT:-http://localhost:9000}'
-            NEXT_PUBLIC_INSTANT_API_URI: '${NEXT_PUBLIC_INSTANT_API_URI:-http://localhost:8888}'
-            NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: '${NEXT_PUBLIC_INSTANT_WEBSOCKET_URI:-ws://localhost:8888/runtime/session}'
-            NEXT_PUBLIC_INSTANT_APP_ID: '${NEXT_PUBLIC_INSTANT_APP_ID}'
+        # Public URLs (Browser Access) - These must match the mapped host ports
+        NEXT_PUBLIC_S3_ENDPOINT: 'http://localhost:${MINIO_PORT}'
+        NEXT_PUBLIC_INSTANT_API_URI: 'http://localhost:${INSTANT_PORT}'
+        NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: 'ws://localhost:${INSTANT_PORT}/runtime/session'
+        NEXT_PUBLIC_INSTANT_APP_ID:
+            '${NEXT_PUBLIC_INSTANT_APP_ID}'
 
             # Internal Secrets & Config
-            S3_ENDPOINT: 'http://minio:9000'
-            S3_ACCESS_KEY_ID: '${S3_ACCESS_KEY_ID}'
-            S3_SECRET_ACCESS_KEY: '${S3_SECRET_ACCESS_KEY}'
-            S3_BUCKET_NAME: 'family-organizer'
-            DEVICE_ACCESS_KEY: '${DEVICE_ACCESS_KEY}'
+        # INTERNAL docker networking uses the standard internal ports (9000/8888)
+        S3_ENDPOINT: 'http://minio:9000'
+        S3_ACCESS_KEY_ID: '${S3_ACCESS_KEY_ID}'
+        S3_SECRET_ACCESS_KEY: '${S3_SECRET_ACCESS_KEY}'
+        S3_BUCKET_NAME: 'family-organizer'
+        DEVICE_ACCESS_KEY: '${DEVICE_ACCESS_KEY}'
         depends_on:
             - minio
             - instant-server
@@ -33,8 +33,8 @@ services:
         container_name: minio
         command: server /data --console-address ":9001"
         ports:
-            - '9000:9000'
-            - '9001:9001'
+            - '${MINIO_PORT}:9000' # Dynamic Host Port -> Fixed Container Port
+            - '${MINIO_CONSOLE_PORT}:9001'
         environment:
             MINIO_ROOT_USER: '${S3_ACCESS_KEY_ID}'
             MINIO_ROOT_PASSWORD: '${S3_SECRET_ACCESS_KEY}'
@@ -47,7 +47,7 @@ services:
         depends_on:
             - minio
         entrypoint: >
-            /bin/sh -c " /usr/bin/mc config host add myminio http://minio:9000 ${S3_ACCESS_KEY_ID} ${S3_SECRET_ACCESS_KEY}; /usr/bin/mc mb myminio/family-organizer; /usr/bin/mc anonymous set download myminio/family-organizer; exit 0; "
+            /bin/sh -c " # We use the INTERNAL hostname 'minio' and INTERNAL port '9000' here /usr/bin/mc config host add myminio http://minio:9000 ${S3_ACCESS_KEY_ID} ${S3_SECRET_ACCESS_KEY}; /usr/bin/mc mb myminio/family-organizer; /usr/bin/mc anonymous set download myminio/family-organizer; exit 0; "
 
 
     # --- 3. InstantDB Services ---
@@ -74,12 +74,12 @@ services:
         # Clones the repo if missing, then starts the dev server
         command: >
             /bin/bash -c " if [ ! -d '/app/.git' ]; then
-              echo 'Cloning InstantDB repo...';
-              git clone https://github.com/instantdb/instant.git /app;
+                    echo 'Cloning InstantDB repo...';
+                    git clone https://github.com/instantdb/instant.git /app;
             fi cd /app/server &&  clj -M:dev "
 
         ports:
-            - '8888:8888'
+            - '${INSTANT_PORT}:8888' # Dynamic Host Port -> Fixed Container Port
         environment:
             # Dummy AWS Creds (Required by InstantDB to start)
             AWS_REGION: 'us-east-1'
