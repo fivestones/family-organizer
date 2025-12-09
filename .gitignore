@@ -19,6 +19,7 @@
 # misc
 .DS_Store
 *.pem
+docker-compose.override.yml
 
 # debug
 npm-debug.log*
@@ -26,6 +27,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
 .env*.local
 
 # vercel
@@ -40,3 +42,8 @@ next-env.d.ts
 
 #LLM context
 llm-context.txt
+
+# Data Directories (Docker volumes)
+minio_data/
+instant_data/
+instant-repo-cache/

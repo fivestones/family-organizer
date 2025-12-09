@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+    # --- 1. Family Organizer App ---
+    family-app:
+        build: .
+        container_name: family-app
+        restart: unless-stopped
+        ports:
+            - '3000:3000'
+        environment:
+            # Public URLs (Browser Access)
+            # In production, these should be your domain (e.g., https://minio.your-site.com)
+            # For local testing, localhost is fine.
+            NEXT_PUBLIC_S3_ENDPOINT: '${NEXT_PUBLIC_S3_ENDPOINT:-http://localhost:9000}'
+            NEXT_PUBLIC_INSTANT_API_URI: '${NEXT_PUBLIC_INSTANT_API_URI:-http://localhost:8888}'
+            NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: '${NEXT_PUBLIC_INSTANT_WEBSOCKET_URI:-ws://localhost:8888/runtime/session}'
+            NEXT_PUBLIC_INSTANT_APP_ID: '${NEXT_PUBLIC_INSTANT_APP_ID}'
+
+            # Internal Secrets & Config
+            S3_ENDPOINT: 'http://minio:9000'
+            S3_ACCESS_KEY_ID: '${S3_ACCESS_KEY_ID}'
+            S3_SECRET_ACCESS_KEY: '${S3_SECRET_ACCESS_KEY}'
+            S3_BUCKET_NAME: 'family-organizer'
+            DEVICE_ACCESS_KEY: '${DEVICE_ACCESS_KEY}'
+        depends_on:
+            - minio
+            - instant-server
+
+    # --- 2. MinIO (S3 Compatible Storage) ---
+    minio:
+        image: minio/minio
+        container_name: minio
+        command: server /data --console-address ":9001"
+        ports:
+            - '9000:9000'
+            - '9001:9001'
+        environment:
+            MINIO_ROOT_USER: '${S3_ACCESS_KEY_ID}'
+            MINIO_ROOT_PASSWORD: '${S3_SECRET_ACCESS_KEY}'
+        volumes:
+            - minio_data:/data
+
+    # Helper to create bucket automatically
+    createbuckets:
+        image: minio/mc
+        depends_on:
+            - minio
+        entrypoint: >
+            /bin/sh -c " /usr/bin/mc config host add myminio http://minio:9000 ${S3_ACCESS_KEY_ID} ${S3_SECRET_ACCESS_KEY}; /usr/bin/mc mb myminio/family-organizer; /usr/bin/mc anonymous set download myminio/family-organizer; exit 0; "
+
+
+    # --- 3. InstantDB Services ---
+    instant-postgres:
+        image: postgres:16-alpine
+        container_name: instant-postgres
+        environment:
+            POSTGRES_USER: instant
+            POSTGRES_PASSWORD: '${INSTANT_DB_PASSWORD:-instant_password}'
+            POSTGRES_DB: instant
+        volumes:
+            - instant_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U instant']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    # We use the generic java/clojure container to run the server dev command
+    instant-server:
+        image: clojure:tools-deps
+        container_name: instant-server
+        working_dir: /app/server
+        # Clones the repo if missing, then starts the dev server
+        command: >
+            /bin/bash -c " if [ ! -d '/app/.git' ]; then
+              echo 'Cloning InstantDB repo...';
+              git clone https://github.com/instantdb/instant.git /app;
+            fi cd /app/server &&  clj -M:dev "
+
+        ports:
+            - '8888:8888'
+        environment:
+            # Dummy AWS Creds (Required by InstantDB to start)
+            AWS_REGION: 'us-east-1'
+            AWS_ACCESS_KEY_ID: 'dummy'
+            AWS_SECRET_ACCESS_KEY: 'dummy'
+            # DB Connection
+            DATABASE_URL: 'jdbc:postgresql://instant-postgres:5432/instant?user=instant&password=${INSTANT_DB_PASSWORD:-instant_password}'
+            # Secrets
+            INSTANT_JWT_SECRET: '${INSTANT_JWT_SECRET}'
+            INSTANT_SESSION_SECRET: '${INSTANT_SESSION_SECRET}'
+        volumes:
+            - instant-repo-cache:/app
+        depends_on:
+            instant-postgres:
+                condition: service_healthy
+
+volumes:
+    minio_data:
+    instant_data:
+    instant-repo-cache:
