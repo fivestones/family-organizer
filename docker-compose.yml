@@ -68,10 +68,20 @@ services:
         container_name: instant-server
         working_dir: /app/server
         command: >
-            /bin/bash -c " if [ ! -d '/app/.git' ]; then
-              echo 'Cloning InstantDB repo...';
-              git clone https://github.com/instantdb/instant.git /app;
-            fi; cd /app/server && clj -M:dev "
+            /bin/bash -c "
+            
+            # 1. Clone if missing
+            
+            if [ ! -d '/app/.git' ]; then
+                echo 'Cloning InstantDB repo...';
+                # Ensure dir is clean for git
+                rm -rf /app/* /app/.* 2>/dev/null || true; 
+                git clone https://github.com/instantdb/instant.git /app;
+            fi;
+            
+            # 2. Start Server
+            
+            cd /app/server &&  clj -M:dev "
 
 
         ports:
