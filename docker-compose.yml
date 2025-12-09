@@ -82,7 +82,13 @@ services:
             
             # 2. Start Server
             
-            echo 'Starting InstantDB Server...'; cd /app/server &&  clj -M:dev"
+            echo 'Starting InstantDB Server...';
+            
+            cd /app/server;
+            
+            clj -M:dev -m instant.server
+            
+            "
 
 
         ports:
