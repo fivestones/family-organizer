@@ -2,7 +2,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, ReactNode } from 'react';
-import db from '@/lib/db';
+import { db } from '@/lib/db';
 
 // Define the shape of our User context
 export interface FamilyMemberUser {

@@ -48,4 +48,4 @@ const db = init({
     websocketURI: config.websocketURI,
 });
 
-export default db;
+export { db };

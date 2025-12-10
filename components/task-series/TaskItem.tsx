@@ -11,7 +11,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { id as generateId, tx } from '@instantdb/react'; // Import the InstantDB ID generator
 import { TextSelection, Plugin } from 'prosemirror-state';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
-import db from '@/lib/db';
+import { db } from '@/lib/db';
 import { useDebouncedCallback } from 'use-debounce';
 import { getPresignedUploadUrl, refreshFiles } from '@/app/actions';
 

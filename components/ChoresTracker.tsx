@@ -3,7 +3,7 @@
 
 import React, { useState, useMemo } from 'react'; // Removed useEffect
 import { tx, id } from '@instantdb/react'; // Removed init, keep tx/id
-import db from '@/lib/db'; // <--- FIX: Import the global DB instance with full schema
+import { db } from '@/lib/db'; // <--- FIX: Import the global DB instance with full schema
 // import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';

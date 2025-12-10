@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import db from '@/lib/db';
+import { db } from '@/lib/db';
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 import { ParentGate } from '@/components/auth/ParentGate';
 
