@@ -1,7 +1,10 @@
 services:
     # --- 1. Family Organizer App ---
     family-app:
-        build: .
+        build:
+            context: .
+            dockerfile: Dockerfile
+            target: deps # Stop at the 'deps' stage (don't build for prod)
         container_name: family-app
         restart: unless-stopped
         ports:
@@ -23,6 +26,8 @@ services:
             - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
             - S3_BUCKET_NAME=family-organizer
             - DEVICE_ACCESS_KEY=${DEVICE_ACCESS_KEY}
+            # Enable Hot Reloading polling (better for Docker)
+            - WATCHPACK_POLLING=true
         depends_on:
             - minio
             - instant-server
@@ -46,7 +51,17 @@ services:
         depends_on:
             - minio
         entrypoint: >
-            /bin/sh -c " /usr/bin/mc config host add myminio http://minio:9000 ${S3_ACCESS_KEY_ID} ${S3_SECRET_ACCESS_KEY}; /usr/bin/mc mb myminio/family-organizer; /usr/bin/mc anonymous set download myminio/family-organizer; exit 0; "
+            /bin/sh -c "
+            
+            /usr/bin/mc config host add myminio http://minio:9000 ${S3_ACCESS_KEY_ID} ${S3_SECRET_ACCESS_KEY};
+            
+            /usr/bin/mc mb myminio/family-organizer;
+            
+            /usr/bin/mc anonymous set download myminio/family-organizer;
+            
+            exit 0;
+            
+            "
 
 
     # --- 3. InstantDB Server ---
