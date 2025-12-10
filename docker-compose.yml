@@ -9,10 +9,12 @@ services:
         ports:
             - '${APP_PORT}:3000'
         environment:
+            # Public URLs
             - NEXT_PUBLIC_S3_ENDPOINT=http://localhost:${MINIO_PORT}
             - NEXT_PUBLIC_INSTANT_API_URI=http://localhost:${INSTANT_PORT}
             - NEXT_PUBLIC_INSTANT_WEBSOCKET_URI=ws://localhost:${INSTANT_PORT}/runtime/session
             - NEXT_PUBLIC_INSTANT_APP_ID=${NEXT_PUBLIC_INSTANT_APP_ID}
+            # Internal Secrets & Config
             - S3_ENDPOINT=http://minio:9000
             - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
             - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
@@ -22,7 +24,7 @@ services:
             - minio
             - instant-server
 
-    # --- 2. MinIO ---
+    # --- 2. MinIO (S3 Storage) ---
     minio:
         image: minio/minio
         container_name: minio
@@ -64,25 +66,18 @@ services:
         image: clojure:tools-deps
         container_name: instant-server
         working_dir: /app/server
-        command: >
-            /bin/bash -c " # 1. Clone Repo if [ ! -d '/app/.git' ]; then
-              echo 'Cloning InstantDB repo...';
-              # Clean potential empty folders from failed runs
-              rm -rf /app/* /app/.* 2>/dev/null || true;
-              git clone https://github.com/instantdb/instant.git /app;
-            fi;
-            
-            echo 'Starting InstantDB Server...';
-            
-            cd /app/server &&
-            
-            # FIX: Add '-m instant.main' to execute the server entrypoint
-            
-            clj -M:dev -m instant.main
-            
+        # FIX: Use '|' to preserve newlines for the bash script
+        command: |
+            /bin/bash -c "
+            if [ ! -d '/app/.git' ]; then
+              echo 'Cloning InstantDB repo...'
+              rm -rf /app/* /app/.* 2>/dev/null || true
+              git clone https://github.com/instantdb/instant.git /app
+            fi
+
+            echo 'Starting InstantDB Server...'
+            cd /app/server && clj -M:dev -m instant.main
             "
-
-
         ports:
             - '${INSTANT_PORT}:8888'
         environment:
@@ -104,27 +99,27 @@ services:
         image: node:18-alpine
         container_name: instant-client
         working_dir: /app/client
-        command: >
-            /bin/sh -c " # 1. Install Make (Alpine doesn't have it by default) apk add --no-cache make
-            
-            # 2. Wait for server to clone the repo  # (We share the volume so we don't clone twice) while [ ! -d '/app/client' ]; do echo 'Waiting for repo...'; sleep 2; done;
-            
-            cd /app/client if [ ! -d 'node_modules' ]; then
-              echo 'Installing dependencies...';
-              corepack enable && pnpm install;
+        # FIX: Use '|' to preserve newlines and fix syntax errors
+        command: |
+            /bin/sh -c "
+            apk add --no-cache make
+
+            # Wait for repo to be cloned
+            while [ ! -d '/app/client' ]; do 
+              echo 'Waiting for repo...'
+              sleep 2
+            done
+
+            cd /app/client
+            if [ ! -d 'node_modules' ]; then
+              echo 'Installing Dashboard dependencies...'
+              corepack enable && pnpm install
             fi
-            
-            echo 'Starting Dashboard via Make...';
-            
+
+            echo 'Starting Dashboard via Make...'
             export NEXT_PUBLIC_INSTANT_URL=http://localhost:${INSTANT_PORT}
-            
-            # FIX: Use the official Makefile command
-            
             make dev
-            
             "
-
-
         ports:
             - '${DASHBOARD_PORT}:3000'
         volumes:
