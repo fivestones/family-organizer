@@ -8,7 +8,7 @@ services:
         container_name: family-app
         restart: unless-stopped
         ports:
-            - '${   APP_PORT}:3000'
+            - '${APP_PORT}:3000'
         # MOUNT CODE: This lets the container see your files live
         volumes:
             - ./:/app
