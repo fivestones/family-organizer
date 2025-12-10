@@ -25,13 +25,16 @@ MINIO_PORT=$(find_free_port 9000)
 MINIO_CONSOLE_PORT=$(find_free_port $((MINIO_PORT + 1)))
 
 INSTANT_PORT=$(find_free_port 8888)
-APP_PORT=$(find_free_port 3000)
+DASHBOARD_PORT=$(find_free_port 3000)
+# Start App check AFTER dashboard port to ensure they don't collide if 3000 is free
+APP_PORT=$(find_free_port $((DASHBOARD_PORT + 1)))
 
 echo "✅ Ports Selected:"
 echo "   - MinIO API:     $MINIO_PORT"
 echo "   - MinIO Console: $MINIO_CONSOLE_PORT"
-echo "   - InstantDB:     $INSTANT_PORT"
-echo "   - Web App:       $APP_PORT"
+echo "   - InstantDB API: $INSTANT_PORT"
+echo "   - Dashboard:     $DASHBOARD_PORT"
+echo "   - Family App:    $APP_PORT"
 
 # --- 2. CONFIGURATION GENERATION ---
 # Default App ID for self-hosting (can be anything UUID-like)
@@ -51,7 +54,6 @@ else
   DEVICE_KEY=$(openssl rand -hex 16)
   JWT_SECRET=$(openssl rand -hex 32)
   SESSION_SECRET=$(openssl rand -hex 32)
-  MINIO_USER="minioadmin"
   MINIO_PASS=$(openssl rand -hex 12)
   S3_ACCESS_KEY_ID="minioadmin"
 fi
@@ -62,6 +64,7 @@ fi
 MINIO_PORT=$MINIO_PORT
 MINIO_CONSOLE_PORT=$MINIO_CONSOLE_PORT
 INSTANT_PORT=$INSTANT_PORT
+DASHBOARD_PORT=$DASHBOARD_PORT
 APP_PORT=$APP_PORT
 
 # --- Public URL Config ---
@@ -71,34 +74,39 @@ NEXT_PUBLIC_INSTANT_API_URI=http://localhost:$INSTANT_PORT
 NEXT_PUBLIC_INSTANT_WEBSOCKET_URI=ws://localhost:$INSTANT_PORT/runtime/session
 
 # --- Secrets ---
-DEVICE_ACCESS_KEY="${DEVICE_KEY:-$(openssl rand -hex 16)}"
-S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-minioadmin}"
-S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-$(openssl rand -hex 12)}"
-INSTANT_JWT_SECRET="${INSTANT_JWT_SECRET:-$(openssl rand -hex 32)}"
-INSTANT_SESSION_SECRET="${INSTANT_SESSION_SECRET:-$(openssl rand -hex 32)}"
+DEVICE_ACCESS_KEY="${DEVICE_ACCESS_KEY:-$DEVICE_KEY}"
+S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-$S3_ACCESS_KEY_ID}"
+S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-$MINIO_PASS}"
+INSTANT_JWT_SECRET="${INSTANT_JWT_SECRET:-$JWT_SECRET}"
+INSTANT_SESSION_SECRET="${INSTANT_SESSION_SECRET:-$SESSION_SECRET}"
 INSTANT_DB_PASSWORD="instant_password"
 EOF
   
-# Load vars into shell environment for docker-compose to use
-set -a
-source .env
-set +a
+set -a; source .env; set +a
 
-# --- 3. START INFRASTRUCTURE ---
+# --- START ---
 echo "🚀 Starting Infrastructure..."
-docker-compose up -d minio instant-postgres instant-server
+docker-compose up -d minio instant-postgres instant-server instant-client
 
 # --- 4. ROBUST WAIT FOR DATABASE ---
-echo "⏳ Waiting for InstantDB to initialize tables..."
-MAX_RETRIES=60
+echo "⏳ Waiting for InstantDB Server..."
+MAX_RETRIES=100
 COUNT=0
 
 while true; do
+  STATUS=$(docker inspect -f '{{.State.Status}}' instant-server 2>/dev/null)
+  if [ "$STATUS" != "running" ]; then
+     echo "❌ Error: instant-server container died."
+     docker logs instant-server --tail 10
+     exit 1
+  fi
+
+  # Check if tables exist
   if docker exec instant-postgres psql -U instant -d instant -c "SELECT to_regclass('public.apps');" 2>/dev/null | grep -q "apps"; then
     echo "✅ Database tables found!"
     break
   fi
-  sleep 5
+
   ((COUNT++))
   if [ $COUNT -ge $MAX_RETRIES ]; then
     echo "❌ Timeout waiting for InstantDB tables."
@@ -106,6 +114,7 @@ while true; do
     exit 1
   fi
   echo -ne "   Waiting... ($COUNT/$MAX_RETRIES)\r"
+  sleep 5
 done
 
 # --- 5. INJECT APP CONFIG ---
@@ -128,7 +137,8 @@ docker-compose up -d --build family-app
 
 echo "🎉 DEPLOYMENT COMPLETE!"
 echo "---------------------------------------------------"
-echo "📱 App URL:        http://localhost:$APP_PORT"
+echo "📱 Family App:     http://localhost:$APP_PORT"
+echo "🎛️  Dashboard:      http://localhost:$DASHBOARD_PORT"
 echo "🔐 Magic Link:     http://localhost:$APP_PORT/?activate=$DEVICE_ACCESS_KEY"
 echo "🗄️  MinIO Console:  http://localhost:$MINIO_CONSOLE_PORT ($S3_ACCESS_KEY_ID / $S3_SECRET_ACCESS_KEY)"
 echo "---------------------------------------------------"
