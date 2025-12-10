@@ -170,3 +170,9 @@ volumes:
     minio_data:
     instant_data:
     instant-repo-cache:
+
+# use the network that linuxserver.io swag is on so it can be easily reverse proxied
+networks:
+    default:
+        external:
+            name: docker_default
