@@ -65,13 +65,18 @@ services:
     instant-server:
         image: clojure:tools-deps
         container_name: instant-server
-        # FIX: Start in the volume root so we can clone safely
+        # Work in the root of the volume
         working_dir: /app
+        # FIX: Robust clone logic. If server/deps.edn is missing, FORCE WIPE and re-clone.
         command: >
-            /bin/bash -c " if [ ! -d '.git' ]; then
+            /bin/bash -c " if [ ! -f 'server/deps.edn' ]; then
+                echo 'Repo invalid or missing. Cleaning volume...';
+                rm -rf ./* ./.??*;
                 echo 'Cloning InstantDB repo...';
                 git clone https://github.com/instantdb/instant.git .;
-            fi; echo 'Starting InstantDB Server...'; cd server; clj -M:dev -m instant.main "
+            fi;
+            
+            echo 'Starting InstantDB Server...'; cd server; clj -M:dev -m instant.main "
 
         ports:
             - '${INSTANT_PORT}:8888'
