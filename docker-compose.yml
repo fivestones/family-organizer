@@ -65,19 +65,14 @@ services:
     instant-server:
         image: clojure:tools-deps
         container_name: instant-server
-        working_dir: /app/server
-        # FIX: Use '|' to preserve newlines for the bash script
-        command: |
-            /bin/bash -c "
-            if [ ! -d '/app/.git' ]; then
-              echo 'Cloning InstantDB repo...'
-              rm -rf /app/* /app/.* 2>/dev/null || true
-              git clone https://github.com/instantdb/instant.git /app
-            fi
+        # FIX: Start in the volume root so we can clone safely
+        working_dir: /app
+        command: >
+            /bin/bash -c " if [ ! -d '.git' ]; then
+                echo 'Cloning InstantDB repo...';
+                git clone https://github.com/instantdb/instant.git .;
+            fi; echo 'Starting InstantDB Server...'; cd server; clj -M:dev -m instant.main "
 
-            echo 'Starting InstantDB Server...'
-            cd /app/server && clj -M:dev -m instant.main
-            "
         ports:
             - '${INSTANT_PORT}:8888'
         environment:
@@ -99,27 +94,10 @@ services:
         image: node:18-alpine
         container_name: instant-client
         working_dir: /app/client
-        # FIX: Use '|' to preserve newlines and fix syntax errors
-        command: |
-            /bin/sh -c "
-            apk add --no-cache make
+        # FIX: Flattened command with explicit semicolons to prevent syntax errors
+        command: >
+            /bin/sh -c " apk add --no-cache make; while [ ! -d '/app/client' ]; do echo 'Waiting for repo...'; sleep 2; done; cd /app/client; if [ ! -d 'node_modules' ]; then echo 'Installing dependencies...'; corepack enable && pnpm install; fi; echo 'Starting Dashboard...'; export NEXT_PUBLIC_INSTANT_URL=http://localhost:${INSTANT_PORT}; make dev "
 
-            # Wait for repo to be cloned
-            while [ ! -d '/app/client' ]; do 
-              echo 'Waiting for repo...'
-              sleep 2
-            done
-
-            cd /app/client
-            if [ ! -d 'node_modules' ]; then
-              echo 'Installing Dashboard dependencies...'
-              corepack enable && pnpm install
-            fi
-
-            echo 'Starting Dashboard via Make...'
-            export NEXT_PUBLIC_INSTANT_URL=http://localhost:${INSTANT_PORT}
-            make dev
-            "
         ports:
             - '${DASHBOARD_PORT}:3000'
         volumes:
