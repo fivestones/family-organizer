@@ -5,7 +5,14 @@ services:
         container_name: family-app
         restart: unless-stopped
         ports:
-            - '${APP_PORT}:3000'
+            - '${   APP_PORT}:3000'
+        # MOUNT CODE: This lets the container see your files live
+        volumes:
+            - ./:/app
+            - /app/node_modules # Keep node_modules internal to container
+            - /app/.next # Keep build cache internal
+        # RUN DEV: Starts Next.js in debug mode
+        command: npm run dev
         environment:
             - NEXT_PUBLIC_S3_ENDPOINT=http://localhost:${MINIO_PORT}
             - NEXT_PUBLIC_INSTANT_API_URI=http://localhost:${INSTANT_PORT}
