@@ -34,7 +34,7 @@ echo "   - MinIO API:     $MINIO_PORT"
 echo "   - MinIO Console: $MINIO_CONSOLE_PORT"
 echo "   - InstantDB API: $INSTANT_PORT"
 echo "   - Dashboard:     $DASHBOARD_PORT"
-echo "   - Family App:    $APP_PORT"
+echo "   - Family Organizer:    $APP_PORT"
 
 # --- 2. CONFIGURATION GENERATION ---
 # Default App ID for self-hosting (can be anything UUID-like)
@@ -132,12 +132,12 @@ ON CONFLICT (id) DO NOTHING;
 EOF
 
 # --- 6. START APP ---
-echo "🚀 Building and Starting Family App..."
-docker-compose up -d --build family-app
+echo "🚀 Building and Starting Family Organizer..."
+docker-compose up -d --build family-organizer
 
 echo "🎉 DEPLOYMENT COMPLETE!"
 echo "---------------------------------------------------"
-echo "📱 Family App:     http://localhost:$APP_PORT"
+echo "📱 Family Organizer:     http://localhost:$APP_PORT"
 echo "🎛️  Dashboard:      http://localhost:$DASHBOARD_PORT"
 echo "🔐 Magic Link:     http://localhost:$APP_PORT/?activate=$DEVICE_ACCESS_KEY"
 echo "🗄️  MinIO Console:  http://localhost:$MINIO_CONSOLE_PORT ($S3_ACCESS_KEY_ID / $S3_SECRET_ACCESS_KEY)"

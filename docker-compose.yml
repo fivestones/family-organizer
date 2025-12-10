@@ -1,11 +1,11 @@
 services:
     # --- 1. Family Organizer App ---
-    family-app:
+    family-organizer:
         build:
             context: .
             dockerfile: Dockerfile
             target: deps # Stop at the 'deps' stage (don't build for prod)
-        container_name: family-app
+        container_name: family-organizer
         restart: unless-stopped
         ports:
             - '${APP_PORT}:3000'
