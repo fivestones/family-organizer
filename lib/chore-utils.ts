@@ -11,7 +11,7 @@ const db = init({
 });
 
 // --- Type Definitions (Refine based on actual schema/data structure) ---
-interface Chore {
+export interface Chore {
     id: string;
     title: string;
     startDate: string; // ISO string date
@@ -32,7 +32,7 @@ interface Chore {
     rewardCurrency?: string | null;
 }
 
-interface ChoreCompletion {
+export interface ChoreCompletion {
     id: string;
     completed: boolean;
     dateDue: string; // ISO string date
