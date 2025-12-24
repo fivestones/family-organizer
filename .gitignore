@@ -45,5 +45,3 @@ llm-context.txt
 
 # Data Directories (Docker volumes)
 minio_data/
-instant_data/
-instant-repo-cache/

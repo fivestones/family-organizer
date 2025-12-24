@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // 1. Configuration
-const SECRET_KEY = process.env.DEVICE_ACCESS_KEY;
 const COOKIE_NAME = 'family_device_auth';
 const COOKIE_DURATION = 60 * 60 * 24 * 400; // 400 days (approx 1 year + buffer)
 
@@ -13,7 +12,19 @@ const COOKIE_DURATION = 60 * 60 * 24 * 400; // 400 days (approx 1 year + buffer)
 const PUBLIC_FILE_EXTENSIONS = ['.ico', '.png', '.jpg', '.jpeg', '.svg', '.css', '.js', '.ttf', '.woff', '.woff2'];
 
 export function middleware(request: NextRequest) {
+    // 1. Read the key INSIDE the function to ensure we get the runtime value
+    const SECRET_KEY = process.env.DEVICE_ACCESS_KEY;
+
     const { pathname, searchParams } = request.nextUrl;
+
+    // --- DEBUG LOGGING (Remove this after fixing) ---
+    // This will print to your "docker compose logs"
+    if (searchParams.get('activate')) {
+        console.log("--- MIDDLEWARE DEBUG ---");
+        console.log("Provided Key:", searchParams.get('activate'));
+        console.log("Server Secret:", SECRET_KEY); // If this says 'undefined', that's the bug
+        console.log("Match Status:", searchParams.get('activate') === SECRET_KEY);
+    }
 
     // --- A. PASS: Check if the request is for a static asset ---
     // We generally allow static files to pass so we don't break browser defaults,
@@ -32,10 +43,11 @@ export function middleware(request: NextRequest) {
     // URL Pattern: https://your-site.com/?activate=SUPER_SECRET_KEY
     const activationKey = searchParams.get('activate');
 
-    if (activationKey === SECRET_KEY) {
+    // Check if SECRET_KEY exists to prevent security holes if env is missing
+    if (SECRET_KEY && activationKey === SECRET_KEY) {
         // 1. Create a response that redirects to the home page (removing the query param)
         const response = NextResponse.redirect(new URL('/', request.url));
-
+        
         // 2. Stamp the "Badge" (Set the long-lived cookie)
         response.cookies.set(COOKIE_NAME, 'true', {
             maxAge: COOKIE_DURATION,
@@ -44,16 +56,12 @@ export function middleware(request: NextRequest) {
             secure: process.env.NODE_ENV === 'production', // Only send over HTTPS in prod
             sameSite: 'lax',
         });
-
         return response;
     }
 
     // --- D. BLOCK: Deny everything else ---
     // If they aren't authorized and aren't providing the key,
     // rewrite the URL to a 404 page or return a raw 404/403.
-
-    // Option 1: Rewrite to a custom "Not Found" page (Recommended if you have a custom 404)
-    // return NextResponse.rewrite(new URL('/404', request.url));
 
     // Option 2: Return a raw JSON error (Good for APIs)
     if (pathname.startsWith('/api')) {
@@ -80,3 +88,4 @@ export const config = {
         '/((?!_next/static|_next/image|favicon.ico).*)',
     ],
 };
+

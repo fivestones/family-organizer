@@ -1,178 +1,116 @@
 services:
-    # --- 1. Family Organizer App ---
-    family-organizer:
-        build:
-            context: .
-            dockerfile: Dockerfile
-            target: deps # Stop at the 'deps' stage (don't build for prod)
-        container_name: family-organizer
-        restart: unless-stopped
-        ports:
-            - '${APP_PORT}:3000'
-        # MOUNT CODE: This lets the container see your files live
-        volumes:
-            - ./:/app
-            - /app/node_modules # Keep node_modules internal to container
-            - /app/.next # Keep build cache internal
-        # RUN DEV: Starts Next.js in debug mode
-        command: npm run dev
-        environment:
-            - NEXT_PUBLIC_S3_ENDPOINT=http://localhost:${MINIO_PORT}
-            - NEXT_PUBLIC_INSTANT_API_URI=http://localhost:${INSTANT_PORT}
-            - NEXT_PUBLIC_INSTANT_WEBSOCKET_URI=ws://localhost:${INSTANT_PORT}/runtime/session
-            - NEXT_PUBLIC_INSTANT_APP_ID=${NEXT_PUBLIC_INSTANT_APP_ID}
-            - S3_ENDPOINT=http://minio:9000
-            - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
-            - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
-            - S3_BUCKET_NAME=family-organizer
-            - DEVICE_ACCESS_KEY=${DEVICE_ACCESS_KEY}
-            # Enable Hot Reloading polling (better for Docker)
-            - WATCHPACK_POLLING=true
-        depends_on:
-            - minio
-            - instant-server
+  # --- 1. Family Organizer App ---
+  family-organizer:
+    container_name: family-organizer
+    image: family-organizer:latest
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # These bake the PUBLIC URLs into the JavaScript bundle at build time.
+      # Changing these requires running `docker compose up -d --build`.
+      args:
+        NEXT_PUBLIC_S3_ENDPOINT: ${NEXT_PUBLIC_S3_ENDPOINT}
+        NEXT_PUBLIC_INSTANT_API_URI: ${NEXT_PUBLIC_INSTANT_API_URI}
+        NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: ${NEXT_PUBLIC_INSTANT_WEBSOCKET_URI}
+        NEXT_PUBLIC_INSTANT_APP_ID: ${NEXT_PUBLIC_INSTANT_APP_ID}
+    ports:
+      - '${APP_PORT}:3000'
+    env_file:
+      - .env
+    environment:
+      # --- Server-Side Config (Internal Docker Network) ---
+      # The server uses the internal container name "minio".
+      # This keeps traffic inside the docker network and avoids SSL overhead internally.
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET_NAME=family-organizer
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY}
+      - DEVICE_ACCESS_KEY=${DEVICE_ACCESS_KEY}
+      # Node environment settings
+      - NODE_ENV=production
+      - HOSTNAME=0.0.0.0
+    depends_on:
+      - minio
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
 
-    # --- 2. MinIO ---
-    minio:
-        image: minio/minio
-        container_name: minio
-        command: server /data --console-address ":9001"
-        ports:
-            - '${MINIO_PORT}:9000'
-            - '${MINIO_CONSOLE_PORT}:9001'
-        environment:
-            - MINIO_ROOT_USER=${S3_ACCESS_KEY_ID}
-            - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY}
-        volumes:
-            - minio_data:/data
+  # --- 2. MinIO (S3 Compatible Storage) ---
+  minio:
+    image: minio/minio
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - '${MINIO_PORT}:9000'        # API Port
+      - '${MINIO_CONSOLE_PORT}:9001' # Console Port
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY_ID}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY}
+      # CRITICAL: Tells MinIO its public identity so Presigned URLs use the domain, not the container IP
+      - MINIO_SERVER_URL=${NEXT_PUBLIC_S3_ENDPOINT}
+      # Optional: If you proxy the console as well
+      - MINIO_BROWSER_REDIRECT_URL=${MINIO_BROWSER_REDIRECT_URL}
+    volumes:
+      - minio_data:/data
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 20s
+      retries: 3
 
-    createbuckets:
-        image: minio/mc
-        depends_on:
-            - minio
-        entrypoint: >
-            /bin/sh -c "
-            
-            /usr/bin/mc config host add myminio http://minio:9000 ${S3_ACCESS_KEY_ID} ${S3_SECRET_ACCESS_KEY};
-            
-            /usr/bin/mc mb myminio/family-organizer;
-            
-            /usr/bin/mc anonymous set download myminio/family-organizer;
-            
-            exit 0;
-            
-            "
-
-
-    # --- 3. InstantDB Server ---
-    instant-postgres:
-        image: postgres:16-alpine
-        container_name: instant-postgres
-        environment:
-            - POSTGRES_USER=instant
-            - POSTGRES_PASSWORD=${INSTANT_DB_PASSWORD:-instant_password}
-            - POSTGRES_DB=instant
-        volumes:
-            - instant_data:/var/lib/postgresql/data
-        healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U instant']
-            interval: 5s
-            timeout: 5s
-            retries: 5
-
-    instant-server:
-        image: clojure:tools-deps
-        container_name: instant-server
-        # 1. Start in root to clone repo
-        working_dir: /app
-        # 2. Install tools, clone, THEN enter server dir and run
-        command: |
-            /bin/bash -c "
-            # A. Install Prerequisites (curl for downloading migrate)
-            if ! command -v curl &> /dev/null; then
-              echo 'Installing curl...'
-              apt-get update && apt-get install -y curl
-            fi
-
-            # B. Install 'migrate' tool (Required for oss-bootstrap)
-            if ! command -v migrate &> /dev/null; then
-              echo 'Installing migrate tool...'
-              curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.0/migrate.linux-amd64.tar.gz | tar xvz
-              mv migrate /usr/local/bin/
-              chmod +x /usr/local/bin/migrate
-            fi
-
-            # C. Clone Repo
-            if [ ! -d '.git' ]; then
-              echo 'Cloning InstantDB repo...'
-              rm -rf ./* ./.??* 2>/dev/null || true
-              git clone https://github.com/instantdb/instant.git .
-            fi
-
-            # D. Run Server (Matches 'make dev-oss')
-            echo 'Entering server directory...'
-            cd server
-
-            echo 'Bootstrapping InstantDB (clojure -X:dev:oss-bootstrap)...'
-            clojure -X:dev:oss-bootstrap
-
-            echo 'Starting InstantDB Server (clojure -T:build dev)...'
-            clojure -T:build dev
-            "
-        ports:
-            - '${INSTANT_PORT}:8888'
-        environment:
-            - AWS_REGION=us-east-1
-            - AWS_ACCESS_KEY_ID=dummy
-            - AWS_SECRET_ACCESS_KEY=dummy
-            - DATABASE_URL=jdbc:postgresql://instant-postgres:5432/instant?user=instant&password=${INSTANT_DB_PASSWORD:-instant_password}
-            - INSTANT_JWT_SECRET=${INSTANT_JWT_SECRET}
-            - INSTANT_SESSION_SECRET=${INSTANT_SESSION_SECRET}
-            - SEND_IN_DEV=true
-        volumes:
-            - instant-repo-cache:/app
-        depends_on:
-            instant-postgres:
-                condition: service_healthy
-
-    # --- 4. InstantDB Client ---
-    instant-client:
-        image: node:18-alpine
-        container_name: instant-client
-        working_dir: /app/client
-        command: |
-            /bin/sh -c "
-            apk add --no-cache make
-
-            while [ ! -d '/app/client' ]; do 
-              echo 'Waiting for repo...'
-              sleep 2
-            done
-
-            cd /app/client
-            if [ ! -d 'node_modules' ]; then 
-              echo 'Installing dependencies...' 
-              corepack enable && pnpm install
-            fi
-
-            echo 'Starting Dashboard...'
-            export NEXT_PUBLIC_INSTANT_URL=http://localhost:${INSTANT_PORT}
-            make dev
-            "
-        ports:
-            - '${DASHBOARD_PORT}:3000'
-        volumes:
-            - instant-repo-cache:/app
-        depends_on:
-            - instant-server
+  # --- 3. Create Buckets (One-off initialization) ---
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    env_file:
+      - .env
+    entrypoint: |
+      /bin/sh -c "
+      echo '--- DEBUG START ---'
+      
+      # 1. Verify DNS: Who is 'minio'?
+      #echo 'Pinging minio...'
+      #ping -c 1 minio
+      
+      # 2. Connect
+      until /usr/bin/mc alias set myminio http://minio:9000 \${S3_ACCESS_KEY_ID} \${S3_SECRET_ACCESS_KEY}; do
+        echo '...waiting for minio...';
+        sleep 1;
+      done;
+      
+      # 3. Create Bucket
+      /usr/bin/mc mb -p myminio/family-organizer;
+      /usr/bin/mc anonymous set download myminio/family-organizer;
+      
+      # 4. VERIFY: List remote buckets to prove server has it
+      echo '--- SERVER BUCKET LIST ---'
+      /usr/bin/mc ls myminio/
+      
+      # 5. TRAP CHECK: Did we accidentally create a local folder?
+      #echo '--- LOCAL FILESYSTEM CHECK ---'
+      #ls -R / | grep family-organizer || echo 'No local folder found (Good!)'
+      
+      echo 'Bucket setup complete.'
+      exit 0;
+      "
+    networks:
+      - default
 
 volumes:
-    minio_data:
-    instant_data:
-    instant-repo-cache:
+  minio_data:
 
 # use the network that linuxserver.io swag is on so it can be easily reverse proxied
 networks:
-    default:
-        external:
-            name: docker_default
+  default:
+    name: docker_default
+    external: True
