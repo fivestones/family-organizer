@@ -1,14 +1,6 @@
 import { RRule, Frequency, Weekday, RRuleSet } from 'rrule';
-import { init, tx, id } from '@instantdb/react';
-
-// Assuming db instance is initialized here or passed around
-// If passing around, remove this initialization
-const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'df733414-7ccd-45bd-85f3-ffd0b3da8812'; // Use env var
-const db = init({
-    appId: APP_ID,
-    apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || 'http://localhost:8888',
-    websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || 'ws://localhost:8888/runtime/session',
-});
+import { tx, id } from '@instantdb/react';
+import { db } from '@/lib/db';
 
 // --- Type Definitions (Refine based on actual schema/data structure) ---
 export interface Chore {

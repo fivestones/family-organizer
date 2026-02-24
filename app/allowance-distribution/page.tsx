@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { init, tx, id } from '@instantdb/react';
+import { tx, id } from '@instantdb/react';
 import { RRule, RRuleSet } from 'rrule'; // Keep RRule import if needed for other logic
 import { format, startOfDay, endOfDay, isBefore, isEqual, addDays } from 'date-fns'; // For formatting dates
 
@@ -26,6 +26,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { ParentGate } from '@/components/auth/ParentGate'; // +++ Added
+import { db } from '@/lib/db';
 
 // --- Component Types ---
 
@@ -81,14 +82,6 @@ interface EditableAmounts {
 interface EditablePeriodAmounts {
     [periodId: string]: string;
 }
-
-// --- DB Initialization ---
-const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'df733414-7ccd-45bd-85f3-ffd0b3da8812';
-const db = init({
-    appId: APP_ID,
-    apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || 'http://localhost:8888',
-    websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || 'ws://localhost:8888/runtime/session',
-});
 
 // --- Component ---
 

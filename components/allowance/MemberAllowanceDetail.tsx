@@ -1,5 +1,5 @@
 // components/allowance/MemberAllowanceDetail.tsx
-import { init, tx, id } from '@instantdb/react';
+import { tx, id } from '@instantdb/react';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -95,12 +95,6 @@ interface MemberAllowanceDetailProps {
 
 // --- Constants ---
 // --- REMOVED db initialization (passed as prop) ---
-// const APP_ID =  process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'df733414-7ccd-45bd-85f3-ffd0b3da8812';
-// const db = init({
-//   appId: APP_ID,
-//   apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || "http://localhost:8888",
-//   websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://localhost:8888/runtime/session",
-// });
 
 // Define props for the component
 // interface MemberAllowanceDetailProps {

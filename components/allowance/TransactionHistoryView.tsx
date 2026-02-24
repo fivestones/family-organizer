@@ -1,6 +1,6 @@
 // components/allowance/TransactionHistoryView.tsx
 import React, { useState, useMemo } from 'react';
-import { init, tx, id } from '@instantdb/react';
+import { tx, id } from '@instantdb/react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Filter } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
