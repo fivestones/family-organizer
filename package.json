@@ -13,6 +13,7 @@
     "@aws-sdk/s3-presigned-post": "^3.940.0",
     "@aws-sdk/s3-request-presigner": "^3.940.0",
     "@date-fns/utc": "^2.1.1",
+    "@instantdb/admin": "^0.22.142",
     "@instantdb/react": "^0.18.3",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.11",

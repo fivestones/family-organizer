@@ -1,27 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
 
-// 1. PUBLIC ENDPOINT: This is what the BROWSER uses to reach MinIO.
-// We force this for signing so the signature matches the browser's request.
-const PUBLIC_ENDPOINT = process.env.NEXT_PUBLIC_S3_ENDPOINT || 'http://fam.yapnf.com:9000';
+function getRequiredEnv(name: string): string {
+    const value = process.env[name];
+    if (!value) {
+        throw new Error(`${name} is not configured`);
+    }
+    return value;
+}
 
-// Initialize a specific client just for signing URLs
-const s3Signer = new S3Client({
-    region: 'us-east-1',
-    endpoint: PUBLIC_ENDPOINT, // <--- Key Fix: Sign for localhost, not minio
-    credentials: {
-        accessKeyId: process.env.S3_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
-    },
-    forcePathStyle: true,
-});
+function getSignerClient() {
+    const endpoint = getRequiredEnv('NEXT_PUBLIC_S3_ENDPOINT');
+    const accessKeyId = getRequiredEnv('S3_ACCESS_KEY_ID');
+    const secretAccessKey = getRequiredEnv('S3_SECRET_ACCESS_KEY');
+
+    return new S3Client({
+        region: 'us-east-1',
+        endpoint,
+        credentials: { accessKeyId, secretAccessKey },
+        forcePathStyle: true,
+    });
+}
 
 // Update the type definition for the second argument
 export async function GET(
     request: NextRequest,
     { params }: { params: Promise<{ filename: string }> } // Type as Promise
 ) {
+    const cookieValue = request.cookies.get(DEVICE_AUTH_COOKIE_NAME)?.value;
+    if (!hasValidDeviceAuthCookie(cookieValue)) {
+        return new NextResponse('Unauthorized device', { status: 401 });
+    }
+
     // 1. AWAIT the params (Fix for Next.js 15+)
     const { filename } = await params;
 
@@ -31,8 +43,9 @@ export async function GET(
     }
 
     try {
+        const s3Signer = getSignerClient();
         const command = new GetObjectCommand({
-            Bucket: process.env.S3_BUCKET_NAME,
+            Bucket: getRequiredEnv('S3_BUCKET_NAME'),
             Key: filename,
         });
 
@@ -43,6 +56,6 @@ export async function GET(
         return NextResponse.redirect(signedUrl, { status: 307 });
     } catch (error) {
         console.error('Error generating redirect:', error);
-        return new NextResponse('File not found', { status: 404 });
+        return new NextResponse('File unavailable', { status: 404 });
     }
 }

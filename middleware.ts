@@ -1,9 +1,9 @@
 // middleware.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE } from '@/lib/device-auth';
 
 // 1. Configuration
-const COOKIE_NAME = 'family_device_auth';
 const COOKIE_DURATION = 60 * 60 * 24 * 400; // 400 days (approx 1 year + buffer)
 
 // 2. Paths that are always allowed (e.g., static assets, manifest)
@@ -17,15 +17,6 @@ export function middleware(request: NextRequest) {
 
     const { pathname, searchParams } = request.nextUrl;
 
-    // --- DEBUG LOGGING (Remove this after fixing) ---
-    // This will print to your "docker compose logs"
-    if (searchParams.get('activate')) {
-        console.log("--- MIDDLEWARE DEBUG ---");
-        console.log("Provided Key:", searchParams.get('activate'));
-        console.log("Server Secret:", SECRET_KEY); // If this says 'undefined', that's the bug
-        console.log("Match Status:", searchParams.get('activate') === SECRET_KEY);
-    }
-
     // --- A. PASS: Check if the request is for a static asset ---
     // We generally allow static files to pass so we don't break browser defaults,
     // but you can block these too if you want extreme strictness.
@@ -34,8 +25,8 @@ export function middleware(request: NextRequest) {
     }
 
     // --- B. PASS: Check if device is already authenticated ---
-    const deviceCookie = request.cookies.get(COOKIE_NAME);
-    if (deviceCookie && deviceCookie.value === 'true') {
+    const deviceCookie = request.cookies.get(DEVICE_AUTH_COOKIE_NAME);
+    if (deviceCookie && deviceCookie.value === DEVICE_AUTH_COOKIE_VALUE) {
         return NextResponse.next();
     }
 
@@ -49,7 +40,7 @@ export function middleware(request: NextRequest) {
         const response = NextResponse.redirect(new URL('/', request.url));
         
         // 2. Stamp the "Badge" (Set the long-lived cookie)
-        response.cookies.set(COOKIE_NAME, 'true', {
+        response.cookies.set(DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE, {
             maxAge: COOKIE_DURATION,
             path: '/',
             httpOnly: true, // Javascript cannot read this (security best practice)
@@ -88,4 +79,3 @@ export const config = {
         '/((?!_next/static|_next/image|favicon.ico).*)',
     ],
 };
-
