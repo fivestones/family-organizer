@@ -12,8 +12,8 @@ import { Loader2, ArrowLeft } from 'lucide-react';
 import { db } from '@/lib/db';
 import { useAuth } from '@/components/AuthProvider';
 import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
-import { hashPin } from '@/app/actions';
 import { useToast } from '@/components/ui/use-toast';
+import { hashPinClient } from '@/lib/pin-client';
 
 interface LoginModalProps {
     isOpen: boolean;
@@ -97,6 +97,14 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                     toast({ title: 'PIN is required', variant: 'destructive' });
                     return;
                 }
+                if (!canReuseParent && typeof navigator !== 'undefined' && navigator.onLine === false) {
+                    toast({
+                        title: 'Internet required for parent mode',
+                        description: 'Parent elevation needs a server check. Try again when this device is back online.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
 
                 await elevateParentPrincipal({
                     familyMemberId: member.id,
@@ -137,7 +145,21 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 return;
             }
 
-            const hashedInput = await hashPin(pin);
+            let hashedInput: string;
+            try {
+                hashedInput = await hashPinClient(pin);
+            } catch (hashError) {
+                console.error('Failed to hash child PIN locally', hashError);
+                toast({
+                    title: 'Unable to verify PIN',
+                    description:
+                        typeof navigator !== 'undefined' && navigator.onLine === false
+                            ? 'This browser cannot verify PINs offline in the current context.'
+                            : 'Please try again.',
+                    variant: 'destructive',
+                });
+                return;
+            }
             if (hashedInput === member.pinHash) {
                 login(
                     {

@@ -7,6 +7,8 @@ import DebugTimeWidget from '@/components/debug/DebugTimeWidget';
 import { AuthProvider } from '@/components/AuthProvider';
 import { InstantFamilySessionProvider } from '@/components/InstantFamilySessionProvider';
 import { UserMenu } from '@/components/auth/UserMenu';
+import { SyncStatusBadge } from '@/components/SyncStatusBadge';
+import { PwaServiceWorkerRegistration } from '@/components/PwaServiceWorkerRegistration';
 import Link from 'next/link';
 
 import NavbarDate from '@/components/NavbarDate';
@@ -133,7 +135,8 @@ export default function RootLayout({
                                     <MainNav />
                                 </div>
                             </div>
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-3">
+                                <SyncStatusBadge />
                                 <NavbarDate />
                                 <UserMenu />
                             </div>
@@ -144,6 +147,7 @@ export default function RootLayout({
 
                         <Toaster />
                         <DebugTimeWidget />
+                        <PwaServiceWorkerRegistration />
                     </AuthProvider>
                 </InstantFamilySessionProvider>
             </body>

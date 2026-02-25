@@ -27,6 +27,7 @@ This repo now uses a layered test strategy:
 - `npm run test:coverage` : Vitest with coverage
 - `npm run test:e2e` : Playwright E2E tests
 - `npm run test:e2e:install` : install Chromium for Playwright
+- `npm run test:perms:live` : hosted Instant permissions smoke matrix (anonymous/kid/parent). Mutates and cleans up small temp rows.
 - `npm run test:all` : Vitest + Playwright
 
 ## What to test for new features
@@ -46,3 +47,15 @@ When changing auth, permissions, or file handling, add at least:
 - Authorized request test
 - One malformed-input test
 - One regression test for the intended security property (for example, audit stamp required)
+
+## Hosted Instant perms smoke test
+
+`npm run test:perms:live` is a real hosted-app check that validates the current pushed `instant.perms.ts`
+behavior using:
+
+- anonymous client (should be denied)
+- kid principal token (shared kid principal)
+- parent principal token
+
+It is env-gated and safe by default (`RUN_LIVE_INSTANT_PERMS=1` is set by the script). It creates and
+deletes a small number of temporary records for validation.

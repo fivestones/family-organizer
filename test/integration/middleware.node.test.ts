@@ -36,4 +36,12 @@ describe('middleware device auth gate', () => {
 
         expect(response.headers.get('x-middleware-next')).toBe('1');
     });
+
+    it('allows offline shell and manifest assets without device auth', () => {
+        const manifestResponse = middleware(new NextRequest('http://localhost:3000/manifest.json'));
+        const offlineResponse = middleware(new NextRequest('http://localhost:3000/offline.html'));
+
+        expect(manifestResponse.headers.get('x-middleware-next')).toBe('1');
+        expect(offlineResponse.headers.get('x-middleware-next')).toBe('1');
+    });
 });

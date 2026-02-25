@@ -13,12 +13,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { LogIn, LogOut, User } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
-import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
 import { LoginModal } from './LoginModal';
+import { useParentMode } from '@/components/auth/useParentMode';
 
 export function UserMenu() {
     const { currentUser, logout } = useAuth();
-    const { principalType, isParentSessionSharedDevice, parentSharedDeviceIdleTimeoutMs } = useInstantPrincipal();
+    const { isParentMode, isParentSessionSharedDevice, parentSharedDeviceIdleTimeoutMs } = useParentMode();
     const [isLoginOpen, setIsLoginOpen] = useState(false);
 
     const handleSwitchUser = () => {
@@ -47,12 +47,12 @@ export function UserMenu() {
                                 <div className="flex flex-col space-y-1">
                                     <p className="text-sm font-medium leading-none">{currentUser.name}</p>
                                     <p className="text-xs leading-none text-muted-foreground capitalize">{currentUser.role || 'Family Member'}</p>
-                                    {currentUser.role === 'parent' && principalType === 'parent' && (
+                                    {isParentMode && (
                                         <p className="text-xs leading-none text-amber-600">
                                             Parent mode{isParentSessionSharedDevice ? ' (shared device)' : ''}
                                         </p>
                                     )}
-                                    {currentUser.role === 'parent' && principalType === 'parent' && isParentSessionSharedDevice && (
+                                    {isParentMode && isParentSessionSharedDevice && (
                                         <p className="text-[11px] leading-none text-muted-foreground">
                                             Auto-expires after {Math.round(parentSharedDeviceIdleTimeoutMs / 60000)} min idle
                                         </p>

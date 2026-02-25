@@ -4,6 +4,7 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, ReactNode } from 'react';
 import { db } from '@/lib/db';
 import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
+import { isEffectiveParentMode } from '@/lib/parent-mode';
 
 // Define the shape of our User context
 export interface FamilyMemberUser {
@@ -121,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Parent UI mode requires the parent DB principal. If parent principal expires (shared device timeout)
         // or the app has been switched back to the kid principal, clear the selected parent user.
-        if (currentUser.role === 'parent' && principalType === 'kid') {
+        if (currentUser.role === 'parent' && !isEffectiveParentMode(currentUser.role, principalType)) {
             localStorage.removeItem(FAMILY_MEMBER_STORAGE_KEY);
             localStorage.removeItem(REMEMBER_KEY);
             setRememberMe(false);

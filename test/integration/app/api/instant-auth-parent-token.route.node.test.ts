@@ -6,6 +6,10 @@ const parentRouteMocks = vi.hoisted(() => ({
     hashPinServer: vi.fn(),
     isInstantFamilyAuthConfigured: vi.fn(),
     mintPrincipalToken: vi.fn(),
+    checkParentElevationRateLimit: vi.fn(),
+    clearParentElevationRateLimit: vi.fn(),
+    getParentElevationRateLimitKey: vi.fn(),
+    recordParentElevationFailure: vi.fn(),
 }));
 
 vi.mock('@/lib/instant-admin', () => ({
@@ -13,6 +17,13 @@ vi.mock('@/lib/instant-admin', () => ({
     hashPinServer: parentRouteMocks.hashPinServer,
     isInstantFamilyAuthConfigured: parentRouteMocks.isInstantFamilyAuthConfigured,
     mintPrincipalToken: parentRouteMocks.mintPrincipalToken,
+}));
+
+vi.mock('@/lib/parent-elevation-rate-limit', () => ({
+    checkParentElevationRateLimit: parentRouteMocks.checkParentElevationRateLimit,
+    clearParentElevationRateLimit: parentRouteMocks.clearParentElevationRateLimit,
+    getParentElevationRateLimitKey: parentRouteMocks.getParentElevationRateLimitKey,
+    recordParentElevationFailure: parentRouteMocks.recordParentElevationFailure,
 }));
 
 import { POST } from '@/app/api/instant-auth-parent-token/route';
@@ -23,6 +34,8 @@ describe('POST /api/instant-auth-parent-token', () => {
         parentRouteMocks.getFamilyMemberById.mockResolvedValue(null);
         parentRouteMocks.hashPinServer.mockReturnValue('hashed-pin');
         parentRouteMocks.mintPrincipalToken.mockResolvedValue('parent-token');
+        parentRouteMocks.checkParentElevationRateLimit.mockReturnValue({ allowed: true });
+        parentRouteMocks.getParentElevationRateLimitKey.mockReturnValue('ip::parent-1');
     });
 
     function makeRequest(body: unknown, cookie = true) {
@@ -54,6 +67,7 @@ describe('POST /api/instant-auth-parent-token', () => {
         const response = await POST(makeRequest({ familyMemberId: 'child-1', pin: '1234' }));
         expect(response.status).toBe(403);
         expect(await response.json()).toEqual({ error: 'Selected member is not a parent' });
+        expect(parentRouteMocks.recordParentElevationFailure).toHaveBeenCalledWith('ip::parent-1');
     });
 
     it('rejects incorrect parent PINs', async () => {
@@ -67,6 +81,19 @@ describe('POST /api/instant-auth-parent-token', () => {
         const response = await POST(makeRequest({ familyMemberId: 'parent-1', pin: '1234' }));
         expect(response.status).toBe(403);
         expect(await response.json()).toEqual({ error: 'Incorrect PIN' });
+        expect(parentRouteMocks.recordParentElevationFailure).toHaveBeenCalledWith('ip::parent-1');
+    });
+
+    it('returns 429 when parent elevation is rate-limited', async () => {
+        parentRouteMocks.checkParentElevationRateLimit.mockReturnValue({ allowed: false, retryAfterMs: 2400 });
+
+        const response = await POST(makeRequest({ familyMemberId: 'parent-1', pin: '1234' }));
+
+        expect(response.status).toBe(429);
+        expect(response.headers.get('Retry-After')).toBe('3');
+        expect(response.headers.get('Cache-Control')).toBe('no-store');
+        expect(await response.json()).toEqual({ error: 'Too many parent elevation attempts. Try again later.' });
+        expect(parentRouteMocks.getFamilyMemberById).not.toHaveBeenCalled();
     });
 
     it('returns a parent principal token after successful verification', async () => {
@@ -86,5 +113,6 @@ describe('POST /api/instant-auth-parent-token', () => {
             principalType: 'parent',
         });
         expect(parentRouteMocks.mintPrincipalToken).toHaveBeenCalledWith('parent');
+        expect(parentRouteMocks.clearParentElevationRateLimit).toHaveBeenCalledWith('ip::parent-1');
     });
 });

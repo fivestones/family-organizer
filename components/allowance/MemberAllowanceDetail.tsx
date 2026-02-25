@@ -54,6 +54,7 @@ import {
 
 // +++ NEW IMPORTS +++
 import { useAuth } from '@/components/AuthProvider';
+import { useParentMode } from '@/components/auth/useParentMode';
 import { validateRestriction } from '@/lib/auth-utils';
 import { RestrictedButton } from '@/components/ui/RestrictedButton';
 
@@ -115,6 +116,7 @@ export default function MemberAllowanceDetail({
     const { toast } = useToast();
     // +++ NEW: Get Auth Context +++
     const { currentUser } = useAuth();
+    const { isParentMode } = useParentMode();
 
     const hasInitializedEnvelope = useRef(false);
     const rateCalculationController = useRef<AbortController | null>(null);
@@ -836,7 +838,7 @@ export default function MemberAllowanceDetail({
     }
 
     // +++ Permission Logic +++
-    const isParent = currentUser?.role === 'parent';
+    const isParent = isParentMode;
     const isSelf = currentUser?.id === memberId;
     const canInteract = isParent || isSelf;
     const restrictionMsg = `You need to be logged in as ${member.name} or a parent to use this function.`;
