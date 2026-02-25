@@ -29,7 +29,7 @@ export const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 const REMEMBER_KEY = 'family_organizer_remember_me';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const { ensureKidPrincipal } = useInstantPrincipal();
+    const { ensureKidPrincipal, principalType } = useInstantPrincipal();
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [currentUser, setCurrentUser] = useState<FamilyMemberUser | null>(null);
     const [rememberMe, setRememberMe] = useState(false);
@@ -115,6 +115,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.error('Failed to restore kid principal after logout', error);
         });
     }, [ensureKidPrincipal]);
+
+    useEffect(() => {
+        if (!currentUser) return;
+
+        // Parent UI mode requires the parent DB principal. If parent principal expires (shared device timeout)
+        // or the app has been switched back to the kid principal, clear the selected parent user.
+        if (currentUser.role === 'parent' && principalType === 'kid') {
+            localStorage.removeItem(FAMILY_MEMBER_STORAGE_KEY);
+            localStorage.removeItem(REMEMBER_KEY);
+            setRememberMe(false);
+            setCurrentUserId(null);
+            setCurrentUser(null);
+        }
+    }, [currentUser, principalType]);
 
     // 3. Auto-Logout on Idle
     useEffect(() => {

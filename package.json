@@ -3,7 +3,14 @@
   "scripts": {
     "dev": "next dev --turbo",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:install": "playwright install chromium",
+    "test:all": "npm run test && npm run test:e2e"
   },
   "dependencies": {
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.7",
@@ -64,13 +71,21 @@
     "use-debounce": "^10.0.6"
   },
   "devDependencies": {
-    "@types/node": "20.10.8",
+    "@playwright/test": "^1.58.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^20.19.33",
     "@types/react": "18.2.47",
     "@types/react-dom": "18.2.18",
     "@types/rrule": "^2.1.7",
+    "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.20",
+    "jsdom": "^28.1.0",
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.10",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.0.18"
   }
 }

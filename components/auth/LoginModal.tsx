@@ -22,12 +22,13 @@ interface LoginModalProps {
 
 export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     const { login } = useAuth();
-    const { ensureKidPrincipal, elevateParentPrincipal, canUseCachedParentPrincipal } = useInstantPrincipal();
+    const { ensureKidPrincipal, elevateParentPrincipal, canUseCachedParentPrincipal, isParentSessionSharedDevice } = useInstantPrincipal();
     const { toast } = useToast();
     const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
     const [pin, setPin] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
+    const [parentSharedDevice, setParentSharedDevice] = useState(true);
 
     // +++ NEW: Force cleanup of pointer-events on Body +++
     // This implements the fix found on GitHub to prevent the app from freezing
@@ -67,6 +68,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             setPin('');
             setIsVerifying(false);
             setRememberMe(false);
+            setParentSharedDevice(true);
         }
     }, [isOpen]);
 
@@ -74,6 +76,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         setSelectedMemberId(id);
         setPin(''); // Clear any previous PIN attempt
         setRememberMe(false);
+        setParentSharedDevice(true);
     };
 
     const handlePinSubmit = async (e?: React.FormEvent) => {
@@ -98,6 +101,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 await elevateParentPrincipal({
                     familyMemberId: member.id,
                     pin: pin,
+                    sharedDevice: parentSharedDevice,
                 });
 
                 login(
@@ -114,7 +118,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 return;
             }
 
-            await ensureKidPrincipal();
+            await ensureKidPrincipal({ clearParentSession: isParentSessionSharedDevice });
 
             // Check if member has a PIN set
             if (!member.pinHash) {
@@ -239,6 +243,24 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                                             Remember me on this device
                                         </Label>
                                     </div>
+
+                                    {isParentSelection && (
+                                        <div className="flex items-start justify-center space-x-2 px-4">
+                                            <Checkbox
+                                                id="parent-shared-device"
+                                                checked={parentSharedDevice}
+                                                onCheckedChange={(checked) => setParentSharedDevice(checked as boolean)}
+                                            />
+                                            <div className="space-y-1">
+                                                <Label htmlFor="parent-shared-device" className="text-sm font-medium leading-none">
+                                                    This is a shared device
+                                                </Label>
+                                                <p className="text-xs text-muted-foreground">
+                                                    Parent mode auto-expires after 15 minutes of inactivity and when switching to a kid account.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div className="flex justify-between items-center px-4">
                                         <Button type="button" variant="ghost" onClick={() => setSelectedMemberId(null)}>
