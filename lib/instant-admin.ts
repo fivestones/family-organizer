@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { init } from '@instantdb/admin';
+import { createHash } from 'crypto';
 
 function getRequiredEnv(name: string): string {
     const value = process.env[name];
@@ -14,8 +15,8 @@ function getInstantAppId(): string {
     return process.env.INSTANT_APP_ID || getRequiredEnv('NEXT_PUBLIC_INSTANT_APP_ID');
 }
 
-export function getFamilyInstantAuthId(): string {
-    return process.env.INSTANT_FAMILY_AUTH_ID || 'family-organizer-shared-device';
+function getKidPrincipalAuthId(): string {
+    return process.env.INSTANT_KID_AUTH_ID || process.env.INSTANT_FAMILY_AUTH_ID || 'family-organizer-kid';
 }
 
 function sanitizeEmailLocalPart(value: string): string {
@@ -27,12 +28,24 @@ function sanitizeEmailLocalPart(value: string): string {
     return cleaned || 'family-organizer-shared-device';
 }
 
-export function getFamilyInstantAuthEmail(): string {
-    if (process.env.INSTANT_FAMILY_AUTH_EMAIL) {
-        return process.env.INSTANT_FAMILY_AUTH_EMAIL;
+function getParentPrincipalAuthId(): string {
+    return process.env.INSTANT_PARENT_AUTH_ID || 'family-organizer-parent';
+}
+
+export function getKidPrincipalAuthEmail(): string {
+    if (process.env.INSTANT_KID_AUTH_EMAIL) {
+        return process.env.INSTANT_KID_AUTH_EMAIL;
     }
 
-    return `${sanitizeEmailLocalPart(getFamilyInstantAuthId())}@family-organizer.local`;
+    return `${sanitizeEmailLocalPart(getKidPrincipalAuthId())}@family-organizer.local`;
+}
+
+export function getParentPrincipalAuthEmail(): string {
+    if (process.env.INSTANT_PARENT_AUTH_EMAIL) {
+        return process.env.INSTANT_PARENT_AUTH_EMAIL;
+    }
+
+    return `${sanitizeEmailLocalPart(getParentPrincipalAuthId())}@family-organizer.local`;
 }
 
 export function isInstantFamilyAuthConfigured(): boolean {
@@ -44,4 +57,38 @@ export function getInstantAdminDb() {
         appId: getInstantAppId(),
         adminToken: getRequiredEnv('INSTANT_APP_ADMIN_TOKEN'),
     });
+}
+
+type PrincipalType = 'kid' | 'parent';
+
+function getPrincipalEmail(type: PrincipalType) {
+    return type === 'kid' ? getKidPrincipalAuthEmail() : getParentPrincipalAuthEmail();
+}
+
+async function ensurePrincipalUserType(type: PrincipalType) {
+    const adminDb = getInstantAdminDb();
+    const email = getPrincipalEmail(type);
+    const user = await adminDb.auth.getUser({ email });
+
+    await adminDb.transact([adminDb.tx.$users[user.id].update({ type })]);
+}
+
+export async function mintPrincipalToken(type: PrincipalType) {
+    const adminDb = getInstantAdminDb();
+    const email = getPrincipalEmail(type);
+    const token = await adminDb.auth.createToken({ email });
+
+    await ensurePrincipalUserType(type);
+
+    return token;
+}
+
+export function hashPinServer(pin: string): string {
+    return createHash('sha256').update(pin).digest('hex');
+}
+
+export async function getFamilyMemberById(memberId: string) {
+    const adminDb = getInstantAdminDb();
+    const data = await adminDb.query({ familyMembers: {} });
+    return (data.familyMembers || []).find((member: any) => member.id === memberId) || null;
 }

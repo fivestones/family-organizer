@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
-import { getFamilyInstantAuthEmail, getInstantAdminDb, isInstantFamilyAuthConfigured } from '@/lib/instant-admin';
+import { isInstantFamilyAuthConfigured, mintPrincipalToken } from '@/lib/instant-admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,12 +21,12 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        const adminDb = getInstantAdminDb();
-        const token = await adminDb.auth.createToken({ email: getFamilyInstantAuthEmail() });
+        const token = await mintPrincipalToken('kid');
 
         return NextResponse.json(
             {
                 token,
+                principalType: 'kid',
             },
             { headers: { 'Cache-Control': 'no-store' } }
         );

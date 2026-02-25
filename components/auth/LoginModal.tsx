@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import { db } from '@/lib/db';
 import { useAuth } from '@/components/AuthProvider';
+import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
 import { hashPin } from '@/app/actions';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -21,6 +22,7 @@ interface LoginModalProps {
 
 export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     const { login } = useAuth();
+    const { ensureKidPrincipal, elevateParentPrincipal, canUseCachedParentPrincipal } = useInstantPrincipal();
     const { toast } = useToast();
     const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
     const [pin, setPin] = useState('');
@@ -56,6 +58,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             $: { order: { order: 'asc' } },
         },
     });
+    const familyMembers = (data?.familyMembers as any[]) || [];
 
     // Reset state when modal opens/closes
     useEffect(() => {
@@ -75,14 +78,44 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
     const handlePinSubmit = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
-        if (!selectedMemberId || !pin) return;
+        if (!selectedMemberId) return;
 
-        const member = data?.familyMembers.find((m: any) => m.id === selectedMemberId);
+        const member = familyMembers.find((m: any) => m.id === selectedMemberId);
         if (!member) return;
 
         setIsVerifying(true);
 
         try {
+            const isParentMember = member.role === 'parent';
+
+            if (isParentMember) {
+                const canReuseParent = canUseCachedParentPrincipal;
+                if (!canReuseParent && !pin) {
+                    toast({ title: 'PIN is required', variant: 'destructive' });
+                    return;
+                }
+
+                await elevateParentPrincipal({
+                    familyMemberId: member.id,
+                    pin: pin,
+                });
+
+                login(
+                    {
+                        id: member.id,
+                        name: member.name,
+                        role: member.role,
+                        photoUrls: member.photoUrls,
+                    },
+                    rememberMe
+                );
+                toast({ title: `Welcome back, ${member.name}!` });
+                onClose();
+                return;
+            }
+
+            await ensureKidPrincipal();
+
             // Check if member has a PIN set
             if (!member.pinHash) {
                 // If no PIN set, login immediately
@@ -128,14 +161,23 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         }
     };
 
-    const selectedMemberData = data?.familyMembers.find((m: any) => m.id === selectedMemberId);
+    const selectedMemberData = familyMembers.find((m: any) => m.id === selectedMemberId);
+    const isParentSelection = selectedMemberData?.role === 'parent';
+    const parentPinCanBeSkipped = Boolean(isParentSelection && canUseCachedParentPrincipal);
+    const loginButtonDisabled = isVerifying || (!pin && !parentPinCanBeSkipped);
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>{selectedMemberId ? `Welcome, ${selectedMemberData?.name}` : 'Who are you?'}</DialogTitle>
-                    <DialogDescription>{selectedMemberId ? 'Enter your PIN to continue.' : 'Select your profile to log in.'}</DialogDescription>
+                    <DialogDescription>
+                        {selectedMemberId
+                            ? parentPinCanBeSkipped
+                                ? 'Parent mode is already unlocked on this device.'
+                                : 'Enter your PIN to continue.'
+                            : 'Select your profile to log in.'}
+                    </DialogDescription>
                 </DialogHeader>
 
                 {isLoading ? (
@@ -147,7 +189,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                         {!selectedMemberId ? (
                             // Grid of avatars
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                                {data?.familyMembers.map((member: any) => (
+                                {familyMembers.map((member: any) => (
                                     <button
                                         key={member.id}
                                         onClick={() => handleMemberSelect(member.id)}
@@ -181,7 +223,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                                             onChange={(e) => setPin(e.target.value)}
                                             className="text-center text-2xl tracking-widest w-40"
                                             maxLength={6}
-                                            placeholder="PIN"
+                                            placeholder={parentPinCanBeSkipped ? 'PIN (optional)' : 'PIN'}
                                             autoFocus
                                             inputMode="numeric"
                                             pattern="[0-9]*"
@@ -202,7 +244,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                                         <Button type="button" variant="ghost" onClick={() => setSelectedMemberId(null)}>
                                             <ArrowLeft className="mr-2 h-4 w-4" /> Back
                                         </Button>
-                                        <Button type="submit" disabled={isVerifying || !pin}>
+                                        <Button type="submit" disabled={loginButtonDisabled}>
                                             {isVerifying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                             Log In
                                         </Button>

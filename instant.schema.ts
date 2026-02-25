@@ -27,6 +27,8 @@ const _schema = i.schema({
         allowanceTransactions: i.entity({
             amount: i.number(),
             createdAt: i.string().indexed(),
+            createdBy: i.string().indexed().optional(),
+            createdByFamilyMemberId: i.string().indexed().optional(),
             currency: i.string(),
             description: i.string(),
             transactionType: i.string(),
