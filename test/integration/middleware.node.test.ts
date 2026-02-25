@@ -40,8 +40,12 @@ describe('middleware device auth gate', () => {
     it('allows offline shell and manifest assets without device auth', () => {
         const manifestResponse = middleware(new NextRequest('http://localhost:3000/manifest.json'));
         const offlineResponse = middleware(new NextRequest('http://localhost:3000/offline.html'));
+        const activateResponse = middleware(new NextRequest('http://localhost:3000/activate'));
+        const deviceActivateApiResponse = middleware(new NextRequest('http://localhost:3000/api/device-activate'));
 
         expect(manifestResponse.headers.get('x-middleware-next')).toBe('1');
         expect(offlineResponse.headers.get('x-middleware-next')).toBe('1');
+        expect(activateResponse.headers.get('x-middleware-next')).toBe('1');
+        expect(deviceActivateApiResponse.headers.get('x-middleware-next')).toBe('1');
     });
 });

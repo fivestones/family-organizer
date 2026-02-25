@@ -14,6 +14,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
 import { useToast } from '@/components/ui/use-toast';
 import { hashPinClient } from '@/lib/pin-client';
+import { hashPin } from '@/app/actions';
 
 interface LoginModalProps {
     isOpen: boolean;
@@ -149,16 +150,29 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             try {
                 hashedInput = await hashPinClient(pin);
             } catch (hashError) {
-                console.error('Failed to hash child PIN locally', hashError);
-                toast({
-                    title: 'Unable to verify PIN',
-                    description:
-                        typeof navigator !== 'undefined' && navigator.onLine === false
-                            ? 'This browser cannot verify PINs offline in the current context.'
-                            : 'Please try again.',
-                    variant: 'destructive',
-                });
-                return;
+                const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+                if (isOffline) {
+                    console.error('Failed to hash child PIN locally while offline', hashError);
+                    toast({
+                        title: 'Unable to verify PIN',
+                        description: 'This browser cannot verify PINs offline in the current context.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+
+                console.warn('Local child PIN hashing unavailable; falling back to server hash.', hashError);
+                try {
+                    hashedInput = await hashPin(pin);
+                } catch (serverHashError) {
+                    console.error('Failed to hash child PIN on server fallback', serverHashError);
+                    toast({
+                        title: 'Unable to verify PIN',
+                        description: 'Please try again.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
             }
             if (hashedInput === member.pinHash) {
                 login(

@@ -1,16 +1,13 @@
 // middleware.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE } from '@/lib/device-auth';
-
-// 1. Configuration
-const COOKIE_DURATION = 60 * 60 * 24 * 400; // 400 days (approx 1 year + buffer)
+import { DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE, getDeviceAuthCookieOptions } from '@/lib/device-auth';
 
 // 2. Paths that are always allowed (e.g., static assets, manifest)
 // You might want to allow manifest.json so the PWA is recognized,
 // but blocking it until auth is also fine.
 const PUBLIC_FILE_EXTENSIONS = ['.ico', '.png', '.jpg', '.jpeg', '.svg', '.css', '.js', '.mjs', '.ttf', '.woff', '.woff2'];
-const PUBLIC_ALLOWLIST_PATHS = ['/manifest.json', '/manifest.webmanifest', '/offline.html'];
+const PUBLIC_ALLOWLIST_PATHS = ['/manifest.json', '/manifest.webmanifest', '/offline.html', '/activate', '/api/device-activate'];
 
 export function middleware(request: NextRequest) {
     // 1. Read the key INSIDE the function to ensure we get the runtime value
@@ -41,13 +38,7 @@ export function middleware(request: NextRequest) {
         const response = NextResponse.redirect(new URL('/', request.url));
         
         // 2. Stamp the "Badge" (Set the long-lived cookie)
-        response.cookies.set(DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE, {
-            maxAge: COOKIE_DURATION,
-            path: '/',
-            httpOnly: true, // Javascript cannot read this (security best practice)
-            secure: process.env.NODE_ENV === 'production', // Only send over HTTPS in prod
-            sameSite: 'lax',
-        });
+        response.cookies.set(DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE, getDeviceAuthCookieOptions());
         return response;
     }
 

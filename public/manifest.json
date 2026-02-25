@@ -2,7 +2,7 @@
     "name": "Family Organizer",
     "short_name": "FamilyOrg",
     "description": "Family Organizer App",
-    "start_url": "/",
+    "start_url": "/activate",
     "display": "standalone",
     "background_color": "#ffffff",
     "theme_color": "#ffffff",
