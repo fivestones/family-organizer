@@ -31,9 +31,13 @@ test.describe('parent elevation flow (env-gated)', () => {
         await page.getByRole('menuitem', { name: /log out/i }).click();
 
         await expect(page.getByText('Access Restricted')).toBeVisible();
-        await expect(page.getByRole('button', { name: /open login/i })).toBeVisible();
+        await expect(page.getByRole('dialog')).toBeVisible();
 
-        const principal = await page.evaluate(() => window.localStorage.getItem('family_organizer_preferred_principal'));
-        expect(principal).toBe('kid');
+        await expect
+            .poll(
+                async () => page.evaluate(() => window.localStorage.getItem('family_organizer_preferred_principal')),
+                { timeout: 5000 }
+            )
+            .toBe('kid');
     });
 });
