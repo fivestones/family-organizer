@@ -68,13 +68,16 @@ export default function TabsLayout() {
         },
       })}
     >
-      <Tabs.Screen name="chores" options={{ title: 'Chores' }} />
+      <Tabs.Screen name="chores" options={{ title: 'Chores', tabBarButtonTestID: 'tab-chores' }} />
       <Tabs.Screen
         name="calendar"
-        options={{ title: connectionStatus === 'authenticated' ? 'Calendar' : 'Calendar' }}
+        options={{
+          title: connectionStatus === 'authenticated' ? 'Calendar' : 'Calendar',
+          tabBarButtonTestID: 'tab-calendar',
+        }}
       />
-      <Tabs.Screen name="finance" options={{ title: 'Finance' }} />
-      <Tabs.Screen name="more" options={{ title: 'More' }} />
+      <Tabs.Screen name="finance" options={{ title: 'Finance', tabBarButtonTestID: 'tab-finance' }} />
+      <Tabs.Screen name="more" options={{ title: 'More', tabBarButtonTestID: 'tab-more' }} />
     </Tabs>
   );
 }

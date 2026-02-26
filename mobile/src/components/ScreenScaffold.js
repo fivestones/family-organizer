@@ -10,13 +10,26 @@ const CHIP_TONES = {
   accent: { bg: '#F1EAF9', text: colors.accentMore, border: '#D7CCE7' },
 };
 
-export function ScreenScaffold({ title, subtitle, accent = colors.accentMore, statusChips = [], children }) {
+export function ScreenScaffold({
+  title,
+  subtitle,
+  accent = colors.accentMore,
+  statusChips = [],
+  children,
+  headerMode = 'default',
+  layoutMode = 'default',
+}) {
+  const compactHeader = headerMode === 'compact';
+  const compactLayout = layoutMode === 'compact';
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-      <View style={styles.root}>
-        <View style={[styles.headerCard, { borderLeftColor: accent }]}>
+      <View style={[styles.root, compactLayout && styles.rootCompact]}>
+        <View style={[styles.headerCard, compactHeader && styles.headerCardCompact, { borderLeftColor: accent }]}>
           <View style={styles.headerTop}>
-            <Text style={styles.title}>{title}</Text>
+            <Text style={[styles.title, compactHeader && styles.titleCompact]} numberOfLines={compactHeader ? 1 : undefined}>
+              {title}
+            </Text>
             {statusChips.length > 0 ? (
               <View style={styles.chipsRow}>
                 {statusChips.map((chip) => {
@@ -33,7 +46,11 @@ export function ScreenScaffold({ title, subtitle, accent = colors.accentMore, st
               </View>
             ) : null}
           </View>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+          {subtitle ? (
+            <Text style={[styles.subtitle, compactHeader && styles.subtitleCompact]} numberOfLines={compactHeader ? 2 : undefined}>
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.content}>{children}</View>
       </View>
@@ -53,6 +70,7 @@ export function PlaceholderCard({ title, body }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   root: { flex: 1, padding: spacing.lg, gap: spacing.lg },
+  rootCompact: { padding: spacing.md, gap: spacing.md },
   headerCard: {
     backgroundColor: colors.panel,
     borderRadius: radii.lg,
@@ -62,6 +80,11 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     ...shadows.card,
   },
+  headerCardCompact: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+  },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -69,6 +92,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   title: { fontSize: 28, fontWeight: '800', color: colors.ink },
+  titleCompact: { fontSize: 22, lineHeight: 28, flexShrink: 1 },
   chipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -87,6 +111,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   subtitle: { marginTop: spacing.xs, color: colors.inkMuted, lineHeight: 20 },
+  subtitleCompact: { marginTop: 6, lineHeight: 18, fontSize: 13 },
   content: { flex: 1, gap: spacing.md },
   card: {
     backgroundColor: colors.panelElevated,

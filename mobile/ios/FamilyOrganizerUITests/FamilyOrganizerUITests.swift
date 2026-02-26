@@ -45,7 +45,11 @@ final class FamilyOrganizerUITests: XCTestCase {
       failWithLockStateContext("Expected chores screen after parent unlock")
     }
 
-    let moreTab = app.tabBars.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "More")).firstMatch
+    let moreTab = resolveTabButton(
+      preferredIDs: ["tab-more"],
+      labelFallbackContains: "More",
+      fallbackIndex: 3
+    )
     XCTAssertTrue(moreTab.waitForExistence(timeout: 5), "Expected More tab")
     moreTab.tap()
 
@@ -58,7 +62,26 @@ final class FamilyOrganizerUITests: XCTestCase {
 
   private func waitForLockScreen() {
     ensureActivatedIfNeeded()
-    XCTAssertTrue(app.buttons["member-card-judah"].waitForExistence(timeout: 20), "Expected family member cards")
+    if app.buttons["member-card-judah"].waitForExistence(timeout: 20) {
+      return
+    }
+
+    let choresSwitchButton = app.buttons["chores-switch-user-button"]
+    if choresSwitchButton.waitForExistence(timeout: 2) {
+      choresSwitchButton.tap()
+      XCTAssertTrue(app.buttons["member-card-judah"].waitForExistence(timeout: 10), "Expected family member cards after Switch User")
+      return
+    }
+
+    let moreLockButton = app.buttons["more-lock-app-button"]
+    if moreLockButton.waitForExistence(timeout: 2) {
+      moreLockButton.tap()
+      XCTAssertTrue(app.buttons["member-card-judah"].waitForExistence(timeout: 10), "Expected family member cards after Lock App")
+      return
+    }
+
+    attachDebugScreenshot(named: "wait-for-lock-screen-failure")
+    XCTFail("Expected family member cards or a recoverable authenticated screen")
   }
 
   private func ensureActivatedIfNeeded() {
@@ -90,22 +113,73 @@ final class FamilyOrganizerUITests: XCTestCase {
   }
 
   private func tapUnlockButton() {
-    let button = app.buttons["member-confirm-button"]
+    var button = app.buttons["member-confirm-button"]
     XCTAssertTrue(button.waitForExistence(timeout: 10), "Expected unlock button")
+    XCTAssertTrue(button.isEnabled, "Expected unlock button to be enabled before tap")
+
+    if app.keyboards.element.exists {
+      attachDebugScreenshot(named: "unlock-keyboard-visible")
+    }
 
     if !button.isHittable {
       dismissKeyboardIfPresent()
+      RunLoop.current.run(until: Date().addingTimeInterval(0.25))
     }
-    if !button.isHittable {
+
+    var attempts = 0
+    while attempts < 4 {
+      button = app.buttons["member-confirm-button"]
+      let keyboardVisible = app.keyboards.element.exists
+      let keyboardOverlapsButton = isButtonOverlappedByKeyboard(button)
+      if button.isHittable && !keyboardOverlapsButton {
+        break
+      }
+
+      if keyboardVisible || keyboardOverlapsButton {
+        attachDebugScreenshot(named: "unlock-overlap-attempt-\(attempts + 1)")
+      }
+
       app.swipeUp()
+      // Allow scroll deceleration to finish before checking/tapping again.
+      RunLoop.current.run(until: Date().addingTimeInterval(0.45))
+      attempts += 1
     }
-    if !button.isHittable {
-      let coord = button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-      coord.tap()
+
+    button = app.buttons["member-confirm-button"]
+    if isButtonOverlappedByKeyboard(button) {
+      attachDebugScreenshot(named: "unlock-still-overlapped")
+      XCTFail("Unlock button is overlapped by the keyboard; aborting tap to avoid hitting a keyboard key.")
       return
     }
 
-    button.tap()
+    if !button.isHittable {
+      let coord = button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      coord.tap()
+    } else {
+      button.tap()
+    }
+
+    // Retry once if the first tap was consumed by scroll settling.
+    if app.buttons["member-confirm-button"].exists && !app.buttons["chores-switch-user-button"].exists {
+      RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+      let retryButton = app.buttons["member-confirm-button"]
+      if retryButton.exists && retryButton.isEnabled {
+        if retryButton.isHittable {
+          retryButton.tap()
+        } else {
+          retryButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+      }
+    }
+  }
+
+  private func isButtonOverlappedByKeyboard(_ button: XCUIElement) -> Bool {
+    let keyboard = app.keyboards.element
+    guard keyboard.exists else { return false }
+    let keyboardFrame = keyboard.frame
+    let buttonFrame = button.frame
+    guard !keyboardFrame.isEmpty, !buttonFrame.isEmpty else { return false }
+    return buttonFrame.maxY > (keyboardFrame.minY - 4)
   }
 
   private func dismissKeyboardIfPresent() {
@@ -144,6 +218,22 @@ final class FamilyOrganizerUITests: XCTestCase {
     }
 
     return nil
+  }
+
+  private func resolveTabButton(
+    preferredIDs: [String],
+    labelFallbackContains label: String,
+    fallbackIndex: Int
+  ) -> XCUIElement {
+    for id in preferredIDs {
+      let button = app.tabBars.buttons[id]
+      if button.exists { return button }
+    }
+
+    let byLabel = app.tabBars.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", label)).firstMatch
+    if byLabel.exists { return byLabel }
+
+    return app.tabBars.buttons.element(boundBy: fallbackIndex)
   }
 
   private func stripOptionalQuotes(_ value: String) -> String {

@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -65,6 +66,8 @@ export default function LockScreen() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [parentSharedDevice, setParentSharedDevice] = useState(isParentSessionSharedDevice);
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const detailScrollRef = useRef(null);
 
   const selectedMember = useMemo(
     () => familyMembers.find((member) => member.id === selectedMemberId) || null,
@@ -74,6 +77,34 @@ export default function LockScreen() {
   const isParentSelection = selectedMember?.role === 'parent';
   const parentPinCanBeSkipped =
     isParentSelection && canUseCachedParentPrincipal && principalType === 'parent';
+  const isDetailMode = !!selectedMember;
+  const keyboardVisible = keyboardInset > 0;
+  const compactPinLayout = isDetailMode && keyboardVisible;
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      const nextInset = Math.max(0, event?.endCoordinates?.height || 0);
+      setKeyboardInset(nextInset);
+
+      if (selectedMemberId) {
+        setTimeout(() => {
+          detailScrollRef.current?.scrollToEnd?.({ animated: true });
+        }, 80);
+      }
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardInset(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [selectedMemberId]);
 
   if (activationRequired) {
     return <Redirect href="/activate" />;
@@ -85,6 +116,7 @@ export default function LockScreen() {
 
   async function handleMemberConfirm() {
     if (!selectedMember) return;
+    if (submitting) return;
 
     setSubmitting(true);
     setError('');
@@ -110,7 +142,12 @@ export default function LockScreen() {
         return;
       }
 
-      await ensureKidPrincipal({ clearParentSession: true });
+      // The lock screen itself is loaded using the kid principal in normal flows, so
+      // avoid an unnecessary principal re-sign-in unless we need to demote from parent
+      // (or recover from an unknown principal state).
+      if (principalType !== 'kid') {
+        await ensureKidPrincipal({ clearParentSession: true });
+      }
 
       if (selectedMember.pinHash) {
         if (!pin.trim()) {
@@ -146,16 +183,22 @@ export default function LockScreen() {
       ? colors.accentChores
       : colors.accentMore;
 
-  return (
-    <ScreenScaffold
-      title="Who’s using the app?"
-      subtitle={
-        instantReady
-          ? 'Choose a family member to continue. Parent mode requires elevation and auto-demotes on shared devices.'
-          : 'Connecting to family data…'
-      }
-      accent={accent}
-      statusChips={[
+  const lockTitle = isDetailMode ? `Unlock for ${selectedMember.name}` : 'Who’s using the app?';
+  const lockSubtitle = !isDetailMode
+    ? instantReady
+      ? 'Choose a family member to continue. Parent mode requires elevation and auto-demotes on shared devices.'
+      : 'Connecting to family data…'
+    : keyboardVisible
+    ? null
+    : isParentSelection
+    ? 'Enter parent PIN to unlock parent mode on this shared device.'
+    : selectedMember.pinHash
+    ? 'Enter PIN to continue.'
+    : 'No PIN set for this member.';
+
+  const headerStatusChips = keyboardVisible
+    ? []
+    : [
         { label: isOnline ? 'Online' : 'Offline', tone: isOnline ? 'success' : 'warning' },
         {
           label:
@@ -166,7 +209,16 @@ export default function LockScreen() {
               : 'No principal',
           tone: principalType === 'parent' ? 'accent' : 'neutral',
         },
-      ]}
+      ];
+
+  return (
+    <ScreenScaffold
+      title={lockTitle}
+      subtitle={lockSubtitle}
+      accent={accent}
+      statusChips={headerStatusChips}
+      headerMode={isDetailMode ? 'compact' : 'default'}
+      layoutMode={isDetailMode ? 'compact' : 'default'}
     >
       {!instantReady || bootstrapStatus === 'signing_in' ? (
         <View style={styles.centerPanel}>
@@ -257,24 +309,43 @@ export default function LockScreen() {
                   keyboardVerticalOffset={8}
                 >
                   <ScrollView
+                    ref={detailScrollRef}
+                    style={styles.detailScroll}
                     keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={styles.detailScrollContent}
+                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                    contentInset={{ bottom: keyboardInset }}
+                    scrollIndicatorInsets={{ bottom: keyboardInset }}
+                    contentContainerStyle={[
+                      styles.detailScrollContent,
+                      { paddingBottom: spacing.lg + keyboardInset },
+                    ]}
                     showsVerticalScrollIndicator={false}
                   >
-                    <View style={styles.detailPanel}>
-                      <View style={styles.selectedHeader}>
+                    <View style={[styles.detailPanel, compactPinLayout && styles.detailPanelCompact]}>
+                      <View style={[styles.selectedHeader, compactPinLayout && styles.selectedHeaderCompact]}>
                         {avatarUriForMember(selectedMember) ? (
-                          <Image source={{ uri: avatarUriForMember(selectedMember) }} style={styles.selectedAvatarImage} />
+                          <Image
+                            source={{ uri: avatarUriForMember(selectedMember) }}
+                            style={[styles.selectedAvatarImage, compactPinLayout && styles.selectedAvatarImageCompact]}
+                          />
                         ) : (
-                          <View style={[styles.selectedAvatarFallback, { backgroundColor: '#EBDCC5' }]}>
-                            <Text style={styles.selectedAvatarLetter}>
+                          <View
+                            style={[
+                              styles.selectedAvatarFallback,
+                              compactPinLayout && styles.selectedAvatarFallbackCompact,
+                              { backgroundColor: '#EBDCC5' },
+                            ]}
+                          >
+                            <Text style={[styles.selectedAvatarLetter, compactPinLayout && styles.selectedAvatarLetterCompact]}>
                               {(selectedMember.name || '?').slice(0, 1).toUpperCase()}
                             </Text>
                           </View>
                         )}
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.selectedName}>{selectedMember.name}</Text>
-                          <Text style={styles.selectedRole}>
+                          <Text style={[styles.selectedName, compactPinLayout && styles.selectedNameCompact]}>
+                            {selectedMember.name}
+                          </Text>
+                          <Text style={[styles.selectedRole, compactPinLayout && styles.selectedRoleCompact]}>
                             {isParentSelection ? 'Parent mode' : 'Kid mode'}
                             {isParentSelection && parentPinCanBeSkipped ? ' (already unlocked on device)' : ''}
                           </Text>
@@ -303,6 +374,11 @@ export default function LockScreen() {
                         }
                         value={pin}
                         onChangeText={setPin}
+                        onFocus={() => {
+                          setTimeout(() => {
+                            detailScrollRef.current?.scrollToEnd?.({ animated: true });
+                          }, 120);
+                        }}
                         placeholder={
                           isParentSelection
                             ? parentPinCanBeSkipped
@@ -313,7 +389,7 @@ export default function LockScreen() {
                             : 'Press Continue'
                         }
                         placeholderTextColor={colors.inkMuted}
-                        style={styles.input}
+                        style={[styles.input, compactPinLayout && styles.inputCompact]}
                         secureTextEntry
                         keyboardType="number-pad"
                         textContentType="password"
@@ -351,7 +427,7 @@ export default function LockScreen() {
                         </Text>
                       ) : null}
 
-                      <View style={styles.buttonRow}>
+                        <View style={[styles.buttonRow, compactPinLayout && styles.buttonRowCompact]}>
                         <Pressable
                           testID="member-back-button"
                           accessibilityRole="button"
@@ -369,22 +445,25 @@ export default function LockScreen() {
                           testID="member-confirm-button"
                           accessibilityRole="button"
                           accessibilityLabel={
-                            submitting || isSwitchingPrincipal
+                            submitting
                               ? 'Working'
                               : selectedMember.pinHash || isParentSelection
                               ? 'Unlock'
                               : 'Continue'
                           }
-                          disabled={submitting || isSwitchingPrincipal}
+                          disabled={submitting}
                           style={[
                             styles.button,
-                            (submitting || isSwitchingPrincipal) && styles.buttonDisabled,
+                            compactPinLayout && styles.buttonCompact,
+                            submitting && styles.buttonDisabled,
                             isParentSelection ? { backgroundColor: colors.accentMore } : { backgroundColor: colors.accentChores },
                           ]}
-                          onPress={handleMemberConfirm}
+                          onPress={() => {
+                            void handleMemberConfirm();
+                          }}
                         >
                           <Text style={styles.buttonText}>
-                            {submitting || isSwitchingPrincipal
+                            {submitting
                               ? 'Working…'
                               : selectedMember.pinHash || isParentSelection
                               ? 'Unlock'
@@ -463,18 +542,29 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
+  detailPanelCompact: {
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
   detailKeyboardWrap: {
+    flex: 1,
+    minHeight: 0,
+  },
+  detailScroll: {
     flex: 1,
   },
   detailScrollContent: {
     flexGrow: 1,
     justifyContent: 'flex-start',
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.lg,
   },
   selectedHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  selectedHeaderCompact: {
+    gap: spacing.sm,
   },
   selectedAvatarImage: {
     width: 72,
@@ -482,6 +572,11 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     borderWidth: 2,
     borderColor: '#fff',
+  },
+  selectedAvatarImageCompact: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   selectedAvatarFallback: {
     width: 72,
@@ -492,9 +587,17 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#fff',
   },
+  selectedAvatarFallbackCompact: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
   selectedAvatarLetter: { fontSize: 28, fontWeight: '800', color: colors.ink },
+  selectedAvatarLetterCompact: { fontSize: 22 },
   selectedName: { fontSize: 19, fontWeight: '800', color: colors.ink },
+  selectedNameCompact: { fontSize: 17 },
   selectedRole: { color: colors.inkMuted, marginTop: 2 },
+  selectedRoleCompact: { marginTop: 1, fontSize: 12 },
   label: { fontWeight: '700', color: colors.ink },
   input: {
     borderWidth: 1,
@@ -506,6 +609,10 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 18,
     letterSpacing: 1.5,
+  },
+  inputCompact: {
+    paddingVertical: 10,
+    fontSize: 16,
   },
   toggleRow: {
     flexDirection: 'row',
@@ -525,12 +632,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
   },
+  buttonRowCompact: {
+    gap: spacing.xs,
+  },
   button: {
     flex: 1,
     minHeight: 46,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radii.sm,
+  },
+  buttonCompact: {
+    minHeight: 42,
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '700' },
