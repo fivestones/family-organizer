@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
 const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const idbBin = process.env.IDB_BIN || `${process.env.HOME}/Library/Python/3.9/bin/idb`;
 const companion = process.env.IDB_COMPANION || 'localhost:10882';
 const childPin = process.env.IDB_CHILD_PIN || '5543';
 const parentPin = process.env.IDB_PARENT_PIN || '1234';
+const deviceAccessKey = process.env.IDB_DEVICE_ACCESS_KEY || readDeviceAccessKeyFromEnvFiles();
 
 function sleep(ms) {
   const sab = new SharedArrayBuffer(4);
@@ -115,11 +118,143 @@ function logStep(message) {
   process.stdout.write(`• ${message}\n`);
 }
 
+function readDeviceAccessKeyFromEnvFiles() {
+  const candidates = [
+    path.resolve(__dirname, '../../.env.local'),
+    path.resolve(__dirname, '../../.env'),
+  ];
+
+  for (const filePath of candidates) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      const lines = content.split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const match = trimmed.match(/^DEVICE_ACCESS_KEY\s*=\s*(.*)$/);
+        if (!match) continue;
+        const raw = match[1].trim();
+        const unquoted =
+          (raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))
+            ? raw.slice(1, -1)
+            : raw;
+        if (unquoted) return unquoted;
+      }
+    } catch {
+      // Ignore missing files; we can still run if the env var is passed explicitly.
+    }
+  }
+
+  return '';
+}
+
+function isAppHomeScreen(tree) {
+  return Boolean(findElement(tree, { labelIncludes: 'Expo Go' }) || findElement(tree, { labelIncludes: 'Family Organizer' }));
+}
+
+function ensureAppForegrounded(tree) {
+  if (!isAppHomeScreen(tree)) return tree;
+
+  logStep('Opening app from simulator home screen');
+  if (findElement(tree, { labelIncludes: 'Expo Go' })) {
+    tapElement(tree, { labelIncludes: 'Expo Go' }, 'Expo Go app icon');
+  } else {
+    tapElement(tree, { labelIncludes: 'Family Organizer' }, 'Family Organizer app icon');
+  }
+  sleep(1800);
+  return describeAll();
+}
+
+function ensureActivatedIfNeeded(tree) {
+  if (!findElement(tree, { labelIncludes: 'Activate this iPhone' })) {
+    return tree;
+  }
+
+  if (!deviceAccessKey) {
+    throw new Error(
+      'App is on activation screen but no DEVICE_ACCESS_KEY was found. Set IDB_DEVICE_ACCESS_KEY or add DEVICE_ACCESS_KEY to .env.local.'
+    );
+  }
+
+  logStep('Activation screen detected; activating device');
+  tapElement(tree, { id: 'activation-key-input' }, 'activation key input');
+  typeText(deviceAccessKey);
+  sleep(200);
+  tree = describeAll();
+  tapElement(tree, { id: 'activate-device-button' }, 'Activate device button');
+
+  const nextTree = waitForAnyScreen(["Who’s using the app?", "Who's using the app?"], 10000);
+  return nextTree;
+}
+
+function waitForAnyScreen(labels, timeoutMs = 6000, stepMs = 300) {
+  const startedAt = Date.now();
+  let lastTree = [];
+  while (Date.now() - startedAt < timeoutMs) {
+    lastTree = describeAll();
+    for (const label of labels) {
+      if (findElement(lastTree, { labelIncludes: label })) {
+        return lastTree;
+      }
+    }
+    sleep(stepMs);
+  }
+  throw new Error(`Timed out waiting for screen containing one of: ${labels.join(', ')}`);
+}
+
+function waitForLockScreen(timeoutMs = 8000) {
+  return waitForAnyScreen(["Who’s using the app?", "Who's using the app?"], timeoutMs);
+}
+
+function ensureLockScreen(tree) {
+  if (findElement(tree, { labelIncludes: "Who’s using the app?" }) || findElement(tree, { labelIncludes: "Who's using the app?" })) {
+    return tree;
+  }
+
+  // If we are already inside the app (e.g. persisted authenticated session), navigate to lock.
+  if (findElement(tree, { id: 'chores-switch-user-button' })) {
+    logStep('Authenticated app detected on Chores; locking to reach login screen');
+    tapElement(tree, { id: 'chores-switch-user-button' }, 'Chores switch user button');
+    return waitForLockScreen(8000);
+  }
+
+  if (findElement(tree, { id: 'tab-more' }) || findElement(tree, { labelIncludes: 'More, tab' })) {
+    logStep('Authenticated app detected on a tab screen; opening More to lock');
+    tapElement(tree, { id: 'tab-more' }, 'More tab button');
+    const maybeMoreTree =
+      maybeWaitForElement({ id: 'more-lock-app-button' }, 'More lock app button', 3000)?.tree || describeAll();
+    if (findElement(maybeMoreTree, { id: 'more-lock-app-button' })) {
+      tapElement(maybeMoreTree, { id: 'more-lock-app-button' }, 'More lock app button');
+      return waitForLockScreen(8000);
+    }
+  }
+
+  if (findElement(tree, { id: 'tab-chores' }) || findElement(tree, { labelIncludes: 'Chores, tab' })) {
+    tapElement(tree, { id: 'tab-chores' }, 'Chores tab button');
+    const choresTree = maybeWaitForElement({ id: 'chores-switch-user-button' }, 'Chores switch user button', 4000)?.tree;
+    if (choresTree) {
+      tapElement(choresTree, { id: 'chores-switch-user-button' }, 'Chores switch user button');
+      return waitForLockScreen(8000);
+    }
+  }
+
+  return tree;
+}
+
 function main() {
   logStep(`Using idb companion at ${companion}`);
-  logStep('Checking lock screen');
   let tree = describeAll();
-  expectScreen(tree, "Who’s using the app?");
+  tree = ensureAppForegrounded(tree);
+  tree = ensureActivatedIfNeeded(tree);
+  tree = ensureLockScreen(tree);
+
+  logStep('Checking lock screen');
+  if (
+    !findElement(tree, { labelIncludes: "Who’s using the app?" }) &&
+    !findElement(tree, { labelIncludes: "Who's using the app?" })
+  ) {
+    expectScreen(tree, "Who’s using the app?");
+  }
 
   logStep('Child flow: Judah login');
   tapElement(tree, { id: 'member-card-judah' }, 'Judah member card');
@@ -143,12 +278,15 @@ function main() {
   sleep(400);
   tree = describeAll();
   tapElement(tree, { id: 'chores-switch-user-button' }, 'Chores switch user button');
-  tree = maybeWaitForScreen("Who’s using the app?", 2000) || (() => {
+  tree =
+    maybeWaitForScreen("Who’s using the app?", 2000) ||
+    maybeWaitForScreen("Who's using the app?", 2000) ||
+    (() => {
     const refreshed = describeAll();
     if (findElement(refreshed, { id: 'chores-switch-user-button' })) {
       tapElement(refreshed, { id: 'chores-switch-user-button' }, 'Chores switch user button (retry)');
     }
-    return waitForScreen("Who’s using the app?", 8000);
+    return waitForAnyScreen(["Who’s using the app?", "Who's using the app?"], 8000);
   })();
   requireElement(tree, { id: 'member-card-judah' }, 'lock screen family member cards');
 
@@ -168,7 +306,7 @@ function main() {
   tree = describeAll();
   tapElement(tree, { id: 'member-confirm-button' }, 'parent Unlock button');
   tree = waitForScreen('Chores', 8000);
-  requireElement(tree, { id: 'chores-switch-user-button' }, 'Chores switch user button');
+  tree = waitForElement({ id: 'chores-switch-user-button' }, 'Chores switch user button', 6000).tree;
   requireElement(tree, { labelIncludes: 'Parent mode' }, 'Parent mode indicator');
 
   logStep('Parent flow: More tab -> Lock App');
@@ -181,7 +319,7 @@ function main() {
       return waitForElement({ id: 'more-lock-app-button' }, 'More lock app button', 6000).tree;
     })();
   tapElement(tree, { id: 'more-lock-app-button' }, 'More lock app button');
-  tree = waitForScreen("Who’s using the app?");
+  tree = waitForAnyScreen(["Who’s using the app?", "Who's using the app?"]);
 
   process.stdout.write('\nPASS: child login/switch-user and parent elevation/lock flows succeeded via idb.\n');
 }
