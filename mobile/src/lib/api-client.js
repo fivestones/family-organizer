@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { getDeviceSessionToken } from './device-session-store';
 
-function getApiBaseUrl() {
+export function getApiBaseUrl() {
   const raw =
     process.env.EXPO_PUBLIC_API_BASE_URL ||
     Constants.expoConfig?.extra?.apiBaseUrl ||
@@ -22,7 +22,7 @@ async function authHeaders() {
 async function parseJson(response) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = data?.error || `Request failed (${response.status})`;
+    const message = data?.error || data?.message || `Request failed (${response.status})`;
     const error = new Error(message);
     error.status = response.status;
     error.data = data;

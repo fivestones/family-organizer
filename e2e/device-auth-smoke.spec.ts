@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
-
-const activationKey = process.env.E2E_DEVICE_ACCESS_KEY || process.env.DEVICE_ACCESS_KEY || 'local-dev-device-access-key';
+import { activateDevice } from './support/device-auth';
 
 test.describe('device auth + Instant auth smoke', () => {
     test('blocks kid token route before activation', async ({ request }) => {
@@ -9,7 +8,7 @@ test.describe('device auth + Instant auth smoke', () => {
     });
 
     test('activates device and can fetch a kid principal token', async ({ page }) => {
-        await page.goto(`/?activate=${encodeURIComponent(activationKey)}`);
+        await activateDevice(page);
 
         await expect(page).toHaveURL(/\/$/);
 

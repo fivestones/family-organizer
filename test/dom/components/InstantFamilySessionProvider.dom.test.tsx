@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { advanceTimeByAsync, freezeTime } from '@/test/utils/fake-clock';
 
 const dbMocks = vi.hoisted(() => ({
     useAuth: vi.fn(),
@@ -66,6 +67,7 @@ describe('InstantFamilySessionProvider', () => {
     });
 
     it('expires shared-device parent mode after inactivity and falls back to kid principal', async () => {
+        freezeTime(new Date('2026-02-25T12:00:00Z'));
         localStorage.setItem('family_organizer_preferred_principal', 'parent');
         localStorage.setItem('family_organizer_parent_principal_unlocked', 'true');
         localStorage.setItem('family_organizer_parent_shared_device', 'true');
@@ -89,19 +91,20 @@ describe('InstantFamilySessionProvider', () => {
             </InstantFamilySessionProvider>
         );
 
-        await waitFor(() => {
-            expect(screen.getByTestId('principal')).toHaveTextContent('parent');
+        await act(async () => {
+            await advanceTimeByAsync(0);
+        });
+        expect(screen.getByTestId('principal')).toHaveTextContent('parent');
+
+        await act(async () => {
+            await advanceTimeByAsync(20);
+            await advanceTimeByAsync(0);
         });
 
-        await waitFor(
-            () => {
-                expect(fetchMock).toHaveBeenCalledWith(
-                    '/api/instant-auth-token',
-                    expect.objectContaining({ credentials: 'same-origin', cache: 'no-store' })
-                );
-                expect(screen.getByTestId('principal')).toHaveTextContent('kid');
-            },
-            { timeout: 1000 }
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/instant-auth-token',
+            expect.objectContaining({ credentials: 'same-origin', cache: 'no-store' })
         );
+        expect(screen.getByTestId('principal')).toHaveTextContent('kid');
     });
 });

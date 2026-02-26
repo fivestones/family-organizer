@@ -12,6 +12,7 @@ This repo now uses a layered test strategy:
 - `test/contracts/**` : policy/permission/schema coverage checks (regression guards)
 - `test/dom/**` : React component behavior tests (jsdom)
 - `e2e/**` : real browser flows (Playwright)
+- `test/FEATURE_TEST_MATRIX.md` : web feature inventory + recommended automated/manual coverage matrix
 
 ## Naming conventions
 
@@ -29,6 +30,13 @@ This repo now uses a layered test strategy:
 - `npm run test:e2e:install` : install Chromium for Playwright
 - `npm run test:perms:live` : hosted Instant permissions smoke matrix (anonymous/kid/parent). Mutates and cleans up small temp rows.
 - `npm run test:all` : Vitest + Playwright
+
+## Time-sensitive tests (recurrence, allowance, parent idle expiry)
+
+- Use `test/utils/fake-clock.ts` in Vitest suites instead of open-coding `vi.useFakeTimers()` / `vi.setSystemTime()` repeatedly.
+- Use `e2e/support/time-machine.ts` in Playwright to drive the app's `debug_time_offset` time-machine flow.
+- Reuse `e2e/support/device-auth.ts` and `e2e/support/login.ts` for activation/login setup in browser tests to keep specs focused on the behavior under test.
+- Prefer fake time for recurrence/rotation math, task-series scheduling, allowance periods, and shared-device parent timeout behavior.
 
 ## What to test for new features
 

@@ -41,6 +41,8 @@ export default function ActivateScreen() {
       <View style={styles.panel}>
         <Text style={styles.label}>Device Access Key</Text>
         <TextInput
+          testID="activation-key-input"
+          accessibilityLabel="Device access key"
           autoCapitalize="none"
           autoCorrect={false}
           value={accessKey}
@@ -51,6 +53,9 @@ export default function ActivateScreen() {
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable
+          testID="activate-device-button"
+          accessibilityRole="button"
+          accessibilityLabel={submitting ? 'Activating device' : 'Activate device'}
           disabled={submitting || !accessKey.trim()}
           style={[styles.button, (!accessKey.trim() || submitting) && styles.buttonDisabled]}
           onPress={handleActivate}
@@ -97,4 +102,3 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontWeight: '700' },
   error: { color: colors.danger, fontWeight: '600' },
 });
-

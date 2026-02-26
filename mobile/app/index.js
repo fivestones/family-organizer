@@ -6,15 +6,17 @@ import { colors } from '../src/theme/tokens';
 
 export default function IndexScreen() {
   const router = useRouter();
-  const { isBootstrapping, activationRequired } = useAppSession();
+  const { isBootstrapping, activationRequired, isAuthenticated } = useAppSession();
+
+  const targetRoute = activationRequired ? '/activate' : isAuthenticated ? '/(tabs)/chores' : '/lock';
 
   useEffect(() => {
     if (isBootstrapping) return;
-    router.replace(activationRequired ? '/activate' : '/lock');
-  }, [activationRequired, isBootstrapping, router]);
+    router.replace(targetRoute);
+  }, [isBootstrapping, router, targetRoute]);
 
   if (!isBootstrapping) {
-    return <Redirect href={activationRequired ? '/activate' : '/lock'} />;
+    return <Redirect href={targetRoute} />;
   }
 
   return (
@@ -23,4 +25,3 @@ export default function IndexScreen() {
     </View>
   );
 }
-

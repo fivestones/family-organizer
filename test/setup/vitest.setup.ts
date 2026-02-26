@@ -14,5 +14,6 @@ afterEach(() => {
     if (typeof document !== 'undefined') {
         cleanup();
     }
+    vi.useRealTimers();
     vi.unstubAllGlobals();
 });

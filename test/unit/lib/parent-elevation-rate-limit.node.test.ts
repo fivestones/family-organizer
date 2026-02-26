@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { advanceTimeBy, freezeTime, restoreTime } from '@/test/utils/fake-clock';
 import {
     __resetParentElevationRateLimitForTests,
     checkParentElevationRateLimit,
@@ -9,8 +10,7 @@ import {
 
 describe('parent elevation rate limiter', () => {
     beforeEach(() => {
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date('2026-02-25T12:00:00Z'));
+        freezeTime(new Date('2026-02-25T12:00:00Z'));
         __resetParentElevationRateLimitForTests();
         delete process.env.PARENT_ELEVATION_RATE_LIMIT_FREE_FAILURES;
         delete process.env.PARENT_ELEVATION_RATE_LIMIT_BASE_BACKOFF_MS;
@@ -19,7 +19,7 @@ describe('parent elevation rate limiter', () => {
     });
 
     afterEach(() => {
-        vi.useRealTimers();
+        restoreTime();
         __resetParentElevationRateLimitForTests();
     });
 
@@ -48,7 +48,7 @@ describe('parent elevation rate limiter', () => {
             expect(decision.retryAfterMs).toBeGreaterThanOrEqual(900);
         }
 
-        vi.advanceTimersByTime(1000);
+        advanceTimeBy(1000);
         expect(checkParentElevationRateLimit(key)).toEqual({ allowed: true });
 
         clearParentElevationRateLimit(key);
@@ -65,7 +65,7 @@ describe('parent elevation rate limiter', () => {
         recordParentElevationFailure(key); // blocked
         expect(checkParentElevationRateLimit(key).allowed).toBe(false);
 
-        vi.advanceTimersByTime(3000);
+        advanceTimeBy(3000);
         expect(checkParentElevationRateLimit(key)).toEqual({ allowed: true });
     });
 });
