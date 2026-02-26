@@ -15,6 +15,7 @@ import { GET } from '@/app/api/instant-auth-token/route';
 
 describe('GET /api/instant-auth-token', () => {
     beforeEach(() => {
+        process.env.DEVICE_ACCESS_KEY = 'test-device-key';
         tokenRouteMocks.isInstantFamilyAuthConfigured.mockReturnValue(true);
         tokenRouteMocks.mintPrincipalToken.mockResolvedValue('kid-token');
     });
@@ -56,5 +57,22 @@ describe('GET /api/instant-auth-token', () => {
             principalType: 'kid',
         });
         expect(tokenRouteMocks.mintPrincipalToken).toHaveBeenCalledWith('kid');
+    });
+
+    it('accepts a mobile bearer device session token', async () => {
+        const { issueMobileDeviceSessionToken } = await import('@/lib/device-auth-server');
+        const session = issueMobileDeviceSessionToken({ platform: 'ios', deviceName: 'Test iPhone' });
+
+        const response = await GET(
+            new NextRequest('http://localhost:3000/api/instant-auth-token', {
+                headers: { authorization: `Bearer ${session.token}` },
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+            token: 'kid-token',
+            principalType: 'kid',
+        });
     });
 });

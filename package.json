@@ -1,9 +1,15 @@
 {
   "private": true,
+  "workspaces": [
+    "mobile",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev --turbo",
     "build": "next build",
     "start": "next start",
+    "mobile:start": "npm --workspace mobile run start",
+    "mobile:ios": "npm --workspace mobile run ios",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

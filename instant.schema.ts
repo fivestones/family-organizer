@@ -174,9 +174,16 @@ const _schema = i.schema({
         }),
         // Add this to your schema entities
         deviceSessions: i.entity({
+            appVersion: i.string().optional(),
+            createdAt: i.number().indexed().optional(),
             deviceId: i.string().unique().indexed(), // The unique ID of the browser
+            deviceName: i.string().optional(),
+            expiresAt: i.number().indexed().optional(),
+            lastSeenAt: i.number().indexed().optional(),
             userId: i.string(), // The ID of the family member logged in
             lastActiveAt: i.string(), // For auto-logout logic
+            platform: i.string().indexed().optional(),
+            revokedAt: i.number().indexed().optional(),
         }),
     },
     links: {

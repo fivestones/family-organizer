@@ -42,10 +42,16 @@ describe('middleware device auth gate', () => {
         const offlineResponse = middleware(new NextRequest('http://localhost:3000/offline.html'));
         const activateResponse = middleware(new NextRequest('http://localhost:3000/activate'));
         const deviceActivateApiResponse = middleware(new NextRequest('http://localhost:3000/api/device-activate'));
+        const mobileApiResponse = middleware(new NextRequest('http://localhost:3000/api/mobile/device-activate'));
+        const uploadApiResponse = middleware(new NextRequest('http://localhost:3000/api/upload'));
+        const deleteImageApiResponse = middleware(new NextRequest('http://localhost:3000/api/delete-image'));
 
         expect(manifestResponse.headers.get('x-middleware-next')).toBe('1');
         expect(offlineResponse.headers.get('x-middleware-next')).toBe('1');
         expect(activateResponse.headers.get('x-middleware-next')).toBe('1');
         expect(deviceActivateApiResponse.headers.get('x-middleware-next')).toBe('1');
+        expect(mobileApiResponse.headers.get('x-middleware-next')).toBe('1');
+        expect(uploadApiResponse.headers.get('x-middleware-next')).toBe('1');
+        expect(deleteImageApiResponse.headers.get('x-middleware-next')).toBe('1');
     });
 });

@@ -30,6 +30,7 @@ import { POST } from '@/app/api/instant-auth-parent-token/route';
 
 describe('POST /api/instant-auth-parent-token', () => {
     beforeEach(() => {
+        process.env.DEVICE_ACCESS_KEY = 'test-device-key';
         parentRouteMocks.isInstantFamilyAuthConfigured.mockReturnValue(true);
         parentRouteMocks.getFamilyMemberById.mockResolvedValue(null);
         parentRouteMocks.hashPinServer.mockReturnValue('hashed-pin');
@@ -114,5 +115,34 @@ describe('POST /api/instant-auth-parent-token', () => {
         });
         expect(parentRouteMocks.mintPrincipalToken).toHaveBeenCalledWith('parent');
         expect(parentRouteMocks.clearParentElevationRateLimit).toHaveBeenCalledWith('ip::parent-1');
+    });
+
+    it('accepts a mobile bearer device session token', async () => {
+        const { issueMobileDeviceSessionToken } = await import('@/lib/device-auth-server');
+        const session = issueMobileDeviceSessionToken({ platform: 'ios', deviceName: 'Parent iPhone' });
+
+        parentRouteMocks.getFamilyMemberById.mockResolvedValue({
+            id: 'parent-1',
+            role: 'parent',
+            pinHash: 'expected-hash',
+        });
+        parentRouteMocks.hashPinServer.mockReturnValue('expected-hash');
+
+        const response = await POST(
+            new NextRequest('http://localhost:3000/api/instant-auth-parent-token', {
+                method: 'POST',
+                headers: {
+                    authorization: `Bearer ${session.token}`,
+                    'content-type': 'application/json',
+                },
+                body: JSON.stringify({ familyMemberId: 'parent-1', pin: '1234' }),
+            })
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+            token: 'parent-token',
+            principalType: 'parent',
+        });
     });
 });

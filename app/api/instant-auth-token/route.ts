@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
+import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
 import { isInstantFamilyAuthConfigured, mintPrincipalToken } from '@/lib/instant-admin';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-    const cookieValue = request.cookies.get(DEVICE_AUTH_COOKIE_NAME)?.value;
-    if (!hasValidDeviceAuthCookie(cookieValue)) {
+    const deviceAuth = getDeviceAuthContextFromNextRequest(request);
+    if (!deviceAuth.authorized) {
         return NextResponse.json({ error: 'Unauthorized device' }, { status: 401 });
     }
 

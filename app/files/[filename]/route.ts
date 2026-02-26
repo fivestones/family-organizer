@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
+import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
 
 function getRequiredEnv(name: string): string {
     const value = process.env[name];
@@ -29,8 +29,8 @@ export async function GET(
     request: NextRequest,
     { params }: { params: Promise<{ filename: string }> } // Type as Promise
 ) {
-    const cookieValue = request.cookies.get(DEVICE_AUTH_COOKIE_NAME)?.value;
-    if (!hasValidDeviceAuthCookie(cookieValue)) {
+    const deviceAuth = getDeviceAuthContextFromNextRequest(request);
+    if (!deviceAuth.authorized) {
         return new NextResponse('Unauthorized device', { status: 401 });
     }
 

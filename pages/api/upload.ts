@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import { randomUUID } from 'crypto';
-import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
+import { getDeviceAuthContextFromNextApiRequest } from '@/lib/device-auth-server';
 
 export const config = {
   api: {
@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
 
-  if (!hasValidDeviceAuthCookie(req.cookies?.[DEVICE_AUTH_COOKIE_NAME])) {
+  if (!getDeviceAuthContextFromNextApiRequest(req).authorized) {
     res.status(401).json({ message: 'Unauthorized device' });
     return;
   }

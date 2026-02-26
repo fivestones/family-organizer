@@ -21,6 +21,7 @@ import { GET } from '@/app/files/[filename]/route';
 describe('GET /files/[filename]', () => {
     beforeEach(() => {
         vi.resetAllMocks();
+        process.env.DEVICE_ACCESS_KEY = 'test-device-key';
         process.env.NEXT_PUBLIC_S3_ENDPOINT = 'https://s3.example.test';
         process.env.S3_ACCESS_KEY_ID = 'akid';
         process.env.S3_SECRET_ACCESS_KEY = 'secret';
@@ -73,6 +74,21 @@ describe('GET /files/[filename]', () => {
             Key: 'photo.png',
         });
         expect(s3Mocks.getSignedUrl).toHaveBeenCalled();
+    });
+
+    it('redirects when authorized with a mobile bearer device session token', async () => {
+        const { issueMobileDeviceSessionToken } = await import('@/lib/device-auth-server');
+        const session = issueMobileDeviceSessionToken({ platform: 'ios', deviceName: 'Ava iPhone' });
+
+        const response = await GET(
+            new NextRequest('http://localhost:3000/files/photo.png', {
+                headers: { authorization: `Bearer ${session.token}` },
+            }),
+            { params: Promise.resolve({ filename: 'photo.png' }) }
+        );
+
+        expect(response.status).toBe(307);
+        expect(response.headers.get('location')).toBe('https://signed.example.test/file.png?sig=1');
     });
 
     it('returns 404 when signing fails', async () => {

@@ -7,7 +7,16 @@ import { DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE, getDeviceAuthCookieO
 // You might want to allow manifest.json so the PWA is recognized,
 // but blocking it until auth is also fine.
 const PUBLIC_FILE_EXTENSIONS = ['.ico', '.png', '.jpg', '.jpeg', '.svg', '.css', '.js', '.mjs', '.ttf', '.woff', '.woff2'];
-const PUBLIC_ALLOWLIST_PATHS = ['/manifest.json', '/manifest.webmanifest', '/offline.html', '/activate', '/api/device-activate'];
+const PUBLIC_ALLOWLIST_PATHS = [
+    '/manifest.json',
+    '/manifest.webmanifest',
+    '/offline.html',
+    '/activate',
+    '/api/device-activate',
+    '/api/upload',
+    '/api/delete-image',
+];
+const PUBLIC_ALLOWLIST_PREFIXES = ['/api/mobile/'];
 
 export function middleware(request: NextRequest) {
     // 1. Read the key INSIDE the function to ensure we get the runtime value
@@ -18,7 +27,11 @@ export function middleware(request: NextRequest) {
     // --- A. PASS: Check if the request is for a static asset ---
     // We generally allow static files to pass so we don't break browser defaults,
     // but you can block these too if you want extreme strictness.
-    if (PUBLIC_ALLOWLIST_PATHS.includes(pathname) || PUBLIC_FILE_EXTENSIONS.some((ext) => pathname.endsWith(ext))) {
+    if (
+        PUBLIC_ALLOWLIST_PATHS.includes(pathname) ||
+        PUBLIC_ALLOWLIST_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
+        PUBLIC_FILE_EXTENSIONS.some((ext) => pathname.endsWith(ext))
+    ) {
         return NextResponse.next();
     }
 

@@ -22,6 +22,12 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@family-organizer/mobile-contracts": [
+        "packages/mobile-contracts/src/index.ts"
+      ],
+      "@family-organizer/shared-core": [
+        "packages/shared-core/src/index.ts"
       ]
     },
     "plugins": [
@@ -40,6 +46,7 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "mobile/node_modules"
   ]
 }

@@ -2,7 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import fs from 'fs';
 import path from 'path';
-import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
+import { getDeviceAuthContextFromNextApiRequest } from '@/lib/device-auth-server';
 
 const uploadDir = path.join(process.cwd(), 'public', 'uploads');
 const ALLOWED_FILENAME = /^[A-Za-z0-9._-]+$/;
@@ -24,7 +24,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return;
   }
 
-  if (!hasValidDeviceAuthCookie(req.cookies?.[DEVICE_AUTH_COOKIE_NAME])) {
+  if (!getDeviceAuthContextFromNextApiRequest(req).authorized) {
     res.status(401).json({ message: 'Unauthorized device' });
     return;
   }
