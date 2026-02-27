@@ -1,25 +1,29 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
-import { Redirect, router, useRootNavigationState } from 'expo-router';
+import { router, useRootNavigationState } from 'expo-router';
 import { ScreenScaffold, PlaceholderCard } from '../src/components/ScreenScaffold';
 import { colors, radii, spacing } from '../src/theme/tokens';
 import { useAppSession } from '../src/providers/AppProviders';
 import { hashPinClient } from '../src/lib/pin-hash';
 import { getApiBaseUrl } from '../src/lib/api-client';
 import { clearPendingParentAction, getPendingParentAction } from '../src/lib/session-prefs';
+
+const PIN_PAD_LAYOUT = [
+  ['1', '2', '3'],
+  ['4', '5', '6'],
+  ['7', '8', '9'],
+  ['clear', '0', 'delete'],
+];
+
+const MAX_PIN_LENGTH = 6;
 
 function avatarUriForMember(member) {
   const fileName =
@@ -67,11 +71,9 @@ export default function LockScreen() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [parentSharedDevice, setParentSharedDevice] = useState(isParentSessionSharedDevice);
-  const [keyboardInset, setKeyboardInset] = useState(0);
   const [pendingParentAction, setPendingParentActionState] = useState(null);
   const [pendingParentActionLoaded, setPendingParentActionLoaded] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState('');
-  const detailScrollRef = useRef(null);
   const rootNavigationState = useRootNavigationState();
   const navigationReady = Boolean(rootNavigationState?.key);
 
@@ -84,33 +86,8 @@ export default function LockScreen() {
   const parentPinCanBeSkipped =
     isParentSelection && canUseCachedParentPrincipal && principalType === 'parent';
   const isDetailMode = !!selectedMember;
-  const keyboardVisible = keyboardInset > 0;
-  const compactPinLayout = isDetailMode && keyboardVisible;
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, (event) => {
-      const nextInset = Math.max(0, event?.endCoordinates?.height || 0);
-      setKeyboardInset(nextInset);
-
-      if (selectedMemberId) {
-        setTimeout(() => {
-          detailScrollRef.current?.scrollToEnd?.({ animated: true });
-        }, 80);
-      }
-    });
-
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setKeyboardInset(0);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [selectedMemberId]);
+  const pinEntryRequired = isParentSelection || Boolean(selectedMember?.pinHash);
+  const pinSlots = Math.max(4, Math.min(MAX_PIN_LENGTH, Math.max(pin.length, 4)));
 
   useEffect(() => {
     let cancelled = false;
@@ -137,11 +114,12 @@ export default function LockScreen() {
     ? '/chores'
     : '';
 
-  if (pendingRedirect) {
-    if (navigationReady) {
-      return <Redirect href={pendingRedirect} />;
-    }
+  useEffect(() => {
+    if (!pendingRedirect || !navigationReady) return;
+    router.replace(pendingRedirect);
+  }, [navigationReady, pendingRedirect]);
 
+  if (pendingRedirect) {
     return (
       <ScreenScaffold
         title="Preparing the app"
@@ -168,6 +146,27 @@ export default function LockScreen() {
     setError('');
     setRedirectTarget('');
     router.replace(returnPath);
+  }
+
+  function appendPinDigit(digit) {
+    if (!pinEntryRequired || submitting) return;
+    setError('');
+    setPin((current) => {
+      if (current.length >= MAX_PIN_LENGTH) return current;
+      return `${current}${digit}`;
+    });
+  }
+
+  function clearPin() {
+    if (!pinEntryRequired || submitting) return;
+    setError('');
+    setPin('');
+  }
+
+  function deletePinDigit() {
+    if (!pinEntryRequired || submitting) return;
+    setError('');
+    setPin((current) => current.slice(0, -1));
   }
 
   async function handleMemberConfirm() {
@@ -259,23 +258,19 @@ export default function LockScreen() {
         ? `Parent login is required to continue: ${pendingParentAction.actionLabel}`
         : 'Choose a family member to continue. Parent mode requires elevation and auto-demotes when shared-device mode is on.'
       : 'Connecting to family data…'
-    : keyboardVisible
-    ? null
     : isParentSelection
     ? 'Enter parent PIN to unlock parent mode on this shared device.'
     : selectedMember.pinHash
     ? 'Enter PIN to continue.'
     : 'No PIN set for this member.';
 
-  const headerStatusChips = keyboardVisible
-    ? []
-    : [
-        { label: isOnline ? 'Online' : 'Offline', tone: isOnline ? 'success' : 'warning' },
-        {
-          label: principalType === 'parent' ? 'Parent mode' : principalType === 'kid' ? 'Kid mode' : 'No mode',
-          tone: principalType === 'parent' ? 'accent' : 'neutral',
-        },
-      ];
+  const headerStatusChips = [
+    { label: isOnline ? 'Online' : 'Offline', tone: isOnline ? 'success' : 'warning' },
+    {
+      label: principalType === 'parent' ? 'Parent mode' : principalType === 'kid' ? 'Kid mode' : 'No mode',
+      tone: principalType === 'parent' ? 'accent' : 'neutral',
+    },
+  ];
 
   return (
     <ScreenScaffold
@@ -391,105 +386,139 @@ export default function LockScreen() {
                   ) : null}
                 </>
               ) : (
-                <KeyboardAvoidingView
-                  style={styles.detailKeyboardWrap}
-                  behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                  keyboardVerticalOffset={8}
-                >
-                  <ScrollView
-                    ref={detailScrollRef}
-                    style={styles.detailScroll}
-                    keyboardShouldPersistTaps="always"
-                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                    contentInset={{ bottom: keyboardInset }}
-                    scrollIndicatorInsets={{ bottom: keyboardInset }}
-                    contentContainerStyle={[
-                      styles.detailScrollContent,
-                      { paddingBottom: spacing.lg + keyboardInset },
-                    ]}
-                    showsVerticalScrollIndicator={false}
-                  >
-                    <View style={[styles.detailPanel, compactPinLayout && styles.detailPanelCompact]}>
-                      <View style={[styles.selectedHeader, compactPinLayout && styles.selectedHeaderCompact]}>
+                <View style={styles.detailFill}>
+                  <View style={[styles.detailPanel, styles.detailPanelExpanded]}>
+                    <View style={styles.selectedHeader}>
                         {avatarUriForMember(selectedMember) ? (
                           <Image
                             source={{ uri: avatarUriForMember(selectedMember) }}
-                            style={[styles.selectedAvatarImage, compactPinLayout && styles.selectedAvatarImageCompact]}
+                            style={styles.selectedAvatarImage}
                           />
                         ) : (
                           <View
                             style={[
                               styles.selectedAvatarFallback,
-                              compactPinLayout && styles.selectedAvatarFallbackCompact,
                               { backgroundColor: '#EBDCC5' },
                             ]}
                           >
-                            <Text style={[styles.selectedAvatarLetter, compactPinLayout && styles.selectedAvatarLetterCompact]}>
+                            <Text style={styles.selectedAvatarLetter}>
                               {(selectedMember.name || '?').slice(0, 1).toUpperCase()}
                             </Text>
                           </View>
                         )}
                         <View style={{ flex: 1 }}>
-                          <Text style={[styles.selectedName, compactPinLayout && styles.selectedNameCompact]}>
-                            {selectedMember.name}
-                          </Text>
-                          <Text style={[styles.selectedRole, compactPinLayout && styles.selectedRoleCompact]}>
+                          <Text style={styles.selectedName}>{selectedMember.name}</Text>
+                          <Text style={styles.selectedRole}>
                             {isParentSelection ? 'Parent mode' : 'Kid mode'}
                             {isParentSelection && parentPinCanBeSkipped ? ' (already unlocked on device)' : ''}
                           </Text>
                         </View>
-                      </View>
+                    </View>
 
-                      <Text style={styles.label}>
-                        {isParentSelection
-                          ? parentPinCanBeSkipped
-                            ? 'PIN (optional)'
-                            : 'Parent PIN'
-                          : selectedMember.pinHash
-                          ? 'PIN'
-                          : 'No PIN required'}
-                      </Text>
-                      <TextInput
-                        testID="member-pin-input"
-                        accessibilityLabel={
-                          isParentSelection
+                    <View style={styles.detailBody}>
+                      <View style={styles.pinSection}>
+                        <Text style={styles.label}>
+                          {isParentSelection
                             ? parentPinCanBeSkipped
-                              ? 'Parent PIN optional'
+                              ? 'PIN (optional)'
                               : 'Parent PIN'
                             : selectedMember.pinHash
                             ? 'PIN'
-                            : 'No PIN required'
-                        }
-                        value={pin}
-                        onChangeText={setPin}
-                        onFocus={() => {
-                          setTimeout(() => {
-                            detailScrollRef.current?.scrollToEnd?.({ animated: true });
-                          }, 120);
-                        }}
-                        placeholder={
-                          isParentSelection
-                            ? parentPinCanBeSkipped
-                              ? 'PIN (optional)'
-                              : 'Enter PIN'
-                            : selectedMember.pinHash
-                            ? 'Enter PIN'
-                            : 'Press Continue'
-                        }
-                        placeholderTextColor={colors.inkMuted}
-                        style={[styles.input, compactPinLayout && styles.inputCompact]}
-                        secureTextEntry
-                        keyboardType="number-pad"
-                        textContentType="password"
-                        autoComplete="off"
-                        autoCorrect={false}
-                        contextMenuHidden
-                        selectTextOnFocus={false}
-                        autoFocus
-                        editable={Boolean(selectedMember.pinHash) || isParentSelection}
-                        onSubmitEditing={handleMemberConfirm}
-                        maxLength={12}
-                      />
+                            : 'No PIN required'}
+                        </Text>
+
+                        <View
+                          testID="member-pin-input"
+                          accessibilityLabel={
+                            isParentSelection
+                              ? parentPinCanBeSkipped
+                                ? 'Parent PIN optional'
+                                : 'Parent PIN'
+                              : selectedMember.pinHash
+                              ? 'PIN'
+                              : 'No PIN required'
+                          }
+                          style={[styles.pinDisplay, !pinEntryRequired && styles.pinDisplayPassive]}
+                        >
+                          {pinEntryRequired ? (
+                            <>
+                              <View style={styles.pinDotsRow}>
+                                {Array.from({ length: pinSlots }).map((_, index) => {
+                                  const filled = index < pin.length;
+                                  return (
+                                    <View
+                                      key={`pin-dot-${index}`}
+                                      style={[styles.pinDot, filled && styles.pinDotFilled]}
+                                    />
+                                  );
+                                })}
+                              </View>
+                              <Text style={styles.pinHelperText}>
+                                {pin.length > 0
+                                  ? `${pin.length} digit${pin.length === 1 ? '' : 's'} entered`
+                                  : parentPinCanBeSkipped
+                                  ? 'Parent PIN can be skipped on this device'
+                                  : 'Use the number pad below'}
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={styles.pinHelperText}>No PIN is set for this member. Press Continue.</Text>
+                          )}
+                        </View>
+
+                        {pinEntryRequired ? (
+                          <View style={styles.pinPad}>
+                            {PIN_PAD_LAYOUT.map((row, rowIndex) => (
+                              <View key={`pin-row-${rowIndex}`} style={styles.pinPadRow}>
+                                {row.map((value) => {
+                                  if (value === 'clear') {
+                                    return (
+                                      <Pressable
+                                        key="clear"
+                                        testID="pin-key-clear"
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Clear PIN"
+                                        style={[styles.pinKey, styles.pinKeyUtility]}
+                                        onPress={clearPin}
+                                      >
+                                        <Text style={[styles.pinKeyText, styles.pinKeyTextUtility]}>Clear</Text>
+                                      </Pressable>
+                                    );
+                                  }
+
+                                  if (value === 'delete') {
+                                    return (
+                                      <Pressable
+                                        key="delete"
+                                        testID="pin-key-delete"
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Delete PIN digit"
+                                        style={[styles.pinKey, styles.pinKeyUtility]}
+                                        onPress={deletePinDigit}
+                                      >
+                                        <Text style={[styles.pinKeyText, styles.pinKeyTextUtility]}>Delete</Text>
+                                      </Pressable>
+                                    );
+                                  }
+
+                                  return (
+                                    <Pressable
+                                      key={value}
+                                      testID={`pin-key-${value}`}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={`PIN digit ${value}`}
+                                      style={styles.pinKey}
+                                      onPress={() => appendPinDigit(value)}
+                                    >
+                                      <Text style={styles.pinKeyText}>{value}</Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
 
                       {isParentSelection ? (
                         <View style={styles.toggleRow}>
@@ -519,7 +548,7 @@ export default function LockScreen() {
                         </Text>
                       ) : null}
 
-                        <View style={[styles.buttonRow, compactPinLayout && styles.buttonRowCompact]}>
+                      <View style={styles.buttonRow}>
                         <Pressable
                           testID="member-back-button"
                           accessibilityRole="button"
@@ -555,7 +584,6 @@ export default function LockScreen() {
                           disabled={submitting}
                           style={[
                             styles.button,
-                            compactPinLayout && styles.buttonCompact,
                             submitting && styles.buttonDisabled,
                             isParentSelection ? { backgroundColor: colors.accentMore } : { backgroundColor: colors.accentChores },
                           ]}
@@ -574,8 +602,8 @@ export default function LockScreen() {
                         </Pressable>
                       </View>
                     </View>
-                  </ScrollView>
-                </KeyboardAvoidingView>
+                  </View>
+                </View>
               )}
             </>
           )}
@@ -678,77 +706,110 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
-  detailPanelCompact: {
+  detailPanelExpanded: {
+    flex: 1,
     padding: spacing.md,
-    gap: spacing.sm,
+    gap: spacing.md,
   },
-  detailKeyboardWrap: {
+  detailFill: {
     flex: 1,
-    minHeight: 0,
-  },
-  detailScroll: {
-    flex: 1,
-  },
-  detailScrollContent: {
-    flexGrow: 1,
-    justifyContent: 'flex-start',
-    paddingBottom: spacing.lg,
   },
   selectedHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-  },
-  selectedHeaderCompact: {
     gap: spacing.sm,
   },
   selectedAvatarImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
-  selectedAvatarImageCompact: {
     width: 56,
     height: 56,
     borderRadius: 28,
+    borderWidth: 2,
+    borderColor: '#fff',
   },
   selectedAvatarFallback: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#fff',
   },
-  selectedAvatarFallbackCompact: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
-  selectedAvatarLetter: { fontSize: 28, fontWeight: '800', color: colors.ink },
-  selectedAvatarLetterCompact: { fontSize: 22 },
-  selectedName: { fontSize: 19, fontWeight: '800', color: colors.ink },
-  selectedNameCompact: { fontSize: 17 },
+  selectedAvatarLetter: { fontSize: 22, fontWeight: '800', color: colors.ink },
+  selectedName: { fontSize: 17, fontWeight: '800', color: colors.ink },
   selectedRole: { color: colors.inkMuted, marginTop: 2 },
-  selectedRoleCompact: { marginTop: 1, fontSize: 12 },
+  detailBody: {
+    flex: 1,
+    gap: spacing.md,
+    justifyContent: 'space-between',
+  },
+  pinSection: {
+    gap: spacing.sm,
+  },
   label: { fontWeight: '700', color: colors.ink },
-  input: {
+  pinDisplay: {
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.sm,
     paddingHorizontal: spacing.md,
-    paddingVertical: 12,
+    paddingVertical: spacing.md,
     backgroundColor: '#fff',
-    color: colors.ink,
-    fontSize: 18,
-    letterSpacing: 1.5,
+    gap: spacing.sm,
   },
-  inputCompact: {
-    paddingVertical: 10,
-    fontSize: 16,
+  pinDisplayPassive: {
+    minHeight: 72,
+    justifyContent: 'center',
+  },
+  pinDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  pinDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#F7F1E7',
+  },
+  pinDotFilled: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink,
+  },
+  pinHelperText: {
+    color: colors.inkMuted,
+    textAlign: 'center',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  pinPad: {
+    gap: spacing.sm,
+  },
+  pinPadRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  pinKey: {
+    flex: 1,
+    minHeight: 56,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinKeyUtility: {
+    backgroundColor: '#FBF6EB',
+  },
+  pinKeyText: {
+    color: colors.ink,
+    fontWeight: '800',
+    fontSize: 20,
+  },
+  pinKeyTextUtility: {
+    fontSize: 14,
   },
   toggleRow: {
     flexDirection: 'row',
@@ -777,9 +838,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radii.sm,
-  },
-  buttonCompact: {
-    minHeight: 42,
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '700' },

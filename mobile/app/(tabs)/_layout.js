@@ -1,5 +1,5 @@
-import React from 'react';
-import { Redirect, Tabs } from 'expo-router';
+import React, { useEffect } from 'react';
+import { Tabs, useRootNavigationState, useRouter } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import { colors } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
@@ -14,21 +14,23 @@ export default function TabsLayout() {
     connectionStatus,
     principalType,
   } = useAppSession();
+  const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
+  const navigationReady = Boolean(rootNavigationState?.key);
 
-  if (activationRequired) {
-    return <Redirect href="/activate" />;
-  }
+  const redirectTarget = activationRequired ? '/activate' : !isAuthenticated ? '/lock' : '';
 
-  if (isBootstrapping || !instantReady) {
+  useEffect(() => {
+    if (!redirectTarget || !navigationReady) return;
+    router.replace(redirectTarget);
+  }, [navigationReady, redirectTarget, router]);
+
+  if (isBootstrapping || !instantReady || redirectTarget) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg, gap: 10 }}>
         <ActivityIndicator size="large" color={colors.accentChores} />
       </View>
     );
-  }
-
-  if (!isAuthenticated) {
-    return <Redirect href="/lock" />;
   }
 
   return (
