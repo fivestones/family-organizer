@@ -37,6 +37,11 @@ export default function MoreTab() {
     router.replace('/activate');
   }
 
+  async function handleLockApp() {
+    await lock();
+    router.replace('/lock?intent=switch-user');
+  }
+
   return (
     <ScreenScaffold
       title="More"
@@ -82,8 +87,8 @@ export default function MoreTab() {
         accessibilityRole="button"
         accessibilityLabel="Lock app"
         style={styles.lockButton}
-        onPress={async () => {
-          await lock();
+        onPress={() => {
+          void handleLockApp();
         }}
       >
         <Text style={styles.lockText}>Lock App</Text>

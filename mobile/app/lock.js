@@ -13,12 +13,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Redirect, router } from 'expo-router';
+import { Redirect, router, useRootNavigationState } from 'expo-router';
 import { ScreenScaffold, PlaceholderCard } from '../src/components/ScreenScaffold';
 import { colors, radii, spacing } from '../src/theme/tokens';
 import { useAppSession } from '../src/providers/AppProviders';
 import { hashPinClient } from '../src/lib/pin-hash';
 import { getApiBaseUrl } from '../src/lib/api-client';
+import { clearPendingParentAction, getPendingParentAction } from '../src/lib/session-prefs';
 
 function avatarUriForMember(member) {
   const fileName =
@@ -67,7 +68,12 @@ export default function LockScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [parentSharedDevice, setParentSharedDevice] = useState(isParentSessionSharedDevice);
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const [pendingParentAction, setPendingParentActionState] = useState(null);
+  const [pendingParentActionLoaded, setPendingParentActionLoaded] = useState(false);
+  const [redirectTarget, setRedirectTarget] = useState('');
   const detailScrollRef = useRef(null);
+  const rootNavigationState = useRootNavigationState();
+  const navigationReady = Boolean(rootNavigationState?.key);
 
   const selectedMember = useMemo(
     () => familyMembers.find((member) => member.id === selectedMemberId) || null,
@@ -106,12 +112,62 @@ export default function LockScreen() {
     };
   }, [selectedMemberId]);
 
-  if (activationRequired) {
-    return <Redirect href="/activate" />;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPendingAction() {
+      const pending = await getPendingParentAction();
+      if (!cancelled) {
+        setPendingParentActionState(pending);
+        setPendingParentActionLoaded(true);
+      }
+    }
+
+    void loadPendingAction();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const pendingRedirect = activationRequired
+    ? '/activate'
+    : redirectTarget && pendingParentActionLoaded && isAuthenticated
+    ? redirectTarget
+    : isAuthenticated && pendingParentActionLoaded && !pendingParentAction
+    ? '/chores'
+    : '';
+
+  if (pendingRedirect) {
+    if (navigationReady) {
+      return <Redirect href={pendingRedirect} />;
+    }
+
+    return (
+      <ScreenScaffold
+        title="Preparing the app"
+        subtitle="Finishing the navigation handoff before we continue."
+        accent={colors.accentMore}
+        headerMode="compact"
+      >
+        <View style={styles.centerPanel}>
+          <ActivityIndicator size="large" color={colors.accentMore} />
+          <Text style={styles.centerTitle}>Almost there</Text>
+          <Text style={styles.centerText}>Waiting for navigation to finish initializing.</Text>
+        </View>
+      </ScreenScaffold>
+    );
   }
 
-  if (isAuthenticated) {
-    return <Redirect href="/(tabs)/chores" />;
+  async function handleCancelPendingParentAction() {
+    const returnPath = pendingParentAction?.returnPath || '/chores';
+    await clearPendingParentAction();
+    setPendingParentActionState(null);
+    setPendingParentActionLoaded(true);
+    setSelectedMemberId(null);
+    setPin('');
+    setError('');
+    setRedirectTarget('');
+    router.replace(returnPath);
   }
 
   async function handleMemberConfirm() {
@@ -122,6 +178,10 @@ export default function LockScreen() {
     setError('');
 
     try {
+      if (pendingParentAction && selectedMember.role !== 'parent') {
+        throw new Error('Parent login is required to continue this action. Choose a parent member or press Cancel.');
+      }
+
       if (selectedMember.role === 'parent') {
         if (!parentPinCanBeSkipped && !pin.trim()) {
           throw new Error('Parent PIN is required');
@@ -138,7 +198,16 @@ export default function LockScreen() {
         });
 
         await login(selectedMember);
-        router.replace('/(tabs)/chores');
+        if (pendingParentAction) {
+          const targetPath = pendingParentAction.returnPath || '/chores';
+          const resumeUrl = `${targetPath}?resumeParentAction=1&resumeActionId=${encodeURIComponent(
+            pendingParentAction.actionId
+          )}&resumeNonce=${Date.now()}`;
+          setRedirectTarget(resumeUrl);
+          return;
+        }
+
+        setRedirectTarget('/chores');
         return;
       }
 
@@ -160,7 +229,7 @@ export default function LockScreen() {
       }
 
       await login(selectedMember);
-      router.replace('/(tabs)/chores');
+      setRedirectTarget('/chores');
     } catch (e) {
       setError(e?.message || 'Unable to log in');
       setPin('');
@@ -186,7 +255,9 @@ export default function LockScreen() {
   const lockTitle = isDetailMode ? `Unlock for ${selectedMember.name}` : 'Who’s using the app?';
   const lockSubtitle = !isDetailMode
     ? instantReady
-      ? 'Choose a family member to continue. Parent mode requires elevation and auto-demotes on shared devices.'
+      ? pendingParentAction?.actionLabel
+        ? `Parent login is required to continue: ${pendingParentAction.actionLabel}`
+        : 'Choose a family member to continue. Parent mode requires elevation and auto-demotes when shared-device mode is on.'
       : 'Connecting to family data…'
     : keyboardVisible
     ? null
@@ -201,12 +272,7 @@ export default function LockScreen() {
     : [
         { label: isOnline ? 'Online' : 'Offline', tone: isOnline ? 'success' : 'warning' },
         {
-          label:
-            principalType === 'parent'
-              ? 'Parent principal'
-              : principalType === 'kid'
-              ? 'Kid principal'
-              : 'No principal',
+          label: principalType === 'parent' ? 'Parent mode' : principalType === 'kid' ? 'Kid mode' : 'No mode',
           tone: principalType === 'parent' ? 'accent' : 'neutral',
         },
       ];
@@ -217,7 +283,7 @@ export default function LockScreen() {
       subtitle={lockSubtitle}
       accent={accent}
       statusChips={headerStatusChips}
-      headerMode={isDetailMode ? 'compact' : 'default'}
+      headerMode="compact"
       layoutMode={isDetailMode ? 'compact' : 'default'}
     >
       {!instantReady || bootstrapStatus === 'signing_in' ? (
@@ -266,6 +332,28 @@ export default function LockScreen() {
             <>
               {!selectedMember ? (
                 <>
+                  {pendingParentAction ? (
+                    <View style={styles.pendingActionCard}>
+                      <Text style={styles.pendingActionTitle}>Parent login required</Text>
+                      <Text style={styles.pendingActionBody}>
+                        {pendingParentAction.actionLabel
+                          ? `Continue by logging in as a parent to run: ${pendingParentAction.actionLabel}.`
+                          : 'Log in as a parent to continue this action.'}
+                      </Text>
+                      <Pressable
+                        testID="lock-cancel-parent-action"
+                        accessibilityRole="button"
+                        accessibilityLabel="Cancel and return to previous screen"
+                        style={styles.pendingCancelButton}
+                        onPress={() => {
+                          void handleCancelPendingParentAction();
+                        }}
+                      >
+                        <Text style={styles.pendingCancelText}>Cancel and go back</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+
                   <View style={styles.grid}>
                     {familyMembers.map((member) => {
                       const avatarUri = avatarUriForMember(member);
@@ -311,7 +399,7 @@ export default function LockScreen() {
                   <ScrollView
                     ref={detailScrollRef}
                     style={styles.detailScroll}
-                    keyboardShouldPersistTaps="handled"
+                    keyboardShouldPersistTaps="always"
                     keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                     contentInset={{ bottom: keyboardInset }}
                     scrollIndicatorInsets={{ bottom: keyboardInset }}
@@ -393,6 +481,10 @@ export default function LockScreen() {
                         secureTextEntry
                         keyboardType="number-pad"
                         textContentType="password"
+                        autoComplete="off"
+                        autoCorrect={false}
+                        contextMenuHidden
+                        selectTextOnFocus={false}
                         autoFocus
                         editable={Boolean(selectedMember.pinHash) || isParentSelection}
                         onSubmitEditing={handleMemberConfirm}
@@ -431,15 +523,24 @@ export default function LockScreen() {
                         <Pressable
                           testID="member-back-button"
                           accessibilityRole="button"
-                          accessibilityLabel="Back to family member list"
+                          accessibilityLabel={
+                            pendingParentAction
+                              ? 'Cancel parent login and return to previous screen'
+                              : 'Back to family member list'
+                          }
                           style={[styles.secondaryButton, styles.backButton]}
+                          hitSlop={10}
                           onPress={() => {
+                            if (pendingParentAction) {
+                              void handleCancelPendingParentAction();
+                              return;
+                            }
                             setSelectedMemberId(null);
                             setPin('');
                             setError('');
                           }}
                         >
-                          <Text style={styles.secondaryButtonText}>Back</Text>
+                          <Text style={styles.secondaryButtonText}>{pendingParentAction ? 'Cancel' : 'Back'}</Text>
                         </Pressable>
                         <Pressable
                           testID="member-confirm-button"
@@ -458,6 +559,7 @@ export default function LockScreen() {
                             submitting && styles.buttonDisabled,
                             isParentSelection ? { backgroundColor: colors.accentMore } : { backgroundColor: colors.accentChores },
                           ]}
+                          hitSlop={10}
                           onPress={() => {
                             void handleMemberConfirm();
                           }}
@@ -495,6 +597,40 @@ const styles = StyleSheet.create({
   },
   centerTitle: { fontWeight: '700', fontSize: 16, color: colors.ink, textAlign: 'center' },
   centerText: { color: colors.inkMuted, textAlign: 'center', lineHeight: 20 },
+  pendingActionCard: {
+    backgroundColor: '#FFF5E9',
+    borderWidth: 1,
+    borderColor: '#EAC8A4',
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  pendingActionTitle: {
+    color: '#8B4D17',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  pendingActionBody: {
+    color: '#805736',
+    lineHeight: 18,
+    fontSize: 12,
+  },
+  pendingCancelButton: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#DCA878',
+    borderRadius: radii.pill,
+    backgroundColor: '#FFF9F1',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginTop: 2,
+  },
+  pendingCancelText: {
+    color: '#8B4D17',
+    fontWeight: '700',
+    fontSize: 12,
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

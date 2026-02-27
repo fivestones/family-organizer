@@ -14,10 +14,13 @@ import {
   View,
 } from 'react-native';
 import { id, tx } from '@instantdb/react-native';
+import { useLocalSearchParams } from 'expo-router';
 import NepaliDate from 'nepali-date-converter';
 import { ScreenScaffold } from '../../src/components/ScreenScaffold';
 import { colors, radii, shadows, spacing } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
+import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/session-prefs';
+import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DEVANAGARI_DIGITS = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
@@ -164,6 +167,10 @@ function getBikramDayMeta(date) {
   }
 }
 
+function getGregorianMonthShort(date) {
+  return date.toLocaleDateString(undefined, { month: 'short' });
+}
+
 function buildMonthGrid(viewMonth) {
   const monthStart = startOfMonth(viewMonth);
   const gridStart = startOfWeekSunday(monthStart);
@@ -257,7 +264,13 @@ function normalizeCalendarItem(item) {
   };
 }
 
+function firstParam(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export default function CalendarTab() {
+  const searchParams = useLocalSearchParams();
+  const { requireParentAction } = useParentActionGate();
   const {
     db,
     isAuthenticated,
@@ -276,6 +289,8 @@ export default function CalendarTab() {
   const [form, setForm] = useState(() => buildInitialForm(new Date()));
   const [saving, setSaving] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [resumePendingAction, setResumePendingAction] = useState(null);
+  const [handledResumeNonce, setHandledResumeNonce] = useState('');
 
   const canEditEvents = principalType === 'parent';
   const grid = useMemo(() => buildMonthGrid(viewMonth), [viewMonth]);
@@ -313,29 +328,105 @@ export default function CalendarTab() {
 
   const selectedDayKey = formatYmd(selectedDate);
   const selectedDayEvents = eventsByDayKey.get(selectedDayKey) || [];
+
+  useEffect(() => {
+    const shouldResume = firstParam(searchParams.resumeParentAction) === '1';
+    const resumeNonce = String(firstParam(searchParams.resumeNonce) || '');
+    if (!shouldResume || !resumeNonce || resumeNonce === handledResumeNonce) return;
+
+    let cancelled = false;
+    async function loadPendingAction() {
+      const pending = await getPendingParentAction();
+      if (cancelled) return;
+      setHandledResumeNonce(resumeNonce);
+      if (pending?.actionId?.startsWith('calendar:')) {
+        setResumePendingAction(pending);
+      }
+    }
+
+    void loadPendingAction();
+    return () => {
+      cancelled = true;
+    };
+  }, [handledResumeNonce, searchParams.resumeParentAction, searchParams.resumeNonce]);
+
+  useEffect(() => {
+    if (!resumePendingAction) return;
+    if (!isAuthenticated || principalType !== 'parent') return;
+
+    const actionId = resumePendingAction.actionId;
+    const payload = resumePendingAction.payload || {};
+    const clearResume = async () => {
+      await clearPendingParentAction();
+      setResumePendingAction(null);
+    };
+
+    if (actionId === 'calendar:add-selected-day') {
+      const resumeDate = parseYmdLocal(payload.selectedDayKey) || selectedDate;
+      setSelectedDate(startOfDay(resumeDate));
+      setViewMonth(startOfMonth(resumeDate));
+      openNewEventModal(resumeDate);
+      void clearResume();
+      return;
+    }
+
+    if (actionId === 'calendar:edit-event') {
+      const eventId = payload.eventId;
+      const event = calendarItems.find((item) => item.id === eventId);
+      if (!event) {
+        if (calendarQuery.isLoading) return;
+        const fallbackDate = parseYmdLocal(payload.selectedDayKey) || selectedDate;
+        setSelectedDate(startOfDay(fallbackDate));
+        setViewMonth(startOfMonth(fallbackDate));
+        openNewEventModal(fallbackDate);
+        void clearResume();
+        return;
+      }
+
+      const eventStart = eventStartsAt(event) || selectedDate;
+      setSelectedDate(startOfDay(eventStart));
+      setViewMonth(startOfMonth(eventStart));
+      openEditEventModal(event);
+      void clearResume();
+      return;
+    }
+
+    void clearResume();
+  }, [calendarItems, calendarQuery.isLoading, isAuthenticated, principalType, resumePendingAction, selectedDate]);
   const bikramMetaByDayKey = useMemo(() => {
     const map = new Map();
     let previousBikram = null;
+    let previousGregorian = null;
 
     for (const day of grid.days) {
       const dayKey = formatYmd(day);
       const currentBikram = getBikramDayMeta(day);
+      const gregorianMonthChanged =
+        !previousGregorian ||
+        previousGregorian.getMonth() !== day.getMonth() ||
+        previousGregorian.getFullYear() !== day.getFullYear();
 
       if (!currentBikram) {
         map.set(dayKey, null);
+        previousGregorian = day;
         continue;
       }
+
+      const bikramMonthChanged =
+        !previousBikram ||
+        previousBikram.monthIndex !== currentBikram.monthIndex ||
+        previousBikram.year !== currentBikram.year;
 
       map.set(dayKey, {
         ...currentBikram,
         dayLabelDevanagari: toDevanagariDigits(currentBikram.day),
-        showMonthTransition:
-          !previousBikram ||
-          previousBikram.monthIndex !== currentBikram.monthIndex ||
-          previousBikram.year !== currentBikram.year,
+        showBsMonthTransition: bikramMonthChanged,
+        showGregorianMonthTransition: gregorianMonthChanged,
+        gregorianMonthShort: getGregorianMonthShort(day),
       });
 
       previousBikram = currentBikram;
+      previousGregorian = day;
     }
 
     return map;
@@ -380,11 +471,49 @@ export default function CalendarTab() {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
+  async function handoffToParentLogin(actionId, actionLabel, payload = {}) {
+    await requireParentAction({
+      actionId,
+      actionLabel,
+      payload,
+      returnPath: '/calendar',
+    });
+  }
+
+  async function handleAddEventPress(day) {
+    recordParentActivity();
+    if (!canEditEvents) {
+      await handoffToParentLogin('calendar:add-selected-day', 'Add calendar event', {
+        selectedDayKey: formatYmd(day || selectedDate || new Date()),
+      });
+      return;
+    }
+
+    openNewEventModal(day || selectedDate);
+  }
+
+  async function handleOpenEventPress(event) {
+    recordParentActivity();
+    if (!canEditEvents) {
+      await handoffToParentLogin('calendar:edit-event', 'Edit calendar event', {
+        eventId: event.id,
+        selectedDayKey: selectedDayKey,
+      });
+      return;
+    }
+
+    openEditEventModal(event);
+  }
+
   async function handleSave() {
     recordParentActivity();
 
     if (!canEditEvents) {
-      Alert.alert('Parent mode required', 'Switch to parent mode to create or edit calendar events.');
+      await handoffToParentLogin(
+        editingEventId ? 'calendar:edit-event' : 'calendar:add-selected-day',
+        editingEventId ? 'Edit calendar event' : 'Add calendar event',
+        editingEventId ? { eventId: editingEventId, selectedDayKey } : { selectedDayKey }
+      );
       return;
     }
 
@@ -460,7 +589,10 @@ export default function CalendarTab() {
     recordParentActivity();
 
     if (!canEditEvents) {
-      Alert.alert('Parent mode required', 'Switch to parent mode to delete calendar events.');
+      void handoffToParentLogin('calendar:edit-event', 'Delete calendar event', {
+        eventId: editingEventId,
+        selectedDayKey,
+      });
       return;
     }
 
@@ -603,9 +735,21 @@ export default function CalendarTab() {
                           >
                             {day.getDate()}
                           </Text>
+                          {bikramMeta?.showGregorianMonthTransition ? (
+                            <Text
+                              style={[
+                                styles.gregorianMonthTransition,
+                                !inMonth && styles.gregorianMonthTransitionMuted,
+                                selected && styles.gregorianMonthTransitionSelected,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {bikramMeta.gregorianMonthShort}
+                            </Text>
+                          ) : null}
                         </View>
                         <View style={styles.dayHeaderRight}>
-                          {bikramMeta?.showMonthTransition ? (
+                          {bikramMeta?.showBsMonthTransition ? (
                             <Text
                               style={[
                                 styles.bsMonthTransition,
@@ -662,12 +806,13 @@ export default function CalendarTab() {
               testID="calendar-add-selected-day"
               accessibilityRole="button"
               accessibilityLabel="Add event for selected day"
-              disabled={!canEditEvents}
-              onPress={() => openNewEventModal(selectedDate)}
-              style={[styles.addButton, !canEditEvents && styles.addButtonDisabled]}
+              onPress={() => {
+                void handleAddEventPress(selectedDate);
+              }}
+              style={[styles.addButton, !canEditEvents && styles.addButtonLocked]}
             >
-              <Text style={[styles.addButtonText, !canEditEvents && styles.addButtonTextDisabled]}>
-                {canEditEvents ? 'Add Event' : 'Parent Mode'}
+              <Text style={[styles.addButtonText, !canEditEvents && styles.addButtonTextLocked]}>
+                {canEditEvents ? 'Add Event' : 'Parent Login'}
               </Text>
             </Pressable>
           </View>
@@ -689,8 +834,7 @@ export default function CalendarTab() {
                   accessibilityRole="button"
                   accessibilityLabel={`${canEditEvents ? 'Edit' : 'View'} calendar event ${event.title || 'Untitled'}`}
                   onPress={() => {
-                    if (!canEditEvents) return;
-                    openEditEventModal(event);
+                    void handleOpenEventPress(event);
                   }}
                   style={[styles.eventCard, !canEditEvents && styles.eventCardReadOnly]}
                 >
@@ -893,14 +1037,17 @@ export default function CalendarTab() {
                       testID="calendar-delete-event"
                       accessibilityRole="button"
                       accessibilityLabel="Delete calendar event"
-                      disabled={!canEditEvents || saving}
-                      onPress={handleDelete}
+                      disabled={saving}
+                      onPress={() => {
+                        handleDelete();
+                      }}
                       style={[
                         styles.secondaryDangerButton,
-                        (!canEditEvents || saving) && styles.actionButtonDisabled,
+                        saving && styles.actionButtonDisabled,
+                        !canEditEvents && styles.secondaryDangerLocked,
                       ]}
                     >
-                      <Text style={[styles.secondaryDangerText, (!canEditEvents || saving) && styles.actionTextDisabled]}>
+                      <Text style={[styles.secondaryDangerText, (saving || !canEditEvents) && styles.actionTextDisabled]}>
                         Delete
                       </Text>
                     </Pressable>
@@ -922,14 +1069,14 @@ export default function CalendarTab() {
                       testID="calendar-save-event"
                       accessibilityRole="button"
                       accessibilityLabel="Save calendar event"
-                      disabled={!canEditEvents || saving}
+                      disabled={saving}
                       onPress={() => {
                         void handleSave();
                       }}
-                      style={[styles.primaryButton, (!canEditEvents || saving) && styles.actionButtonDisabled]}
+                      style={[styles.primaryButton, saving && styles.actionButtonDisabled, !canEditEvents && styles.primaryButtonLocked]}
                     >
-                      <Text style={[styles.primaryButtonText, (!canEditEvents || saving) && styles.actionTextDisabled]}>
-                        {saving ? 'Saving...' : editingEventId ? 'Save' : 'Create'}
+                      <Text style={[styles.primaryButtonText, (saving || !canEditEvents) && styles.actionTextDisabled]}>
+                        {saving ? 'Saving...' : canEditEvents ? (editingEventId ? 'Save' : 'Create') : 'Parent Login'}
                       </Text>
                     </Pressable>
                   </View>
@@ -1002,8 +1149,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.lg,
-    padding: spacing.md,
-    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    gap: 4,
     ...shadows.card,
   },
   weekdayRow: {
@@ -1032,13 +1181,13 @@ const styles = StyleSheet.create({
   },
   dayCell: {
     flex: 1,
-    minHeight: 58,
+    minHeight: 66,
     borderRadius: 0,
     borderWidth: 0,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    gap: 3,
+    paddingHorizontal: 3,
+    paddingVertical: 3,
+    gap: 2,
   },
   dayCellDividerLeft: {
     borderLeftWidth: 1,
@@ -1064,22 +1213,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 3,
-    minHeight: 24,
+    gap: 2,
+    minHeight: 26,
   },
   dayHeaderLeft: {
     minWidth: 12,
+    gap: 1,
   },
   dayHeaderRight: {
     flex: 1,
     alignItems: 'flex-end',
     justifyContent: 'flex-start',
-    gap: 0,
+    gap: 1,
   },
   dayNumber: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
     color: colors.ink,
+    lineHeight: 15,
   },
   dayNumberOutsideMonth: {
     color: '#9D937F',
@@ -1087,18 +1238,30 @@ const styles = StyleSheet.create({
   dayNumberSelected: {
     color: colors.accentCalendar,
   },
+  gregorianMonthTransition: {
+    fontSize: 7,
+    lineHeight: 9,
+    fontWeight: '700',
+    color: '#7F7565',
+  },
+  gregorianMonthTransitionMuted: {
+    color: '#A79D8D',
+  },
+  gregorianMonthTransitionSelected: {
+    color: colors.accentCalendar,
+  },
   bsMonthTransition: {
-    fontSize: 6.5,
+    fontSize: 7,
     fontWeight: '700',
     color: '#5B6C69',
-    lineHeight: 8,
+    lineHeight: 9,
     maxWidth: '100%',
   },
   bsDayNumber: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '700',
     color: '#5B6C69',
-    lineHeight: 10,
+    lineHeight: 11,
   },
   bsLabelMuted: {
     color: '#9BA39A',
@@ -1110,7 +1273,7 @@ const styles = StyleSheet.create({
     minHeight: 9,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 2,
     flexWrap: 'wrap',
     marginTop: 'auto',
   },
@@ -1167,16 +1330,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 9,
   },
-  addButtonDisabled: {
-    backgroundColor: '#ECE5D8',
-    borderColor: '#D9D0BE',
+  addButtonLocked: {
+    backgroundColor: '#EEE9DE',
+    borderColor: '#D8CDBA',
   },
   addButtonText: {
     color: colors.accentCalendar,
     fontWeight: '800',
     fontSize: 13,
   },
-  addButtonTextDisabled: {
+  addButtonTextLocked: {
     color: '#7A7264',
   },
   emptyText: {
@@ -1407,6 +1570,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
+  primaryButtonLocked: {
+    backgroundColor: '#ECE7DD',
+    borderColor: '#D8CDBA',
+  },
   primaryButtonText: {
     color: '#F7FFFD',
     fontWeight: '800',
@@ -1418,6 +1585,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF2F0',
     paddingHorizontal: 14,
     paddingVertical: 10,
+  },
+  secondaryDangerLocked: {
+    backgroundColor: '#EFE9DE',
+    borderColor: '#D9CDBA',
   },
   secondaryDangerText: {
     color: colors.danger,

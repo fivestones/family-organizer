@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { id, tx } from '@instantdb/react-native';
+import { router } from 'expo-router';
 import {
   calculateDailyXP,
   formatDateKeyUTC,
@@ -310,6 +311,15 @@ export default function ChoresTab() {
     );
   }
 
+  async function handleSwitchUserPress() {
+    try {
+      await lock();
+      router.replace('/lock?intent=switch-user');
+    } catch (error) {
+      Alert.alert('Unable to switch user', error?.message || 'Please try again.');
+    }
+  }
+
   return (
     <ScreenScaffold
       title="Chores"
@@ -347,8 +357,9 @@ export default function ChoresTab() {
           accessibilityRole="button"
           accessibilityLabel="Switch user"
           style={styles.switchButton}
-          onPress={async () => {
-            await lock();
+          hitSlop={10}
+          onPress={() => {
+            void handleSwitchUserPress();
           }}
         >
           <Text style={styles.switchButtonText}>Switch User</Text>

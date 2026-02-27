@@ -9,6 +9,8 @@ const companion = process.env.IDB_COMPANION || 'localhost:10882';
 const childPin = process.env.IDB_CHILD_PIN || '5543';
 const parentPin = process.env.IDB_PARENT_PIN || '1234';
 const deviceAccessKey = process.env.IDB_DEVICE_ACCESS_KEY || readDeviceAccessKeyFromEnvFiles();
+const preferredAppBundleId = process.env.IDB_APP_BUNDLE_ID || 'com.familyorganizer.app';
+const expoGoBundleId = 'host.exp.Exponent';
 
 function sleep(ms) {
   const sab = new SharedArrayBuffer(4);
@@ -26,6 +28,15 @@ function runIdb(args) {
     const stderr = error?.stderr?.toString?.() || '';
     const stdout = error?.stdout?.toString?.() || '';
     throw new Error(`idb ${args.join(' ')} failed\n${stderr || stdout || error.message}`);
+  }
+}
+
+function launchApp(bundleId) {
+  try {
+    runIdb(['launch', bundleId]);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -152,15 +163,37 @@ function isAppHomeScreen(tree) {
   return Boolean(findElement(tree, { labelIncludes: 'Expo Go' }) || findElement(tree, { labelIncludes: 'Family Organizer' }));
 }
 
+function isExpoGoHomeScreen(tree) {
+  return Boolean(findElement(tree, { labelIncludes: 'Expo Go' }) && findElement(tree, { labelIncludes: 'Recently opened' }));
+}
+
 function ensureAppForegrounded(tree) {
-  if (!isAppHomeScreen(tree)) return tree;
+  if (!isAppHomeScreen(tree) && !isExpoGoHomeScreen(tree)) return tree;
+
+  logStep(`Launching preferred app bundle ${preferredAppBundleId}`);
+  if (launchApp(preferredAppBundleId)) {
+    sleep(1800);
+    return describeAll();
+  }
+
+  if (isExpoGoHomeScreen(tree)) {
+    logStep('Opening recent project from Expo Go home');
+    tapElement(tree, { labelIncludes: 'Family Organizer' }, 'Family Organizer recent project');
+    sleep(1800);
+    return describeAll();
+  }
 
   logStep('Opening app from simulator home screen');
-  if (findElement(tree, { labelIncludes: 'Expo Go' })) {
-    tapElement(tree, { labelIncludes: 'Expo Go' }, 'Expo Go app icon');
-  } else {
+  if (findElement(tree, { labelIncludes: 'Family Organizer' })) {
     tapElement(tree, { labelIncludes: 'Family Organizer' }, 'Family Organizer app icon');
+  } else if (findElement(tree, { labelIncludes: 'Expo Go' })) {
+    if (launchApp(expoGoBundleId)) {
+      sleep(1800);
+      return describeAll();
+    }
+    tapElement(tree, { labelIncludes: 'Expo Go' }, 'Expo Go app icon');
   }
+
   sleep(1800);
   return describeAll();
 }
