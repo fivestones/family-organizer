@@ -503,27 +503,24 @@ export default function LockScreen() {
                           </Text>
                         </View>
                         {isParentSelection ? (
-                          <View style={styles.headerToggleWrap}>
-                            <Text style={styles.headerToggleLabel}>Shared</Text>
-                            <Switch
-                              testID="parent-shared-device-switch"
-                              accessibilityLabel="Shared device mode"
-                              value={parentSharedDevice}
-                              onValueChange={setParentSharedDevice}
-                              thumbColor="#fff"
-                              trackColor={{ false: '#BFC9D6', true: colors.accentMore }}
-                            />
+                          <View style={styles.sharedModeNotice}>
+                            <View style={styles.sharedModeHeader}>
+                              <Text style={styles.sharedModeNoticeTitle}>Shared device mode</Text>
+                              <Switch
+                                testID="parent-shared-device-switch"
+                                accessibilityLabel="Shared device mode"
+                                value={parentSharedDevice}
+                                onValueChange={setParentSharedDevice}
+                                thumbColor="#fff"
+                                trackColor={{ false: '#BFC9D6', true: colors.accentMore }}
+                              />
+                            </View>
+                            <Text style={styles.sharedModeNoticeBody}>
+                              Parent access auto-demotes after inactivity when this switch is enabled.
+                            </Text>
                           </View>
                         ) : null}
                     </View>
-                    {isParentSelection ? (
-                      <View style={styles.sharedModeNotice}>
-                        <Text style={styles.sharedModeNoticeTitle}>Shared device mode</Text>
-                        <Text style={styles.sharedModeNoticeBody}>
-                          Parent access auto-demotes after inactivity when this switch is enabled.
-                        </Text>
-                      </View>
-                    ) : null}
 
                     <View style={styles.detailBody}>
                       <View style={styles.pinSection}>
@@ -808,15 +805,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  headerToggleWrap: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  headerToggleLabel: {
-    color: colors.inkMuted,
-    fontSize: 11,
-    fontWeight: '700',
-  },
   selectedAvatarImage: {
     width: 56,
     height: 56,
@@ -837,17 +825,26 @@ const styles = StyleSheet.create({
   selectedName: { fontSize: 17, fontWeight: '800', color: colors.ink },
   selectedRole: { color: colors.inkMuted, marginTop: 2 },
   sharedModeNotice: {
+    width: 170,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.sm,
     backgroundColor: '#FFF9F2',
     padding: spacing.sm,
     gap: 4,
+    alignSelf: 'stretch',
+  },
+  sharedModeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   sharedModeNoticeTitle: {
     color: colors.ink,
     fontWeight: '700',
     fontSize: 12,
+    flex: 1,
   },
   sharedModeNoticeBody: {
     color: colors.inkMuted,
