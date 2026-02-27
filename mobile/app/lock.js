@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { router, useRootNavigationState } from 'expo-router';
@@ -74,6 +75,7 @@ export default function LockScreen() {
   const [pendingParentAction, setPendingParentActionState] = useState(null);
   const [pendingParentActionLoaded, setPendingParentActionLoaded] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState('');
+  const hardwarePinInputRef = useRef(null);
   const rootNavigationState = useRootNavigationState();
   const navigationReady = Boolean(rootNavigationState?.key);
 
@@ -88,6 +90,11 @@ export default function LockScreen() {
   const isDetailMode = !!selectedMember;
   const pinEntryRequired = isParentSelection || Boolean(selectedMember?.pinHash);
   const pinSlots = Math.max(4, Math.min(MAX_PIN_LENGTH, Math.max(pin.length, 4)));
+
+  const focusHardwarePinInput = useCallback(() => {
+    if (!selectedMember) return;
+    hardwarePinInputRef.current?.focus?.();
+  }, [selectedMember]);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,6 +125,18 @@ export default function LockScreen() {
     if (!pendingRedirect || !navigationReady) return;
     router.replace(pendingRedirect);
   }, [navigationReady, pendingRedirect]);
+
+  useEffect(() => {
+    if (!selectedMember) return undefined;
+
+    const focusTimer = setTimeout(() => {
+      focusHardwarePinInput();
+    }, 40);
+
+    return () => {
+      clearTimeout(focusTimer);
+    };
+  }, [focusHardwarePinInput, selectedMember]);
 
   if (pendingRedirect) {
     return (
@@ -167,6 +186,54 @@ export default function LockScreen() {
     if (!pinEntryRequired || submitting) return;
     setError('');
     setPin((current) => current.slice(0, -1));
+  }
+
+  function handleBackAction() {
+    if (pendingParentAction) {
+      void handleCancelPendingParentAction();
+      return;
+    }
+
+    setSelectedMemberId(null);
+    setPin('');
+    setError('');
+  }
+
+  function handleHardwareInputChange(nextValue) {
+    if (!pinEntryRequired || submitting) return;
+
+    const digitsOnly = String(nextValue || '')
+      .replace(/\D+/g, '')
+      .slice(0, MAX_PIN_LENGTH);
+
+    setError('');
+    setPin(digitsOnly);
+  }
+
+  function handleHardwareKeyPress(event) {
+    if (!selectedMember || submitting) return;
+
+    const key = event?.nativeEvent?.key;
+    if (!key) return;
+
+    if (/^\d$/.test(key)) {
+      appendPinDigit(key);
+      return;
+    }
+
+    if (key === 'Backspace') {
+      deletePinDigit();
+      return;
+    }
+
+    if (key === 'Enter' || key === 'Return') {
+      void handleMemberConfirm();
+      return;
+    }
+
+    if (key === 'Escape') {
+      handleBackAction();
+    }
   }
 
   async function handleMemberConfirm() {
@@ -387,7 +454,29 @@ export default function LockScreen() {
                 </>
               ) : (
                 <View style={styles.detailFill}>
-                  <View style={[styles.detailPanel, styles.detailPanelExpanded]}>
+                  <View
+                    style={[styles.detailPanel, styles.detailPanelExpanded]}
+                    onTouchStart={focusHardwarePinInput}
+                  >
+                    <TextInput
+                      ref={hardwarePinInputRef}
+                      value={pinEntryRequired ? pin : ''}
+                      onChangeText={handleHardwareInputChange}
+                      onKeyPress={handleHardwareKeyPress}
+                      onSubmitEditing={() => {
+                        void handleMemberConfirm();
+                      }}
+                      autoFocus
+                      blurOnSubmit={false}
+                      caretHidden
+                      contextMenuHidden
+                      keyboardType="number-pad"
+                      returnKeyType="go"
+                      showSoftInputOnFocus={false}
+                      style={styles.hardwarePinInput}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                    />
                     <View style={styles.selectedHeader}>
                         {avatarUriForMember(selectedMember) ? (
                           <Image
@@ -559,15 +648,7 @@ export default function LockScreen() {
                           }
                           style={[styles.secondaryButton, styles.backButton]}
                           hitSlop={10}
-                          onPress={() => {
-                            if (pendingParentAction) {
-                              void handleCancelPendingParentAction();
-                              return;
-                            }
-                            setSelectedMemberId(null);
-                            setPin('');
-                            setError('');
-                          }}
+                          onPress={handleBackAction}
                         >
                           <Text style={styles.secondaryButtonText}>{pendingParentAction ? 'Cancel' : 'Back'}</Text>
                         </Pressable>
@@ -710,6 +791,12 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: spacing.md,
     gap: spacing.md,
+  },
+  hardwarePinInput: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
   detailFill: {
     flex: 1,
