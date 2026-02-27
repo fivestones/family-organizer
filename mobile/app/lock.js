@@ -516,6 +516,14 @@ export default function LockScreen() {
                           </View>
                         ) : null}
                     </View>
+                    {isParentSelection ? (
+                      <View style={styles.sharedModeNotice}>
+                        <Text style={styles.sharedModeNoticeTitle}>Shared device mode</Text>
+                        <Text style={styles.sharedModeNoticeBody}>
+                          Parent access auto-demotes after inactivity when this switch is enabled.
+                        </Text>
+                      </View>
+                    ) : null}
 
                     <View style={styles.detailBody}>
                       <View style={styles.pinSection}>
@@ -828,10 +836,26 @@ const styles = StyleSheet.create({
   selectedAvatarLetter: { fontSize: 22, fontWeight: '800', color: colors.ink },
   selectedName: { fontSize: 17, fontWeight: '800', color: colors.ink },
   selectedRole: { color: colors.inkMuted, marginTop: 2 },
+  sharedModeNotice: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.sm,
+    backgroundColor: '#FFF9F2',
+    padding: spacing.sm,
+    gap: 4,
+  },
+  sharedModeNoticeTitle: {
+    color: colors.ink,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  sharedModeNoticeBody: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    lineHeight: 16,
+  },
   detailBody: {
-    flex: 1,
     gap: spacing.md,
-    justifyContent: 'space-between',
   },
   pinSection: {
     gap: spacing.sm,
