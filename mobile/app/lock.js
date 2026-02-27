@@ -502,6 +502,19 @@ export default function LockScreen() {
                             {isParentSelection && parentPinCanBeSkipped ? ' (already unlocked on device)' : ''}
                           </Text>
                         </View>
+                        {isParentSelection ? (
+                          <View style={styles.headerToggleWrap}>
+                            <Text style={styles.headerToggleLabel}>Shared</Text>
+                            <Switch
+                              testID="parent-shared-device-switch"
+                              accessibilityLabel="Shared device mode"
+                              value={parentSharedDevice}
+                              onValueChange={setParentSharedDevice}
+                              thumbColor="#fff"
+                              trackColor={{ false: '#BFC9D6', true: colors.accentMore }}
+                            />
+                          </View>
+                        ) : null}
                     </View>
 
                     <View style={styles.detailBody}>
@@ -608,25 +621,6 @@ export default function LockScreen() {
                           </View>
                         ) : null}
                       </View>
-
-                      {isParentSelection ? (
-                        <View style={styles.toggleRow}>
-                          <View style={{ flex: 1, gap: 2 }}>
-                            <Text style={styles.toggleTitle}>Shared device mode</Text>
-                            <Text style={styles.toggleSub}>
-                              Parent access auto-demotes after inactivity when enabled.
-                            </Text>
-                          </View>
-                          <Switch
-                            testID="parent-shared-device-switch"
-                            accessibilityLabel="Shared device mode"
-                            value={parentSharedDevice}
-                            onValueChange={setParentSharedDevice}
-                            thumbColor="#fff"
-                            trackColor={{ false: '#BFC9D6', true: colors.accentMore }}
-                          />
-                        </View>
-                      ) : null}
 
                       {!isOnline && isParentSelection && !parentPinCanBeSkipped ? (
                         <Text style={styles.warningText}>Internet is required for parent elevation.</Text>
@@ -806,6 +800,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
+  headerToggleWrap: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  headerToggleLabel: {
+    color: colors.inkMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   selectedAvatarImage: {
     width: 56,
     height: 56,
@@ -898,18 +901,6 @@ const styles = StyleSheet.create({
   pinKeyTextUtility: {
     fontSize: 14,
   },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.sm,
-    padding: spacing.md,
-    backgroundColor: '#FFF9F2',
-  },
-  toggleTitle: { color: colors.ink, fontWeight: '700' },
-  toggleSub: { color: colors.inkMuted, fontSize: 12, lineHeight: 16 },
   warningText: { color: colors.warning, fontWeight: '600' },
   error: { color: colors.danger, fontWeight: '600' },
   buttonRow: {
