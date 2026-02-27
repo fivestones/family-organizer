@@ -100,8 +100,11 @@ const rules = {
         ...FAMILY_READ_PARENT_WRITE,
         allow: {
             ...FAMILY_READ_PARENT_WRITE.allow,
-            // Kids can update balances through UI-driven transactions; UI enforces source envelope rules.
+            // Shared kid principal may add/delete/manage envelopes in v1 mobile finance.
+            // UI enforces self-envelope constraints until per-member principals are introduced.
+            create: 'isFamilyPrincipal',
             update: 'isFamilyPrincipal',
+            delete: 'isFamilyPrincipal',
             link: { $default: 'isFamilyPrincipal' },
             unlink: { $default: 'isFamilyPrincipal' },
         },

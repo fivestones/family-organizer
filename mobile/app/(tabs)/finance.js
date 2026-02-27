@@ -1,8 +1,24 @@
-import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { id, tx } from '@instantdb/react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { ScreenScaffold } from '../../src/components/ScreenScaffold';
 import { colors, radii, shadows, spacing } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
+import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/session-prefs';
+import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 
 function firstRef(value) {
   if (!value) return null;
@@ -12,6 +28,10 @@ function firstRef(value) {
 function coerceNumber(value) {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
+}
+
+function upperCurrency(value) {
+  return String(value || '').trim().toUpperCase();
 }
 
 function normalizeBalances(envelope) {
@@ -35,6 +55,15 @@ function addBalancesInto(target, source) {
     target[code] = (target[code] || 0) + coerceNumber(amount);
   }
   return target;
+}
+
+function withoutZeroBalances(balances) {
+  return Object.fromEntries(
+    Object.entries(balances || {}).filter(([, amount]) => {
+      const num = coerceNumber(amount);
+      return num !== 0;
+    })
+  );
 }
 
 function sortBalanceEntries(balances) {
@@ -133,6 +162,25 @@ function formatSignedTxAmount(tx, unitMap) {
   return base;
 }
 
+function getDefaultEnvelope(member) {
+  if (!member?.envelopes?.length) return null;
+  return member.envelopes.find((env) => env.isDefault) || member.envelopes[0] || null;
+}
+
+function getPreferredCurrency(member, envelope) {
+  const envelopeBalances = sortBalanceEntries(envelope?.balancesNormalized || {});
+  if (envelopeBalances.length > 0) return envelopeBalances[0][0];
+  if (member?.allowanceCurrency) return upperCurrency(member.allowanceCurrency);
+  return 'USD';
+}
+
+function buildAuditFields(authUserId, currentFamilyMemberId) {
+  const fields = {};
+  if (authUserId) fields.createdBy = authUserId;
+  if (currentFamilyMemberId) fields.createdByFamilyMemberId = currentFamilyMemberId;
+  return fields;
+}
+
 function summarizeAllowance(member, unitMap) {
   const hasAmount = member.allowanceAmount != null && member.allowanceCurrency;
   const amountLabel = hasAmount ? formatAmount(member.allowanceCurrency, coerceNumber(member.allowanceAmount), unitMap) : null;
@@ -154,9 +202,16 @@ function summarizeAllowance(member, unitMap) {
   };
 }
 
+function firstParam(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export default function FinanceTab() {
+  const searchParams = useLocalSearchParams();
+  const { requireParentAction } = useParentActionGate();
   const {
     db,
+    auth,
     isAuthenticated,
     instantReady,
     isOnline,
@@ -167,6 +222,19 @@ export default function FinanceTab() {
   } = useAppSession();
 
   const [selectedMemberId, setSelectedMemberId] = useState('all');
+  const [financeModalKind, setFinanceModalKind] = useState(null);
+  const [financeModalSubmitting, setFinanceModalSubmitting] = useState(false);
+  const [financeModalError, setFinanceModalError] = useState('');
+  const [envelopeNameInput, setEnvelopeNameInput] = useState('');
+  const [envelopeDescriptionInput, setEnvelopeDescriptionInput] = useState('');
+  const [envelopeIsDefaultInput, setEnvelopeIsDefaultInput] = useState(false);
+  const [moneyEnvelopeIdInput, setMoneyEnvelopeIdInput] = useState('');
+  const [moneyDestinationEnvelopeIdInput, setMoneyDestinationEnvelopeIdInput] = useState('');
+  const [moneyAmountInput, setMoneyAmountInput] = useState('');
+  const [moneyCurrencyInput, setMoneyCurrencyInput] = useState('USD');
+  const [moneyDescriptionInput, setMoneyDescriptionInput] = useState('');
+  const [resumePendingAction, setResumePendingAction] = useState(null);
+  const [handledResumeNonce, setHandledResumeNonce] = useState('');
 
   const financeQuery = db.useQuery(
     isAuthenticated && instantReady
@@ -213,6 +281,35 @@ export default function FinanceTab() {
   const selectedMember = useMemo(
     () => (selectedMemberId === 'all' ? null : membersWithFinance.find((member) => member.id === selectedMemberId) || null),
     [membersWithFinance, selectedMemberId]
+  );
+  const isParentPrincipal = principalType === 'parent';
+  const isKidPrincipal = principalType === 'kid';
+  const currentUserId = currentUser?.id || '';
+  const isKidSelfServeUser = isKidPrincipal && currentUser?.role !== 'parent';
+  const selectedMemberEnvelopes = selectedMember?.envelopes || [];
+  const selectedMoneyEnvelope = useMemo(
+    () => selectedMemberEnvelopes.find((env) => env.id === moneyEnvelopeIdInput) || null,
+    [moneyEnvelopeIdInput, selectedMemberEnvelopes]
+  );
+  const envelopeById = useMemo(() => {
+    const map = new Map();
+    membersWithFinance.forEach((member) => {
+      member.envelopes.forEach((envelope) => {
+        map.set(envelope.id, {
+          ...envelope,
+          ownerMember: member,
+        });
+      });
+    });
+    return map;
+  }, [membersWithFinance]);
+  const selectedMoneyDestinationEnvelope = useMemo(
+    () => envelopeById.get(moneyDestinationEnvelopeIdInput) || null,
+    [envelopeById, moneyDestinationEnvelopeIdInput]
+  );
+  const transferDestinationOptions = useMemo(
+    () => Array.from(envelopeById.values()).filter((envelope) => envelope.id !== moneyEnvelopeIdInput),
+    [envelopeById, moneyEnvelopeIdInput]
   );
 
   const visibleMembers = useMemo(
@@ -278,10 +375,457 @@ export default function FinanceTab() {
       });
   }, [selectedMember, transactions, unitMap]);
 
+  useEffect(() => {
+    const shouldResume = firstParam(searchParams.resumeParentAction) === '1';
+    const resumeNonce = String(firstParam(searchParams.resumeNonce) || '');
+    if (!shouldResume || !resumeNonce || resumeNonce === handledResumeNonce) return;
+
+    let cancelled = false;
+    async function loadPendingAction() {
+      const pending = await getPendingParentAction();
+      if (cancelled) return;
+      setHandledResumeNonce(resumeNonce);
+      if (pending?.actionId?.startsWith('finance:')) {
+        setResumePendingAction(pending);
+      }
+    }
+
+    void loadPendingAction();
+    return () => {
+      cancelled = true;
+    };
+  }, [handledResumeNonce, searchParams.resumeNonce, searchParams.resumeParentAction]);
+
+  useEffect(() => {
+    if (!resumePendingAction) return;
+    if (!isAuthenticated || principalType !== 'parent') return;
+
+    const pendingActionId = resumePendingAction.actionId;
+    if (!pendingActionId.startsWith('finance:')) {
+      void clearPendingParentAction();
+      setResumePendingAction(null);
+      return;
+    }
+
+    const kind = pendingActionId.replace('finance:', '');
+    const payloadMemberId = resumePendingAction.payload?.selectedMemberId;
+    const resumeMemberId =
+      (payloadMemberId && payloadMemberId !== 'all' ? payloadMemberId : null) ||
+      currentUser?.id ||
+      membersWithFinance[0]?.id ||
+      null;
+
+    if (resumeMemberId && selectedMemberId !== resumeMemberId) {
+      setSelectedMemberId(resumeMemberId);
+      return;
+    }
+
+    if (resumeMemberId && !membersWithFinance.some((member) => member.id === resumeMemberId)) {
+      return;
+    }
+
+    void (async () => {
+      await openFinanceAction(kind, { skipParentGate: true });
+      await clearPendingParentAction();
+      setResumePendingAction(null);
+    })();
+  }, [currentUser?.id, isAuthenticated, membersWithFinance, principalType, resumePendingAction, selectedMemberId]);
+
+  function getFinanceActionLabel(kind) {
+    switch (kind) {
+      case 'add-envelope':
+        return 'Add envelope';
+      case 'delete-envelope':
+        return 'Delete envelope';
+      case 'deposit':
+        return 'Deposit funds';
+      case 'withdraw':
+        return 'Withdraw funds';
+      case 'transfer':
+        return 'Transfer funds';
+      default:
+        return 'Finance action';
+    }
+  }
+
+  function isKidAllowedFinanceAction(kind) {
+    return kind === 'add-envelope' || kind === 'delete-envelope' || kind === 'transfer';
+  }
+
+  function isActionParentOnly(kind) {
+    return kind === 'deposit' || kind === 'withdraw';
+  }
+
+  function isActionVisuallyLocked(kind) {
+    if (isParentPrincipal) return false;
+    return isActionParentOnly(kind);
+  }
+
+  function canRunFinanceAction(kind, memberId) {
+    if (isParentPrincipal) return true;
+    if (!isKidSelfServeUser) return false;
+    if (!memberId || !currentUserId) return false;
+    if (memberId !== currentUserId) return false;
+    return isKidAllowedFinanceAction(kind);
+  }
+
+  const financeModalTitle = useMemo(() => {
+    switch (financeModalKind) {
+      case 'add-envelope':
+        return 'Add Envelope';
+      case 'delete-envelope':
+        return 'Delete Envelope';
+      case 'deposit':
+        return 'Deposit Funds';
+      case 'withdraw':
+        return 'Withdraw Funds';
+      case 'transfer':
+        return 'Transfer Funds';
+      default:
+        return 'Finance Action';
+    }
+  }, [financeModalKind]);
+
+  const financeModalSubmitLabel = useMemo(() => {
+    if (financeModalSubmitting) return 'Saving...';
+    switch (financeModalKind) {
+      case 'add-envelope':
+        return 'Create Envelope';
+      case 'delete-envelope':
+        return 'Delete Envelope';
+      case 'deposit':
+        return 'Deposit';
+      case 'withdraw':
+        return 'Withdraw';
+      case 'transfer':
+        return 'Transfer';
+      default:
+        return 'Save';
+    }
+  }, [financeModalKind, financeModalSubmitting]);
+
+  function closeFinanceModal() {
+    setFinanceModalKind(null);
+    setFinanceModalSubmitting(false);
+    setFinanceModalError('');
+  }
+
+  function requireSelectedMember() {
+    const fallbackMember =
+      selectedMember || membersWithFinance.find((member) => member.id === currentUser?.id) || null;
+
+    if (!fallbackMember) {
+      Alert.alert('Choose a member', 'Select a family member first so the finance action knows whose envelopes to update.');
+      return null;
+    }
+
+    if (!selectedMember && fallbackMember?.id) {
+      setSelectedMemberId(fallbackMember.id);
+    }
+
+    return fallbackMember;
+  }
+
+  function resolveFinanceActionMember(kind) {
+    const member = requireSelectedMember();
+    if (!member) return null;
+
+    if (!isKidSelfServeUser || !isKidAllowedFinanceAction(kind)) {
+      return member;
+    }
+
+    if (!currentUserId) return member;
+    if (member.id === currentUserId) return member;
+
+    const selfMember = membersWithFinance.find((item) => item.id === currentUserId) || null;
+    if (!selfMember) {
+      Alert.alert('Login required', 'Choose your own profile before using kid finance actions.');
+      return null;
+    }
+
+    setSelectedMemberId(selfMember.id);
+    return selfMember;
+  }
+
+  async function requestParentFinanceLogin(kind, memberId) {
+    await requireParentAction({
+      actionId: `finance:${kind}`,
+      actionLabel: getFinanceActionLabel(kind),
+      payload: {
+        selectedMemberId: memberId || currentUserId || (selectedMemberId === 'all' ? '' : selectedMemberId),
+      },
+      returnPath: '/finance',
+    });
+  }
+
+  async function openFinanceAction(kind, opts = {}) {
+    recordParentActivity();
+    setFinanceModalError('');
+
+    const skipParentGate = !!opts.skipParentGate;
+    const member = resolveFinanceActionMember(kind);
+    if (!member) return;
+
+    if (!skipParentGate && !canRunFinanceAction(kind, member.id)) {
+      await requestParentFinanceLogin(kind, member.id);
+      return;
+    }
+
+    const defaultEnvelope = getDefaultEnvelope(member);
+    const firstEnvelope = member.envelopes[0] || null;
+
+    if (kind !== 'add-envelope' && member.envelopes.length === 0) {
+      Alert.alert('No envelopes yet', 'Create an envelope first before using this action.');
+      return;
+    }
+
+    if (kind === 'add-envelope') {
+      setEnvelopeNameInput(member.envelopes.length === 0 ? 'Savings' : `Envelope ${member.envelopes.length + 1}`);
+      setEnvelopeDescriptionInput('');
+      setEnvelopeIsDefaultInput(member.envelopes.length === 0);
+      setMoneyEnvelopeIdInput('');
+      setMoneyDestinationEnvelopeIdInput('');
+      setMoneyAmountInput('');
+      setMoneyCurrencyInput(member.allowanceCurrency ? upperCurrency(member.allowanceCurrency) : 'USD');
+      setMoneyDescriptionInput('');
+      setFinanceModalKind(kind);
+      return;
+    }
+
+    if (kind === 'delete-envelope') {
+      const sourceEnvelope = defaultEnvelope || firstEnvelope;
+      setMoneyEnvelopeIdInput(sourceEnvelope?.id || '');
+      setMoneyDestinationEnvelopeIdInput('');
+      setMoneyAmountInput('');
+      setMoneyCurrencyInput(getPreferredCurrency(member, sourceEnvelope));
+      setMoneyDescriptionInput('');
+      setFinanceModalKind(kind);
+      return;
+    }
+
+    const sourceEnvelope = defaultEnvelope || firstEnvelope;
+    const destinationEnvelope =
+      kind === 'transfer'
+        ? Array.from(envelopeById.values()).find((envelope) => envelope.id !== sourceEnvelope?.id) || null
+        : null;
+
+    if (kind === 'transfer' && !destinationEnvelope) {
+      Alert.alert('Need another envelope', 'Transfers require a destination envelope in this family.');
+      return;
+    }
+
+    setMoneyEnvelopeIdInput(sourceEnvelope?.id || '');
+    setMoneyDestinationEnvelopeIdInput(destinationEnvelope?.id || '');
+    setMoneyAmountInput('');
+    setMoneyCurrencyInput(getPreferredCurrency(member, sourceEnvelope));
+    setMoneyDescriptionInput('');
+    setFinanceModalKind(kind);
+  }
+
+  async function submitFinanceAction() {
+    if (!financeModalKind) return;
+    const member = resolveFinanceActionMember(financeModalKind);
+    if (!member) return;
+
+    if (!canRunFinanceAction(financeModalKind, member.id)) {
+      await requestParentFinanceLogin(financeModalKind, member.id);
+      return;
+    }
+
+    setFinanceModalSubmitting(true);
+    setFinanceModalError('');
+    const auditFields = buildAuditFields(auth?.user?.id, currentUser?.id);
+    const nowIso = new Date().toISOString();
+
+    try {
+      if (financeModalKind === 'add-envelope') {
+        const name = envelopeNameInput.trim();
+        if (!name) throw new Error('Envelope name is required.');
+        const description = envelopeDescriptionInput.trim();
+        const shouldBeDefault = member.envelopes.length === 0 ? true : !!envelopeIsDefaultInput;
+        const newEnvelopeId = id();
+        const envelopePayload = {
+          name,
+          balances: {},
+          isDefault: shouldBeDefault,
+          ...(description ? { description } : {}),
+        };
+
+        const transactionsToRun = [];
+        if (shouldBeDefault) {
+          member.envelopes.forEach((env) => {
+            if (env.isDefault) {
+              transactionsToRun.push(tx.allowanceEnvelopes[env.id].update({ isDefault: false }));
+            }
+          });
+        }
+
+        transactionsToRun.push(tx.allowanceEnvelopes[newEnvelopeId].update(envelopePayload));
+        transactionsToRun.push(tx.allowanceEnvelopes[newEnvelopeId].link({ familyMember: member.id }));
+
+        await db.transact(transactionsToRun);
+        closeFinanceModal();
+        return;
+      }
+
+      if (financeModalKind === 'delete-envelope') {
+        const envelopeToDelete = selectedMoneyEnvelope;
+        if (!envelopeToDelete) throw new Error('Select an envelope to delete.');
+
+        const hasRemainingBalance = Object.values(envelopeToDelete.balancesNormalized || {}).some(
+          (value) => coerceNumber(value) !== 0
+        );
+        if (hasRemainingBalance) {
+          throw new Error('Transfer or withdraw all funds before deleting this envelope.');
+        }
+
+        const siblingEnvelopes = member.envelopes.filter((envelope) => envelope.id !== envelopeToDelete.id);
+        const txs = [];
+        if (envelopeToDelete.isDefault && siblingEnvelopes.length > 0) {
+          txs.push(tx.allowanceEnvelopes[siblingEnvelopes[0].id].update({ isDefault: true }));
+        }
+        txs.push(tx.allowanceEnvelopes[envelopeToDelete.id].delete());
+
+        await db.transact(txs);
+        closeFinanceModal();
+        return;
+      }
+
+      const amount = coerceNumber(moneyAmountInput);
+      const currency = upperCurrency(moneyCurrencyInput);
+      if (!currency || currency.length < 2) throw new Error('Enter a valid currency code (for example: USD or NPR).');
+      if (!(amount > 0)) throw new Error('Amount must be greater than zero.');
+
+      const sourceEnvelope = selectedMoneyEnvelope;
+      if (!sourceEnvelope) throw new Error('Select an envelope.');
+      const sourceBalances = { ...(sourceEnvelope.balancesNormalized || {}) };
+      const description = moneyDescriptionInput.trim();
+      if (isKidSelfServeUser && !isParentPrincipal && member.id !== currentUserId) {
+        throw new Error('Kids can only move funds from their own envelopes.');
+      }
+
+      if (financeModalKind === 'deposit') {
+        const updatedBalances = withoutZeroBalances({
+          ...sourceBalances,
+          [currency]: coerceNumber(sourceBalances[currency]) + amount,
+        });
+        const txId = id();
+        await db.transact([
+          tx.allowanceEnvelopes[sourceEnvelope.id].update({ balances: updatedBalances }),
+          tx.allowanceTransactions[txId].update({
+            ...auditFields,
+            amount,
+            currency,
+            transactionType: 'deposit',
+            envelope: sourceEnvelope.id,
+            destinationEnvelope: sourceEnvelope.id,
+            description: description || `Deposit to ${sourceEnvelope.name}`,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          }),
+          tx.allowanceEnvelopes[sourceEnvelope.id].link({ transactions: txId }),
+        ]);
+        closeFinanceModal();
+        return;
+      }
+
+      if (financeModalKind === 'withdraw') {
+        const available = coerceNumber(sourceBalances[currency]);
+        if (available < amount) {
+          throw new Error(`Insufficient ${currency}. Available: ${formatAmount(currency, available, unitMap)}.`);
+        }
+        const updatedBalances = { ...sourceBalances };
+        const remaining = available - amount;
+        if (remaining === 0) delete updatedBalances[currency];
+        else updatedBalances[currency] = remaining;
+        const txId = id();
+        await db.transact([
+          tx.allowanceEnvelopes[sourceEnvelope.id].update({ balances: withoutZeroBalances(updatedBalances) }),
+          tx.allowanceTransactions[txId].update({
+            ...auditFields,
+            amount: -amount,
+            currency,
+            transactionType: 'withdrawal',
+            envelope: sourceEnvelope.id,
+            description: description || `Withdrawal from ${sourceEnvelope.name}`,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          }),
+          tx.allowanceEnvelopes[sourceEnvelope.id].link({ transactions: txId }),
+        ]);
+        closeFinanceModal();
+        return;
+      }
+
+      if (financeModalKind === 'transfer') {
+        const destinationEnvelope = selectedMoneyDestinationEnvelope;
+        if (!destinationEnvelope) throw new Error('Select a destination envelope.');
+        if (destinationEnvelope.id === sourceEnvelope.id) throw new Error('Source and destination envelopes must be different.');
+
+        const available = coerceNumber(sourceBalances[currency]);
+        if (available < amount) {
+          throw new Error(`Insufficient ${currency}. Available: ${formatAmount(currency, available, unitMap)}.`);
+        }
+
+        const destinationBalances = { ...(destinationEnvelope.balancesNormalized || {}) };
+        const sourceUpdated = { ...sourceBalances };
+        const sourceRemaining = available - amount;
+        if (sourceRemaining === 0) delete sourceUpdated[currency];
+        else sourceUpdated[currency] = sourceRemaining;
+        const destinationUpdated = withoutZeroBalances({
+          ...destinationBalances,
+          [currency]: coerceNumber(destinationBalances[currency]) + amount,
+        });
+
+        const transferDescription = description || `Transfer from ${sourceEnvelope.name} to ${destinationEnvelope.name}`;
+        const txOutId = id();
+        const txInId = id();
+
+        await db.transact([
+          tx.allowanceEnvelopes[sourceEnvelope.id].update({ balances: withoutZeroBalances(sourceUpdated) }),
+          tx.allowanceEnvelopes[destinationEnvelope.id].update({ balances: destinationUpdated }),
+          tx.allowanceTransactions[txOutId].update({
+            ...auditFields,
+            amount: -amount,
+            currency,
+            transactionType: 'transfer-out',
+            envelope: sourceEnvelope.id,
+            sourceEnvelope: sourceEnvelope.id,
+            destinationEnvelope: destinationEnvelope.id,
+            description: transferDescription,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          }),
+          tx.allowanceTransactions[txInId].update({
+            ...auditFields,
+            amount,
+            currency,
+            transactionType: 'transfer-in',
+            envelope: destinationEnvelope.id,
+            sourceEnvelope: sourceEnvelope.id,
+            destinationEnvelope: destinationEnvelope.id,
+            description: transferDescription,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          }),
+          tx.allowanceEnvelopes[sourceEnvelope.id].link({ outgoingTransfers: txOutId, transactions: txOutId }),
+          tx.allowanceEnvelopes[destinationEnvelope.id].link({ incomingTransfers: txInId, transactions: txInId }),
+        ]);
+        closeFinanceModal();
+        return;
+      }
+
+      closeFinanceModal();
+    } catch (error) {
+      setFinanceModalSubmitting(false);
+      setFinanceModalError(error?.message || 'Unable to complete the action.');
+    }
+  }
+
   return (
     <ScreenScaffold
       title="Finance"
-      subtitle="Phase 3 now includes a live family allowance overview with envelopes, balances, allowance settings, and recent transactions. Transfer/deposit/withdraw modals are next."
+      subtitle="Phase 3 now includes live envelopes, balances, and transactions. Kids can self-manage their own envelopes and transfers, while parent-only actions prompt elevation."
       accent={colors.accentFinance}
       statusChips={[
         { label: isOnline ? 'Online' : 'Offline', tone: isOnline ? 'success' : 'warning' },
@@ -309,7 +853,9 @@ export default function FinanceTab() {
             <Text style={styles.heroBalances}>{formatBalancesInline(familyCombinedBalances, unitMap)}</Text>
           </View>
           <View style={styles.heroBadge}>
-            <Text style={styles.heroBadgeLabel}>{principalType === 'parent' ? 'Edit Actions Next' : 'Read-only Mode'}</Text>
+            <Text style={styles.heroBadgeLabel}>
+              {isParentPrincipal ? 'Parent Actions Ready' : isKidSelfServeUser ? 'Kid Self-Serve Mode' : 'Read-only Mode'}
+            </Text>
           </View>
         </View>
 
@@ -353,6 +899,122 @@ export default function FinanceTab() {
               );
             })}
           </ScrollView>
+        </View>
+
+        <View style={styles.panel}>
+          <View style={styles.panelHeaderRow}>
+            <Text style={styles.panelTitle}>Actions</Text>
+            <Text style={styles.metaText}>
+              {isParentPrincipal ? 'All actions available' : 'Deposit/withdraw need parent login'}
+            </Text>
+          </View>
+
+          {!selectedMember ? (
+            <Text style={styles.emptyText}>Select a family member above to create envelopes and move funds.</Text>
+          ) : (
+            <View style={styles.actionScopeCard}>
+              <Text style={styles.actionScopeTitle}>{selectedMember.name}</Text>
+              <Text style={styles.actionScopeMeta}>
+                {selectedMember.envelopes.length} envelope{selectedMember.envelopes.length === 1 ? '' : 's'} •
+                {' '}
+                {formatBalancesInline(selectedMember.totalBalances, unitMap)}
+              </Text>
+            </View>
+          )}
+
+          <View style={styles.actionGrid}>
+            <Pressable
+              testID="finance-open-add-envelope"
+              accessibilityRole="button"
+              accessibilityLabel="Open add envelope action"
+              onPress={() => {
+                void openFinanceAction('add-envelope');
+              }}
+              style={[
+                styles.actionButton,
+                styles.actionButtonPrimary,
+                isActionVisuallyLocked('add-envelope') && styles.actionButtonLocked,
+              ]}
+            >
+              <Text style={[styles.actionButtonTextPrimary, isActionVisuallyLocked('add-envelope') && styles.actionButtonTextDisabled]}>
+                Add Envelope
+              </Text>
+            </Pressable>
+
+            <Pressable
+              testID="finance-open-delete-envelope"
+              accessibilityRole="button"
+              accessibilityLabel="Open delete envelope action"
+              onPress={() => {
+                void openFinanceAction('delete-envelope');
+              }}
+              style={[
+                styles.actionButton,
+                isActionVisuallyLocked('delete-envelope') && styles.actionButtonLocked,
+              ]}
+            >
+              <Text style={[styles.actionButtonText, isActionVisuallyLocked('delete-envelope') && styles.actionButtonTextDisabled]}>
+                Delete Envelope
+              </Text>
+            </Pressable>
+
+            <Pressable
+              testID="finance-open-deposit"
+              accessibilityRole="button"
+              accessibilityLabel="Open deposit action"
+              onPress={() => {
+                void openFinanceAction('deposit');
+              }}
+              style={[
+                styles.actionButton,
+                isActionVisuallyLocked('deposit') && styles.actionButtonLocked,
+              ]}
+            >
+              <Text style={[styles.actionButtonText, isActionVisuallyLocked('deposit') && styles.actionButtonTextDisabled]}>
+                Deposit
+              </Text>
+            </Pressable>
+
+            <Pressable
+              testID="finance-open-withdraw"
+              accessibilityRole="button"
+              accessibilityLabel="Open withdraw action"
+              onPress={() => {
+                void openFinanceAction('withdraw');
+              }}
+              style={[
+                styles.actionButton,
+                isActionVisuallyLocked('withdraw') && styles.actionButtonLocked,
+              ]}
+            >
+              <Text style={[styles.actionButtonText, isActionVisuallyLocked('withdraw') && styles.actionButtonTextDisabled]}>
+                Withdraw
+              </Text>
+            </Pressable>
+
+            <Pressable
+              testID="finance-open-transfer"
+              accessibilityRole="button"
+              accessibilityLabel="Open transfer action"
+              onPress={() => {
+                void openFinanceAction('transfer');
+              }}
+              style={[
+                styles.actionButton,
+                isActionVisuallyLocked('transfer') && styles.actionButtonLocked,
+              ]}
+            >
+              <Text style={[styles.actionButtonText, isActionVisuallyLocked('transfer') && styles.actionButtonTextDisabled]}>
+                Transfer
+              </Text>
+            </Pressable>
+          </View>
+
+          {selectedMember && selectedMember.envelopes.length === 0 ? (
+            <Text style={styles.helperText}>
+              Create an initial envelope first (usually “Savings”), then use transfer and other finance actions.
+            </Text>
+          ) : null}
         </View>
 
         <View style={styles.panel}>
@@ -493,10 +1155,267 @@ export default function FinanceTab() {
         <View style={styles.phaseNextCard}>
           <Text style={styles.phaseNextTitle}>Next in Finance Phase 3</Text>
           <Text style={styles.phaseNextBody}>
-            Deposit/withdraw/transfer modals, transfer-to-person workflow, transaction filters, and combined converted balance display will build on this live data foundation.
+            Next priorities are transaction filters, combined converted balance display, and parent allowance distribution execution.
           </Text>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={!!financeModalKind}
+        transparent
+        animationType="slide"
+        onRequestClose={closeFinanceModal}
+        presentationStyle="overFullScreen"
+      >
+        <View style={styles.modalBackdrop}>
+          <KeyboardAvoidingView
+            style={styles.modalKeyboardLayer}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 16 : 0}
+          >
+            <Pressable style={styles.modalScrim} onPress={closeFinanceModal} />
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHandle} />
+              <View style={styles.modalHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle}>{financeModalTitle}</Text>
+                  <Text style={styles.modalSubtitle}>
+                    {selectedMember
+                      ? `${selectedMember.name} • ${selectedMember.envelopes.length} envelope${selectedMember.envelopes.length === 1 ? '' : 's'}`
+                      : 'Choose a member first to run finance actions.'}
+                  </Text>
+                </View>
+                <Pressable
+                  testID="finance-close-modal"
+                  accessibilityRole="button"
+                  accessibilityLabel="Close finance action modal"
+                  onPress={closeFinanceModal}
+                  style={styles.modalCloseButton}
+                >
+                  <Text style={styles.modalCloseText}>Close</Text>
+                </Pressable>
+              </View>
+
+              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalForm}>
+                {financeModalError ? <Text style={styles.modalErrorText}>{financeModalError}</Text> : null}
+
+                {financeModalKind === 'add-envelope' ? (
+                  <>
+                    <View style={styles.fieldBlock}>
+                      <Text style={styles.fieldLabel}>Envelope Name</Text>
+                      <TextInput
+                        testID="finance-envelope-name-input"
+                        accessibilityLabel="Envelope name"
+                        value={envelopeNameInput}
+                        onChangeText={setEnvelopeNameInput}
+                        editable={!financeModalSubmitting}
+                        placeholder="Savings"
+                        placeholderTextColor="#A39A8A"
+                        style={styles.textInput}
+                        onFocus={recordParentActivity}
+                      />
+                    </View>
+
+                    <View style={styles.fieldBlock}>
+                      <Text style={styles.fieldLabel}>Description (optional)</Text>
+                      <TextInput
+                        testID="finance-envelope-description-input"
+                        accessibilityLabel="Envelope description"
+                        value={envelopeDescriptionInput}
+                        onChangeText={setEnvelopeDescriptionInput}
+                        editable={!financeModalSubmitting}
+                        placeholder="School spending"
+                        placeholderTextColor="#A39A8A"
+                        style={[styles.textInput, styles.textArea]}
+                        multiline
+                        textAlignVertical="top"
+                        onFocus={recordParentActivity}
+                      />
+                    </View>
+
+                    <View style={styles.switchRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.switchTitle}>Set as default envelope</Text>
+                        <Text style={styles.switchMeta}>New deposits can default here. First envelope is always default.</Text>
+                      </View>
+                      <Switch
+                        value={selectedMember && selectedMember.envelopes.length === 0 ? true : envelopeIsDefaultInput}
+                        onValueChange={setEnvelopeIsDefaultInput}
+                        disabled={financeModalSubmitting || (selectedMember && selectedMember.envelopes.length === 0)}
+                        trackColor={{ false: '#D4CBB9', true: '#BBD8A7' }}
+                        thumbColor={(selectedMember && selectedMember.envelopes.length === 0) || envelopeIsDefaultInput ? colors.accentFinance : '#F9F6EE'}
+                      />
+                    </View>
+                  </>
+                ) : null}
+
+                {financeModalKind && financeModalKind !== 'add-envelope' ? (
+                  <>
+                    <View style={styles.fieldBlock}>
+                      <Text style={styles.fieldLabel}>Source Envelope</Text>
+                      <View style={styles.selectorWrap}>
+                        {selectedMemberEnvelopes.map((envelope) => {
+                          const selected = moneyEnvelopeIdInput === envelope.id;
+                          return (
+                            <Pressable
+                              key={`modal-source-${envelope.id}`}
+                              testID={`finance-source-envelope-${envelope.id}`}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Select source envelope ${envelope.name}`}
+                              onPress={() => {
+                                recordParentActivity();
+                                setMoneyEnvelopeIdInput(envelope.id);
+                                if (financeModalKind === 'transfer' && moneyDestinationEnvelopeIdInput === envelope.id) {
+                                  const fallback = transferDestinationOptions.find((env) => env.id !== envelope.id);
+                                  setMoneyDestinationEnvelopeIdInput(fallback?.id || '');
+                                }
+                                setMoneyCurrencyInput(getPreferredCurrency(selectedMember, envelope));
+                              }}
+                              style={[styles.selectorChip, selected && styles.selectorChipSelected]}
+                            >
+                              <Text style={[styles.selectorChipText, selected && styles.selectorChipTextSelected]}>
+                                {envelope.name}
+                              </Text>
+                              <Text style={[styles.selectorChipMeta, selected && styles.selectorChipMetaSelected]}>
+                                {formatBalancesInline(envelope.balancesNormalized, unitMap)}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    {financeModalKind === 'transfer' ? (
+                      <View style={styles.fieldBlock}>
+                        <Text style={styles.fieldLabel}>Destination Envelope</Text>
+                        <View style={styles.selectorWrap}>
+                          {transferDestinationOptions.map((envelope) => {
+                            const selected = moneyDestinationEnvelopeIdInput === envelope.id;
+                            return (
+                              <Pressable
+                                key={`modal-dest-${envelope.id}`}
+                                testID={`finance-destination-envelope-${envelope.id}`}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Select destination envelope ${envelope.name}`}
+                                onPress={() => {
+                                  recordParentActivity();
+                                  setMoneyDestinationEnvelopeIdInput(envelope.id);
+                                }}
+                                style={[styles.selectorChip, selected && styles.selectorChipSelected]}
+                              >
+                                <Text style={[styles.selectorChipText, selected && styles.selectorChipTextSelected]}>
+                                  {envelope.name}
+                                </Text>
+                                <Text style={[styles.selectorChipMeta, selected && styles.selectorChipMetaSelected]}>
+                                  {envelope.ownerMember?.name ? `${envelope.ownerMember.name} • ` : ''}
+                                  {formatBalancesInline(envelope.balancesNormalized, unitMap)}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ) : null}
+
+                    {financeModalKind === 'delete-envelope' ? (
+                      <Text style={styles.deleteWarningText}>
+                        Deleting removes this envelope permanently. Transfer or withdraw its balance first if funds remain.
+                      </Text>
+                    ) : null}
+
+                    {financeModalKind === 'deposit' || financeModalKind === 'withdraw' || financeModalKind === 'transfer' ? (
+                      <>
+                        <View style={styles.inlineFields}>
+                          <View style={[styles.fieldBlock, styles.inlineField]}>
+                            <Text style={styles.fieldLabel}>Amount</Text>
+                            <TextInput
+                              testID="finance-money-amount-input"
+                              accessibilityLabel="Finance action amount"
+                              value={moneyAmountInput}
+                              onChangeText={setMoneyAmountInput}
+                              editable={!financeModalSubmitting}
+                              placeholder="10"
+                              placeholderTextColor="#A39A8A"
+                              style={styles.textInput}
+                              keyboardType="decimal-pad"
+                              onFocus={recordParentActivity}
+                            />
+                          </View>
+                          <View style={[styles.fieldBlock, styles.inlineField]}>
+                            <Text style={styles.fieldLabel}>Currency</Text>
+                            <TextInput
+                              testID="finance-money-currency-input"
+                              accessibilityLabel="Finance action currency"
+                              value={moneyCurrencyInput}
+                              onChangeText={(value) => setMoneyCurrencyInput(upperCurrency(value))}
+                              editable={!financeModalSubmitting}
+                              placeholder="USD"
+                              placeholderTextColor="#A39A8A"
+                              style={styles.textInput}
+                              autoCapitalize="characters"
+                              autoCorrect={false}
+                              onFocus={recordParentActivity}
+                            />
+                          </View>
+                        </View>
+
+                        <View style={styles.fieldBlock}>
+                          <Text style={styles.fieldLabel}>Description (optional)</Text>
+                          <TextInput
+                            testID="finance-money-description-input"
+                            accessibilityLabel="Finance action description"
+                            value={moneyDescriptionInput}
+                            onChangeText={setMoneyDescriptionInput}
+                            editable={!financeModalSubmitting}
+                            placeholder={
+                              financeModalKind === 'deposit'
+                                ? 'Birthday money'
+                                : financeModalKind === 'withdraw'
+                                ? 'Cash out'
+                                : 'Move to spending envelope'
+                            }
+                            placeholderTextColor="#A39A8A"
+                            style={[styles.textInput, styles.textArea]}
+                            multiline
+                            textAlignVertical="top"
+                            onFocus={recordParentActivity}
+                          />
+                        </View>
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
+
+                <View style={styles.modalActions}>
+                  <Pressable
+                    testID="finance-cancel-action"
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel finance action"
+                    onPress={closeFinanceModal}
+                    style={styles.secondaryButton}
+                  >
+                    <Text style={styles.secondaryButtonText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    testID="finance-submit-action"
+                    accessibilityRole="button"
+                    accessibilityLabel="Submit finance action"
+                    disabled={financeModalSubmitting}
+                    onPress={() => {
+                      void submitFinanceAction();
+                    }}
+                    style={[styles.primaryButton, financeModalSubmitting && styles.actionButtonDisabled]}
+                  >
+                    <Text style={[styles.primaryButtonText, financeModalSubmitting && styles.actionButtonTextDisabled]}>
+                      {financeModalSubmitLabel}
+                    </Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </ScreenScaffold>
   );
 }
@@ -618,6 +1537,76 @@ const styles = StyleSheet.create({
   },
   memberChipMetaSelected: {
     color: '#5A7E4D',
+  },
+  actionScopeCard: {
+    borderWidth: 1,
+    borderColor: '#D6DCC4',
+    borderRadius: radii.md,
+    backgroundColor: '#F7FBF4',
+    padding: spacing.md,
+    gap: 4,
+  },
+  actionScopeTitle: {
+    color: colors.ink,
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  actionScopeMeta: {
+    color: '#5A6E52',
+    lineHeight: 18,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  actionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  actionButton: {
+    borderWidth: 1,
+    borderColor: '#C8DABF',
+    borderRadius: radii.md,
+    backgroundColor: '#F7FBF4',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    minWidth: 136,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionButtonPrimary: {
+    backgroundColor: '#E2F0DA',
+    borderColor: '#A6C996',
+  },
+  actionButtonLocked: {
+    backgroundColor: '#EFE9DE',
+    borderColor: '#D8CDBA',
+  },
+  actionButtonDisabled: {
+    opacity: 0.45,
+  },
+  actionButtonText: {
+    color: colors.accentFinance,
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  actionButtonTextPrimary: {
+    color: '#2D5E2A',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  actionButtonTextDisabled: {
+    color: '#8A8172',
+  },
+  helperText: {
+    color: colors.inkMuted,
+    lineHeight: 18,
+    fontSize: 12,
+  },
+  deleteWarningText: {
+    color: colors.warning,
+    lineHeight: 18,
+    fontSize: 12,
+    fontWeight: '600',
   },
   memberFinanceCards: {
     gap: spacing.sm,
@@ -822,5 +1811,198 @@ const styles = StyleSheet.create({
   phaseNextBody: {
     color: colors.inkMuted,
     lineHeight: 19,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(27, 23, 16, 0.24)',
+  },
+  modalKeyboardLayer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalScrim: {
+    flex: 1,
+  },
+  modalSheet: {
+    backgroundColor: '#FBF7EE',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderColor: '#DACFB8',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+    maxHeight: '84%',
+    gap: spacing.sm,
+  },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 52,
+    height: 5,
+    borderRadius: radii.pill,
+    backgroundColor: '#D8D0BE',
+    marginBottom: 4,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  modalTitle: {
+    color: colors.ink,
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: '800',
+  },
+  modalSubtitle: {
+    color: colors.inkMuted,
+    marginTop: 4,
+    lineHeight: 18,
+    fontSize: 12,
+  },
+  modalCloseButton: {
+    borderWidth: 1,
+    borderColor: '#D7CCB8',
+    backgroundColor: '#FFFDF8',
+    borderRadius: radii.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  modalCloseText: {
+    color: colors.inkMuted,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  modalForm: {
+    gap: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  modalErrorText: {
+    color: colors.danger,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  fieldBlock: {
+    gap: 6,
+  },
+  fieldLabel: {
+    color: '#4C4336',
+    fontWeight: '800',
+    fontSize: 12,
+    letterSpacing: 0.35,
+    textTransform: 'uppercase',
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#D8CFBE',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    color: colors.ink,
+    fontSize: 15,
+    minHeight: 46,
+  },
+  textArea: {
+    minHeight: 92,
+    paddingTop: 10,
+  },
+  switchRow: {
+    borderWidth: 1,
+    borderColor: '#D7CCB8',
+    borderRadius: radii.md,
+    backgroundColor: '#FFFBF3',
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  switchTitle: {
+    color: colors.ink,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  switchMeta: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  selectorWrap: {
+    gap: spacing.sm,
+  },
+  selectorChip: {
+    borderWidth: 1,
+    borderColor: '#D8CFBE',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 2,
+  },
+  selectorChipSelected: {
+    borderColor: '#AFCB9D',
+    backgroundColor: '#F0F8EB',
+  },
+  selectorChipText: {
+    color: colors.ink,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  selectorChipTextSelected: {
+    color: colors.accentFinance,
+  },
+  selectorChipMeta: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  selectorChipMetaSelected: {
+    color: '#59784D',
+  },
+  inlineFields: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  inlineField: {
+    flex: 1,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+    marginTop: 4,
+  },
+  secondaryButton: {
+    minWidth: 108,
+    borderWidth: 1,
+    borderColor: '#D7CCB8',
+    borderRadius: 12,
+    backgroundColor: '#FFFCF6',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryButtonText: {
+    color: colors.inkMuted,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  primaryButton: {
+    minWidth: 128,
+    borderWidth: 1,
+    borderColor: '#9BBE8E',
+    borderRadius: 12,
+    backgroundColor: '#DCEED1',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    color: '#2E5E2C',
+    fontWeight: '800',
+    fontSize: 14,
   },
 });
