@@ -38,7 +38,9 @@ export default function TabsLayout() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor:
-          route.name === 'chores'
+          route.name === 'dashboard'
+            ? colors.accentDashboard
+            : route.name === 'chores'
             ? colors.accentChores
             : route.name === 'calendar'
             ? colors.accentCalendar
@@ -70,6 +72,7 @@ export default function TabsLayout() {
         },
       })}
     >
+      <Tabs.Screen name="dashboard" options={{ title: 'Today', tabBarButtonTestID: 'tab-dashboard' }} />
       <Tabs.Screen name="chores" options={{ title: 'Chores', tabBarButtonTestID: 'tab-chores' }} />
       <Tabs.Screen
         name="calendar"

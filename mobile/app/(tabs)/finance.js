@@ -235,6 +235,7 @@ export default function FinanceTab() {
   const [moneyDescriptionInput, setMoneyDescriptionInput] = useState('');
   const [resumePendingAction, setResumePendingAction] = useState(null);
   const [handledResumeNonce, setHandledResumeNonce] = useState('');
+  const requestedMemberId = String(firstParam(searchParams.memberId) || '');
 
   const financeQuery = db.useQuery(
     isAuthenticated && instantReady
@@ -395,6 +396,22 @@ export default function FinanceTab() {
       cancelled = true;
     };
   }, [handledResumeNonce, searchParams.resumeNonce, searchParams.resumeParentAction]);
+
+  useEffect(() => {
+    if (!requestedMemberId || financeQuery.isLoading) return;
+    if (requestedMemberId === 'all') {
+      if (selectedMemberId !== 'all') {
+        setSelectedMemberId('all');
+      }
+      return;
+    }
+
+    const hasMember = membersWithFinance.some((member) => member.id === requestedMemberId);
+    if (!hasMember) return;
+    if (selectedMemberId !== requestedMemberId) {
+      setSelectedMemberId(requestedMemberId);
+    }
+  }, [financeQuery.isLoading, membersWithFinance, requestedMemberId, selectedMemberId]);
 
   useEffect(() => {
     if (!resumePendingAction) return;

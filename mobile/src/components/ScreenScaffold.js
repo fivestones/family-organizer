@@ -15,6 +15,7 @@ export function ScreenScaffold({
   subtitle,
   accent = colors.accentMore,
   statusChips = [],
+  headerAction = null,
   children,
   headerMode = 'default',
   layoutMode = 'default',
@@ -27,10 +28,11 @@ export function ScreenScaffold({
       <View style={[styles.root, compactLayout && styles.rootCompact]}>
         <View style={[styles.headerCard, compactHeader && styles.headerCardCompact, { borderLeftColor: accent }]}>
           <View style={styles.headerTop}>
-            <Text style={[styles.title, compactHeader && styles.titleCompact]} numberOfLines={compactHeader ? 1 : undefined}>
+            <Text style={[styles.title, compactHeader && styles.titleCompact]} numberOfLines={compactHeader ? 2 : undefined}>
               {title}
             </Text>
-            {statusChips.length > 0 ? (
+            {headerAction ? <View style={styles.headerActionWrap}>{headerAction}</View> : null}
+            {!headerAction && statusChips.length > 0 ? (
               <View style={styles.chipsRow}>
                 {statusChips.map((chip) => {
                   const tone = CHIP_TONES[chip.tone] || CHIP_TONES.neutral;
@@ -39,7 +41,9 @@ export function ScreenScaffold({
                       key={`${chip.label}-${chip.tone || 'neutral'}`}
                       style={[styles.chip, { backgroundColor: tone.bg, borderColor: tone.border }]}
                     >
-                      <Text style={[styles.chipText, { color: tone.text }]}>{chip.label}</Text>
+                      <Text style={[styles.chipText, { color: tone.text }]} numberOfLines={1}>
+                        {chip.label}
+                      </Text>
                     </View>
                   );
                 })}
@@ -91,23 +95,32 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  title: { fontSize: 28, fontWeight: '800', color: colors.ink },
+  title: { fontSize: 28, fontWeight: '800', color: colors.ink, flexShrink: 1, flexGrow: 1, minWidth: 0 },
   titleCompact: { fontSize: 22, lineHeight: 28, flexShrink: 1 },
   chipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
+    alignItems: 'flex-end',
     gap: spacing.xs,
-    flexShrink: 1,
+    maxWidth: '48%',
+    flexShrink: 0,
+  },
+  headerActionWrap: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    flexShrink: 0,
   },
   chip: {
     borderWidth: 1,
     borderRadius: radii.pill,
     paddingHorizontal: 10,
     paddingVertical: 5,
+    alignSelf: 'flex-end',
   },
   chipText: {
     fontSize: 11,
+    lineHeight: 13,
     fontWeight: '700',
   },
   subtitle: { marginTop: spacing.xs, color: colors.inkMuted, lineHeight: 20 },

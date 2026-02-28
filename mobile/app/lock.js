@@ -118,7 +118,7 @@ export default function LockScreen() {
     : redirectTarget && pendingParentActionLoaded && isAuthenticated
     ? redirectTarget
     : isAuthenticated && pendingParentActionLoaded && !pendingParentAction
-    ? '/chores'
+    ? '/dashboard'
     : '';
 
   useEffect(() => {
@@ -156,7 +156,7 @@ export default function LockScreen() {
   }
 
   async function handleCancelPendingParentAction() {
-    const returnPath = pendingParentAction?.returnPath || '/chores';
+    const returnPath = pendingParentAction?.returnPath || '/dashboard';
     await clearPendingParentAction();
     setPendingParentActionState(null);
     setPendingParentActionLoaded(true);
@@ -265,7 +265,7 @@ export default function LockScreen() {
 
         await login(selectedMember);
         if (pendingParentAction) {
-          const targetPath = pendingParentAction.returnPath || '/chores';
+          const targetPath = pendingParentAction.returnPath || '/dashboard';
           const resumeUrl = `${targetPath}?resumeParentAction=1&resumeActionId=${encodeURIComponent(
             pendingParentAction.actionId
           )}&resumeNonce=${Date.now()}`;
@@ -273,7 +273,7 @@ export default function LockScreen() {
           return;
         }
 
-        setRedirectTarget('/chores');
+        setRedirectTarget('/dashboard');
         return;
       }
 
@@ -295,7 +295,7 @@ export default function LockScreen() {
       }
 
       await login(selectedMember);
-      setRedirectTarget('/chores');
+      setRedirectTarget('/dashboard');
     } catch (e) {
       setError(e?.message || 'Unable to log in');
       setPin('');

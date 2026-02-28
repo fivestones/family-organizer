@@ -10,7 +10,7 @@ export default function IndexScreen() {
   const rootNavigationState = useRootNavigationState();
   const navigationReady = Boolean(rootNavigationState?.key);
 
-  const targetRoute = activationRequired ? '/activate' : isAuthenticated ? '/chores' : '/lock';
+  const targetRoute = activationRequired ? '/activate' : isAuthenticated ? '/dashboard' : '/lock';
 
   useEffect(() => {
     if (isBootstrapping || !navigationReady) return;

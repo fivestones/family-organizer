@@ -5,6 +5,7 @@ export const colors = {
   ink: '#1D1A14',
   inkMuted: '#645A47',
   line: '#DCCFB8',
+  accentDashboard: '#B4603F',
   accentChores: '#D46A4C',
   accentCalendar: '#2D7E7A',
   accentFinance: '#3A6A33',
@@ -40,4 +41,3 @@ export const shadows = {
     elevation: 2,
   },
 };
-
