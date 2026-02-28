@@ -1,15 +1,15 @@
 import React from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet } from 'react-native';
-import { radii, shadows, spacing } from '../theme/tokens';
+import { radii, shadows, spacing, withAlpha } from '../theme/tokens';
 import { useAppTheme } from '../theme/ThemeProvider';
 
 function getChipTones(colors) {
   return {
-    neutral: { bg: '#F2ECE0', text: colors.inkMuted, border: colors.line },
-    success: { bg: '#EAF7EE', text: colors.success, border: '#BFE2CC' },
-    warning: { bg: '#FFF2DF', text: colors.warning, border: '#E7CC9F' },
-    accent: { bg: '#F1EAF9', text: colors.accentMore, border: '#D7CCE7' },
+    neutral: { bg: colors.panelElevated, text: colors.inkMuted, border: colors.line },
+    success: { bg: withAlpha(colors.success, 0.12), text: colors.success, border: withAlpha(colors.success, 0.26) },
+    warning: { bg: withAlpha(colors.warning, 0.12), text: colors.warning, border: withAlpha(colors.warning, 0.26) },
+    accent: { bg: withAlpha(colors.accentMore, 0.12), text: colors.accentMore, border: withAlpha(colors.accentMore, 0.24) },
   };
 }
 

@@ -12,7 +12,7 @@ import {
 import { id, tx } from '@instantdb/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useAppSession } from '../../src/providers/AppProviders';
-import { radii, spacing } from '../../src/theme/tokens';
+import { radii, spacing, withAlpha } from '../../src/theme/tokens';
 import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/SubscreenScaffold';
 import { clearPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
@@ -351,8 +351,8 @@ export default function SettingsScreen() {
                 <Switch
                   value={form.isMonetary}
                   onValueChange={(value) => setForm((current) => ({ ...current, isMonetary: value }))}
-                  thumbColor="#fff"
-                  trackColor={{ false: '#BFC9D6', true: colors.accentMore }}
+                  thumbColor={colors.panelElevated}
+                  trackColor={{ false: withAlpha(colors.locked, 0.72), true: colors.accentMore }}
                 />
               </View>
 
@@ -396,8 +396,8 @@ export default function SettingsScreen() {
                 <Switch
                   value={form.symbolSpacing}
                   onValueChange={(value) => setForm((current) => ({ ...current, symbolSpacing: value }))}
-                  thumbColor="#fff"
-                  trackColor={{ false: '#BFC9D6', true: colors.accentMore }}
+                  thumbColor={colors.panelElevated}
+                  trackColor={{ false: withAlpha(colors.locked, 0.72), true: colors.accentMore }}
                 />
               </View>
 
@@ -429,9 +429,9 @@ const createStyles = (colors) =>
     minHeight: 38,
     paddingHorizontal: spacing.md,
     borderRadius: radii.pill,
-    backgroundColor: '#F1EAF9',
+    backgroundColor: withAlpha(colors.accentMore, 0.12),
     borderWidth: 1,
-    borderColor: '#D7CCE7',
+    borderColor: withAlpha(colors.accentMore, 0.24),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -440,9 +440,9 @@ const createStyles = (colors) =>
     fontWeight: '700',
   },
   themeCard: {
-    backgroundColor: '#F5F0FF',
+    backgroundColor: withAlpha(colors.accentMore, 0.08),
     borderWidth: 1,
-    borderColor: '#DDD2F3',
+    borderColor: withAlpha(colors.accentMore, 0.2),
     borderRadius: radii.md,
     padding: spacing.md,
     gap: spacing.sm,
@@ -468,15 +468,15 @@ const createStyles = (colors) =>
   },
   themeOption: {
     borderWidth: 1,
-    borderColor: '#DDD2F3',
-    backgroundColor: '#FFFDFF',
+    borderColor: withAlpha(colors.accentMore, 0.2),
+    backgroundColor: colors.panelElevated,
     borderRadius: radii.sm,
     padding: spacing.md,
     gap: spacing.xs,
   },
   themeOptionSelected: {
     borderColor: colors.accentMore,
-    backgroundColor: '#FAF6FF',
+    backgroundColor: withAlpha(colors.accentMore, 0.08),
   },
   themeOptionHeader: {
     flexDirection: 'row',
@@ -515,12 +515,12 @@ const createStyles = (colors) =>
     height: 20,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: '#FFFFFFCC',
+    borderColor: withAlpha(colors.panelElevated, 0.8),
   },
   summaryCard: {
-    backgroundColor: '#F5EEF9',
+    backgroundColor: withAlpha(colors.accentMore, 0.1),
     borderWidth: 1,
-    borderColor: '#D7CCE7',
+    borderColor: withAlpha(colors.accentMore, 0.22),
     borderRadius: radii.md,
     padding: spacing.md,
     gap: spacing.xs,
@@ -562,7 +562,7 @@ const createStyles = (colors) =>
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.sm,
-    backgroundColor: '#FFFCF5',
+    backgroundColor: colors.panel,
     padding: spacing.sm,
     gap: spacing.sm,
   },
@@ -588,12 +588,12 @@ const createStyles = (colors) =>
     paddingVertical: 5,
   },
   monetaryPill: {
-    backgroundColor: '#EAF7EE',
-    borderColor: '#BFE2CC',
+    backgroundColor: withAlpha(colors.success, 0.12),
+    borderColor: withAlpha(colors.success, 0.26),
   },
   customPill: {
-    backgroundColor: '#FFF2DF',
-    borderColor: '#E7CC9F',
+    backgroundColor: withAlpha(colors.warning, 0.12),
+    borderColor: withAlpha(colors.warning, 0.26),
   },
   unitTypeText: {
     fontSize: 11,
@@ -677,7 +677,7 @@ const createStyles = (colors) =>
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -700,7 +700,7 @@ const createStyles = (colors) =>
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.sm,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     color: colors.ink,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
@@ -712,7 +712,7 @@ const createStyles = (colors) =>
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.sm,
-    backgroundColor: '#FFFCF5',
+    backgroundColor: colors.panel,
     padding: spacing.md,
   },
   toggleTitle: {
@@ -735,13 +735,13 @@ const createStyles = (colors) =>
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
   choiceChipSelected: {
-    backgroundColor: '#F1EAF9',
-    borderColor: '#D7CCE7',
+    backgroundColor: withAlpha(colors.accentMore, 0.12),
+    borderColor: withAlpha(colors.accentMore, 0.24),
   },
   choiceChipText: {
     color: colors.inkMuted,
@@ -765,7 +765,7 @@ const createStyles = (colors) =>
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -782,7 +782,7 @@ const createStyles = (colors) =>
     justifyContent: 'center',
   },
   primaryActionText: {
-    color: '#fff',
+    color: colors.onAccent,
     fontWeight: '700',
   },
   });

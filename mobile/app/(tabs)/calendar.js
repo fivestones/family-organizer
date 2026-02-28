@@ -17,7 +17,7 @@ import { id, tx } from '@instantdb/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import NepaliDate from 'nepali-date-converter';
 import { ScreenScaffold } from '../../src/components/ScreenScaffold';
-import { radii, shadows, spacing } from '../../src/theme/tokens';
+import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
@@ -911,7 +911,7 @@ export default function CalendarTab() {
                     editable={canEditEvents && !saving}
                     onChangeText={(value) => handleChange('title', value)}
                     placeholder="Family dinner"
-                    placeholderTextColor="#A39A8A"
+                    placeholderTextColor={colors.inkMuted}
                     style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
                     onFocus={recordParentActivity}
                   />
@@ -926,7 +926,7 @@ export default function CalendarTab() {
                     editable={canEditEvents && !saving}
                     onChangeText={(value) => handleChange('description', value)}
                     placeholder="Optional details"
-                    placeholderTextColor="#A39A8A"
+                    placeholderTextColor={colors.inkMuted}
                     style={[styles.textInput, styles.textArea, !canEditEvents && styles.inputDisabled]}
                     multiline
                     textAlignVertical="top"
@@ -952,8 +952,8 @@ export default function CalendarTab() {
                     value={!!form.isAllDay}
                     onValueChange={(value) => handleChange('isAllDay', value)}
                     disabled={!canEditEvents || saving}
-                    trackColor={{ false: '#D4CBB9', true: '#A9DDD7' }}
-                    thumbColor={form.isAllDay ? colors.accentCalendar : '#F9F6EE'}
+                    trackColor={{ false: withAlpha(colors.locked, 0.72), true: withAlpha(colors.accentCalendar, 0.42) }}
+                    thumbColor={form.isAllDay ? colors.accentCalendar : colors.panelElevated}
                   />
                 </Pressable>
 
@@ -967,7 +967,7 @@ export default function CalendarTab() {
                       editable={canEditEvents && !saving}
                       onChangeText={(value) => handleChange('startDate', value)}
                       placeholder="YYYY-MM-DD"
-                      placeholderTextColor="#A39A8A"
+                      placeholderTextColor={colors.inkMuted}
                       style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
                       keyboardType="numbers-and-punctuation"
                       autoCapitalize="none"
@@ -985,7 +985,7 @@ export default function CalendarTab() {
                       editable={canEditEvents && !saving}
                       onChangeText={(value) => handleChange('endDate', value)}
                       placeholder="YYYY-MM-DD"
-                      placeholderTextColor="#A39A8A"
+                      placeholderTextColor={colors.inkMuted}
                       style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
                       keyboardType="numbers-and-punctuation"
                       autoCapitalize="none"
@@ -1006,7 +1006,7 @@ export default function CalendarTab() {
                         editable={canEditEvents && !saving}
                         onChangeText={(value) => handleChange('startTime', value)}
                         placeholder="HH:mm"
-                        placeholderTextColor="#A39A8A"
+                        placeholderTextColor={colors.inkMuted}
                         style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
                         keyboardType="numbers-and-punctuation"
                         autoCapitalize="none"
@@ -1023,7 +1023,7 @@ export default function CalendarTab() {
                         editable={canEditEvents && !saving}
                         onChangeText={(value) => handleChange('endTime', value)}
                         placeholder="HH:mm"
-                        placeholderTextColor="#A39A8A"
+                        placeholderTextColor={colors.inkMuted}
                         style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
                         keyboardType="numbers-and-punctuation"
                         autoCapitalize="none"
@@ -1103,9 +1103,9 @@ const createStyles = (colors) =>
     gap: spacing.md,
   },
   monthHeaderCard: {
-    backgroundColor: '#EAF7F5',
+    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
     borderWidth: 1,
-    borderColor: '#B9DDD8',
+    borderColor: withAlpha(colors.accentCalendar, 0.22),
     borderRadius: radii.lg,
     padding: spacing.lg,
     gap: spacing.md,
@@ -1137,8 +1137,8 @@ const createStyles = (colors) =>
   },
   navButton: {
     borderWidth: 1,
-    borderColor: '#A3D3CE',
-    backgroundColor: '#FFFFFF',
+    borderColor: withAlpha(colors.accentCalendar, 0.24),
+    backgroundColor: colors.panelElevated,
     borderRadius: radii.pill,
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -1175,9 +1175,9 @@ const createStyles = (colors) =>
     gap: 0,
     borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: '#DAD0BF',
+    backgroundColor: colors.line,
     borderWidth: 1,
-    borderColor: '#DAD0BF',
+    borderColor: colors.line,
   },
   weekRow: {
     flexDirection: 'row',
@@ -1188,27 +1188,27 @@ const createStyles = (colors) =>
     minHeight: 66,
     borderRadius: 0,
     borderWidth: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.panelElevated,
     paddingHorizontal: 3,
     paddingVertical: 3,
     gap: 2,
   },
   dayCellDividerLeft: {
     borderLeftWidth: 1,
-    borderLeftColor: '#DAD0BF',
+    borderLeftColor: colors.line,
   },
   dayCellDividerTop: {
     borderTopWidth: 1,
-    borderTopColor: '#DAD0BF',
+    borderTopColor: colors.line,
   },
   dayCellOutsideMonth: {
-    backgroundColor: '#F7F2E8',
+    backgroundColor: withAlpha(colors.locked, 0.12),
   },
   dayCellSelected: {
-    backgroundColor: '#E9F8F6',
+    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
   },
   dayCellToday: {
-    backgroundColor: '#F3FBFA',
+    backgroundColor: withAlpha(colors.accentCalendar, 0.06),
   },
   dayCellLayered: {
     zIndex: 1,
@@ -1237,7 +1237,7 @@ const createStyles = (colors) =>
     lineHeight: 15,
   },
   dayNumberOutsideMonth: {
-    color: '#9D937F',
+    color: colors.inkMuted,
   },
   dayNumberSelected: {
     color: colors.accentCalendar,
@@ -1246,10 +1246,10 @@ const createStyles = (colors) =>
     fontSize: 7,
     lineHeight: 9,
     fontWeight: '700',
-    color: '#7F7565',
+    color: colors.inkMuted,
   },
   gregorianMonthTransitionMuted: {
-    color: '#A79D8D',
+    color: withAlpha(colors.inkMuted, 0.7),
   },
   gregorianMonthTransitionSelected: {
     color: colors.accentCalendar,
@@ -1257,18 +1257,18 @@ const createStyles = (colors) =>
   bsMonthTransition: {
     fontSize: 7,
     fontWeight: '700',
-    color: '#5B6C69',
+    color: colors.inkMuted,
     lineHeight: 9,
     maxWidth: '100%',
   },
   bsDayNumber: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#5B6C69',
+    color: colors.inkMuted,
     lineHeight: 11,
   },
   bsLabelMuted: {
-    color: '#9BA39A',
+    color: withAlpha(colors.inkMuted, 0.7),
   },
   bsLabelSelected: {
     color: colors.accentCalendar,
@@ -1290,7 +1290,7 @@ const createStyles = (colors) =>
     backgroundColor: colors.accentCalendar,
   },
   dayEventDotTimed: {
-    backgroundColor: '#E0884A',
+    backgroundColor: colors.warning,
   },
   moreCount: {
     fontSize: 9,
@@ -1329,14 +1329,14 @@ const createStyles = (colors) =>
   addButton: {
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: '#A3D3CE',
-    backgroundColor: '#E7F7F5',
+    borderColor: withAlpha(colors.accentCalendar, 0.24),
+    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
     paddingHorizontal: 14,
     paddingVertical: 9,
   },
   addButtonLocked: {
-    backgroundColor: '#EEE9DE',
-    borderColor: '#D8CDBA',
+    backgroundColor: withAlpha(colors.locked, 0.18),
+    borderColor: withAlpha(colors.locked, 0.32),
   },
   addButtonText: {
     color: colors.accentCalendar,
@@ -1344,7 +1344,7 @@ const createStyles = (colors) =>
     fontSize: 13,
   },
   addButtonTextLocked: {
-    color: '#7A7264',
+    color: colors.inkMuted,
   },
   emptyText: {
     color: colors.inkMuted,
@@ -1360,14 +1360,14 @@ const createStyles = (colors) =>
   },
   eventCard: {
     borderWidth: 1,
-    borderColor: '#D8CFBE',
+    borderColor: colors.line,
     borderRadius: radii.md,
-    backgroundColor: '#FFFDF7',
+    backgroundColor: colors.panel,
     padding: spacing.md,
     gap: 6,
   },
   eventCardReadOnly: {
-    backgroundColor: '#FBF7EF',
+    backgroundColor: withAlpha(colors.locked, 0.1),
   },
   eventRowTop: {
     flexDirection: 'row',
@@ -1387,12 +1387,12 @@ const createStyles = (colors) =>
     borderWidth: 1,
   },
   eventBadgeAllDay: {
-    backgroundColor: '#E8F6F4',
-    borderColor: '#B5DDD8',
+    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
+    borderColor: withAlpha(colors.accentCalendar, 0.24),
   },
   eventBadgeTimed: {
-    backgroundColor: '#FFF0E5',
-    borderColor: '#F2C8A7',
+    backgroundColor: withAlpha(colors.warning, 0.12),
+    borderColor: withAlpha(colors.warning, 0.24),
   },
   eventBadgeText: {
     fontSize: 11,
@@ -1402,7 +1402,7 @@ const createStyles = (colors) =>
     color: colors.accentCalendar,
   },
   eventBadgeTextTimed: {
-    color: '#B45E22',
+    color: colors.warning,
   },
   eventMeta: {
     color: colors.inkMuted,
@@ -1414,13 +1414,13 @@ const createStyles = (colors) =>
     lineHeight: 18,
   },
   eventHint: {
-    color: '#7A7264',
+    color: colors.inkMuted,
     fontSize: 11,
     fontWeight: '700',
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(19, 16, 12, 0.35)',
+    backgroundColor: withAlpha(colors.ink, 0.35),
     justifyContent: 'flex-end',
   },
   modalKeyboardLayer: {
@@ -1447,7 +1447,7 @@ const createStyles = (colors) =>
     width: 46,
     height: 5,
     borderRadius: 999,
-    backgroundColor: '#D6CDBB',
+    backgroundColor: withAlpha(colors.locked, 0.76),
     marginBottom: 4,
   },
   modalHeader: {
@@ -1469,7 +1469,7 @@ const createStyles = (colors) =>
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.panelElevated,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
@@ -1496,8 +1496,8 @@ const createStyles = (colors) =>
   },
   textInput: {
     borderWidth: 1,
-    borderColor: '#D8CEBB',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 11,
@@ -1509,21 +1509,21 @@ const createStyles = (colors) =>
     paddingTop: 10,
   },
   inputDisabled: {
-    backgroundColor: '#F4EEE1',
-    color: '#7B7263',
+    backgroundColor: withAlpha(colors.locked, 0.16),
+    color: colors.inkMuted,
   },
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     borderWidth: 1,
-    borderColor: '#DAD0BE',
+    borderColor: colors.line,
     borderRadius: radii.md,
-    backgroundColor: '#FFFDF7',
+    backgroundColor: colors.panel,
     padding: spacing.md,
   },
   switchRowDisabled: {
-    backgroundColor: '#F6F1E7',
+    backgroundColor: withAlpha(colors.locked, 0.16),
   },
   switchTitle: {
     color: colors.ink,
@@ -1557,8 +1557,8 @@ const createStyles = (colors) =>
   secondaryButton: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#D5CCBB',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
@@ -1569,30 +1569,30 @@ const createStyles = (colors) =>
   primaryButton: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A766E',
+    borderColor: withAlpha(colors.accentCalendar, 0.36),
     backgroundColor: colors.accentCalendar,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
   primaryButtonLocked: {
-    backgroundColor: '#ECE7DD',
-    borderColor: '#D8CDBA',
+    backgroundColor: withAlpha(colors.locked, 0.18),
+    borderColor: withAlpha(colors.locked, 0.32),
   },
   primaryButtonText: {
-    color: '#F7FFFD',
+    color: colors.onAccent,
     fontWeight: '800',
   },
   secondaryDangerButton: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E4B4AB',
-    backgroundColor: '#FFF2F0',
+    borderColor: withAlpha(colors.danger, 0.24),
+    backgroundColor: withAlpha(colors.danger, 0.1),
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   secondaryDangerLocked: {
-    backgroundColor: '#EFE9DE',
-    borderColor: '#D9CDBA',
+    backgroundColor: withAlpha(colors.locked, 0.18),
+    borderColor: withAlpha(colors.locked, 0.32),
   },
   secondaryDangerText: {
     color: colors.danger,
@@ -1602,6 +1602,6 @@ const createStyles = (colors) =>
     opacity: 0.55,
   },
   actionTextDisabled: {
-    color: '#7E7668',
+    color: colors.inkMuted,
   },
   });

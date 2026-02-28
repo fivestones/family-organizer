@@ -92,7 +92,7 @@ const createStyles = (colors) =>
     borderRadius: radii.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     color: colors.ink,
   },
   button: {
@@ -103,6 +103,6 @@ const createStyles = (colors) =>
     backgroundColor: colors.accentChores,
   },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#fff', fontWeight: '700' },
+  buttonText: { color: colors.onAccent, fontWeight: '700' },
   error: { color: colors.danger, fontWeight: '600' },
   });

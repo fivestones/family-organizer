@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { router, useRootNavigationState } from 'expo-router';
 import { ScreenScaffold, PlaceholderCard } from '../src/components/ScreenScaffold';
-import { radii, spacing } from '../src/theme/tokens';
+import { radii, spacing, withAlpha } from '../src/theme/tokens';
 import { useAppSession } from '../src/providers/AppProviders';
 import { hashPinClient } from '../src/lib/pin-hash';
 import { getApiBaseUrl } from '../src/lib/api-client';
@@ -435,7 +435,16 @@ export default function LockScreen() {
                           {avatarUri ? (
                             <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
                           ) : (
-                            <View style={[styles.avatar, { backgroundColor: isParent ? '#DCCFEF' : '#ECD9C9' }]}>
+                            <View
+                              style={[
+                                styles.avatar,
+                                {
+                                  backgroundColor: isParent
+                                    ? withAlpha(colors.accentMore, 0.18)
+                                    : withAlpha(colors.warning, 0.16),
+                                },
+                              ]}
+                            >
                               <Text style={styles.avatarFallback}>{(member.name || '?').slice(0, 1).toUpperCase()}</Text>
                             </View>
                           )}
@@ -490,7 +499,7 @@ export default function LockScreen() {
                           <View
                             style={[
                               styles.selectedAvatarFallback,
-                              { backgroundColor: '#EBDCC5' },
+                              { backgroundColor: withAlpha(colors.warning, 0.16) },
                             ]}
                           >
                             <Text style={styles.selectedAvatarLetter}>
@@ -514,8 +523,8 @@ export default function LockScreen() {
                                 accessibilityLabel="Shared device mode"
                                 value={parentSharedDevice}
                                 onValueChange={setParentSharedDevice}
-                                thumbColor="#fff"
-                                trackColor={{ false: '#BFC9D6', true: colors.accentMore }}
+                                thumbColor={colors.panelElevated}
+                                trackColor={{ false: withAlpha(colors.locked, 0.72), true: colors.accentMore }}
                               />
                             </View>
                             <Text style={styles.sharedModeNoticeBody}>
@@ -710,36 +719,36 @@ const createStyles = (colors) =>
   centerTitle: { fontWeight: '700', fontSize: 16, color: colors.ink, textAlign: 'center' },
   centerText: { color: colors.inkMuted, textAlign: 'center', lineHeight: 20 },
   pendingActionCard: {
-    backgroundColor: '#FFF5E9',
+    backgroundColor: withAlpha(colors.warning, 0.1),
     borderWidth: 1,
-    borderColor: '#EAC8A4',
+    borderColor: withAlpha(colors.warning, 0.24),
     borderRadius: radii.md,
     padding: spacing.md,
     gap: spacing.xs,
     marginBottom: spacing.sm,
   },
   pendingActionTitle: {
-    color: '#8B4D17',
+    color: colors.warning,
     fontWeight: '800',
     fontSize: 14,
   },
   pendingActionBody: {
-    color: '#805736',
+    color: colors.inkMuted,
     lineHeight: 18,
     fontSize: 12,
   },
   pendingCancelButton: {
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#DCA878',
+    borderColor: withAlpha(colors.warning, 0.3),
     borderRadius: radii.pill,
-    backgroundColor: '#FFF9F1',
+    backgroundColor: colors.panelElevated,
     paddingHorizontal: 12,
     paddingVertical: 7,
     marginTop: 2,
   },
   pendingCancelText: {
-    color: '#8B4D17',
+    color: colors.warning,
     fontWeight: '700',
     fontSize: 12,
   },
@@ -760,15 +769,15 @@ const createStyles = (colors) =>
     gap: spacing.xs,
   },
   memberCardParent: {
-    borderColor: '#D7CCE7',
-    backgroundColor: '#FBF8FF',
+    borderColor: withAlpha(colors.accentMore, 0.24),
+    backgroundColor: withAlpha(colors.accentMore, 0.06),
   },
   avatar: {
     width: 72,
     height: 72,
     borderRadius: 36,
     borderWidth: 3,
-    borderColor: '#fff',
+    borderColor: colors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -777,7 +786,7 @@ const createStyles = (colors) =>
     height: 72,
     borderRadius: 36,
     borderWidth: 3,
-    borderColor: '#fff',
+    borderColor: colors.panelElevated,
   },
   avatarFallback: { fontSize: 24, fontWeight: '800', color: colors.ink },
   memberName: { fontSize: 17, fontWeight: '700', color: colors.ink },
@@ -814,7 +823,7 @@ const createStyles = (colors) =>
     height: 56,
     borderRadius: 28,
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: colors.panelElevated,
   },
   selectedAvatarFallback: {
     width: 56,
@@ -823,7 +832,7 @@ const createStyles = (colors) =>
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: colors.panelElevated,
   },
   selectedAvatarLetter: { fontSize: 22, fontWeight: '800', color: colors.ink },
   selectedName: { fontSize: 17, fontWeight: '800', color: colors.ink },
@@ -833,7 +842,7 @@ const createStyles = (colors) =>
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.sm,
-    backgroundColor: '#FFF9F2',
+    backgroundColor: colors.panel,
     padding: spacing.sm,
     gap: 4,
     alignSelf: 'stretch',
@@ -868,7 +877,7 @@ const createStyles = (colors) =>
     borderRadius: radii.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     gap: spacing.sm,
   },
   pinDisplayPassive: {
@@ -886,7 +895,7 @@ const createStyles = (colors) =>
     borderRadius: 7,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#F7F1E7',
+    backgroundColor: colors.panel,
   },
   pinDotFilled: {
     backgroundColor: colors.ink,
@@ -911,12 +920,12 @@ const createStyles = (colors) =>
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
   pinKeyUtility: {
-    backgroundColor: '#FBF6EB',
+    backgroundColor: colors.panel,
   },
   pinKeyText: {
     color: colors.ink,
@@ -943,11 +952,11 @@ const createStyles = (colors) =>
     borderRadius: radii.sm,
   },
   buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '700' },
+  buttonText: { color: colors.onAccent, fontWeight: '700' },
   secondaryButton: {
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     borderRadius: radii.sm,
     minHeight: 42,
     paddingHorizontal: spacing.md,

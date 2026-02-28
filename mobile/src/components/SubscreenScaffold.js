@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { ScreenScaffold } from './ScreenScaffold';
-import { radii, spacing } from '../theme/tokens';
+import { radii, spacing, withAlpha } from '../theme/tokens';
 import { useAppTheme } from '../theme/ThemeProvider';
 
 export function SubscreenScaffold({
@@ -77,7 +77,7 @@ const createStyles = (colors) =>
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -86,20 +86,20 @@ const createStyles = (colors) =>
     fontWeight: '700',
   },
   noticeCard: {
-    backgroundColor: '#FFF5E9',
+    backgroundColor: withAlpha(colors.warning, 0.1),
     borderWidth: 1,
-    borderColor: '#EAC8A4',
+    borderColor: withAlpha(colors.warning, 0.24),
     borderRadius: radii.md,
     padding: spacing.md,
     gap: spacing.sm,
   },
   noticeTitle: {
-    color: '#8B4D17',
+    color: colors.warning,
     fontSize: 16,
     fontWeight: '800',
   },
   noticeBody: {
-    color: '#805736',
+    color: colors.inkMuted,
     fontSize: 13,
     lineHeight: 18,
   },
@@ -108,14 +108,14 @@ const createStyles = (colors) =>
     minHeight: 38,
     paddingHorizontal: spacing.md,
     borderRadius: radii.pill,
-    backgroundColor: '#FFF9F1',
+    backgroundColor: colors.panelElevated,
     borderWidth: 1,
-    borderColor: '#DCA878',
+    borderColor: withAlpha(colors.warning, 0.3),
     alignItems: 'center',
     justifyContent: 'center',
   },
   noticeButtonText: {
-    color: '#8B4D17',
+    color: colors.warning,
     fontWeight: '700',
   },
   });

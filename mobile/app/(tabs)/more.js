@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ScreenScaffold } from '../../src/components/ScreenScaffold';
-import { radii, spacing } from '../../src/theme/tokens';
+import { radii, spacing, withAlpha } from '../../src/theme/tokens';
 import { revokeMobileDeviceSession } from '../../src/lib/api-client';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -283,8 +283,8 @@ const createStyles = (colors) =>
   rowBadge: { color: colors.inkMuted, fontSize: 12, fontWeight: '700' },
   rowArrow: { color: colors.inkMuted, fontSize: 18, lineHeight: 18 },
   lockButton: {
-    backgroundColor: '#EAF1FB',
-    borderColor: '#B7CAE8',
+    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
+    borderColor: withAlpha(colors.accentCalendar, 0.24),
     borderWidth: 1,
     borderRadius: radii.sm,
     paddingVertical: 14,
@@ -292,12 +292,12 @@ const createStyles = (colors) =>
     alignItems: 'center',
   },
   lockText: {
-    color: '#315C97',
+    color: colors.accentCalendar,
     fontWeight: '700',
   },
   resetButton: {
-    backgroundColor: '#FCEDEA',
-    borderColor: '#E7B9B0',
+    backgroundColor: withAlpha(colors.danger, 0.1),
+    borderColor: withAlpha(colors.danger, 0.24),
     borderWidth: 1,
     borderRadius: radii.sm,
     paddingVertical: 14,

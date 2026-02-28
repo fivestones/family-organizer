@@ -20,7 +20,7 @@ import {
   getCompletedChoreCompletionsForDate,
   getMemberCompletionForDate,
 } from '@family-organizer/shared-core';
-import { radii, shadows, spacing } from '../../src/theme/tokens';
+import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { getApiBaseUrl } from '../../src/lib/api-client';
 import { getRecursiveTaskCompletionTransactions, getTasksForDate } from '../../../lib/task-scheduler';
@@ -977,9 +977,9 @@ const createStyles = (colors) =>
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
-    backgroundColor: '#F7EBDD',
+    backgroundColor: withAlpha(colors.accentDashboard, 0.1),
     borderBottomWidth: 1,
-    borderBottomColor: '#E2D4C0',
+    borderBottomColor: withAlpha(colors.accentDashboard, 0.18),
   },
   topStripText: {
     flex: 1,
@@ -994,8 +994,8 @@ const createStyles = (colors) =>
     borderRadius: radii.pill,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#DDBEAE',
-    backgroundColor: '#FFF4EE',
+    borderColor: withAlpha(colors.accentDashboard, 0.24),
+    backgroundColor: colors.panelElevated,
   },
   topStripAvatarImage: {
     width: '100%',
@@ -1005,7 +1005,7 @@ const createStyles = (colors) =>
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F2DDD2',
+    backgroundColor: withAlpha(colors.accentDashboard, 0.18),
   },
   topStripAvatarFallbackText: {
     color: colors.accentDashboard,
@@ -1036,7 +1036,7 @@ const createStyles = (colors) =>
     height: 38,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: '#E5CBBF',
+    borderColor: withAlpha(colors.accentDashboard, 0.22),
   },
   heroAvatarFallback: {
     width: 38,
@@ -1044,9 +1044,9 @@ const createStyles = (colors) =>
     borderRadius: radii.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F2DDD2',
+    backgroundColor: withAlpha(colors.accentDashboard, 0.18),
     borderWidth: 1,
-    borderColor: '#E5CBBF',
+    borderColor: withAlpha(colors.accentDashboard, 0.22),
   },
   heroAvatarFallbackText: {
     color: colors.accentDashboard,
@@ -1082,8 +1082,8 @@ const createStyles = (colors) =>
     width: 88,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: '#DFC8B5',
-    backgroundColor: '#FFF9F2',
+    borderColor: colors.line,
+    backgroundColor: colors.panel,
     paddingHorizontal: 12,
     paddingVertical: 9,
     alignItems: 'center',
@@ -1091,8 +1091,8 @@ const createStyles = (colors) =>
     gap: 1,
   },
   dateMiniCardActive: {
-    borderColor: colors.accentDashboard,
-    backgroundColor: '#FFF3E8',
+    borderColor: withAlpha(colors.accentDashboard, 0.3),
+    backgroundColor: withAlpha(colors.accentDashboard, 0.1),
   },
   dateMiniWeekday: {
     color: colors.accentDashboard,
@@ -1112,8 +1112,8 @@ const createStyles = (colors) =>
     minWidth: 84,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: '#E2C7B8',
-    backgroundColor: '#FFFCF8',
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -1133,7 +1133,7 @@ const createStyles = (colors) =>
     marginTop: 2,
   },
   dateChipTextSelected: {
-    color: '#FFF8F1',
+    color: colors.onAccent,
   },
   sectionCard: {
     backgroundColor: colors.panelElevated,
@@ -1170,8 +1170,8 @@ const createStyles = (colors) =>
   taskSeriesCard: {
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: '#DFD2C0',
-    backgroundColor: '#FFFEFA',
+    borderColor: colors.line,
+    backgroundColor: colors.panel,
     padding: spacing.md,
     gap: spacing.sm,
   },
@@ -1217,16 +1217,16 @@ const createStyles = (colors) =>
     minHeight: 34,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: '#CFC2AE',
-    backgroundColor: '#FFF8F0',
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
     marginTop: 1,
   },
   taskToggleDone: {
-    backgroundColor: '#E8F4E9',
-    borderColor: '#BFD8C0',
+    backgroundColor: withAlpha(colors.success, 0.12),
+    borderColor: withAlpha(colors.success, 0.26),
   },
   taskToggleText: {
     color: colors.ink,
@@ -1263,13 +1263,13 @@ const createStyles = (colors) =>
   taskLinkChip: {
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: '#C7D9E9',
-    backgroundColor: '#EFF7FF',
+    borderColor: withAlpha(colors.accentCalendar, 0.26),
+    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   taskLinkText: {
-    color: '#2A5C87',
+    color: colors.accentCalendar,
     fontWeight: '700',
     fontSize: 12,
   },
@@ -1279,13 +1279,13 @@ const createStyles = (colors) =>
   choreCard: {
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: '#DFD2C0',
-    backgroundColor: '#FFFEFA',
+    borderColor: colors.line,
+    backgroundColor: colors.panel,
     padding: spacing.md,
     gap: spacing.sm,
   },
   choreCardDone: {
-    backgroundColor: '#F7F2EA',
+    backgroundColor: withAlpha(colors.locked, 0.12),
   },
   choreHeader: {
     flexDirection: 'row',
@@ -1307,26 +1307,26 @@ const createStyles = (colors) =>
     marginTop: 4,
   },
   choreDescriptionDone: {
-    color: '#8A7E70',
+    color: colors.inkMuted,
   },
   choreToggleButton: {
     minWidth: 74,
     minHeight: 40,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: '#D7B3A3',
-    backgroundColor: '#FFF3EC',
+    borderColor: withAlpha(colors.accentDashboard, 0.26),
+    backgroundColor: withAlpha(colors.accentDashboard, 0.08),
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 14,
   },
   choreToggleButtonDone: {
-    backgroundColor: '#E8F4E9',
-    borderColor: '#BFD8C0',
+    backgroundColor: withAlpha(colors.success, 0.12),
+    borderColor: withAlpha(colors.success, 0.26),
   },
   choreToggleButtonLocked: {
-    backgroundColor: '#F2ECE2',
-    borderColor: '#D8CCBB',
+    backgroundColor: withAlpha(colors.locked, 0.18),
+    borderColor: withAlpha(colors.locked, 0.34),
   },
   choreToggleButtonText: {
     color: colors.accentDashboard,
@@ -1354,22 +1354,22 @@ const createStyles = (colors) =>
     fontWeight: '700',
   },
   tagWarm: {
-    backgroundColor: '#FFF2DF',
-    borderColor: '#E6C79B',
+    backgroundColor: withAlpha(colors.warning, 0.12),
+    borderColor: withAlpha(colors.warning, 0.26),
   },
   tagWarmText: {
     color: colors.warning,
   },
   tagNeutral: {
-    backgroundColor: '#F2ECE0',
+    backgroundColor: colors.panel,
     borderColor: colors.line,
   },
   tagNeutralText: {
     color: colors.inkMuted,
   },
   tagXp: {
-    backgroundColor: '#FBEADF',
-    borderColor: '#E9C3AD',
+    backgroundColor: withAlpha(colors.accentDashboard, 0.1),
+    borderColor: withAlpha(colors.accentDashboard, 0.24),
   },
   tagXpText: {
     color: colors.accentDashboard,
@@ -1391,9 +1391,9 @@ const createStyles = (colors) =>
     letterSpacing: 0.8,
   },
   financeFooter: {
-    backgroundColor: '#EDF6EC',
+    backgroundColor: withAlpha(colors.accentFinance, 0.1),
     borderWidth: 1,
-    borderColor: '#C9DEC4',
+    borderColor: withAlpha(colors.accentFinance, 0.22),
     borderRadius: radii.md,
     padding: spacing.md,
     flexDirection: 'row',
@@ -1430,12 +1430,12 @@ const createStyles = (colors) =>
   },
   menuBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(29, 26, 20, 0.28)',
+    backgroundColor: withAlpha(colors.ink, 0.28),
   },
   menuSheet: {
     marginTop: 92,
     marginHorizontal: spacing.lg,
-    backgroundColor: '#FFFDF7',
+    backgroundColor: colors.panel,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.line,
@@ -1445,7 +1445,7 @@ const createStyles = (colors) =>
   },
   menuHeader: {
     borderBottomWidth: 1,
-    borderBottomColor: '#EEE4D5',
+    borderBottomColor: colors.line,
     paddingBottom: spacing.sm,
   },
   menuIdentity: {
@@ -1462,7 +1462,7 @@ const createStyles = (colors) =>
     width: 46,
     height: 46,
     borderRadius: radii.pill,
-    backgroundColor: '#F2DDD2',
+    backgroundColor: withAlpha(colors.accentDashboard, 0.18),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1494,8 +1494,8 @@ const createStyles = (colors) =>
   menuMemberRow: {
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: '#E5DACA',
-    backgroundColor: '#FFF',
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
     flexDirection: 'row',
@@ -1504,8 +1504,8 @@ const createStyles = (colors) =>
     gap: spacing.sm,
   },
   menuMemberRowSelected: {
-    borderColor: '#D8BBAA',
-    backgroundColor: '#FFF5EF',
+    borderColor: withAlpha(colors.accentDashboard, 0.26),
+    backgroundColor: withAlpha(colors.accentDashboard, 0.08),
   },
   menuMemberName: {
     color: colors.ink,
@@ -1532,7 +1532,7 @@ const createStyles = (colors) =>
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#fff',
+    backgroundColor: colors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
@@ -1552,7 +1552,7 @@ const createStyles = (colors) =>
     paddingHorizontal: spacing.md,
   },
   menuPrimaryButtonText: {
-    color: '#FFF9F1',
+    color: colors.onAccent,
     fontWeight: '800',
   },
   });

@@ -3,6 +3,7 @@ import { Tabs, useRootNavigationState, useRouter } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
+import { withAlpha } from '../../src/theme/tokens';
 
 export default function TabsLayout() {
   const { colors } = useAppTheme();
@@ -50,7 +51,7 @@ export default function TabsLayout() {
             : colors.accentMore,
         tabBarInactiveTintColor: colors.inkMuted,
         tabBarStyle: {
-          backgroundColor: '#fffdf7',
+          backgroundColor: colors.panel,
           borderTopColor: colors.line,
           height: 62,
           paddingTop: 6,
@@ -65,8 +66,8 @@ export default function TabsLayout() {
               : undefined
             : undefined,
         tabBarBadgeStyle: {
-          backgroundColor: isOffline ? '#D46A4C' : '#6E5B8C',
-          color: '#fff',
+          backgroundColor: isOffline ? colors.accentChores : colors.accentMore,
+          color: colors.onAccent,
           fontSize: 10,
           minWidth: 18,
           height: 18,

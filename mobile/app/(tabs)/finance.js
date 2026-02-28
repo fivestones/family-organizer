@@ -15,7 +15,7 @@ import {
 import { id, tx } from '@instantdb/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { ScreenScaffold } from '../../src/components/ScreenScaffold';
-import { radii, shadows, spacing } from '../../src/theme/tokens';
+import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
@@ -1230,7 +1230,7 @@ export default function FinanceTab() {
                         onChangeText={setEnvelopeNameInput}
                         editable={!financeModalSubmitting}
                         placeholder="Savings"
-                        placeholderTextColor="#A39A8A"
+                        placeholderTextColor={colors.inkMuted}
                         style={styles.textInput}
                         onFocus={recordParentActivity}
                       />
@@ -1245,7 +1245,7 @@ export default function FinanceTab() {
                         onChangeText={setEnvelopeDescriptionInput}
                         editable={!financeModalSubmitting}
                         placeholder="School spending"
-                        placeholderTextColor="#A39A8A"
+                        placeholderTextColor={colors.inkMuted}
                         style={[styles.textInput, styles.textArea]}
                         multiline
                         textAlignVertical="top"
@@ -1262,8 +1262,8 @@ export default function FinanceTab() {
                         value={selectedMember && selectedMember.envelopes.length === 0 ? true : envelopeIsDefaultInput}
                         onValueChange={setEnvelopeIsDefaultInput}
                         disabled={financeModalSubmitting || (selectedMember && selectedMember.envelopes.length === 0)}
-                        trackColor={{ false: '#D4CBB9', true: '#BBD8A7' }}
-                        thumbColor={(selectedMember && selectedMember.envelopes.length === 0) || envelopeIsDefaultInput ? colors.accentFinance : '#F9F6EE'}
+                        trackColor={{ false: withAlpha(colors.locked, 0.72), true: withAlpha(colors.accentFinance, 0.42) }}
+                        thumbColor={(selectedMember && selectedMember.envelopes.length === 0) || envelopeIsDefaultInput ? colors.accentFinance : colors.panelElevated}
                       />
                     </View>
                   </>
@@ -1355,7 +1355,7 @@ export default function FinanceTab() {
                               onChangeText={setMoneyAmountInput}
                               editable={!financeModalSubmitting}
                               placeholder="10"
-                              placeholderTextColor="#A39A8A"
+                              placeholderTextColor={colors.inkMuted}
                               style={styles.textInput}
                               keyboardType="decimal-pad"
                               onFocus={recordParentActivity}
@@ -1370,7 +1370,7 @@ export default function FinanceTab() {
                               onChangeText={(value) => setMoneyCurrencyInput(upperCurrency(value))}
                               editable={!financeModalSubmitting}
                               placeholder="USD"
-                              placeholderTextColor="#A39A8A"
+                              placeholderTextColor={colors.inkMuted}
                               style={styles.textInput}
                               autoCapitalize="characters"
                               autoCorrect={false}
@@ -1394,7 +1394,7 @@ export default function FinanceTab() {
                                 ? 'Cash out'
                                 : 'Move to spending envelope'
                             }
-                            placeholderTextColor="#A39A8A"
+                            placeholderTextColor={colors.inkMuted}
                             style={[styles.textInput, styles.textArea]}
                             multiline
                             textAlignVertical="top"
@@ -1450,10 +1450,10 @@ const createStyles = (colors) =>
     gap: spacing.md,
   },
   heroCard: {
-    backgroundColor: '#EDF6E8',
+    backgroundColor: withAlpha(colors.accentFinance, 0.1),
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: '#C7DDC0',
+    borderColor: withAlpha(colors.accentFinance, 0.22),
     padding: spacing.lg,
     gap: spacing.md,
     ...shadows.card,
@@ -1487,9 +1487,9 @@ const createStyles = (colors) =>
   heroBadge: {
     alignSelf: 'flex-start',
     borderRadius: radii.pill,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.panelElevated,
     borderWidth: 1,
-    borderColor: '#C7DDC0',
+    borderColor: withAlpha(colors.accentFinance, 0.22),
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
@@ -1531,8 +1531,8 @@ const createStyles = (colors) =>
   },
   memberChip: {
     borderWidth: 1,
-    borderColor: '#D7CCB8',
-    backgroundColor: '#FFFDF7',
+    borderColor: colors.line,
+    backgroundColor: colors.panel,
     borderRadius: radii.pill,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1541,8 +1541,8 @@ const createStyles = (colors) =>
     gap: 6,
   },
   memberChipSelected: {
-    borderColor: '#AFCB9D',
-    backgroundColor: '#EEF7E9',
+    borderColor: withAlpha(colors.accentFinance, 0.3),
+    backgroundColor: withAlpha(colors.accentFinance, 0.1),
   },
   memberChipText: {
     color: colors.ink,
@@ -1557,13 +1557,13 @@ const createStyles = (colors) =>
     fontWeight: '700',
   },
   memberChipMetaSelected: {
-    color: '#5A7E4D',
+    color: colors.accentFinance,
   },
   actionScopeCard: {
     borderWidth: 1,
-    borderColor: '#D6DCC4',
+    borderColor: colors.line,
     borderRadius: radii.md,
-    backgroundColor: '#F7FBF4',
+    backgroundColor: colors.panel,
     padding: spacing.md,
     gap: 4,
   },
@@ -1573,7 +1573,7 @@ const createStyles = (colors) =>
     fontSize: 15,
   },
   actionScopeMeta: {
-    color: '#5A6E52',
+    color: colors.inkMuted,
     lineHeight: 18,
     fontSize: 12,
     fontWeight: '600',
@@ -1585,9 +1585,9 @@ const createStyles = (colors) =>
   },
   actionButton: {
     borderWidth: 1,
-    borderColor: '#C8DABF',
+    borderColor: colors.line,
     borderRadius: radii.md,
-    backgroundColor: '#F7FBF4',
+    backgroundColor: colors.panel,
     paddingHorizontal: 12,
     paddingVertical: 11,
     minWidth: 136,
@@ -1595,12 +1595,12 @@ const createStyles = (colors) =>
     justifyContent: 'center',
   },
   actionButtonPrimary: {
-    backgroundColor: '#E2F0DA',
-    borderColor: '#A6C996',
+    backgroundColor: withAlpha(colors.accentFinance, 0.18),
+    borderColor: withAlpha(colors.accentFinance, 0.34),
   },
   actionButtonLocked: {
-    backgroundColor: '#EFE9DE',
-    borderColor: '#D8CDBA',
+    backgroundColor: withAlpha(colors.locked, 0.18),
+    borderColor: withAlpha(colors.locked, 0.34),
   },
   actionButtonDisabled: {
     opacity: 0.45,
@@ -1611,12 +1611,12 @@ const createStyles = (colors) =>
     fontSize: 13,
   },
   actionButtonTextPrimary: {
-    color: '#2D5E2A',
+    color: colors.accentFinance,
     fontWeight: '800',
     fontSize: 13,
   },
   actionButtonTextDisabled: {
-    color: '#8A8172',
+    color: colors.inkMuted,
   },
   helperText: {
     color: colors.inkMuted,
@@ -1634,9 +1634,9 @@ const createStyles = (colors) =>
   },
   memberFinanceCard: {
     borderWidth: 1,
-    borderColor: '#D8CFBE',
+    borderColor: colors.line,
     borderRadius: radii.md,
-    backgroundColor: '#FFFDF7',
+    backgroundColor: colors.panel,
     padding: spacing.md,
     gap: 6,
   },
@@ -1658,12 +1658,12 @@ const createStyles = (colors) =>
     paddingVertical: 4,
   },
   rolePillParent: {
-    backgroundColor: '#F1EAF9',
-    borderColor: '#D7CCE7',
+    backgroundColor: withAlpha(colors.accentMore, 0.12),
+    borderColor: withAlpha(colors.accentMore, 0.24),
   },
   rolePillChild: {
-    backgroundColor: '#FFF4E9',
-    borderColor: '#EBCBAA',
+    backgroundColor: withAlpha(colors.warning, 0.12),
+    borderColor: withAlpha(colors.warning, 0.24),
   },
   rolePillText: {
     fontSize: 11,
@@ -1674,7 +1674,7 @@ const createStyles = (colors) =>
     color: colors.accentMore,
   },
   rolePillTextChild: {
-    color: '#A85D1D',
+    color: colors.warning,
   },
   allowanceAmountLabel: {
     color: colors.ink,
@@ -1687,7 +1687,7 @@ const createStyles = (colors) =>
     fontSize: 12,
   },
   allowanceTotalLabel: {
-    color: '#49663E',
+    color: colors.accentFinance,
     fontWeight: '700',
     lineHeight: 18,
     fontSize: 12,
@@ -1720,9 +1720,9 @@ const createStyles = (colors) =>
   },
   envelopeCard: {
     borderWidth: 1,
-    borderColor: '#DAD0BF',
+    borderColor: colors.line,
     borderRadius: radii.md,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.panelElevated,
     padding: spacing.md,
     gap: 6,
   },
@@ -1744,8 +1744,8 @@ const createStyles = (colors) =>
   defaultPill: {
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: '#BFE2CC',
-    backgroundColor: '#EAF7EE',
+    borderColor: withAlpha(colors.success, 0.26),
+    backgroundColor: withAlpha(colors.success, 0.12),
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
@@ -1760,7 +1760,7 @@ const createStyles = (colors) =>
     lineHeight: 18,
   },
   envelopeGoal: {
-    color: '#5C7058',
+    color: colors.inkMuted,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1769,9 +1769,9 @@ const createStyles = (colors) =>
   },
   transactionCard: {
     borderWidth: 1,
-    borderColor: '#D8CFBE',
+    borderColor: colors.line,
     borderRadius: radii.md,
-    backgroundColor: '#FFFDF7',
+    backgroundColor: colors.panel,
     padding: spacing.md,
     gap: 4,
   },
@@ -1817,7 +1817,7 @@ const createStyles = (colors) =>
     fontWeight: '600',
   },
   phaseNextCard: {
-    backgroundColor: '#F6F2E8',
+    backgroundColor: colors.panel,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.md,
@@ -1835,7 +1835,7 @@ const createStyles = (colors) =>
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(27, 23, 16, 0.24)',
+    backgroundColor: withAlpha(colors.ink, 0.24),
   },
   modalKeyboardLayer: {
     flex: 1,
@@ -1845,11 +1845,11 @@ const createStyles = (colors) =>
     flex: 1,
   },
   modalSheet: {
-    backgroundColor: '#FBF7EE',
+    backgroundColor: colors.panel,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
-    borderColor: '#DACFB8',
+    borderColor: colors.line,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.lg,
@@ -1861,7 +1861,7 @@ const createStyles = (colors) =>
     width: 52,
     height: 5,
     borderRadius: radii.pill,
-    backgroundColor: '#D8D0BE',
+    backgroundColor: withAlpha(colors.locked, 0.76),
     marginBottom: 4,
   },
   modalHeader: {
@@ -1883,8 +1883,8 @@ const createStyles = (colors) =>
   },
   modalCloseButton: {
     borderWidth: 1,
-    borderColor: '#D7CCB8',
-    backgroundColor: '#FFFDF8',
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
     borderRadius: radii.pill,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1907,7 +1907,7 @@ const createStyles = (colors) =>
     gap: 6,
   },
   fieldLabel: {
-    color: '#4C4336',
+    color: colors.inkMuted,
     fontWeight: '800',
     fontSize: 12,
     letterSpacing: 0.35,
@@ -1915,8 +1915,8 @@ const createStyles = (colors) =>
   },
   textInput: {
     borderWidth: 1,
-    borderColor: '#D8CFBE',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 11,
@@ -1930,9 +1930,9 @@ const createStyles = (colors) =>
   },
   switchRow: {
     borderWidth: 1,
-    borderColor: '#D7CCB8',
+    borderColor: colors.line,
     borderRadius: radii.md,
-    backgroundColor: '#FFFBF3',
+    backgroundColor: colors.panel,
     padding: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1954,16 +1954,16 @@ const createStyles = (colors) =>
   },
   selectorChip: {
     borderWidth: 1,
-    borderColor: '#D8CFBE',
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 2,
   },
   selectorChipSelected: {
-    borderColor: '#AFCB9D',
-    backgroundColor: '#F0F8EB',
+    borderColor: withAlpha(colors.accentFinance, 0.3),
+    backgroundColor: withAlpha(colors.accentFinance, 0.1),
   },
   selectorChipText: {
     color: colors.ink,
@@ -1979,7 +1979,7 @@ const createStyles = (colors) =>
     lineHeight: 16,
   },
   selectorChipMetaSelected: {
-    color: '#59784D',
+    color: colors.accentFinance,
   },
   inlineFields: {
     flexDirection: 'row',
@@ -1997,9 +1997,9 @@ const createStyles = (colors) =>
   secondaryButton: {
     minWidth: 108,
     borderWidth: 1,
-    borderColor: '#D7CCB8',
+    borderColor: colors.line,
     borderRadius: 12,
-    backgroundColor: '#FFFCF6',
+    backgroundColor: colors.panelElevated,
     paddingHorizontal: 14,
     paddingVertical: 11,
     alignItems: 'center',
@@ -2013,16 +2013,16 @@ const createStyles = (colors) =>
   primaryButton: {
     minWidth: 128,
     borderWidth: 1,
-    borderColor: '#9BBE8E',
+    borderColor: withAlpha(colors.accentFinance, 0.34),
     borderRadius: 12,
-    backgroundColor: '#DCEED1',
+    backgroundColor: withAlpha(colors.accentFinance, 0.18),
     paddingHorizontal: 14,
     paddingVertical: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryButtonText: {
-    color: '#2E5E2C',
+    color: colors.accentFinance,
     fontWeight: '800',
     fontSize: 14,
   },
