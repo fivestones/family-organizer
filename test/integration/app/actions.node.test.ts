@@ -102,6 +102,25 @@ describe('app/actions server auth + file actions', () => {
         expect(result.fields).toEqual({ key: 'abc-file.png', policy: 'x' });
         expect(typeof result.key).toBe('string');
         expect(actionMocks.createPresignedPost).toHaveBeenCalled();
+        expect(actionMocks.createPresignedPost).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                Bucket: 'family-files',
+                Conditions: expect.arrayContaining([
+                    ['content-length-range', 0, 10485760],
+                    ['starts-with', '$Content-Type', 'image/png'],
+                ]),
+                Fields: { 'Content-Type': 'image/png' },
+            })
+        );
+    });
+
+    it('getPresignedUploadUrl wraps signer failures with a stable error message', async () => {
+        setDeviceCookie('true');
+        actionMocks.createPresignedPost.mockRejectedValueOnce(new Error('signer exploded'));
+        const { getPresignedUploadUrl } = await import('@/app/actions');
+
+        await expect(getPresignedUploadUrl('image/png', 'photo.png')).rejects.toThrow('Failed to generate upload signature');
     });
 
     it('getFiles requires device auth', async () => {
@@ -128,5 +147,13 @@ describe('app/actions server auth + file actions', () => {
 
         await refreshFiles();
         expect(actionMocks.revalidatePath).toHaveBeenCalledWith('/');
+    });
+
+    it('refreshFiles requires device auth', async () => {
+        setDeviceCookie(undefined);
+        const { refreshFiles } = await import('@/app/actions');
+
+        await expect(refreshFiles()).rejects.toThrow('Unauthorized device');
+        expect(actionMocks.revalidatePath).not.toHaveBeenCalled();
     });
 });

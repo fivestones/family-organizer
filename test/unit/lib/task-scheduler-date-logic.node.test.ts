@@ -101,6 +101,24 @@ describe('task-scheduler date logic', () => {
         expect(result).toEqual([]);
     });
 
+    it('keeps block 0 visible on an unscheduled anchor day and projects future scheduled occurrences from there', () => {
+        freezeTime(new Date(2026, 2, 10, 12, 0, 0)); // Tue
+
+        const tasks: Task[] = [
+            makeTask({ id: 'a', text: 'Block A', order: 1 }),
+            makeTask({ id: 'break', text: 'Break', order: 2, isDayBreak: true }),
+            makeTask({ id: 'b', text: 'Block B', order: 3 }),
+        ];
+
+        const today = getTasksForDate(tasks, 'FREQ=WEEKLY;BYDAY=MO,TH', '2026-03-02', new Date(2026, 2, 10, 12, 0, 0)); // Tue (anchor, unscheduled)
+        const thursday = getTasksForDate(tasks, 'FREQ=WEEKLY;BYDAY=MO,TH', '2026-03-02', new Date(2026, 2, 12, 12, 0, 0)); // Thu (next scheduled)
+        const nextMonday = getTasksForDate(tasks, 'FREQ=WEEKLY;BYDAY=MO,TH', '2026-03-02', new Date(2026, 2, 16, 12, 0, 0)); // Mon
+
+        expect(today.map((task) => task.id)).toEqual(['a']);
+        expect(thursday.map((task) => task.id)).toEqual(['a']);
+        expect(nextMonday.map((task) => task.id)).toEqual(['b']);
+    });
+
     it('trims a leading ghost day-break after a previously completed task', () => {
         const tasks: Task[] = [
             makeTask({ id: 'done', text: 'Done', order: 1, isCompleted: true, completedOnDate: '2026-03-09' }),
@@ -111,6 +129,19 @@ describe('task-scheduler date logic', () => {
         const result = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 10, 12, 0, 0));
 
         expect(result.map((task) => task.id)).toEqual(['next']);
+    });
+
+    it('trims trailing day-break markers so they do not create dangling empty future blocks', () => {
+        const tasks: Task[] = [
+            makeTask({ id: 'only', text: 'Only block', order: 1 }),
+            makeTask({ id: 'tail-break', text: 'Tail break', order: 2, isDayBreak: true }),
+        ];
+
+        const anchor = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 10, 12, 0, 0));
+        const nextDay = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 11, 12, 0, 0));
+
+        expect(anchor.map((task) => task.id)).toEqual(['only']);
+        expect(nextDay).toEqual([]);
     });
 
     it('marks a child complete and bubbles childTasksComplete to its parent when all children are done', () => {

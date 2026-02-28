@@ -115,6 +115,49 @@ describe('chore-utils date logic', () => {
         expect(assigned).toEqual([]);
     });
 
+    it('handles monthly end-of-month recurrences that skip shorter months', () => {
+        const chore = makeRotatingChore({
+            startDate: '2026-01-31',
+            rrule: 'FREQ=MONTHLY;BYMONTHDAY=31',
+            rotationType: 'none',
+        });
+
+        expect(getAssignedMembersForChoreOnDate(chore, new Date('2026-02-28T12:00:00Z'))).toEqual([]);
+        expect(getAssignedMembersForChoreOnDate(chore, new Date('2026-03-31T12:00:00Z')).map((m) => m.id)).toEqual(['kid-a', 'kid-b']);
+    });
+
+    it('advances weekly rotation by recurrence interval, not raw elapsed weeks', () => {
+        const chore = makeRotatingChore({
+            startDate: '2026-03-02', // Monday
+            rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO',
+            rotationType: 'weekly',
+        });
+
+        const week0 = getAssignedMembersForChoreOnDate(chore, new Date('2026-03-02T12:00:00Z'));
+        const week2 = getAssignedMembersForChoreOnDate(chore, new Date('2026-03-16T12:00:00Z'));
+        const week4 = getAssignedMembersForChoreOnDate(chore, new Date('2026-03-30T12:00:00Z'));
+
+        expect(week0.map((m) => m.id)).toEqual(['kid-a']);
+        expect(week2.map((m) => m.id)).toEqual(['kid-b']);
+        expect(week4.map((m) => m.id)).toEqual(['kid-a']);
+    });
+
+    it('advances monthly rotation by recurrence interval, not raw elapsed months', () => {
+        const chore = makeRotatingChore({
+            startDate: '2026-01-15',
+            rrule: 'FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=15',
+            rotationType: 'monthly',
+        });
+
+        const month0 = getAssignedMembersForChoreOnDate(chore, new Date('2026-01-15T12:00:00Z'));
+        const month2 = getAssignedMembersForChoreOnDate(chore, new Date('2026-03-15T12:00:00Z'));
+        const month4 = getAssignedMembersForChoreOnDate(chore, new Date('2026-05-15T12:00:00Z'));
+
+        expect(month0.map((m) => m.id)).toEqual(['kid-a']);
+        expect(month2.map((m) => m.id)).toEqual(['kid-b']);
+        expect(month4.map((m) => m.id)).toEqual(['kid-a']);
+    });
+
     it('returns no assignees when the RRULE is invalid', () => {
         const chore = makeRotatingChore({ rrule: 'NOT_A_REAL_RRULE' as any });
         const assigned = getAssignedMembersForChoreOnDate(chore, new Date('2026-03-02T12:00:00Z'));

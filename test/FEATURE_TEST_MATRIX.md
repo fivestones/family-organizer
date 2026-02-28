@@ -17,7 +17,7 @@ Priority labels:
 ## Current coverage snapshot
 
 - `Existing`: middleware device gate, device activation API, Instant auth token APIs, parent elevation API, upload/delete image APIs, file redirect route, app server actions auth gating, Instant perms contract/live smoke, parent elevation rate limiter, Instant family session DOM behavior, auth/device E2E smoke.
-- `New (added)`: shared fake clock helper (`test/utils/fake-clock.ts`), Playwright app-time helper (`e2e/support/time-machine.ts`), deterministic shared-device expiry DOM timing, expanded date/allowance/task scheduling unit tests (`lib/task-scheduler.ts`, `lib/chore-utils.ts`), finance/currency core helper unit tests (`lib/currency-utils.ts`), auth DOM tests (`LoginModal`, `AuthProvider`, `ParentGate`, shared-device timeout hook, `UserMenu`), shell DOM tests (`DebugTimeWidget`, `SyncStatusBadge`, `PwaServiceWorkerRegistration`, `NavbarDate`, `MainNav`), auth helper unit tests (`instant-principal-storage`, `instant-principal-api`, `time-machine`), and Playwright time-machine/debug-widget smoke tests.
+- `New (added)`: shared fake clock helper (`test/utils/fake-clock.ts`), Playwright app-time helper (`e2e/support/time-machine.ts`), deterministic shared-device expiry DOM timing, expanded date/allowance/task scheduling unit tests (`lib/task-scheduler.ts`, `lib/chore-utils.ts`, including weekly/monthly rotation interval handling + end-of-month recurrence edge cases), finance/currency core + mutation helper unit tests (`lib/currency-utils.ts`), auth DOM tests (`LoginModal`, `AuthProvider`, `ParentGate`, shared-device timeout hook, `UserMenu`), shell DOM tests (`DebugTimeWidget`, `SyncStatusBadge`, `PwaServiceWorkerRegistration`, `NavbarDate`, `MainNav`), chores/calendar DOM tests (`RecurrenceRuleForm`, `DetailedChoreForm`, `ChoreList`, `ChoreCalendarView`, `ChoresTracker`, `AddEvent`, `Calendar`, `DraggableCalendarEvent`, `DroppableDayCell`), family-member DOM tests (`FamilyMembersList`, `SortableFamilyMemberItem`), task-series DOM tests (`TaskSeriesChecklist`, `TaskSeriesManager`, `TaskSeriesEditor`), finance DOM tests (`TransferFundsForm`, `WithdrawForm`, `TransferToPersonForm`, `AddEditEnvelopeForm`, `DeleteEnvelopeDialog`, `CombinedBalanceDisplay`, `TransactionHistoryView`, `FamilyAllowanceView`), file manager DOM tests (`FileManager` upload + preview), auth/helper unit tests (`instant-principal-storage`, `instant-principal-api`, `time-machine`), app-actions file signing edge-case integration tests, and Playwright time-machine/debug-widget + env-gated parent/chore/calendar/allowance smoke scaffolds (validated to compile/skip cleanly without creds).
 
 ## Time-sensitive testing support
 
@@ -58,7 +58,7 @@ Use fake time for:
 ## B. Family member management
 
 - `FAM-001` `P1` `Planned` E2E: Parent adds child member with name/PIN/photo and member appears in list.
-- `FAM-002` `P1` `Planned` DOM: Add/edit member form validation (required name, role-specific PIN expectations).
+- `FAM-002` `P1` `New (added)` DOM: `FamilyMembersList` add-member flow captures role/PIN, hashes PIN before save, and persists expected member payload defaults/order.
 - `FAM-003` `P1` `Planned` E2E: Parent edits member name/role/PIN and changes persist after reload.
 - `FAM-004` `P1` `Planned` E2E: Parent deletes member with confirmation and list updates.
 - `FAM-005` `P1` `Planned` E2E: Drag-and-drop reorder persists member order.
@@ -67,67 +67,79 @@ Use fake time for:
 - `FAM-008` `P1` `Existing` Integration: Delete-image API auth and path traversal protections.
 - `FAM-009` `P2` `Planned` DOM: Photo upload/delete button loading/error/success states.
 - `FAM-010` `P2` `Planned` Contract/Live: `familyMembers.pinHash` field hidden from kid principal where intended.
+- `FAM-011` `P1` `New (added)` DOM: `FamilyMembersList` reorder persistence logic updates `order` transaction payloads and success toast when PDnD monitor drop fires.
+- `FAM-012` `P1` `New (added)` DOM: `FamilyMembersList` child self-edit dialog hides restricted name/email/role fields while still allowing PIN update and save.
+- `FAM-013` `P1` `New (added)` DOM: `SortableFamilyMemberItem` parent/child permission UI for reorder/edit/delete controls, selection disabling in edit mode, and drop-indicator state.
+- `FAM-014` `P2` `New (added)` DOM: `FamilyMembersList` edit flow supports remove-photo checkbox path (calls `/api/delete-image` and clears `photoUrls` before save).
 
 ## C. Chores dashboard, recurrence, rotation, completion
 
-- `CHORE-001` `P0` `Planned` E2E: Parent creates a one-time chore assigned to a child; child sees it on correct date.
+- `CHORE-001` `P0` `Planned` E2E: Parent creates a one-time chore assigned to a child; child sees it on correct date. (`env-gated` creation regression scaffold now exists)
 - `CHORE-002` `P0` `Planned` E2E: Child marks assigned chore complete and completion persists on reload.
 - `CHORE-003` `P0` `Planned` Integration: Chore completion write stamps actor/marker identity correctly.
 - `CHORE-004` `P1` `Planned` E2E: Parent edits chore details (title/description/weight/start date) and changes persist.
 - `CHORE-005` `P1` `Planned` E2E: Parent deletes chore; child no longer sees it.
-- `CHORE-006` `P1` `Planned` DOM: Chores filter by selected member and “All” state.
+- `CHORE-006` `P1` `New (added)` DOM: `ChoreList` filters visible chores by selected member assignment for the selected date.
 - `CHORE-007` `P1` `Planned` DOM: Date navigation updates visible chores and date labels.
 - `CHORE-008` `P1` `Planned` DOM: View preference toggles (`showChoreDescriptions`, `showTaskDetails`) persist.
 - `CHORE-009` `P1` `Planned` DOM: Parent-only add/edit/delete controls hidden for child users.
-- `CHORE-010` `P1` `Planned` DOM: `DetailedChoreForm` recurrence controls validate daily/weekly/monthly variants.
-- `CHORE-011` `P1` `Planned` DOM: Rotation controls and assignment ordering UI render only when enabled.
-- `CHORE-012` `P1` `Planned` DOM: Joint chore + up-for-grabs options produce valid payloads and UI states.
-- `CHORE-013` `P1` `Planned` DOM: Reward type switching (`weight` vs `fixed`) updates required fields/validation.
-- `CHORE-014` `P1` `Planned` DOM: Chore preview calendar updates when recurrence/rotation settings change.
+- `CHORE-010` `P1` `New (added)` DOM: `RecurrenceRuleForm` daily/weekly/monthly controls emit expected RRULE option payloads (interval clamping, sorted weekdays/month-days).
+- `CHORE-011` `P1` `New (added)` DOM: `DetailedChoreForm` rotation controls render for multi-assignee chores and save assignment order correctly.
+- `CHORE-012` `P1` `New (added)` DOM: `DetailedChoreForm` up-for-grabs fixed reward flow saves correct payload and resets rotation/joint state.
+- `CHORE-013` `P1` `New (added)` DOM: `DetailedChoreForm` reward type switching reveals fixed amount/currency inputs and allows fixed-reward save path.
+- `CHORE-014` `P1` `New (added)` DOM: `DetailedChoreForm` enables save only after required title/assignee fields and renders preview shell when preview is available.
 - `CHORE-015` `P1` `New (added)` Unit: Task-series rolling queue `getTasksForDate` future block projection across day breaks.
 - `CHORE-016` `P1` `New (added)` Unit: `getTasksForDate` historical date returns only tasks completed on that date.
-- `CHORE-017` `P1` `Planned` Unit: Monthly recurrence edge cases (short months / end-of-month behavior).
-- `CHORE-018` `P1` `Planned` Unit: Rotation index for weekly/monthly recurrence with intervals.
+- `CHORE-017` `P1` `New (added)` Unit: Monthly recurrence edge cases (for example `BYMONTHDAY=31`) skip short months and resume on matching months.
+- `CHORE-018` `P1` `New (added)` Unit: Rotation index for weekly/monthly recurrence respects RRULE `INTERVAL` (regression guard for assignee rotation).
 - `CHORE-019` `P0` `Planned` E2E: Up-for-grabs chore completed by one child locks out second child and shows proper toast/message.
 - `CHORE-020` `P0` `Planned` Integration: Up-for-grabs completion conflict path returns deterministic error response.
 - `CHORE-021` `P1` `Planned` E2E: Joint chore completion behavior matches intended rules for multiple assignees.
 - `CHORE-022` `P1` `Planned` E2E: Task-series-linked chore completion blocked until tasks complete; “mark all and complete” path works.
 - `CHORE-023` `P2` `New (added)` Unit: XP calculation (`calculateDailyXP`) fixed reward exclusion and up-for-grabs claimed/unclaimed rules.
 - `CHORE-024` `P2` `New (added)` Unit: `getChoreAssignmentGridFromChore` assignment-only preview for rotating chores.
+- `CHORE-025` `P2` `New (added)` DOM: `ChoreCalendarView` derives rows from assignments/assignees and renders completion status dots from assignment grid data.
+- `CHORE-026` `P1` `New (added)` DOM: `ChoreList` description rendering follows global `showChoreDescriptions` flag.
+- `CHORE-027` `P1` `New (added)` DOM: `ChoreList` non-parent edit/delete clicks show access-denied toasts and block callbacks; parent flow opens edit/delete dialogs and confirms delete.
+- `CHORE-028` `P1` `New (added)` E2E (env-gated): Parent chore-dashboard create flow smoke (open add dialog, create chore, verify it appears in list).
 
 ## D. Task series editor, manager, checklist, attachments
 
 - `TS-001` `P1` `Planned` E2E: Create task series with metadata (name/assignee/chore link/start/target dates) and save.
 - `TS-002` `P1` `Planned` E2E: Duplicate and delete task series from manager.
-- `TS-003` `P1` `Planned` DOM: Manager filtering/status tabs/multi-select/shift-select logic.
-- `TS-004` `P1` `Planned` DOM: Editor autosave debounce and flush-on-unmount.
+- `TS-003` `P1` `New (added)` DOM: `TaskSeriesManager` status classification/filter tabs, shift-select range selection, bulk delete cascade transaction payloads, and duplicate flow transaction + navigation behavior.
+- `TS-004` `P1` `New (added)` DOM: `TaskSeriesEditor` debounced header-save behavior persists metadata/links and flushes pending saves on unmount.
 - `TS-005` `P1` `Planned` DOM: Slash command `/` inserts Day Break task node.
 - `TS-006` `P1` `Planned` DOM: Keyboard editing behaviors (Tab/Shift-Tab, Enter, arrows, Backspace/Delete).
 - `TS-007` `P1` `Planned` DOM: Drag reorder and indentation preview UI updates.
 - `TS-008` `P1` `New (added)` Unit: `isSeriesActiveForDate` respects schedule + projected series range.
-- `TS-009` `P1` `Planned` Unit: `getTasksForDate` anchor-date behavior when today is not a scheduled occurrence.
-- `TS-010` `P1` `New (added)` Unit: `getTasksForDate` trims leading ghost day breaks after completed tasks (trailing case still worth adding).
+- `TS-009` `P1` `New (added)` Unit: `getTasksForDate` unscheduled anchor-day behavior (block 0 remains visible on anchor day; future scheduled occurrences project from that anchor).
+- `TS-010` `P1` `New (added)` Unit: `getTasksForDate` trims leading/trailing day-break markers so ghost/dangling empty blocks do not appear.
 - `TS-011` `P1` `New (added)` Unit: `getRecursiveTaskCompletionTransactions` propagates `childTasksComplete` through ancestors (including sibling-incomplete guard).
-- `TS-012` `P1` `Planned` DOM: Checklist is interactive on today and read-only on non-today dates.
+- `TS-012` `P1` `New (added)` DOM: `TaskSeriesChecklist` auto-completes header/context rows in interactive mode and disables/suppresses auto-toggle in read-only mode.
 - `TS-013` `P1` `Planned` E2E: Checklist completion unlocks chore completion path.
 - `TS-014` `P2` `Planned` DOM: Notes/attachments UI states (uploading, error, success, preview).
 - `TS-015` `P2` `Planned` Integration: Attachment upload validation (size/type/path) and DB linking.
-- `TS-016` `P2` `Planned` DOM/E2E: File preview modal handles image/text/PDF/fallback download.
+- `TS-016` `P2` `New (added)` DOM: `TaskSeriesChecklist` attachment preview modal handles text/image/PDF/unsupported-file fallback branches (E2E still planned).
+- `TS-017` `P2` `New (added)` DOM: `TaskSeriesChecklist` notes metadata visibility follows global `showDetails` and local “view details / hide details” toggles.
+- `TS-018` `P1` `New (added)` DOM: `TaskSeriesEditor` hydrates existing series metadata/task content into header fields + TipTap document and safely unlinks previous assignee/chore links when cleared.
 
 ## E. Calendar events
 
-- `CAL-001` `P1` `Planned` E2E: Parent creates all-day calendar event and it appears on chosen date.
+- `CAL-001` `P1` `Planned` E2E: Parent creates all-day calendar event and it appears on chosen date. (`env-gated` create/edit regression scaffold now exists)
 - `CAL-002` `P1` `Planned` E2E: Parent creates timed event and time displays correctly.
 - `CAL-003` `P1` `Planned` E2E: Parent edits existing event and changes persist.
 - `CAL-004` `P1` `Planned` E2E: Parent drags event to another day and persisted date updates.
-- `CAL-005` `P1` `Planned` DOM: Add/edit event form validation for all-day vs timed payloads.
+- `CAL-005` `P1` `New (added)` DOM: `AddEvent` create/edit form builds correct all-day (exclusive end date) and timed payloads; timed mode preserves duration when start time changes.
 - `CAL-006` `P1` `Planned` Integration: Event CRUD transaction auth/perms (parent-only if intended by perms).
-- `CAL-007` `P2` `Planned` DOM: Draggable and droppable visual states apply during drag operations.
+- `CAL-007` `P2` `New (added)` DOM: `DraggableCalendarEvent` and `DroppableDayCell` drag/drop registration + drag/drag-over visual state toggles.
 - `CAL-008` `P2` `Planned` DOM: Nepali/Bikram Samvat date labels render without breaking Gregorian display.
+- `CAL-009` `P1` `New (added)` DOM: `Calendar` opens add/edit modal for day vs event clicks and persists drag-drop reschedule updates via `monitorForElements`.
+- `CAL-010` `P1` `New (added)` E2E (env-gated): Parent calendar create/edit all-day event smoke on `/calendar`.
 
 ## F. Finances, envelopes, transactions, allowance
 
-- `FIN-001` `P0` `Planned` E2E: Parent opens member finance detail and default Savings envelope exists (auto-create/repair path).
+- `FIN-001` `P0` `Planned` E2E: Parent opens member finance detail and default Savings envelope exists (auto-create/repair path). (`env-gated` finance-page smoke scaffold now exists)
 - `FIN-002` `P0` `Planned` Integration: Default envelope invariant repair/creation behavior when missing.
 - `FIN-003` `P0` `Planned` E2E: Parent creates/edits/deletes envelope and balances update correctly.
 - `FIN-004` `P0` `Planned` E2E: Deposit transaction updates envelope balance and appears in history.
@@ -136,13 +148,13 @@ Use fake time for:
 - `FIN-007` `P0` `Planned` E2E: Transfer to another person moves funds into recipient default envelope.
 - `FIN-008` `P0` `Existing` Unit: Allowance transaction helper functions stamp `createdBy` audit fields for all mutation types.
 - `FIN-009` `P0` `Planned` Integration: Envelope/transaction mutations enforce parent/self permissions and audit rules.
-- `FIN-010` `P1` `Planned` DOM: Envelope forms validate amounts/currency/default selection/growth goal inputs.
-- `FIN-011` `P1` `Planned` DOM: Withdraw/transfer forms block invalid amounts and same-envelope transfers.
-- `FIN-012` `P1` `Planned` DOM: Transfer-to-person form limits valid recipients/destinations.
-- `FIN-013` `P1` `Planned` DOM: Transaction history filters and labels dedupe/display paired intra-member transfers correctly.
+- `FIN-010` `P1` `New (added)` DOM: `AddEditEnvelopeForm` and `DeleteEnvelopeDialog` validate required fields/default-envelope constraints and dispatch create/edit/delete confirmation payloads.
+- `FIN-011` `P1` `New (added)` DOM: Transfer/withdraw forms validate required fields, enforce balance-aware amount rules, and submit normalized payloads.
+- `FIN-012` `P1` `New (added)` DOM: Transfer-to-person form filters recipient/source/currency selections, loads recipient default envelope, warns when missing, and submits normalized payloads.
+- `FIN-013` `P1` `New (added)` DOM: `TransactionHistoryView` filters member-mode intra-member `transfer-out` rows, renders normalized labels/badges/actor attribution, and applies currency filtering.
 - `FIN-014` `P1` `Planned` Unit: Currency conversion handles direct/inverse/USD-cross rates and stale cache fallback.
 - `FIN-014` `P1` `New (added)` Unit: `getExchangeRate` identity/direct cache/USD-cross calculation/stale fallback/unavailable paths.
-- `FIN-015` `P1` `Planned` DOM: Combined balance display shows monetary + non-monetary balances and conversion labels.
+- `FIN-015` `P1` `New (added)` DOM: `CombinedBalanceDisplay` renders original balances, combined loading/unavailable states, non-monetary balances, and currency-switch callbacks.
 - `FIN-016` `P1` `Planned` E2E: Display currency preference persists across reload.
 - `FIN-017` `P1` `Planned` E2E: Parent configures recurring allowance amount/currency/start date/payout delay.
 - `FIN-018` `P0` `Planned` E2E: Allowance distribution page computes pending periods and distributes payouts.
@@ -151,10 +163,13 @@ Use fake time for:
 - `FIN-021` `P1` `New (added)` Unit: `getAllowancePeriodForDate` weekly period boundary and pre-start null case.
 - `FIN-022` `P1` `New (added)` Unit: `calculatePeriodDetails` weighted completion + fixed reward accumulation + up-for-grabs contribution.
 - `FIN-023` `P2` `Planned` E2E: Child self-service actions allowed/blocked per product rules (withdraw/transfer/view history).
-- `FIN-024` `P2` `Planned` Integration: Envelope deletion behavior for empty vs non-empty envelopes (README/code mismatch guard).
+- `FIN-024` `P2` `New (added)` Unit: `deleteEnvelope` validates source/target/default preconditions and transfers only positive balances with paired transaction records.
 - `FIN-025` `P1` `New (added)` Unit: `setDefaultEnvelope` and `findOrDefaultEnvelope` default selection/repair paths (existing default, Savings, first envelope, create initial Savings).
 - `FIN-026` `P1` `New (added)` Unit: `executeAllowanceTransaction` zero-amount skip and default-envelope deposit/withdraw routing.
 - `FIN-027` `P2` `New (added)` Unit: `calculateEnvelopeProgress` cached/identity conversions with non-monetary balance exclusion.
+- `FIN-028` `P1` `New (added)` Unit: Envelope mutation helpers (`createAdditionalEnvelope`, `updateEnvelope`, `depositToSpecificEnvelope`, `withdrawFromEnvelope`, `transferFunds`, `transferFundsToPerson`, `setLastDisplayCurrencyPref`) validate inputs and emit expected transaction payloads.
+- `FIN-029` `P1` `New (added)` DOM: `FamilyAllowanceView` app-level loading/error/placeholder states, `FamilyMembersList` prop wiring, and `MemberAllowanceDetail` selection prop mapping (`allMonetaryCurrenciesInUse`, `unitDefinitions`, member list).
+- `FIN-030` `P1` `New (added)` E2E (env-gated): Parent finance-page smoke opens member allowance detail and withdraw modal on `/familyMemberDetail`.
 
 ## G. Files and uploads
 
@@ -162,8 +177,9 @@ Use fake time for:
 - `FILE-002` `P0` `Existing` Integration: `/files/[filename]` route returns signed redirect only for allowed requests.
 - `FILE-003` `P1` `Planned` E2E: File manager uploads image and opens preview modal.
 - `FILE-004` `P1` `Planned` E2E: File manager uploads non-image file and download flow works.
-- `FILE-005` `P1` `Planned` DOM: File manager UI handles upload progress/success/error/list refresh.
+- `FILE-005` `P1` `New (added)` DOM: `FileManager` handles upload submit states, success refresh, failure alert, and image/non-image preview modal rendering.
 - `FILE-006` `P1` `Planned` Integration: Upload size limit (10MB) returns expected error shape.
+- `FILE-008` `P2` `New (added)` Integration: `getPresignedUploadUrl` signing request includes 10MB `content-length-range` and content-type prefix conditions; signer failures are wrapped in stable user-facing errors.
 - `FILE-007` `P2` `Planned` E2E: Task attachment upload + preview + delete flow on checklist/editor.
 
 ## H. PWA/offline/sync/debug shell
