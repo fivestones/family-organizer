@@ -282,6 +282,7 @@ const getRotationIndex = (
 ): number => {
     const utcStartDate = toUTCDate(choreStartDate);
     const utcOccurrenceDate = toUTCDate(occurrenceDate);
+    const interval = Math.max(1, rrule?.options?.interval ?? 1);
 
     switch (rotationType) {
         case 'daily':
@@ -300,12 +301,12 @@ const getRotationIndex = (
             // Calculate weeks passed based on UTC dates
             const oneWeek = 7 * 24 * 60 * 60 * 1000;
             const weeksDiff = Math.floor((utcOccurrenceDate.getTime() - utcStartDate.getTime()) / oneWeek);
-            return Math.max(0, weeksDiff);
+            return Math.max(0, Math.floor(weeksDiff / interval));
         case 'monthly':
             // Calculate months passed based on UTC dates
             const monthsDiff =
                 (utcOccurrenceDate.getUTCFullYear() - utcStartDate.getUTCFullYear()) * 12 + (utcOccurrenceDate.getUTCMonth() - utcStartDate.getUTCMonth());
-            return Math.max(0, monthsDiff);
+            return Math.max(0, Math.floor(monthsDiff / interval));
         default:
             return 0; // No rotation or unknown type
     }
