@@ -18,6 +18,18 @@ const hasScheduledChildren = (parentId: string, scheduledIds: Set<string>, allTa
     return allTasks.some((t) => t.parentTask?.[0]?.id === parentId && scheduledIds.has(t.id));
 };
 
+const getTaskSeriesProgress = (scheduledTasks: Task[], allTasks: Task[]) => {
+    if (!scheduledTasks.length) return null;
+
+    const scheduledIds = new Set(scheduledTasks.map((task) => task.id));
+    const actionableTasks = scheduledTasks.filter((task) => !hasScheduledChildren(task.id, scheduledIds, allTasks));
+
+    if (actionableTasks.length === 0) return null;
+
+    const completedTasks = actionableTasks.filter((task) => task.isCompleted).length;
+    return completedTasks / actionableTasks.length;
+};
+
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({
     chores,
@@ -87,6 +99,7 @@ function ChoreList({
     const now = new Date();
     const localToday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     const isToday = isSameDay(safeSelectedDate, localToday);
+    const isPastDate = safeSelectedDate.getTime() < localToday.getTime();
 
     const shouldShowChore = (chore) => {
         if (!chore.rrule) {
@@ -352,7 +365,7 @@ function ChoreList({
                                     // 2. Secondary: Shared Series (No owner assigned at all)
                                     const sharedSeries = chore.taskSeries?.find((s: any) => {
                                         const owner = s.familyMember?.[0] || s.familyMember;
-                                        return !owner;
+                                        return !owner?.id;
                                     });
 
                                     // 3. Selection: Specific > Shared > None
@@ -369,12 +382,15 @@ function ChoreList({
                                         );
                                     }
 
+                                    const taskSeriesProgress = getTaskSeriesProgress(visibleTasks, allTasks);
+
                                     return (
                                         <ToggleableAvatar
                                             key={assignee.id}
                                             name={assignee.name}
                                             photoUrls={familyMember?.photoUrls}
                                             isComplete={completion?.completed || false}
+                                            taskSeriesProgress={taskSeriesProgress}
                                             // Pass down disabled state and completer info
                                             isDisabled={isDisabled}
                                             completerName={actualCompleterName}
@@ -533,7 +549,7 @@ function ChoreList({
                                             tasks={tasks}
                                             allTasks={allTasks}
                                             onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks)}
-                                            isReadOnly={!isToday}
+                                            isReadOnly={isPastDate}
                                             selectedMember={selectedMember} // <--- PASS DOWN FOR TOGGLE LOGIC
                                             showDetails={showDetails} // <--- Pass controlled prop (GLOBAL SETTING)
                                         />

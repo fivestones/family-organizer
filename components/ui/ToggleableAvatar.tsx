@@ -237,6 +237,7 @@ const ToggleableAvatar = ({
     completerName = '',
     choreTitle = '',
     isNegative = false, // +++ NEW PROP +++
+    taskSeriesProgress = null as number | null, // 0-1 ratio, null = no task series
 }) => {
     const { toast } = useToast();
     // State now holds the array of sparkle data instead of just a boolean
@@ -445,6 +446,33 @@ const ToggleableAvatar = ({
                         !isDisabled && isComplete ? activeClass : borderClass
                     )}
                 >
+                    {/* SVG Progress Ring for Task Series */}
+                    {taskSeriesProgress !== null && taskSeriesProgress > 0 && !isComplete && !isDisabled && (
+                        <svg
+                            className="absolute pointer-events-none z-30"
+                            style={{
+                                top: '-2px',
+                                left: '-2px',
+                                width: 'calc(100% + 4px)',
+                                height: 'calc(100% + 4px)',
+                            }}
+                            viewBox="0 0 56 56"
+                        >
+                            <circle
+                                cx="28"
+                                cy="28"
+                                r="27"
+                                fill="none"
+                                stroke="#22c55e"
+                                strokeWidth="2"
+                                strokeDasharray={2 * Math.PI * 27}
+                                strokeDashoffset={2 * Math.PI * 27 * (1 - taskSeriesProgress)}
+                                strokeLinecap="round"
+                                transform="rotate(-90 28 28)"
+                                style={{ transition: 'stroke-dashoffset 500ms ease' }}
+                            />
+                        </svg>
+                    )}
                     <Avatar className="h-11 w-11 relative z-20">
                         {photoUrl64 ? <AvatarImage src={'uploads/' + photoUrl64} alt={name} /> : <AvatarFallback>{initials}</AvatarFallback>}
                     </Avatar>
