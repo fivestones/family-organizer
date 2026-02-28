@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
 import { Tabs, useRootNavigationState, useRouter } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
-import { colors } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
+import { useAppTheme } from '../../src/theme/ThemeProvider';
 
 export default function TabsLayout() {
+  const { colors } = useAppTheme();
   const {
     activationRequired,
     isAuthenticated,

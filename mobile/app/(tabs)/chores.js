@@ -10,8 +10,9 @@ import {
   getMemberCompletionForDate,
 } from '@family-organizer/shared-core';
 import { ScreenScaffold, PlaceholderCard } from '../../src/components/ScreenScaffold';
-import { colors, radii, spacing } from '../../src/theme/tokens';
+import { radii, spacing } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
+import { useAppTheme } from '../../src/theme/ThemeProvider';
 
 function formatDateKey(date) {
   const y = date.getFullYear();
@@ -44,6 +45,8 @@ function completionKey(choreId, memberId, dateKey) {
 }
 
 export default function ChoresTab() {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const {
     db,
     currentUser,
@@ -659,7 +662,8 @@ export default function ChoresTab() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) =>
+  StyleSheet.create({
   heroCard: {
     backgroundColor: colors.panelElevated,
     borderRadius: radii.md,
@@ -910,4 +914,4 @@ const styles = StyleSheet.create({
   toggleButtonTextDone: { color: colors.success },
   toggleButtonTextDisabled: { color: colors.inkMuted },
   completionSummary: { color: colors.inkMuted, fontSize: 12, marginTop: 2 },
-});
+  });

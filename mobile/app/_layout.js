@@ -2,11 +2,13 @@ import React from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AppProviders } from '../src/providers/AppProviders';
-import { colors } from '../src/theme/tokens';
+import { ThemeProvider, useAppTheme } from '../src/theme/ThemeProvider';
 
-export default function RootLayout() {
+function RootNavigator() {
+  const { colors } = useAppTheme();
+
   return (
-    <AppProviders>
+    <>
       <StatusBar style="dark" backgroundColor={colors.bg} />
       <Stack
         screenOptions={{
@@ -15,7 +17,16 @@ export default function RootLayout() {
           animation: 'fade',
         }}
       />
-    </AppProviders>
+    </>
   );
 }
 
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>
+    </ThemeProvider>
+  );
+}

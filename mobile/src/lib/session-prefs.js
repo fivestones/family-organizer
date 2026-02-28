@@ -8,6 +8,8 @@ const KEYS = {
   parentSharedDevice: `${PREFIX}parentSharedDevice`,
   parentLastActivityAt: `${PREFIX}parentLastActivityAt`,
   preferredPrincipal: `${PREFIX}preferredPrincipal`,
+  pendingParentAction: `${PREFIX}pendingParentAction`,
+  localThemeName: `${PREFIX}localThemeName`,
 };
 
 export const DEFAULT_PARENT_SHARED_DEVICE = true;
@@ -129,6 +131,73 @@ export async function clearPreferredPrincipal() {
   await removeItem(KEYS.preferredPrincipal);
 }
 
+export async function getPendingParentAction() {
+  const raw = await getItem(KEYS.pendingParentAction);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') {
+      await removeItem(KEYS.pendingParentAction);
+      return null;
+    }
+
+    if (typeof parsed.actionId !== 'string' || !parsed.actionId.trim()) {
+      await removeItem(KEYS.pendingParentAction);
+      return null;
+    }
+
+    if (typeof parsed.returnPath !== 'string' || !parsed.returnPath.trim()) {
+      await removeItem(KEYS.pendingParentAction);
+      return null;
+    }
+
+    return {
+      actionId: parsed.actionId,
+      actionLabel: typeof parsed.actionLabel === 'string' ? parsed.actionLabel : '',
+      returnPath: parsed.returnPath,
+      payload: parsed.payload && typeof parsed.payload === 'object' ? parsed.payload : {},
+      createdAt: Number.isFinite(parsed.createdAt) ? parsed.createdAt : Date.now(),
+    };
+  } catch {
+    await removeItem(KEYS.pendingParentAction);
+    return null;
+  }
+}
+
+export async function setPendingParentAction(action) {
+  if (!action || typeof action !== 'object') return;
+
+  const actionId = typeof action.actionId === 'string' ? action.actionId.trim() : '';
+  const returnPath = typeof action.returnPath === 'string' ? action.returnPath.trim() : '';
+  if (!actionId || !returnPath) return;
+
+  const normalized = {
+    actionId,
+    actionLabel: typeof action.actionLabel === 'string' ? action.actionLabel : '',
+    returnPath,
+    payload: action.payload && typeof action.payload === 'object' ? action.payload : {},
+    createdAt: Number.isFinite(action.createdAt) ? action.createdAt : Date.now(),
+  };
+
+  await setItem(KEYS.pendingParentAction, JSON.stringify(normalized));
+}
+
+export async function clearPendingParentAction() {
+  await removeItem(KEYS.pendingParentAction);
+}
+
+export async function getLocalThemeName() {
+  const value = await getItem(KEYS.localThemeName);
+  if (value === 'classic' || value === 'bright') return value;
+  return 'classic';
+}
+
+export async function setLocalThemeName(themeName) {
+  if (themeName !== 'classic' && themeName !== 'bright') return;
+  await setItem(KEYS.localThemeName, themeName);
+}
+
 export async function clearPrincipalPrefs() {
   try {
     await AsyncStorage.multiRemove([
@@ -136,6 +205,7 @@ export async function clearPrincipalPrefs() {
       KEYS.parentSharedDevice,
       KEYS.parentLastActivityAt,
       KEYS.preferredPrincipal,
+      KEYS.pendingParentAction,
     ]);
   } catch {
     await Promise.all([
@@ -143,7 +213,7 @@ export async function clearPrincipalPrefs() {
       removeItem(KEYS.parentSharedDevice),
       removeItem(KEYS.parentLastActivityAt),
       removeItem(KEYS.preferredPrincipal),
+      removeItem(KEYS.pendingParentAction),
     ]);
   }
 }
-

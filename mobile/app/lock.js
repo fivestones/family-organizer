@@ -11,11 +11,12 @@ import {
 } from 'react-native';
 import { router, useRootNavigationState } from 'expo-router';
 import { ScreenScaffold, PlaceholderCard } from '../src/components/ScreenScaffold';
-import { colors, radii, spacing } from '../src/theme/tokens';
+import { radii, spacing } from '../src/theme/tokens';
 import { useAppSession } from '../src/providers/AppProviders';
 import { hashPinClient } from '../src/lib/pin-hash';
 import { getApiBaseUrl } from '../src/lib/api-client';
 import { clearPendingParentAction, getPendingParentAction } from '../src/lib/session-prefs';
+import { useAppTheme } from '../src/theme/ThemeProvider';
 
 const PIN_PAD_LAYOUT = [
   ['1', '2', '3'],
@@ -47,6 +48,8 @@ function automationMemberKey(member) {
 }
 
 export default function LockScreen() {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const {
     activationRequired,
     isAuthenticated,
@@ -693,7 +696,8 @@ export default function LockScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) =>
+  StyleSheet.create({
   centerPanel: {
     backgroundColor: colors.panelElevated,
     borderWidth: 1,
@@ -952,4 +956,4 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: { color: colors.ink, fontWeight: '700' },
   backButton: { flex: 0.9 },
-});
+  });

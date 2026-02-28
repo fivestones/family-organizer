@@ -2,10 +2,11 @@ import React, { useEffect } from 'react';
 import { useRootNavigationState, useRouter } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import { useAppSession } from '../src/providers/AppProviders';
-import { colors } from '../src/theme/tokens';
+import { useAppTheme } from '../src/theme/ThemeProvider';
 
 export default function IndexScreen() {
   const { isBootstrapping, activationRequired, isAuthenticated } = useAppSession();
+  const { colors } = useAppTheme();
   const router = useRouter();
   const rootNavigationState = useRootNavigationState();
   const navigationReady = Boolean(rootNavigationState?.key);

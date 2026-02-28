@@ -3,12 +3,15 @@ import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
 import { ScreenScaffold, PlaceholderCard } from '../src/components/ScreenScaffold';
-import { colors, radii, spacing } from '../src/theme/tokens';
+import { radii, spacing } from '../src/theme/tokens';
 import { mobileDeviceActivate } from '../src/lib/api-client';
 import { useAppSession } from '../src/providers/AppProviders';
+import { useAppTheme } from '../src/theme/ThemeProvider';
 
 export default function ActivateScreen() {
   const { completeActivation } = useAppSession();
+  const { colors } = useAppTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
   const [accessKey, setAccessKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -72,7 +75,8 @@ export default function ActivateScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) =>
+  StyleSheet.create({
   panel: {
     backgroundColor: colors.panelElevated,
     borderWidth: 1,
@@ -101,4 +105,4 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: '#fff', fontWeight: '700' },
   error: { color: colors.danger, fontWeight: '600' },
-});
+  });

@@ -20,10 +20,11 @@ import {
   getCompletedChoreCompletionsForDate,
   getMemberCompletionForDate,
 } from '@family-organizer/shared-core';
-import { colors, radii, shadows, spacing } from '../../src/theme/tokens';
+import { radii, shadows, spacing } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { getApiBaseUrl } from '../../src/lib/api-client';
 import { getRecursiveTaskCompletionTransactions, getTasksForDate } from '../../../lib/task-scheduler';
+import { useAppTheme } from '../../src/theme/ThemeProvider';
 
 const DAY_RANGE = 7;
 const MAX_LINKS_PER_TASK = 4;
@@ -256,7 +257,7 @@ function createInitials(name) {
     .join('');
 }
 
-function SectionCard({ title, meta, children }) {
+function SectionCard({ title, meta, children, styles }) {
   return (
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
@@ -269,6 +270,8 @@ function SectionCard({ title, meta, children }) {
 }
 
 export default function DashboardTab() {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { db, currentUser, familyMembers, isAuthenticated, instantReady, lock } = useAppSession();
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [viewedMemberId, setViewedMemberId] = useState('');
@@ -646,6 +649,7 @@ export default function DashboardTab() {
         >
           <SectionCard
             title="Task Series"
+            styles={styles}
             meta={
               taskSeriesCards.length > 0
                 ? `${taskSeriesCards.length} list${taskSeriesCards.length === 1 ? '' : 's'} with items today`
@@ -740,6 +744,7 @@ export default function DashboardTab() {
 
           <SectionCard
             title="Chores"
+            styles={styles}
             meta={
               choreRows.length > 0
                 ? `${incompleteChores.length} left • ${completedChores.length} finished`
@@ -953,7 +958,8 @@ export default function DashboardTab() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -1549,4 +1555,4 @@ const styles = StyleSheet.create({
     color: '#FFF9F1',
     fontWeight: '800',
   },
-});
+  });

@@ -17,10 +17,11 @@ import { id, tx } from '@instantdb/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import NepaliDate from 'nepali-date-converter';
 import { ScreenScaffold } from '../../src/components/ScreenScaffold';
-import { colors, radii, shadows, spacing } from '../../src/theme/tokens';
+import { radii, shadows, spacing } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
+import { useAppTheme } from '../../src/theme/ThemeProvider';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DEVANAGARI_DIGITS = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
@@ -269,6 +270,8 @@ function firstParam(value) {
 }
 
 export default function CalendarTab() {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const searchParams = useLocalSearchParams();
   const { requireParentAction } = useParentActionGate();
   const {
@@ -1090,7 +1093,8 @@ export default function CalendarTab() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) =>
+  StyleSheet.create({
   screenScroll: {
     flex: 1,
   },
@@ -1600,4 +1604,4 @@ const styles = StyleSheet.create({
   actionTextDisabled: {
     color: '#7E7668',
   },
-});
+  });

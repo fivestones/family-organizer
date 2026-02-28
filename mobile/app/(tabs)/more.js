@@ -1,21 +1,76 @@
-import React from 'react';
-import { Pressable, Text, View, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ScreenScaffold } from '../../src/components/ScreenScaffold';
-import { colors, radii, spacing } from '../../src/theme/tokens';
+import { radii, spacing } from '../../src/theme/tokens';
 import { revokeMobileDeviceSession } from '../../src/lib/api-client';
 import { useAppSession } from '../../src/providers/AppProviders';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/session-prefs';
+import { useParentActionGate } from '../../src/hooks/useParentActionGate';
+import { useAppTheme } from '../../src/theme/ThemeProvider';
 
 const MENU_ITEMS = [
-  { key: 'taskSeries', title: 'Task Series Manager', status: 'Phase 3/5' },
-  { key: 'familyMembers', title: 'Family Members', status: 'Phase 4' },
-  { key: 'allowanceDistribution', title: 'Allowance Distribution', status: 'Phase 4' },
-  { key: 'files', title: 'Files', status: 'Phase 4' },
-  { key: 'settings', title: 'Settings', status: 'Phase 4' },
-  { key: 'devTools', title: 'Dev Tools (debug builds)', status: 'Phase 4' },
+  {
+    key: 'taskSeries',
+    title: 'Task Series Manager',
+    description: 'Live status, assignees, and checklist progress.',
+    status: 'Live',
+    href: '/more/task-series',
+    parentOnly: true,
+  },
+  {
+    key: 'familyMembers',
+    title: 'Family Members',
+    description: 'Household roster, roles, PIN state, and profile snapshots.',
+    status: 'Live',
+    href: '/more/family-members',
+    parentOnly: true,
+  },
+  {
+    key: 'allowanceDistribution',
+    title: 'Allowance Distribution',
+    description: 'Preview household payout readiness before the execution workflow lands.',
+    status: 'Preview',
+    href: '/more/allowance-distribution',
+    parentOnly: true,
+  },
+  {
+    key: 'files',
+    title: 'Files',
+    description: 'Browse uploaded files and open them through the mobile auth route.',
+    status: 'Live',
+    href: '/more/files',
+    parentOnly: true,
+  },
+  {
+    key: 'settings',
+    title: 'Settings',
+    description: 'Local appearance plus shared currency and unit definitions.',
+    status: 'Live',
+    href: '/more/settings',
+    parentOnly: false,
+  },
+  {
+    key: 'devTools',
+    title: 'Dev Tools',
+    description: 'Session details and debug helpers for simulator and device testing.',
+    status: 'Preview',
+    href: '/more/dev-tools',
+    parentOnly: true,
+  },
 ];
 
+const MENU_ITEM_BY_KEY = Object.fromEntries(MENU_ITEMS.map((item) => [item.key, item]));
+
+function firstParam(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export default function MoreTab() {
+  const searchParams = useLocalSearchParams();
+  const { requireParentAction } = useParentActionGate();
+  const { colors } = useAppTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
   const {
     resetDeviceSession,
     lock,
@@ -25,7 +80,11 @@ export default function MoreTab() {
     isOnline,
     bootstrapStatus,
     deviceSessionToken,
+    isAuthenticated,
+    recordParentActivity,
   } = useAppSession();
+  const [resumePendingAction, setResumePendingAction] = useState(null);
+  const [handledResumeNonce, setHandledResumeNonce] = useState('');
 
   async function handleResetDevice() {
     try {
@@ -40,6 +99,61 @@ export default function MoreTab() {
   async function handleLockApp() {
     await lock();
     router.replace('/lock?intent=switch-user');
+  }
+
+  useEffect(() => {
+    const shouldResume = firstParam(searchParams.resumeParentAction) === '1';
+    const resumeNonce = String(firstParam(searchParams.resumeNonce) || '');
+    if (!shouldResume || !resumeNonce || resumeNonce === handledResumeNonce) return;
+
+    let cancelled = false;
+    async function loadPendingAction() {
+      const pending = await getPendingParentAction();
+      if (cancelled) return;
+      setHandledResumeNonce(resumeNonce);
+      if (pending?.actionId?.startsWith('more:open:')) {
+        setResumePendingAction(pending);
+      }
+    }
+
+    void loadPendingAction();
+    return () => {
+      cancelled = true;
+    };
+  }, [handledResumeNonce, searchParams.resumeNonce, searchParams.resumeParentAction]);
+
+  useEffect(() => {
+    if (!resumePendingAction) return;
+    if (!isAuthenticated || principalType !== 'parent') return;
+
+    const key = resumePendingAction.actionId.replace('more:open:', '');
+    const item = MENU_ITEM_BY_KEY[key];
+
+    void (async () => {
+      await clearPendingParentAction();
+      setResumePendingAction(null);
+      if (item?.href) {
+        router.push(item.href);
+      }
+    })();
+  }, [isAuthenticated, principalType, resumePendingAction]);
+
+  async function handleMenuPress(item) {
+    recordParentActivity();
+
+    if (item.parentOnly && (!isAuthenticated || principalType !== 'parent')) {
+      await requireParentAction({
+        actionId: `more:open:${item.key}`,
+        actionLabel: item.title,
+        payload: { href: item.href },
+        returnPath: '/more',
+      });
+      return;
+    }
+
+    if (item.href) {
+      router.push(item.href);
+    }
   }
 
   return (
@@ -74,39 +188,55 @@ export default function MoreTab() {
         </View>
       </View>
 
-      <View style={styles.menu}>
+      <ScrollView style={styles.menu} contentContainerStyle={styles.menuContent} showsVerticalScrollIndicator={false}>
         {MENU_ITEMS.map((item) => (
-          <View key={item.key} style={styles.row}>
-            <Text style={styles.rowTitle}>{item.title}</Text>
-            <Text style={styles.rowBadge}>{item.status}</Text>
-          </View>
+          <Pressable
+            key={item.key}
+            testID={`more-menu-${item.key}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${item.title}`}
+            style={styles.row}
+            onPress={() => {
+              void handleMenuPress(item);
+            }}
+          >
+            <View style={styles.rowCopy}>
+              <Text style={styles.rowTitle}>{item.title}</Text>
+              <Text style={styles.rowDescription}>{item.description}</Text>
+            </View>
+            <View style={styles.rowMeta}>
+              <Text style={styles.rowBadge}>{item.status}</Text>
+              <Text style={styles.rowArrow}>›</Text>
+            </View>
+          </Pressable>
         ))}
-      </View>
-      <Pressable
-        testID="more-lock-app-button"
-        accessibilityRole="button"
-        accessibilityLabel="Lock app"
-        style={styles.lockButton}
-        onPress={() => {
-          void handleLockApp();
-        }}
-      >
-        <Text style={styles.lockText}>Lock App</Text>
-      </Pressable>
-      <Pressable
-        testID="more-reset-device-button"
-        accessibilityRole="button"
-        accessibilityLabel="Reset this iPhone and reactivate"
-        style={styles.resetButton}
-        onPress={handleResetDevice}
-      >
-        <Text style={styles.resetText}>Reset This iPhone (Re-activate)</Text>
-      </Pressable>
+        <Pressable
+          testID="more-lock-app-button"
+          accessibilityRole="button"
+          accessibilityLabel="Lock app"
+          style={styles.lockButton}
+          onPress={() => {
+            void handleLockApp();
+          }}
+        >
+          <Text style={styles.lockText}>Lock App</Text>
+        </Pressable>
+        <Pressable
+          testID="more-reset-device-button"
+          accessibilityRole="button"
+          accessibilityLabel="Reset this iPhone and reactivate"
+          style={styles.resetButton}
+          onPress={handleResetDevice}
+        >
+          <Text style={styles.resetText}>Reset This iPhone (Re-activate)</Text>
+        </Pressable>
+      </ScrollView>
     </ScreenScaffold>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors) =>
+  StyleSheet.create({
   statusCard: {
     backgroundColor: colors.panelElevated,
     borderRadius: radii.md,
@@ -123,11 +253,15 @@ const styles = StyleSheet.create({
   statusLabel: { color: colors.inkMuted, fontSize: 12 },
   statusValue: { color: colors.ink, fontWeight: '700', fontSize: 12 },
   menu: {
+    flex: 1,
+  },
+  menuContent: {
     backgroundColor: colors.panelElevated,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.line,
     overflow: 'hidden',
+    paddingBottom: spacing.md,
   },
   row: {
     paddingHorizontal: spacing.md,
@@ -136,16 +270,25 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     gap: spacing.md,
   },
-  rowTitle: { color: colors.ink, fontWeight: '600', flex: 1 },
-  rowBadge: { color: colors.inkMuted, fontSize: 12 },
+  rowCopy: { flex: 1, gap: 4 },
+  rowTitle: { color: colors.ink, fontWeight: '700', flex: 1 },
+  rowDescription: { color: colors.inkMuted, fontSize: 12, lineHeight: 16 },
+  rowMeta: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  rowBadge: { color: colors.inkMuted, fontSize: 12, fontWeight: '700' },
+  rowArrow: { color: colors.inkMuted, fontSize: 18, lineHeight: 18 },
   lockButton: {
     backgroundColor: '#EAF1FB',
     borderColor: '#B7CAE8',
     borderWidth: 1,
     borderRadius: radii.sm,
     paddingVertical: 14,
+    marginTop: spacing.md,
     alignItems: 'center',
   },
   lockText: {
@@ -158,10 +301,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radii.sm,
     paddingVertical: 14,
+    marginTop: spacing.sm,
     alignItems: 'center',
   },
   resetText: {
     color: colors.danger,
     fontWeight: '700',
   },
-});
+  });
