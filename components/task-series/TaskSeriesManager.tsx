@@ -43,16 +43,23 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
     const [seriesToDelete, setSeriesToDelete] = useState<string[] | null>(null); // Array of IDs to delete
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
-    const { data, isLoading } = db.useQuery({
+    const { data, isLoading, error } = db.useQuery({
         taskSeries: {
-            $: { order: { updatedAt: 'desc' } },
             tasks: {},
             familyMember: {},
             scheduledActivity: {},
         },
     });
 
-    const seriesList = data?.taskSeries || [];
+    const seriesList = useMemo(() => {
+        const rawSeries = data?.taskSeries || [];
+
+        return [...rawSeries].sort((a: any, b: any) => {
+            const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+            const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+            return bTime - aTime;
+        });
+    }, [data?.taskSeries]);
     const today = useMemo(() => new Date(), []);
 
     const enrichedSeries = useMemo(() => {
@@ -435,6 +442,8 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
             {/* List */}
             {isLoading ? (
                 <div className="text-sm text-muted-foreground">Loading task series...</div>
+            ) : error ? (
+                <div className="text-sm text-destructive">Could not load task series: {error.message}</div>
             ) : filteredSeries.length === 0 ? (
                 <div className="text-sm text-muted-foreground">No task series yet. Click &ldquo;New Task Series&rdquo; to create one.</div>
             ) : (
