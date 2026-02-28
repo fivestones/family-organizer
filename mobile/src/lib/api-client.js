@@ -80,3 +80,12 @@ export async function getParentInstantToken({ familyMemberId, pin }) {
   });
   return parseJson(response);
 }
+
+export async function getMobileFilesList() {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/files`, {
+    headers: {
+      ...(await authHeaders()),
+    },
+  });
+  return parseJson(response);
+}
