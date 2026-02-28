@@ -5,7 +5,7 @@ import { middleware } from '@/middleware';
 describe('middleware device auth gate', () => {
     beforeEach(() => {
         process.env.DEVICE_ACCESS_KEY = 'test-device-key';
-        process.env.NODE_ENV = 'test';
+        (process.env as any).NODE_ENV = 'test';
     });
 
     it('returns 401 JSON for unauthorized API requests', async () => {

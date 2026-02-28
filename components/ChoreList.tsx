@@ -619,7 +619,6 @@ function ChoreList({
                             db={db}
                             unitDefinitions={unitDefinitions}
                             currencyOptions={currencyOptions}
-                            onEditTaskSeries={(seriesId: string) => setEditingTaskSeriesId(seriesId)}
                         />
                     )}
                 </DialogContent>

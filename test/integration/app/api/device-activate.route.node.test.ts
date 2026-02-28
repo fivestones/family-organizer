@@ -5,7 +5,7 @@ import { POST } from '@/app/api/device-activate/route';
 describe('POST /api/device-activate', () => {
     beforeEach(() => {
         process.env.DEVICE_ACCESS_KEY = 'test-device-key';
-        process.env.NODE_ENV = 'test';
+        (process.env as any).NODE_ENV = 'test';
     });
 
     function makeRequest(body: unknown) {

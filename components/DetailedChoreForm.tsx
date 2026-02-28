@@ -276,7 +276,7 @@ function DetailedChoreForm({
                     delete optionsForString.dtstart;
                 }
                 // Also remove internal properties that might cause issues if they slipped in
-                delete optionsForString._dtstart; // Example if internal properties exist
+                delete (optionsForString as any)._dtstart; // Example if internal properties exist
 
                 // Ensure freq is present
                 if (optionsForString.freq === undefined) {
@@ -379,7 +379,7 @@ function DetailedChoreForm({
                 if ('dtstart' in optionsForPreview) {
                     delete optionsForPreview.dtstart;
                 }
-                delete optionsForPreview._dtstart;
+                delete (optionsForPreview as any)._dtstart;
 
                 // Ensure freq is present
                 if (optionsForPreview.freq === undefined) return null;

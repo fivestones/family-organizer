@@ -6,15 +6,17 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox'; // Use Checkbox for Weekly and Monthly
 import { Button } from "@/components/ui/button";
 
+type DayOfWeekString = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU';
+
 // Mapping from DayOfWeek string literal to RRule Weekday constant
-const dayOfWeekMap: { [key: string]: Weekday } = {
-    MO: RRule.MO,
-    TU: RRule.TU,
-    WE: RRule.WE,
-    TH: RRule.TH,
-    FR: RRule.FR,
-    SA: RRule.SA,
-    SU: RRule.SU,
+const dayOfWeekMap: Record<DayOfWeekString, Weekday> = {
+    MO: RRule.MO as unknown as Weekday,
+    TU: RRule.TU as unknown as Weekday,
+    WE: RRule.WE as unknown as Weekday,
+    TH: RRule.TH as unknown as Weekday,
+    FR: RRule.FR as unknown as Weekday,
+    SA: RRule.SA as unknown as Weekday,
+    SU: RRule.SU as unknown as Weekday,
 };
 // Use this array for rendering checkboxes
 const daysOfWeekCheckboxes: { value: DayOfWeekString; label: string }[] = [
@@ -26,9 +28,6 @@ const daysOfWeekCheckboxes: { value: DayOfWeekString; label: string }[] = [
     { value: 'SA', label: 'Sat' },
     { value: 'SU', label: 'Sun' },
 ];
-
-
-type DayOfWeekString = typeof daysOfWeekCheckboxes[number]['value']; // 'MO', 'TU', etc.
 type FrequencyType = 'once' | 'daily' | 'weekly' | 'monthly';
 
 interface RecurrenceRuleFormProps {

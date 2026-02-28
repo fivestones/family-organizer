@@ -557,7 +557,7 @@ export default function MemberAllowanceDetail({
                 // Remove dtstart before generating string if it exists
                 const optionsForString = { ...allowanceRecurrenceOptions };
                 if ('dtstart' in optionsForString) delete optionsForString.dtstart;
-                delete optionsForString._dtstart;
+                delete (optionsForString as any)._dtstart;
 
                 // Ensure freq is present
                 if (optionsForString.freq === undefined) {

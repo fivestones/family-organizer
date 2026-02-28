@@ -137,7 +137,7 @@ export default function AllowanceDistributionPage() {
     });
 
     // Type assertion for fetched data
-    const typedData = data as
+    const typedData = data as unknown as
         | {
               familyMembers: FamilyMemberWithAllowance[];
               choreCompletions: ChoreCompletion[];
@@ -195,7 +195,7 @@ export default function AllowanceDistributionPage() {
 
                     // 2. Generate relevant RRULE occurrences (period boundaries)
                     const rruleSet = new RRuleSet();
-                    rruleSet.rrule(rule);
+                    rruleSet.rrule(rule as any);
 
                     // Add allowanceStartDate as a potential boundary if it's not already an occurrence
                     // and if our search needs to start there.
@@ -396,7 +396,7 @@ export default function AllowanceDistributionPage() {
             processAllowanceData(simulatedDate); // Pass the simulated date
         }
         if (dataError) {
-            setError(dataError);
+            setError(dataError as Error);
             setIsLoading(false);
         }
     }, [isDataLoading, typedData, dataError, processAllowanceData, simulatedDate]);
@@ -937,7 +937,7 @@ export default function AllowanceDistributionPage() {
                                                             disabled={processingMemberId === member.id}
                                                         />
                                                     </div>
-                                                    <Edit className="h-4 w-4 text-muted-foreground ml-1" title="Amount can be edited" />
+                                                    <Edit className="h-4 w-4 text-muted-foreground ml-1" aria-label="Amount can be edited" />
                                                 </div>
                                                 {/* +++ Enhanced Footer Breakdown Text Logic +++ */}
                                                 <div className="text-xs text-muted-foreground pl-1 h-4">
