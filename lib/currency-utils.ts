@@ -145,6 +145,51 @@ export const formatBalances = (
     ); // Return "Empty" if all balances were zero
 };
 
+
+// +++ Reconcile / Audit +++
+/**
+ * Calculates the TRUE balance of an envelope based on its transaction history
+ * and updates the envelope balance if it differs.
+ */
+export const reconcileEnvelope = async (db: any, envelopeId: string, currentBalances: {[c:string]: number}) => {
+    const result = await db.queryOnce({
+        allowanceTransactions: {
+            $: { where: { envelope: envelopeId } }
+        }
+    });
+
+    const txs = result.data?.allowanceTransactions || [];
+    const calculatedBalances: {[c:string]: number} = {};
+
+    // Replay History
+    txs.forEach((tx: any) => {
+        const amount = tx.amount || 0;
+        const currency = tx.currency;
+        if(currency) {
+            calculatedBalances[currency] = (calculatedBalances[currency] || 0) + amount;
+        }
+    });
+
+    let needsUpdate = false;
+    const allCurrencies = new Set([...Object.keys(currentBalances), ...Object.keys(calculatedBalances)]);
+
+    allCurrencies.forEach(c => {
+        const current = currentBalances[c] || 0;
+        const calc = calculatedBalances[c] || 0;
+        if (Math.abs(current - calc) > 0.001) {
+            needsUpdate = true;
+            console.warn(`Audit Mismatch for ${c}: Cache=${current}, True=${calc}`);
+        }
+    });
+
+    if (needsUpdate) {
+        await db.transact(tx.allowanceEnvelopes[envelopeId].update({ balances: calculatedBalances }));
+        console.log(`Reconciled envelope ${envelopeId}`);
+        return { fixed: true, balances: calculatedBalances };
+    }
+    return { fixed: false };
+};
+
 // +++ NEW Utility Function +++
 /**
  * Computes a sorted list of unique monetary currency codes used across all envelopes and definitions.
@@ -270,7 +315,10 @@ export const canInitiateTransaction = (userRole: 'Parent' | 'Child', transaction
  */
 export const createInitialSavingsEnvelope = async (db: any, familyMemberId: string) => {
     // Function no longer needs to query - assumes calling code verified no envelopes exist.
+    const auditFields = await getAllowanceTransactionAuditFields();
     const newEnvelopeId = id();
+    const initTxId = id();
+
     await db.transact([
         tx.allowanceEnvelopes[newEnvelopeId].update({
             name: 'Savings',
@@ -283,6 +331,17 @@ export const createInitialSavingsEnvelope = async (db: any, familyMemberId: stri
         }),
         // Also link it back from the family member
         tx.familyMembers[familyMemberId].link({ allowanceEnvelopes: newEnvelopeId }),
+        tx.allowanceTransactions[initTxId].update({
+            ...auditFields,
+            amount: 0,
+            currency: 'USD',
+            transactionType: 'init',
+            description: 'Envelope Created',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            envelope: newEnvelopeId
+        }),
+        tx.allowanceEnvelopes[newEnvelopeId].link({ transactions: initTxId })
     ]);
     console.log(`Created initial Savings envelope ${newEnvelopeId} for member ${familyMemberId}`);
     return newEnvelopeId;
@@ -312,7 +371,10 @@ export const createAdditionalEnvelope = async (
     // Removed validation: if (goalCurrency && (goalAmount === null || goalAmount === undefined)) throw new Error("Goal amount must be specified if goal currency is set.");
     // Allow setting goal currency without amount initially if desired, though UI might prevent it.
 
+    const auditFields = await getAllowanceTransactionAuditFields();
     const newEnvelopeId = id();
+    const initTxId = id();
+
     await db.transact([
         tx.allowanceEnvelopes[newEnvelopeId].update({
             name: name.trim(),
@@ -324,6 +386,17 @@ export const createAdditionalEnvelope = async (
         }),
         // Also link it back from the family member
         tx.familyMembers[familyMemberId].link({ allowanceEnvelopes: newEnvelopeId }),
+        tx.allowanceTransactions[initTxId].update({
+            ...auditFields,
+            amount: 0,
+            currency: 'USD',
+            transactionType: 'init',
+            description: 'Envelope Created',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            envelope: newEnvelopeId
+        }),
+        tx.allowanceEnvelopes[newEnvelopeId].link({ transactions: initTxId })
     ]);
     console.log(`Created envelope ${newEnvelopeId} with name '${name}', isDefault=${isDefault}, goal=${goalCurrency || ''} ${goalAmount || ''}`);
     return newEnvelopeId; // Return the new ID
