@@ -41,7 +41,9 @@ export default function FileManager({ initialFiles }: FileManagerProps) {
                 body: formData,
             });
 
-            if (!response.ok) throw new Error('Upload failed');
+            // S3 presigned POST returns 204. Cross-origin opaque responses have status 0.
+            // Only treat 4xx/5xx as failures.
+            if (response.status >= 400) throw new Error('Upload failed');
 
             await refreshFiles();
             form.reset();

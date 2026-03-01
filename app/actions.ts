@@ -97,7 +97,7 @@ export async function getPresignedUploadUrl(contentType: string, fileName: strin
 
     try {
         const { s3Signer, bucketName } = getS3Clients();
-        // Use s3Signer so the URL points to fam.yapnf.com:9000, not minio:9000
+        // Use s3Signer so the URL points to the public endpoint, not the internal one
         const { url, fields } = await createPresignedPost(s3Signer, {
             Bucket: bucketName,
             Key,
