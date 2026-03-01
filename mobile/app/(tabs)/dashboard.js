@@ -22,7 +22,7 @@ import {
 } from '@family-organizer/shared-core';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
-import { getApiBaseUrl } from '../../src/lib/api-client';
+import { getApiBaseUrl, getPresignedFileUrl } from '../../src/lib/api-client';
 import { getRecursiveTaskCompletionTransactions, getTasksForDate } from '../../../lib/task-scheduler';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 
@@ -227,10 +227,13 @@ function buildTaskLinks(task) {
   (task?.attachments || []).forEach((attachment) => {
     if (!attachment?.url) return;
     const key = String(attachment.url);
-    const url = /^https?:\/\//i.test(key)
-      ? key
-      : `${getApiBaseUrl()}/api/mobile/files/${encodeURIComponent(key)}`;
-    pushLink(attachment.name || 'Open attachment', url, 'attachment');
+    const isFullUrl = /^https?:\/\//i.test(key);
+    pushLink(attachment.name || 'Open attachment', isFullUrl ? key : key, 'attachment');
+    if (!isFullUrl) {
+      // Mark with the S3 key so openTaskLink can resolve it via presigned URL
+      const link = links[links.length - 1];
+      if (link) link.s3Key = key;
+    }
   });
 
   return links;
@@ -238,7 +241,11 @@ function buildTaskLinks(task) {
 
 async function openTaskLink(link) {
   try {
-    await Linking.openURL(link.url);
+    let resolvedUrl = link.url;
+    if (link.s3Key) {
+      resolvedUrl = await getPresignedFileUrl(link.s3Key);
+    }
+    await Linking.openURL(resolvedUrl);
   } catch (error) {
     Alert.alert('Unable to open link', error?.message || 'Please try again.');
   }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { radii, spacing, withAlpha } from '../../src/theme/tokens';
@@ -7,7 +7,7 @@ import { useAppTheme } from '../../src/theme/ThemeProvider';
 import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/SubscreenScaffold';
 import { clearPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
-import { getApiBaseUrl, getMobileFilesList } from '../../src/lib/api-client';
+import { getPresignedFileUrl, getMobileFilesList } from '../../src/lib/api-client';
 
 function firstParam(value) {
   return Array.isArray(value) ? value[0] : value;
@@ -76,8 +76,12 @@ export default function FilesScreen() {
   }
 
   async function openFile(fileKey) {
-    const url = `${getApiBaseUrl()}/api/mobile/files/${encodeURIComponent(fileKey)}`;
-    await Linking.openURL(url);
+    try {
+      const url = await getPresignedFileUrl(fileKey);
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert('Unable to open file', error?.message || 'Please try again.');
+    }
   }
 
   if (principalType !== 'parent') {

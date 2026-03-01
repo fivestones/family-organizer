@@ -80,3 +80,12 @@ export async function getMobileFilesList() {
   });
   return parseJson(response);
 }
+
+export async function getPresignedFileUrl(fileKey) {
+  const response = await fetch(
+    `${getApiBaseUrl()}/api/mobile/files/${encodeURIComponent(fileKey)}`,
+    { headers: await authHeaders() }
+  );
+  const data = await parseJson(response);
+  return data.url;
+}
