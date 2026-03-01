@@ -4,7 +4,7 @@
 import { init } from '@instantdb/react';
 import schema from '@/instant.schema';
 
-const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || '69a7badb-2401-462a-b414-bd63f6e6f897';
+const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID;
 
 if (!APP_ID) {
     throw new Error('NEXT_PUBLIC_INSTANT_APP_ID is not defined');

@@ -1,12 +1,13 @@
 import { init } from '@instantdb/react-native';
 import schema from '../../../instant.schema';
 
-const DEFAULT_INSTANT_APP_ID = '69a7badb-2401-462a-b414-bd63f6e6f897';
-
 const APP_ID =
   process.env.EXPO_PUBLIC_INSTANT_APP_ID ||
-  process.env.NEXT_PUBLIC_INSTANT_APP_ID ||
-  DEFAULT_INSTANT_APP_ID;
+  process.env.NEXT_PUBLIC_INSTANT_APP_ID;
+
+if (!APP_ID) {
+  throw new Error('EXPO_PUBLIC_INSTANT_APP_ID or NEXT_PUBLIC_INSTANT_APP_ID must be defined');
+}
 
 const apiURI = process.env.EXPO_PUBLIC_INSTANT_API_URI || process.env.NEXT_PUBLIC_INSTANT_API_URI;
 const websocketURI =

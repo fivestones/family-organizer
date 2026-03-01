@@ -17,7 +17,10 @@ services:
     ports:
       - '${APP_PORT}:3000'
     env_file:
-      - .env
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
     environment:
       # --- Server-Side Config (Internal Docker Network) ---
       # The server uses the internal container name "minio".
@@ -54,8 +57,8 @@ services:
       - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY}
       # CRITICAL: Tells MinIO its public identity so Presigned URLs use the domain, not the container IP
       - MINIO_SERVER_URL=${NEXT_PUBLIC_S3_ENDPOINT}
-      # Optional: If you proxy the console as well
-      - MINIO_BROWSER_REDIRECT_URL=${MINIO_BROWSER_REDIRECT_URL}
+      # Uncomment if you reverse-proxy the MinIO console (e.g. via SWAG/nginx):
+      # - MINIO_BROWSER_REDIRECT_URL=${MINIO_BROWSER_REDIRECT_URL}
     volumes:
       - minio_data:/data
     networks:
@@ -73,33 +76,22 @@ services:
       minio:
         condition: service_healthy
     env_file:
-      - .env
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
     entrypoint: |
       /bin/sh -c "
-      echo '--- DEBUG START ---'
-      
-      # 1. Verify DNS: Who is 'minio'?
-      #echo 'Pinging minio...'
-      #ping -c 1 minio
-      
-      # 2. Connect
+      # Connect to MinIO
       until /usr/bin/mc alias set myminio http://minio:9000 \${S3_ACCESS_KEY_ID} \${S3_SECRET_ACCESS_KEY}; do
         echo '...waiting for minio...';
         sleep 1;
       done;
-      
-      # 3. Create Bucket
+
+      # Create bucket and set public download policy
       /usr/bin/mc mb -p myminio/family-organizer;
       /usr/bin/mc anonymous set download myminio/family-organizer;
-      
-      # 4. VERIFY: List remote buckets to prove server has it
-      echo '--- SERVER BUCKET LIST ---'
-      /usr/bin/mc ls myminio/
-      
-      # 5. TRAP CHECK: Did we accidentally create a local folder?
-      #echo '--- LOCAL FILESYSTEM CHECK ---'
-      #ls -R / | grep family-organizer || echo 'No local folder found (Good!)'
-      
+
       echo 'Bucket setup complete.'
       exit 0;
       "
@@ -109,8 +101,9 @@ services:
 volumes:
   minio_data:
 
-# use the network that linuxserver.io swag is on so it can be easily reverse proxied
+# Join an existing external network (e.g. for reverse proxying via SWAG/nginx).
+# Set DOCKER_NETWORK_NAME in your .env to match the network your reverse proxy uses.
 networks:
   default:
-    name: docker_default
-    external: True
+    name: ${DOCKER_NETWORK_NAME:-docker_default}
+    external: true

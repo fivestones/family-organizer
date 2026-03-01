@@ -3,18 +3,21 @@ FROM node:20-alpine AS base
 
 # Install libc6-compat for compatibility (needed for some Next.js deps like sharp)
 RUN apk add --no-cache libc6-compat
-# Enable corepack to use pnpm without installing it manually
-RUN corepack enable
 
 # 2. Dependencies stage
 FROM base AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package.json pnpm-lock.yaml* ./
+# Copy root package files
+COPY package.json package-lock.json ./
 
-# Install dependencies (frozen-lockfile ensures strict adherence to the lockfile)
-RUN pnpm i --frozen-lockfile
+# Copy workspace package.json files so npm ci can resolve them
+COPY packages/shared-core/package.json ./packages/shared-core/
+COPY packages/mobile-contracts/package.json ./packages/mobile-contracts/
+COPY mobile/package.json ./mobile/
+
+# Install dependencies (ci ensures strict adherence to the lockfile)
+RUN npm ci
 
 # 3. Builder stage
 FROM base AS builder
@@ -28,9 +31,7 @@ ARG NEXT_PUBLIC_INSTANT_WEBSOCKET_URI
 ARG NEXT_PUBLIC_INSTANT_APP_ID
 
 # Build the application
-# Note: If your project uses environment variables during build, 
-# you might need to ARG/ENV them here or build will fail.
-RUN pnpm run build
+RUN npm run build
 
 # 4. Runner stage (Production)
 FROM base AS runner
@@ -39,6 +40,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 # Disable Next.js telemetry
 ENV NEXT_TELEMETRY_DISABLED=1
+# Ensure sharp is found in the standalone build on Alpine
+ENV NEXT_SHARP_PATH=/app/node_modules/sharp
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
