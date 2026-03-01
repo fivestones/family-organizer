@@ -252,8 +252,17 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
 
                             <div className="space-y-1">
                                 <div className="text-sm font-medium">Full Text</div>
-                                <p className="text-sm text-muted-foreground bg-muted/20 p-2 rounded">{task.text || '(No text)'}</p>
+                                <p className="text-sm text-muted-foreground bg-muted/20 p-2 rounded select-text">{task.text || '(No text)'}</p>
                             </div>
+
+                            {(task as any).notes ? (
+                                <div className="space-y-1">
+                                    <div className="text-sm font-medium">Details</div>
+                                    <p className="text-sm text-muted-foreground bg-muted/20 p-2 rounded whitespace-pre-wrap select-text">
+                                        {(task as any).notes}
+                                    </p>
+                                </div>
+                            ) : null}
 
                             <div className="text-xs text-muted-foreground space-y-1">
                                 {subtitle && <div>Sequence: {subtitle}</div>}
@@ -269,7 +278,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                                         {directChildren.map((child) => (
                                             <li key={child.id} className="flex items-start gap-2">
                                                 <span className="opacity-50">•</span>
-                                                <span className={child.isCompleted ? 'line-through opacity-70' : ''}>{child.text}</span>
+                                                <span className={cn('select-text', child.isCompleted ? 'line-through opacity-70' : '')}>{child.text}</span>
                                             </li>
                                         ))}
                                     </ul>
@@ -292,7 +301,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                                 // --- HEADER VARIANT ---
                                 <Popover>
                                     <PopoverTrigger asChild>
-                                        <div className="flex flex-col select-none cursor-pointer hover:bg-accent/50 rounded px-1 -ml-1 transition-colors">
+                                        <div className="flex flex-col cursor-pointer hover:bg-accent/50 rounded px-1 -ml-1 transition-colors">
                                             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground/80">{task.text}</span>
                                         </div>
                                     </PopoverTrigger>
@@ -322,7 +331,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                                                 <PopoverTrigger asChild>
                                                     <span
                                                         className={cn(
-                                                            'text-sm leading-tight select-none transition-colors hover:text-foreground/80 cursor-pointer w-fit',
+                                                            'text-sm leading-tight select-text transition-colors hover:text-foreground/80 cursor-text w-fit',
                                                             'group-hover/text:underline decoration-muted-foreground/30 underline-offset-2',
                                                             task.isCompleted
                                                                 ? 'text-muted-foreground line-through decoration-muted-foreground/50'
@@ -366,7 +375,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                                     {/* --- Metadata Details (Conditional Render) --- */}
                                     {isDetailsVisible && hasMetadata && (
                                         <div className="ml-7 mt-2 mb-1 p-2 bg-blue-50/50 border border-blue-100 rounded-md text-sm">
-                                            {hasNotes && <div className="text-gray-700 whitespace-pre-wrap mb-2 text-xs">{(task as any).notes}</div>}
+                                            {hasNotes && <div className="text-gray-700 whitespace-pre-wrap mb-2 text-xs select-text">{(task as any).notes}</div>}
                                             {hasAttachments && (
                                                 <div className="flex flex-wrap gap-2">
                                                     {attachments.map((file: any) => (
