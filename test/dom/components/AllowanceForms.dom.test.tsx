@@ -60,7 +60,7 @@ vi.mock('@/components/ui/select', async () => {
         if (node == null) return '';
         if (typeof node === 'string' || typeof node === 'number') return String(node);
         if (Array.isArray(node)) return node.map(flattenText).join('');
-        if (React.isValidElement(node)) return flattenText(node.props.children);
+        if (React.isValidElement(node)) return flattenText((node.props as any).children);
         return '';
     }
 

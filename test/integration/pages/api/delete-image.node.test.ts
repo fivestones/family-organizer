@@ -50,7 +50,7 @@ async function ensureFile(filePath: string, contents = 'x') {
 }
 
 afterEach(async () => {
-    for (const filePath of [...createdPaths]) {
+    for (const filePath of Array.from(createdPaths)) {
         try {
             await fs.unlink(filePath);
         } catch {}

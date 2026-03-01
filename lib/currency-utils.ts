@@ -162,7 +162,7 @@ export const computeMonetaryCurrencies = (allEnvelopes: Envelope[], unitDefiniti
 
     const codesInDefs = new Set<string>(unitDefinitions.map((def) => def.code.toUpperCase()));
 
-    const allCodes = new Set([...codesInBalances, ...codesInDefs]);
+    const allCodes = new Set(Array.from(codesInBalances).concat(Array.from(codesInDefs)));
     const unitDefMap = new Map(unitDefinitions.map((def) => [def.code.toUpperCase(), def]));
 
     const monetaryCodes = Array.from(allCodes).filter((code) => {
@@ -206,7 +206,7 @@ export const computeAllApplicableCurrencyCodes = (allEnvelopes: Envelope[], unit
     const codesInDefs = new Set<string>(unitDefinitions.map((def) => def.code.toUpperCase()));
 
     // Combine codes from balances and definitions
-    const allCodes = new Set([...codesInBalances, ...codesInDefs]);
+    const allCodes = new Set(Array.from(codesInBalances).concat(Array.from(codesInDefs)));
 
     // Add common defaults like USD, only if they are defined or look like monetary codes
     // (optional step, depending if you want guaranteed defaults even if unused/undefined)

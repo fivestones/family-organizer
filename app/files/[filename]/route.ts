@@ -52,7 +52,7 @@ export async function GET(
         // Generate the URL using the signer client (pointing to localhost)
         const signedUrl = await getSignedUrl(s3Signer, command, { expiresIn: 3600 });
 
-        // 307 Redirect: Browser goes directly to MinIO (fam.yapnf.com:9000)
+        // 307 Redirect: Browser goes directly to MinIO via presigned URL
         return NextResponse.redirect(signedUrl, { status: 307 });
     } catch (error) {
         console.error('Error generating redirect:', error);
