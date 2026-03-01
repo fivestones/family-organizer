@@ -6,6 +6,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { LoginModal } from '@/components/auth/LoginModal';
 import { Loader2, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useParentMode } from '@/components/auth/useParentMode';
 
 interface ParentGateProps {
     children: React.ReactNode;
@@ -14,6 +15,7 @@ interface ParentGateProps {
 export function ParentGate({ children }: ParentGateProps) {
     // +++ CHANGED: Consume isLoading from context +++
     const { currentUser, isAuthenticated, isLoading } = useAuth();
+    const { isParentMode } = useParentMode();
     const [isLoginOpen, setIsLoginOpen] = useState(false);
 
     // +++ CHANGED: Logic update.
@@ -21,11 +23,11 @@ export function ParentGate({ children }: ParentGateProps) {
     // If loading finishes and we aren't authorized, open the modal.
     useEffect(() => {
         if (!isLoading) {
-            if (!isAuthenticated || currentUser?.role !== 'parent') {
+            if (!isAuthenticated || !isParentMode) {
                 setIsLoginOpen(true);
             }
         }
-    }, [isLoading, isAuthenticated, currentUser]);
+    }, [isLoading, isAuthenticated, currentUser, isParentMode]);
 
     // +++ CHANGED: Show loader while AuthProvider is initializing or DB is fetching +++
     if (isLoading) {
@@ -36,7 +38,7 @@ export function ParentGate({ children }: ParentGateProps) {
         );
     }
 
-    if (isAuthenticated && currentUser?.role === 'parent') {
+    if (isAuthenticated && isParentMode) {
         return <>{children}</>;
     }
 

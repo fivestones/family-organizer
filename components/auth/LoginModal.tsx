@@ -11,8 +11,10 @@ import { Label } from '@/components/ui/label';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import { db } from '@/lib/db';
 import { useAuth } from '@/components/AuthProvider';
-import { hashPin } from '@/app/actions';
+import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
 import { useToast } from '@/components/ui/use-toast';
+import { hashPinClient } from '@/lib/pin-client';
+import { hashPin } from '@/app/actions';
 
 interface LoginModalProps {
     isOpen: boolean;
@@ -21,11 +23,13 @@ interface LoginModalProps {
 
 export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     const { login } = useAuth();
+    const { ensureKidPrincipal, elevateParentPrincipal, canUseCachedParentPrincipal, isParentSessionSharedDevice } = useInstantPrincipal();
     const { toast } = useToast();
     const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
     const [pin, setPin] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
+    const [parentSharedDevice, setParentSharedDevice] = useState(true);
 
     // +++ NEW: Force cleanup of pointer-events on Body +++
     // This implements the fix found on GitHub to prevent the app from freezing
@@ -56,6 +60,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             $: { order: { order: 'asc' } },
         },
     });
+    const familyMembers = (data?.familyMembers as any[]) || [];
 
     // Reset state when modal opens/closes
     useEffect(() => {
@@ -64,6 +69,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             setPin('');
             setIsVerifying(false);
             setRememberMe(false);
+            setParentSharedDevice(true);
         }
     }, [isOpen]);
 
@@ -71,18 +77,58 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         setSelectedMemberId(id);
         setPin(''); // Clear any previous PIN attempt
         setRememberMe(false);
+        setParentSharedDevice(true);
     };
 
     const handlePinSubmit = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
-        if (!selectedMemberId || !pin) return;
+        if (!selectedMemberId) return;
 
-        const member = data?.familyMembers.find((m: any) => m.id === selectedMemberId);
+        const member = familyMembers.find((m: any) => m.id === selectedMemberId);
         if (!member) return;
 
         setIsVerifying(true);
 
         try {
+            const isParentMember = member.role === 'parent';
+
+            if (isParentMember) {
+                const canReuseParent = canUseCachedParentPrincipal;
+                if (!canReuseParent && !pin) {
+                    toast({ title: 'PIN is required', variant: 'destructive' });
+                    return;
+                }
+                if (!canReuseParent && typeof navigator !== 'undefined' && navigator.onLine === false) {
+                    toast({
+                        title: 'Internet required for parent mode',
+                        description: 'Parent elevation needs a server check. Try again when this device is back online.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+
+                await elevateParentPrincipal({
+                    familyMemberId: member.id,
+                    pin: pin,
+                    sharedDevice: parentSharedDevice,
+                });
+
+                login(
+                    {
+                        id: member.id,
+                        name: member.name,
+                        role: member.role,
+                        photoUrls: member.photoUrls,
+                    },
+                    rememberMe
+                );
+                toast({ title: `Welcome back, ${member.name}!` });
+                onClose();
+                return;
+            }
+
+            await ensureKidPrincipal({ clearParentSession: isParentSessionSharedDevice });
+
             // Check if member has a PIN set
             if (!member.pinHash) {
                 // If no PIN set, login immediately
@@ -100,7 +146,34 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 return;
             }
 
-            const hashedInput = await hashPin(pin);
+            let hashedInput: string;
+            try {
+                hashedInput = await hashPinClient(pin);
+            } catch (hashError) {
+                const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+                if (isOffline) {
+                    console.error('Failed to hash child PIN locally while offline', hashError);
+                    toast({
+                        title: 'Unable to verify PIN',
+                        description: 'This browser cannot verify PINs offline in the current context.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+
+                console.warn('Local child PIN hashing unavailable; falling back to server hash.', hashError);
+                try {
+                    hashedInput = await hashPin(pin);
+                } catch (serverHashError) {
+                    console.error('Failed to hash child PIN on server fallback', serverHashError);
+                    toast({
+                        title: 'Unable to verify PIN',
+                        description: 'Please try again.',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+            }
             if (hashedInput === member.pinHash) {
                 login(
                     {
@@ -128,14 +201,23 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         }
     };
 
-    const selectedMemberData = data?.familyMembers.find((m: any) => m.id === selectedMemberId);
+    const selectedMemberData = familyMembers.find((m: any) => m.id === selectedMemberId);
+    const isParentSelection = selectedMemberData?.role === 'parent';
+    const parentPinCanBeSkipped = Boolean(isParentSelection && canUseCachedParentPrincipal);
+    const loginButtonDisabled = isVerifying || (!pin && !parentPinCanBeSkipped);
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>{selectedMemberId ? `Welcome, ${selectedMemberData?.name}` : 'Who are you?'}</DialogTitle>
-                    <DialogDescription>{selectedMemberId ? 'Enter your PIN to continue.' : 'Select your profile to log in.'}</DialogDescription>
+                    <DialogDescription>
+                        {selectedMemberId
+                            ? parentPinCanBeSkipped
+                                ? 'Parent mode is already unlocked on this device.'
+                                : 'Enter your PIN to continue.'
+                            : 'Select your profile to log in.'}
+                    </DialogDescription>
                 </DialogHeader>
 
                 {isLoading ? (
@@ -147,7 +229,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                         {!selectedMemberId ? (
                             // Grid of avatars
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                                {data?.familyMembers.map((member: any) => (
+                                {familyMembers.map((member: any) => (
                                     <button
                                         key={member.id}
                                         onClick={() => handleMemberSelect(member.id)}
@@ -181,7 +263,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                                             onChange={(e) => setPin(e.target.value)}
                                             className="text-center text-2xl tracking-widest w-40"
                                             maxLength={6}
-                                            placeholder="PIN"
+                                            placeholder={parentPinCanBeSkipped ? 'PIN (optional)' : 'PIN'}
                                             autoFocus
                                             inputMode="numeric"
                                             pattern="[0-9]*"
@@ -198,11 +280,29 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                                         </Label>
                                     </div>
 
+                                    {isParentSelection && (
+                                        <div className="flex items-start justify-center space-x-2 px-4">
+                                            <Checkbox
+                                                id="parent-shared-device"
+                                                checked={parentSharedDevice}
+                                                onCheckedChange={(checked) => setParentSharedDevice(checked as boolean)}
+                                            />
+                                            <div className="space-y-1">
+                                                <Label htmlFor="parent-shared-device" className="text-sm font-medium leading-none">
+                                                    This is a shared device
+                                                </Label>
+                                                <p className="text-xs text-muted-foreground">
+                                                    Parent mode auto-expires after 15 minutes of inactivity and when switching to a kid account.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="flex justify-between items-center px-4">
                                         <Button type="button" variant="ghost" onClick={() => setSelectedMemberId(null)}>
                                             <ArrowLeft className="mr-2 h-4 w-4" /> Back
                                         </Button>
-                                        <Button type="submit" disabled={isVerifying || !pin}>
+                                        <Button type="submit" disabled={loginButtonDisabled}>
                                             {isVerifying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                             Log In
                                         </Button>

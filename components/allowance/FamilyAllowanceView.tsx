@@ -2,8 +2,9 @@
 'use client'; // Needed for hooks like useState, useEffect, useQuery
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { init, tx, id } from '@instantdb/react'; // Import InstantDB hooks
+import { tx, id } from '@instantdb/react'; // Import InstantDB hooks
 import { useToast } from '@/components/ui/use-toast'; // +++ ADDED IMPORT
+import { db } from '@/lib/db';
 
 // Import the child components
 import FamilyMembersList from '@/components/FamilyMembersList'; // Your existing component
@@ -11,15 +12,6 @@ import MemberAllowanceDetail from '@/components/allowance/MemberAllowanceDetail'
 
 // **** Import types ****
 import { UnitDefinition, Envelope, computeMonetaryCurrencies } from '@/lib/currency-utils';
-
-// It's generally better to initialize db once, perhaps in a central file
-// If initializing here, ensure Schema type is imported
-const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'df733414-7ccd-45bd-85f3-ffd0b3da8812';
-const db = init({
-    appId: APP_ID,
-    apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || 'http://localhost:8888',
-    websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || 'ws://localhost:8888/runtime/session',
-});
 
 // Define FamilyMember type based on query
 interface FamilyMember {

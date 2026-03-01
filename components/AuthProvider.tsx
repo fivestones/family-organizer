@@ -3,6 +3,8 @@
 
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, ReactNode } from 'react';
 import { db } from '@/lib/db';
+import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
+import { isEffectiveParentMode } from '@/lib/parent-mode';
 
 // Define the shape of our User context
 export interface FamilyMemberUser {
@@ -24,10 +26,11 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
-const STORAGE_KEY = 'family_organizer_user_id';
+export const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 const REMEMBER_KEY = 'family_organizer_remember_me';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+    const { ensureKidPrincipal, principalType } = useInstantPrincipal();
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [currentUser, setCurrentUser] = useState<FamilyMemberUser | null>(null);
     const [rememberMe, setRememberMe] = useState(false);
@@ -35,10 +38,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Fetch family members to resolve ID to actual user object
     // +++ CHANGED: Destructure isLoading +++
     const { data, isLoading } = db.useQuery({ familyMembers: {} });
+    const familyMembers = (data?.familyMembers as any[]) || [];
 
     // 1. Initialize from LocalStorage
     useEffect(() => {
-        const storedId = localStorage.getItem(STORAGE_KEY);
+        const storedId = localStorage.getItem(FAMILY_MEMBER_STORAGE_KEY);
         const storedRemember = localStorage.getItem(REMEMBER_KEY);
 
         if (storedId) {
@@ -50,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Listen for changes in other tabs to sync login state immediately
         const handleStorageChange = (e: StorageEvent) => {
-            if (e.key === STORAGE_KEY) {
+            if (e.key === FAMILY_MEMBER_STORAGE_KEY) {
                 // e.newValue will be the new ID on login, or null on logout
                 setCurrentUserId(e.newValue);
             }
@@ -68,8 +72,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // +++ CHANGED: Do not attempt to sync or logout while DB is loading +++
         if (isLoading) return;
 
-        if (currentUserId && data?.familyMembers) {
-            const foundMember = data.familyMembers.find((m: any) => m.id === currentUserId);
+        if (currentUserId && familyMembers.length > 0) {
+            const foundMember = familyMembers.find((m: any) => m.id === currentUserId);
             if (foundMember) {
                 setCurrentUser({
                     id: foundMember.id,
@@ -84,10 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else if (!currentUserId) {
             setCurrentUser(null);
         }
-    }, [currentUserId, data, isLoading]); // +++ CHANGED: Added isLoading dependency
+    }, [currentUserId, familyMembers, isLoading]); // +++ CHANGED: Added isLoading dependency
 
     const login = useCallback((user: FamilyMemberUser, remember: boolean = false) => {
-        localStorage.setItem(STORAGE_KEY, user.id);
+        localStorage.setItem(FAMILY_MEMBER_STORAGE_KEY, user.id);
 
         if (remember) {
             localStorage.setItem(REMEMBER_KEY, 'true');
@@ -102,12 +106,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const logout = useCallback(() => {
-        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(FAMILY_MEMBER_STORAGE_KEY);
         localStorage.removeItem(REMEMBER_KEY); // Clear remember me on manual logout
         setRememberMe(false);
         setCurrentUserId(null);
         setCurrentUser(null);
-    }, []);
+        // Explicit logout drops parent elevation and returns DB auth to kid principal.
+        void ensureKidPrincipal({ clearParentSession: true }).catch((error) => {
+            console.error('Failed to restore kid principal after logout', error);
+        });
+    }, [ensureKidPrincipal]);
+
+    useEffect(() => {
+        if (!currentUser) return;
+
+        // Parent UI mode requires the parent DB principal. If parent principal expires (shared device timeout)
+        // or the app has been switched back to the kid principal, clear the selected parent user.
+        if (currentUser.role === 'parent' && !isEffectiveParentMode(currentUser.role, principalType)) {
+            localStorage.removeItem(FAMILY_MEMBER_STORAGE_KEY);
+            localStorage.removeItem(REMEMBER_KEY);
+            setRememberMe(false);
+            setCurrentUserId(null);
+            setCurrentUser(null);
+        }
+    }, [currentUser, principalType]);
 
     // 3. Auto-Logout on Idle
     useEffect(() => {

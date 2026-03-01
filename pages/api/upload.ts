@@ -3,6 +3,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
+import { randomUUID } from 'crypto';
+import { getDeviceAuthContextFromNextApiRequest } from '@/lib/device-auth-server';
 
 export const config = {
   api: {
@@ -12,12 +14,28 @@ export const config = {
 
 const uploadDir = path.join(process.cwd(), 'public', 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
+const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === 'POST') {
-    const form = formidable({ uploadDir, keepExtensions: true });
+  if (req.method !== 'POST') {
+    res.status(405).json({ message: 'Method not allowed' });
+    return;
+  }
 
-    form.parse(req, async (err, fields, files) => {
+  if (!getDeviceAuthContextFromNextApiRequest(req).authorized) {
+    res.status(401).json({ message: 'Unauthorized device' });
+    return;
+  }
+
+  const form = formidable({
+    uploadDir,
+    keepExtensions: true,
+    maxFileSize: MAX_UPLOAD_SIZE_BYTES,
+    maxFiles: 1,
+  });
+
+  form.parse(req, async (err, fields, files) => {
       if (err) {
         console.error('Error parsing files:', err);
         return res.status(400).json({ message: 'Error parsing files' });
@@ -28,8 +46,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ message: 'No file uploaded' });
       }
 
-      const timestamp = Date.now();
-      const baseFilename = `${timestamp}_cropped_image`;
+      if (!uploadedFile.mimetype || !ALLOWED_MIME_TYPES.has(uploadedFile.mimetype)) {
+        try {
+          await fs.promises.unlink(uploadedFile.filepath);
+        } catch {}
+        return res.status(400).json({ message: 'Unsupported file type' });
+      }
+
+      const baseFilename = `${Date.now()}_${randomUUID()}_cropped_image`;
 
       try {
         // Generate resized images
@@ -56,8 +80,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('Error processing images:', error);
         res.status(500).json({ message: 'Error processing images' });
       }
-    });
-  } else {
-    res.status(405).json({ message: 'Method not allowed' });
-  }
+  });
 }

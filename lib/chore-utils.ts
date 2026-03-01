@@ -1,14 +1,6 @@
 import { RRule, Frequency, Weekday, RRuleSet } from 'rrule';
-import { init, tx, id } from '@instantdb/react';
-
-// Assuming db instance is initialized here or passed around
-// If passing around, remove this initialization
-const APP_ID = process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'df733414-7ccd-45bd-85f3-ffd0b3da8812'; // Use env var
-const db = init({
-    appId: APP_ID,
-    apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || 'http://localhost:8888',
-    websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || 'ws://localhost:8888/runtime/session',
-});
+import { tx, id } from '@instantdb/react';
+import { db } from '@/lib/db';
 
 // --- Type Definitions (Refine based on actual schema/data structure) ---
 export interface Chore {
@@ -290,6 +282,7 @@ const getRotationIndex = (
 ): number => {
     const utcStartDate = toUTCDate(choreStartDate);
     const utcOccurrenceDate = toUTCDate(occurrenceDate);
+    const interval = Math.max(1, rrule?.options?.interval ?? 1);
 
     switch (rotationType) {
         case 'daily':
@@ -308,12 +301,12 @@ const getRotationIndex = (
             // Calculate weeks passed based on UTC dates
             const oneWeek = 7 * 24 * 60 * 60 * 1000;
             const weeksDiff = Math.floor((utcOccurrenceDate.getTime() - utcStartDate.getTime()) / oneWeek);
-            return Math.max(0, weeksDiff);
+            return Math.max(0, Math.floor(weeksDiff / interval));
         case 'monthly':
             // Calculate months passed based on UTC dates
             const monthsDiff =
                 (utcOccurrenceDate.getUTCFullYear() - utcStartDate.getUTCFullYear()) * 12 + (utcOccurrenceDate.getUTCMonth() - utcStartDate.getUTCMonth());
-            return Math.max(0, monthsDiff);
+            return Math.max(0, Math.floor(monthsDiff / interval));
         default:
             return 0; // No rotation or unknown type
     }

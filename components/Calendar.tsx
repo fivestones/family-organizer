@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import styles from '../styles/Calendar.module.css';
 import { format, addDays, startOfWeek, getMonth, getDate, parseISO, addWeeks, differenceInDays } from 'date-fns';
-import { init, tx } from '@instantdb/react';
+import { tx } from '@instantdb/react';
 import NepaliDate from 'nepali-date-converter';
 import AddEventForm from './AddEvent';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -12,13 +12,7 @@ import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/ad
 import { DroppableDayCell } from './DroppableDayCell'; // Import new component
 // Import the component and the interface
 import { DraggableCalendarEvent, CalendarItem } from './DraggableCalendarEvent';
-
-const APP_ID = 'df733414-7ccd-45bd-85f3-ffd0b3da8812'; //kepler.local
-const db = init({
-    appId: APP_ID,
-    apiURI: 'http://localhost:8888',
-    websocketURI: 'ws://localhost:8888/runtime/session',
-});
+import { db } from '@/lib/db';
 
 const ebGaramond = localFont({
     src: '../public/fonts/EBGaramond-Regular.ttf',

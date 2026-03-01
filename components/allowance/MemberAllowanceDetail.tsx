@@ -1,5 +1,5 @@
 // components/allowance/MemberAllowanceDetail.tsx
-import { init, tx, id } from '@instantdb/react';
+import { tx, id } from '@instantdb/react';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,6 +54,7 @@ import {
 
 // +++ NEW IMPORTS +++
 import { useAuth } from '@/components/AuthProvider';
+import { useParentMode } from '@/components/auth/useParentMode';
 import { validateRestriction } from '@/lib/auth-utils';
 import { RestrictedButton } from '@/components/ui/RestrictedButton';
 
@@ -95,12 +96,6 @@ interface MemberAllowanceDetailProps {
 
 // --- Constants ---
 // --- REMOVED db initialization (passed as prop) ---
-// const APP_ID =  process.env.NEXT_PUBLIC_INSTANT_APP_ID || 'df733414-7ccd-45bd-85f3-ffd0b3da8812';
-// const db = init({
-//   appId: APP_ID,
-//   apiURI: process.env.NEXT_PUBLIC_INSTANT_API_URI || "http://localhost:8888",
-//   websocketURI: process.env.NEXT_PUBLIC_INSTANT_WEBSOCKET_URI || "ws://localhost:8888/runtime/session",
-// });
 
 // Define props for the component
 // interface MemberAllowanceDetailProps {
@@ -121,6 +116,7 @@ export default function MemberAllowanceDetail({
     const { toast } = useToast();
     // +++ NEW: Get Auth Context +++
     const { currentUser } = useAuth();
+    const { isParentMode } = useParentMode();
 
     const hasInitializedEnvelope = useRef(false);
     const rateCalculationController = useRef<AbortController | null>(null);
@@ -842,7 +838,7 @@ export default function MemberAllowanceDetail({
     }
 
     // +++ Permission Logic +++
-    const isParent = currentUser?.role === 'parent';
+    const isParent = isParentMode;
     const isSelf = currentUser?.id === memberId;
     const canInteract = isParent || isSelf;
     const restrictionMsg = `You need to be logged in as ${member.name} or a parent to use this function.`;

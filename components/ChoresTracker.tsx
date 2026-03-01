@@ -32,6 +32,7 @@ import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 
 // +++ NEW IMPORTS +++
 import { useAuth } from '@/components/AuthProvider';
+import { useParentMode } from '@/components/auth/useParentMode';
 import { RestrictedButton } from '@/components/ui/RestrictedButton';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -134,6 +135,7 @@ function ChoresTracker() {
 
     // +++ NEW: Get Auth +++
     const { currentUser } = useAuth();
+    const { isParentMode } = useParentMode();
 
     // **** UPDATED QUERY: Fetch members + linked envelopes, chores, and unit definitions ****
     const { isLoading, error, data } = db.useQuery({
@@ -616,7 +618,7 @@ function ChoresTracker() {
     });
 
     // +++ Logic for Add Button +++
-    const isParent = currentUser?.role === 'parent';
+    const isParent = isParentMode;
     const canAddChore = isParent;
 
     // +++ Persistence for View Settings +++

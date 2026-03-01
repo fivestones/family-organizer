@@ -5,7 +5,10 @@ import { Toaster } from '@/components/ui/toaster';
 import DebugTimeWidget from '@/components/debug/DebugTimeWidget';
 // +++ NEW: Imports for Auth and Navigation +++
 import { AuthProvider } from '@/components/AuthProvider';
+import { InstantFamilySessionProvider } from '@/components/InstantFamilySessionProvider';
 import { UserMenu } from '@/components/auth/UserMenu';
+import { SyncStatusBadge } from '@/components/SyncStatusBadge';
+import { PwaServiceWorkerRegistration } from '@/components/PwaServiceWorkerRegistration';
 import Link from 'next/link';
 
 import NavbarDate from '@/components/NavbarDate';
@@ -118,31 +121,35 @@ export default function RootLayout({
             {/* Added flex column structure to body to support the sticky header behavior */}
             {/* Added 'overscroll-none' to prevent that bouncy "rubber banding" effect at the top/bottom */}
             <body className={`${inter.className} min-h-screen flex flex-col bg-background text-foreground overscroll-none`}>
-                <AuthProvider>
-                    {/* +++ Global Header +++ */}
-                    <header className="flex items-center justify-between px-6 py-3 border-b bg-card">
-                        <div className="flex items-center gap-6">
-                            <Link href="/" className="text-xl font-bold tracking-tight hover:opacity-80 transition-opacity">
-                                Family Organizer
-                            </Link>
-                            {/* +++ Swapped inline nav for the new Client Component +++ */}
-                            {/* +++ FIX: Wrap MainNav in hidden md:block to explicitly hide on mobile +++ */}
-                            <div className="hidden md:block">
-                                <MainNav />
+                <InstantFamilySessionProvider>
+                    <AuthProvider>
+                        {/* +++ Global Header +++ */}
+                        <header className="flex items-center justify-between px-6 py-3 border-b bg-card">
+                            <div className="flex items-center gap-6">
+                                <Link href="/" className="text-xl font-bold tracking-tight hover:opacity-80 transition-opacity">
+                                    Family Organizer
+                                </Link>
+                                {/* +++ Swapped inline nav for the new Client Component +++ */}
+                                {/* +++ FIX: Wrap MainNav in hidden md:block to explicitly hide on mobile +++ */}
+                                <div className="hidden md:block">
+                                    <MainNav />
+                                </div>
                             </div>
-                        </div>
-                        <div className="flex items-center">
-                            <NavbarDate />
-                            <UserMenu />
-                        </div>
-                    </header>
+                            <div className="flex items-center gap-3">
+                                <SyncStatusBadge />
+                                <NavbarDate />
+                                <UserMenu />
+                            </div>
+                        </header>
 
-                    {/* +++ Main Content +++ */}
-                    <main className="flex-1 relative">{children}</main>
+                        {/* +++ Main Content +++ */}
+                        <main className="flex-1 relative">{children}</main>
 
-                    <Toaster />
-                    <DebugTimeWidget />
-                </AuthProvider>
+                        <Toaster />
+                        <DebugTimeWidget />
+                        <PwaServiceWorkerRegistration />
+                    </AuthProvider>
+                </InstantFamilySessionProvider>
             </body>
         </html>
     );

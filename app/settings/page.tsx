@@ -1,16 +1,9 @@
 'use client';
 
 import React from 'react';
-import { init } from '@instantdb/react';
 import CurrencySettings from '@/components/CurrencySettings';
 import { ParentGate } from '@/components/auth/ParentGate'; // +++ Added
-
-const APP_ID = 'df733414-7ccd-45bd-85f3-ffd0b3da8812';
-const db = init({
-    appId: APP_ID,
-    apiURI: 'http://localhost:8888',
-    websocketURI: 'ws://localhost:8888/runtime/session',
-});
+import { db } from '@/lib/db';
 
 export default function SettingsPage() {
     return (

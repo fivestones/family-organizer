@@ -1,4 +1,22 @@
 import { tx, id } from '@instantdb/react';
+import { db as instantDb } from '@/lib/db';
+
+const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
+
+async function getAllowanceTransactionAuditFields(): Promise<{ createdBy: string; createdByFamilyMemberId?: string }> {
+    const authUser = await instantDb.getAuth();
+    if (!authUser?.id) {
+        throw new Error('Instant auth is required to create allowance transactions');
+    }
+
+    const selectedFamilyMemberId =
+        typeof window !== 'undefined' ? window.localStorage.getItem(FAMILY_MEMBER_STORAGE_KEY) || undefined : undefined;
+
+    return {
+        createdBy: authUser.id,
+        ...(selectedFamilyMemberId ? { createdByFamilyMemberId: selectedFamilyMemberId } : {}),
+    };
+}
 
 // --- Type Definitions ---
 export interface UnitDefinition {
@@ -389,6 +407,7 @@ export const depositToSpecificEnvelope = async (
     description: string = 'Deposit'
 ): Promise<void> => {
     if (amount <= 0) throw new Error('Deposit amount must be positive.');
+    const auditFields = await getAllowanceTransactionAuditFields();
 
     // Logic now uses passed 'currentBalances' instead of querying
     const balances = currentBalances || {};
@@ -400,6 +419,7 @@ export const depositToSpecificEnvelope = async (
     await db.transact([
         tx.allowanceEnvelopes[envelopeId].update({ balances: updatedBalances }),
         tx.allowanceTransactions[transactionId].update({
+            ...auditFields,
             amount: amount,
             currency: upperCaseCurrency,
             transactionType: 'deposit',
@@ -428,6 +448,7 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
     if (amount <= 0) throw new Error('Transfer amount must be positive.');
     if (!fromEnvelope?.id || !toEnvelope?.id) throw new Error('Source or destination envelope data missing.');
     if (fromEnvelope.id === toEnvelope.id) throw new Error('Cannot transfer funds to the same envelope.');
+    const auditFields = await getAllowanceTransactionAuditFields();
 
     const upperCaseCurrency = currency.toUpperCase();
     const fromBalances = fromEnvelope.balances || {};
@@ -457,6 +478,7 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
         tx.allowanceEnvelopes[toEnvelope.id].update({ balances: updatedToBalances }),
         // Outgoing Transaction Record
         tx.allowanceTransactions[transactionIdOut].update({
+            ...auditFields,
             amount: -amount,
             currency: upperCaseCurrency,
             transactionType: 'transfer-out',
@@ -469,6 +491,7 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
         }),
         // Incoming Transaction Record
         tx.allowanceTransactions[transactionIdIn].update({
+            ...auditFields,
             amount: amount,
             currency: upperCaseCurrency,
             transactionType: 'transfer-in',
@@ -519,6 +542,7 @@ export const deleteEnvelope = async (
 
     const balancesToDelete = envelopeToDelete.balances || {};
     const transactions: any[] = [];
+    const auditFields = await getAllowanceTransactionAuditFields();
     const targetBalances = targetEnvelope.balances || {};
     const updatedTargetBalances = { ...targetBalances };
 
@@ -536,6 +560,7 @@ export const deleteEnvelope = async (
             // Outgoing from deleted envelope (log against deleted ID temporarily)
             transactions.push(
                 tx.allowanceTransactions[transactionIdOut].update({
+                    ...auditFields,
                     amount: -amount,
                     currency: upperCaseCurrency,
                     transactionType: 'transfer-out',
@@ -550,6 +575,7 @@ export const deleteEnvelope = async (
             // Incoming to target envelope
             transactions.push(
                 tx.allowanceTransactions[transactionIdIn].update({
+                    ...auditFields,
                     amount: amount,
                     currency: upperCaseCurrency,
                     transactionType: 'transfer-in',
@@ -635,6 +661,7 @@ export const withdrawFromEnvelope = async (
     // ... (keep existing implementation, ensure linking)
     if (amount <= 0) throw new Error('Withdrawal amount must be positive.');
     if (!envelope?.id || !envelope.balances) throw new Error('Invalid envelope data provided.');
+    const auditFields = await getAllowanceTransactionAuditFields();
 
     const upperCaseCurrency = currency.toUpperCase();
     const currentBalance = envelope.balances[upperCaseCurrency] || 0;
@@ -655,6 +682,7 @@ export const withdrawFromEnvelope = async (
     // Create transaction record
     const transactionId = id();
     const withdrawalTransaction = tx.allowanceTransactions[transactionId].update({
+        ...auditFields,
         amount: -amount, // Store withdrawal as negative amount for consistency? Or use type field only. Using negative here.
         currency: upperCaseCurrency,
         transactionType: 'withdrawal',
@@ -701,6 +729,7 @@ export const transferFundsToPerson = async (
     if (!sourceEnvelope?.id || !sourceEnvelope.balances) throw new Error('Invalid source envelope data.');
     if (!destinationEnvelope?.id || !destinationEnvelope.balances) throw new Error('Invalid destination envelope data.');
     if (sourceEnvelope.id === destinationEnvelope.id) throw new Error('Source and destination envelopes cannot be the same.');
+    const auditFields = await getAllowanceTransactionAuditFields();
 
     const upperCaseCurrency = currency.toUpperCase();
     const sourceCurrentBalance = sourceEnvelope.balances[upperCaseCurrency] || 0;
@@ -730,6 +759,7 @@ export const transferFundsToPerson = async (
 
     // Transaction for the sender
     const transferOutTransaction = tx.allowanceTransactions[transactionIdOut].update({
+        ...auditFields,
         amount: -amount,
         currency: upperCaseCurrency,
         transactionType: 'transfer-out-person',
@@ -743,6 +773,7 @@ export const transferFundsToPerson = async (
 
     // Transaction for the receiver
     const transferInTransaction = tx.allowanceTransactions[transactionIdIn].update({
+        ...auditFields,
         amount: amount,
         currency: upperCaseCurrency,
         transactionType: 'transfer-in-person',

@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useEditor, EditorContent, JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { id, tx } from '@instantdb/react';
-import { startOfDay, format, parseISO, addDays } from 'date-fns';
+import { startOfDay, format, parseISO, addDays, isSameDay } from 'date-fns';
 import { RRule } from 'rrule';
 import { Loader2 } from 'lucide-react';
 import { useDebouncedCallback } from 'use-debounce';
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import TaskItemExtension, { TaskDateContext } from './TaskItem';
+import { TaskDetailsPopover } from './TaskDetailsPopover';
 import { cn } from '@/lib/utils';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
@@ -74,10 +75,12 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     // Map stores object { label, date } instead of just string
     const [taskDateMap, setTaskDateMap] = useState<Record<string, { label: string; date: Date } | undefined>>({});
 
+    const defaultStartDate = useRef(startOfDay(new Date())).current;
     const [taskSeriesName, setTaskSeriesName] = useState('');
     const [description, setDescription] = useState('');
-    const [startDate, setStartDate] = useState<Date>(startOfDay(new Date()));
+    const [startDate, setStartDate] = useState<Date>(defaultStartDate);
     const [targetEndDate, setTargetEndDate] = useState<Date | null>(null);
+    const initialStartDateRef = useRef(defaultStartDate);
 
     // Links
     const [familyMemberId, setFamilyMemberId] = useState<string | null>(null);
@@ -619,7 +622,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         if (!json.content) return;
 
         // 0. Decide if there is any meaningful content
-        const hasMetadataContent = taskSeriesName.trim().length > 0 || description.trim().length > 0;
+        const hasMetadataContent =
+            taskSeriesName.trim().length > 0 ||
+            description.trim().length > 0 ||
+            !!familyMemberId ||
+            !!scheduledActivityId ||
+            !!targetEndDate ||
+            !isSameDay(startDate, initialStartDateRef.current);
 
         let hasTaskContent = false;
         for (const node of json.content) {
@@ -812,11 +821,31 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         };
     }, [debouncedSave]);
 
+    useEffect(() => {
+        const flushPendingSave = () => {
+            debouncedSave.flush();
+        };
+
+        window.addEventListener('pagehide', flushPendingSave);
+        return () => {
+            window.removeEventListener('pagehide', flushPendingSave);
+        };
+    }, [debouncedSave]);
+
     const triggerSave = useCallback(() => {
         if (editor) {
             debouncedSave(editor.getJSON());
         }
     }, [editor, debouncedSave]);
+
+    const handleClose = useCallback(async () => {
+        if (editor) {
+            debouncedSave(editor.getJSON());
+        }
+
+        await debouncedSave.flush();
+        onClose?.();
+    }, [debouncedSave, editor, onClose]);
 
     // --- Render ---
     if (isLoading && !hasHydrated.current) {
@@ -970,11 +999,12 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                         <EditorContent editor={editor} />
                     </div>
                 </TaskDateContext.Provider>
+                <TaskDetailsPopover editor={editor} taskDateMap={taskDateMap} />
             </div>
 
             {onClose && (
                 <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={onClose}>
+                    <Button variant="outline" onClick={() => void handleClose()}>
                         Close
                     </Button>
                 </div>

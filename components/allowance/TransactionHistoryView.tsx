@@ -1,6 +1,6 @@
 // components/allowance/TransactionHistoryView.tsx
 import React, { useState, useMemo } from 'react';
-import { init, tx, id } from '@instantdb/react';
+import { tx, id } from '@instantdb/react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Filter } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
@@ -15,6 +15,8 @@ interface Transaction {
     id: string;
     amount: number;
     createdAt: string; // ISO String date
+    createdBy?: string | null;
+    createdByFamilyMemberId?: string | null;
     currency: string;
     transactionType: string;
     description?: string | null;
@@ -23,6 +25,8 @@ interface Transaction {
     sourceEnvelope?: { id: string; name: string; familyMember?: { id: string; name: string } };
     destinationEnvelope?: { id: string; name: string; familyMember?: { id: string; name: string } };
 }
+
+type FamilyMemberName = { id: string; name?: string | null };
 
 interface TransactionHistoryViewProps {
     db: any;
@@ -45,6 +49,20 @@ const formatDate = (dateString: string): string => {
     } catch (e) {
         return dateString; // Fallback
     }
+};
+
+const getTransactionActorLabel = (tx: Transaction, familyMemberNamesById: Map<string, string>): string | null => {
+    if (tx.createdByFamilyMemberId) {
+        const name = familyMemberNamesById.get(tx.createdByFamilyMemberId);
+        if (name) return name;
+        return 'Unknown family member';
+    }
+
+    if (tx.createdBy) {
+        return 'Unknown (legacy or shared principal)';
+    }
+
+    return null;
 };
 
 // **** UPDATED Helper to interpret transaction details ****
@@ -194,6 +212,11 @@ const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({ db, mod
     }, [mode, familyMemberId]);
 
     const { isLoading, error, data } = db.useQuery(query, { enabled: mode === 'all' || (mode === 'member' && !!familyMemberId) });
+    const familyNamesQuery = db.useQuery({ familyMembers: {} });
+    const familyMemberNamesById = useMemo(() => {
+        const members = (familyNamesQuery.data?.familyMembers as FamilyMemberName[]) || [];
+        return new Map(members.map((member) => [member.id, member.name || 'Unknown']));
+    }, [familyNamesQuery.data]);
 
     // --- Data Processing & Filtering ---
     const processedTransactions: Transaction[] = useMemo(() => {
@@ -298,6 +321,7 @@ const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({ db, mod
                                 // Use the updated helper functions, passing the flag
                                 const { sign, colorClass } = getTransactionStyle(tx, isIntraMemberTransfer);
                                 const details = getTransactionDetails(tx, isIntraMemberTransfer);
+                                const actorLabel = getTransactionActorLabel(tx, familyMemberNamesById);
                                 const displayAmount = isIntraMemberTransfer ? Math.abs(tx.amount) : tx.amount; // Use absolute only for the styled intra-member one
                                 const formattedAmountString = formatBalances({ [tx.currency]: Math.abs(displayAmount) }, unitDefinitions); // Format absolute for consistency display
                                 const displayType = getDisplayTransactionType(tx, isIntraMemberTransfer);
@@ -327,6 +351,7 @@ const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({ db, mod
                                                 <p className="text-xs text-muted-foreground pt-1 italic">{tx.description}</p>
                                             )}
                                             <p className="text-xs text-muted-foreground pt-1">{formatDate(tx.createdAt)}</p>
+                                            {actorLabel && <p className="text-xs text-muted-foreground pt-1">Created by {actorLabel}</p>}
                                         </div>
                                         {/* Transaction Type Badge */}
                                         <Badge variant="outline" className="flex-shrink-0">

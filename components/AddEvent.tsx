@@ -1,15 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { init, tx, id } from '@instantdb/react';
+import { tx, id } from '@instantdb/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { format, addHours, addDays, parse, parseISO } from 'date-fns';
-
-const APP_ID = 'df733414-7ccd-45bd-85f3-ffd0b3da8812'; //kepler.local
+import { db } from '@/lib/db';
 
 // Define a local interface for the event structure
 interface CalendarItem {
@@ -40,12 +39,6 @@ interface EventFormData {
     endTime: string;
     isAllDay: boolean;
 }
-
-const db = init({
-    appId: APP_ID,
-    apiURI: 'http://localhost:8888',
-    websocketURI: 'ws://localhost:8888/runtime/session',
-});
 
 const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime = '10:00' }: AddEventFormProps) => {
     // FIX: Ensure there is a ( immediately after the generic >

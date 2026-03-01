@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Family Organizer",
+    "slug": "family-organizer-mobile",
+    "scheme": "familyorganizer",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.familyorganizer.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
+
