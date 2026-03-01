@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
@@ -18,11 +18,19 @@ function normalizeUrl(raw) {
 }
 
 export default function ActivateScreen() {
-  const { completeActivation } = useAppSession();
+  const { completeActivation, activationRequired, isBootstrapping } = useAppSession();
   const { rebootstrap } = useBootstrap();
   const { colors } = useAppTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
   const [serverUrl, setServerUrlState] = useState(() => getServerUrl());
+
+  // After rebootstrap remounts the tree, Expo Router stays on /activate.
+  // Redirect away once DeviceSessionProvider confirms activation is done.
+  useEffect(() => {
+    if (!isBootstrapping && !activationRequired) {
+      router.replace('/lock');
+    }
+  }, [isBootstrapping, activationRequired]);
   const [accessKey, setAccessKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
