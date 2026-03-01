@@ -689,12 +689,17 @@ export default function DashboardTab() {
                           return (
                             <View
                               key={`task-${card.id}-${task.id}`}
-                              style={[styles.taskRow, isHeader && styles.taskRowHeader, { marginLeft: indent }]}
+                              style={[
+                                styles.taskRow,
+                                isHeader && styles.taskRowHeader,
+                                task.isCompleted && !isHeader && styles.taskRowDone,
+                                { marginLeft: indent },
+                              ]}
                             >
                               {isHeader ? (
                                 <View style={styles.taskCopy}>
-                                  <Text style={styles.taskHeaderText}>{task.text}</Text>
-                                  {task.notes ? <Text style={styles.taskNotes}>{task.notes}</Text> : null}
+                                  <Text selectable style={styles.taskHeaderText}>{task.text}</Text>
+                                  {task.notes ? <Text selectable style={styles.taskNotes}>{task.notes}</Text> : null}
                                   {links.length > 0 ? (
                                     <View style={styles.taskLinksRow}>
                                       {links.map((link) => (
@@ -728,9 +733,15 @@ export default function DashboardTab() {
                                       {task.isCompleted ? 'Done' : 'Mark'}
                                     </Text>
                                   </Pressable>
-                                  <View style={styles.taskCopy}>
-                                    <Text style={[styles.taskText, task.isCompleted && styles.taskTextDone]}>{task.text}</Text>
-                                    {task.notes ? <Text style={styles.taskNotes}>{task.notes}</Text> : null}
+                                  <View style={[styles.taskCopy, task.isCompleted && styles.taskCopyDone]}>
+                                    <Text selectable style={[styles.taskText, task.isCompleted && styles.taskTextDone]}>
+                                      {task.text}
+                                    </Text>
+                                    {task.notes ? (
+                                      <Text selectable style={[styles.taskNotes, task.isCompleted && styles.taskNotesDone]}>
+                                        {task.notes}
+                                      </Text>
+                                    ) : null}
                                     {links.length > 0 ? (
                                       <View style={styles.taskLinksRow}>
                                         {links.map((link) => (
@@ -1220,6 +1231,11 @@ const createStyles = (colors) =>
     alignItems: 'flex-start',
     paddingVertical: 6,
   },
+  taskRowDone: {
+    backgroundColor: withAlpha(colors.success, 0.08),
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.xs,
+  },
   taskRowHeader: {
     paddingTop: 10,
     paddingBottom: 2,
@@ -1260,6 +1276,9 @@ const createStyles = (colors) =>
     flex: 1,
     gap: 4,
   },
+  taskCopyDone: {
+    opacity: 0.82,
+  },
   taskText: {
     color: colors.ink,
     lineHeight: 19,
@@ -1273,6 +1292,9 @@ const createStyles = (colors) =>
     color: colors.inkMuted,
     lineHeight: 18,
     fontSize: 13,
+  },
+  taskNotesDone: {
+    textDecorationLine: 'line-through',
   },
   taskLinksRow: {
     flexDirection: 'row',

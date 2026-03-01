@@ -28,6 +28,20 @@ function toLocalMidnight(dateInput: Date | string): Date {
     return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
+function wasCompletedOnDate(task: Task, dateString: string, utcDate: Date): boolean {
+    if (!task.isCompleted) return false;
+
+    if (task.completedOnDate) {
+        return task.completedOnDate === dateString;
+    }
+
+    if (task.completedAt) {
+        return toLocalMidnight(task.completedAt).getTime() === utcDate.getTime();
+    }
+
+    return false;
+}
+
 /**
  * Determines which tasks from a series should be displayed for a specific date
  * based on the "Rolling Queue" logic + Future Simulation.
@@ -68,16 +82,7 @@ export function getTasksForDate(
     // If viewing a date strictly BEFORE the anchor, only show tasks completed ON that specific date.
     if (utcViewDate.getTime() < anchorDate.getTime()) {
         return sortedTasks.filter((t) => {
-            // Priority 1: Check Sticky Date (Robust)
-            if (t.isCompleted && t.completedOnDate) {
-                return t.completedOnDate === viewDateString;
-            }
-            // Priority 2: Legacy Check (Fallback for old data)
-            if (t.isCompleted && t.completedAt) {
-                const completedDate = toLocalMidnight(t.completedAt);
-                return completedDate.getTime() === utcViewDate.getTime();
-            }
-            return false;
+            return wasCompletedOnDate(t, viewDateString, utcViewDate);
         });
     }
 
@@ -90,25 +95,12 @@ export function getTasksForDate(
         if (!t.isCompleted) return true;
 
         // IF COMPLETED: Should we show it in the queue?
-        // Yes, if it was completed FOR the Anchor Date (Today).
-        // Crucial: We use anchorDateString here, NOT viewDateString.
-        // This keeps the queue structure stable when we look at future dates.
-
-        // Priority 1: Check Sticky Date
-        if (t.completedOnDate) {
-            return t.completedOnDate === anchorDateString;
-        }
-
-        // Priority 2: Legacy Check
-        if (t.completedAt) {
-            // Use toLocalMidnight so late-night completions count as "Today"
-            const cDate = toLocalMidnight(t.completedAt);
-            // In the "Pending Queue" logic, we typically look relative to 'today' (Local)
-            // But if we are viewing a specific date, we should match that.
-            // However, the original logic compared to 'today' to keep items visible immediately after checking.
-            return cDate.getTime() === anchorDate.getTime();
-        }
-        return false; // Done in the past relative to Anchor
+        // Yes, if it was completed for the Anchor Date (to keep the rolling queue stable)
+        // OR for the currently viewed date (so it does not disappear right after being checked off).
+        return (
+            wasCompletedOnDate(t, anchorDateString, anchorDate) ||
+            wasCompletedOnDate(t, viewDateString, utcViewDate)
+        );
     });
 
     // --- TRIM LEADING GHOST BREAKS (FIXED: while loop) ---

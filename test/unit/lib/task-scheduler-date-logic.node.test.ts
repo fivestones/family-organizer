@@ -144,6 +144,30 @@ describe('task-scheduler date logic', () => {
         expect(nextDay).toEqual([]);
     });
 
+    it('keeps a task visible on the day it was completed even when viewing after the anchor date', () => {
+        freezeTime(new Date(2026, 2, 10, 12, 0, 0)); // Tue anchor
+
+        const tasks: Task[] = [
+            makeTask({
+                id: 'completed-on-thu',
+                text: 'Thursday task',
+                order: 1,
+                isCompleted: true,
+                completedOnDate: '2026-03-12',
+            }),
+            makeTask({ id: 'break', text: 'Break', order: 2, isDayBreak: true }),
+            makeTask({ id: 'next', text: 'Next block', order: 3 }),
+        ];
+
+        const thursday = getTasksForDate(
+            tasks,
+            'FREQ=WEEKLY;BYDAY=MO,TH',
+            '2026-03-02',
+            new Date(2026, 2, 12, 12, 0, 0)
+        );
+        expect(thursday.map((task) => task.id)).toEqual(['completed-on-thu']);
+    });
+
     it('marks a child complete and bubbles childTasksComplete to its parent when all children are done', () => {
         freezeTime(new Date('2026-03-10T09:15:00Z'));
 
