@@ -32,6 +32,7 @@ export const PDFPreview = ({ url }: Props) => {
                 onError={(error) => {
                     console.error('PDF Render Error:', error);
                 }}
+                // @ts-expect-error react-pdf-highlighter type mismatch
                 errorMessage={(error) => (
                     <div className="flex flex-col items-center justify-center h-full text-red-500 p-4 text-center">
                         <p className="font-bold">Failed to render PDF.</p>
@@ -40,6 +41,7 @@ export const PDFPreview = ({ url }: Props) => {
                 )}
             >
                 {(pdfDocument) => (
+                    // @ts-expect-error react-pdf-highlighter type mismatch
                     <PdfHighlighter
                         pdfDocument={pdfDocument}
                         enableAreaSelection={(event) => event.altKey}

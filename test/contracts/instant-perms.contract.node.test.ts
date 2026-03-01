@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import rules from '@/instant.perms';
 
 function parseSchemaEntityNames(source: string) {
-    return [...source.matchAll(/^\s+([A-Za-z0-9_$]+):\s*i\.entity\(/gm)].map((match) => match[1]).sort();
+    return Array.from(source.matchAll(/^\s+([A-Za-z0-9_$]+):\s*i\.entity\(/gm)).map((match) => match[1]).sort();
 }
 
 describe('instant.perms contract', () => {

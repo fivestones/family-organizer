@@ -69,7 +69,7 @@ vi.mock('@/lib/db', () => ({
                 },
             };
         }),
-        transact: (...args: any[]) => testState.dbTransact(...args),
+        transact: (...args: any[]) => (testState.dbTransact as any)(...args),
     },
 }));
 

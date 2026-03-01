@@ -30,6 +30,7 @@ interface TransferFundsFormProps {
   onSubmit: (amount: number, currency: string, destinationEnvelopeId: string) => Promise<void>;
   sourceEnvelopeId: string | null;
   allEnvelopes: Envelope[]; // All envelopes for the member
+  unitDefinitions?: any[]; // Optional unit definitions for formatting
 }
 
 const TransferFundsForm: React.FC<TransferFundsFormProps> = ({

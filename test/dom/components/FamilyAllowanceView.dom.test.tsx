@@ -40,7 +40,7 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('@/lib/currency-utils', () => ({
-    computeMonetaryCurrencies: (...args: any[]) => mocks.computeMonetaryCurrencies(...args),
+    computeMonetaryCurrencies: (...args: any[]) => (mocks.computeMonetaryCurrencies as any)(...args),
 }));
 
 vi.mock('@/components/FamilyMembersList', () => ({

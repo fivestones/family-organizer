@@ -60,9 +60,9 @@ export default function FamilyAllowanceView() {
     });
 
     // --- Derived Data ---
-    const familyMembers: FamilyMember[] = useMemo(() => appData?.familyMembers || [], [appData?.familyMembers]); // Add type annotation
-    const allEnvelopes: Envelope[] = useMemo(() => appData?.allowanceEnvelopes || [], [appData?.allowanceEnvelopes]);
-    const unitDefinitions: UnitDefinition[] = useMemo(() => appData?.unitDefinitions || [], [appData?.unitDefinitions]);
+    const familyMembers = useMemo(() => (appData?.familyMembers || []) as unknown as FamilyMember[], [appData?.familyMembers]);
+    const allEnvelopes = useMemo(() => (appData?.allowanceEnvelopes || []) as unknown as Envelope[], [appData?.allowanceEnvelopes]);
+    const unitDefinitions = useMemo(() => (appData?.unitDefinitions || []) as unknown as UnitDefinition[], [appData?.unitDefinitions]);
 
     // +++ Use the new utility function +++
     const allMonetaryCurrenciesInUse = useMemo(() => {

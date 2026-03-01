@@ -32,8 +32,8 @@ const choreTrackerMocks = vi.hoisted(() => {
 
 vi.mock('@/lib/db', () => ({
     db: {
-        useQuery: (...args: any[]) => choreTrackerMocks.dbUseQuery(...args),
-        transact: (...args: any[]) => choreTrackerMocks.dbTransact(...args),
+        useQuery: (...args: any[]) => (choreTrackerMocks.dbUseQuery as any)(...args),
+        transact: (...args: any[]) => (choreTrackerMocks.dbTransact as any)(...args),
     },
 }));
 
@@ -191,15 +191,15 @@ vi.mock('@/components/ui/RestrictedButton', () => ({
 }));
 
 vi.mock('@/lib/currency-utils', () => ({
-    computeAllApplicableCurrencyCodes: (...args: any[]) => choreTrackerMocks.computeAllApplicableCurrencyCodes(...args),
+    computeAllApplicableCurrencyCodes: (...args: any[]) => (choreTrackerMocks.computeAllApplicableCurrencyCodes as any)(...args),
 }));
 
 vi.mock('@/lib/chore-utils', async () => {
     const actual = await vi.importActual<typeof import('@/lib/chore-utils')>('@/lib/chore-utils');
     return {
         ...actual,
-        getAssignedMembersForChoreOnDate: (...args: any[]) => choreTrackerMocks.getAssignedMembersForChoreOnDate(...args),
-        calculateDailyXP: (...args: any[]) => choreTrackerMocks.calculateDailyXP(...args),
+        getAssignedMembersForChoreOnDate: (...args: any[]) => (choreTrackerMocks.getAssignedMembersForChoreOnDate as any)(...args),
+        calculateDailyXP: (...args: any[]) => (choreTrackerMocks.calculateDailyXP as any)(...args),
     };
 });
 
