@@ -692,7 +692,27 @@ export default function DashboardTab() {
                               style={[styles.taskRow, isHeader && styles.taskRowHeader, { marginLeft: indent }]}
                             >
                               {isHeader ? (
-                                <Text style={styles.taskHeaderText}>{task.text}</Text>
+                                <View style={styles.taskCopy}>
+                                  <Text style={styles.taskHeaderText}>{task.text}</Text>
+                                  {task.notes ? <Text style={styles.taskNotes}>{task.notes}</Text> : null}
+                                  {links.length > 0 ? (
+                                    <View style={styles.taskLinksRow}>
+                                      {links.map((link) => (
+                                        <Pressable
+                                          key={link.key}
+                                          accessibilityRole="button"
+                                          accessibilityLabel={link.label}
+                                          onPress={() => {
+                                            void openTaskLink(link);
+                                          }}
+                                          style={styles.taskLinkChip}
+                                        >
+                                          <Text style={styles.taskLinkText}>{link.label}</Text>
+                                        </Pressable>
+                                      ))}
+                                    </View>
+                                  ) : null}
+                                </View>
                               ) : (
                                 <>
                                   <Pressable

@@ -290,14 +290,47 @@ export const TaskSeriesChecklist: React.FC<Props> = ({ tasks: scheduledTasks, al
                         <div className="flex-grow flex items-start justify-between min-w-0">
                             {isHeader ? (
                                 // --- HEADER VARIANT ---
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <div className="flex flex-col select-none cursor-pointer hover:bg-accent/50 rounded px-1 -ml-1 transition-colors">
-                                            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground/80">{task.text}</span>
+                                <div className="flex flex-col w-full">
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <div className="flex flex-col select-none cursor-pointer hover:bg-accent/50 rounded px-1 -ml-1 transition-colors">
+                                                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground/80">{task.text}</span>
+                                            </div>
+                                        </PopoverTrigger>
+                                        {popoverContent}
+                                    </Popover>
+
+                                    {/* Show metadata toggle for headers that have notes/files */}
+                                    {hasMetadata && (
+                                        <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground mt-0.5 px-1">
+                                            {!showDetails && (
+                                                <span
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleLocalExpand(task.id);
+                                                    }}
+                                                    className="text-blue-600 hover:underline cursor-pointer font-normal"
+                                                >
+                                                    {localExpandedIds.has(task.id) ? 'hide details' : 'view details'}
+                                                </span>
+                                            )}
                                         </div>
-                                    </PopoverTrigger>
-                                    {popoverContent}
-                                </Popover>
+                                    )}
+
+                                    {/* Metadata Details for header tasks */}
+                                    {isDetailsVisible && hasMetadata && (
+                                        <div className="mt-2 mb-1 p-2 bg-blue-50/50 border border-blue-100 rounded-md text-sm">
+                                            {hasNotes && <div className="text-gray-700 whitespace-pre-wrap mb-2 text-xs">{(task as any).notes}</div>}
+                                            {hasAttachments && (
+                                                <div className="flex flex-wrap gap-2">
+                                                    {attachments.map((file: any) => (
+                                                        <FileThumbnail key={file.id} file={file} onClick={() => openPreview(file)} />
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             ) : (
                                 // --- CHECKBOX VARIANT ---
                                 <div className="flex flex-col w-full">
