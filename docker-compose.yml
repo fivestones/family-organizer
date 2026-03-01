@@ -14,8 +14,11 @@ services:
         NEXT_PUBLIC_INSTANT_API_URI: ${NEXT_PUBLIC_INSTANT_API_URI}
         NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: ${NEXT_PUBLIC_INSTANT_WEBSOCKET_URI}
         NEXT_PUBLIC_INSTANT_APP_ID: ${NEXT_PUBLIC_INSTANT_APP_ID}
-    ports:
-      - '${APP_PORT}:3000'
+    # No ports needed when using a reverse proxy (e.g. SWAG) on the same Docker network —
+    # it can reach this container directly as http://family-organizer:3000.
+    # To expose the app directly on the host instead, uncomment:
+    # ports:
+    #   - '7654:3000'
     env_file:
       - path: .env
         required: false
