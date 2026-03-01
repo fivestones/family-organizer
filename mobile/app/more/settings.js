@@ -17,6 +17,7 @@ import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/Subs
 import { clearPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
+import { getServerUrl, setServerUrl } from '../../src/lib/server-url';
 
 function firstParam(value) {
   return Array.isArray(value) ? value[0] : value;
@@ -57,12 +58,35 @@ export default function SettingsScreen() {
     principalType,
     isOnline,
     connectionStatus,
+    resetDeviceSession,
   } = useAppSession();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState(() => initialFormState());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const canManageUnits = principalType === 'parent';
+  const [currentServerUrl, setCurrentServerUrl] = useState(() => getServerUrl());
+  const [isEditingUrl, setIsEditingUrl] = useState(false);
+  const [editingUrl, setEditingUrl] = useState('');
+  const [testStatus, setTestStatus] = useState('');
+
+  async function handleTestConnection() {
+    setTestStatus('testing');
+    try {
+      await fetch(`${currentServerUrl}/api/mobile/device-activate`, { method: 'HEAD' });
+      setTestStatus('ok');
+    } catch {
+      setTestStatus('error');
+    }
+  }
+
+  async function handleSaveUrl() {
+    await setServerUrl(editingUrl);
+    setCurrentServerUrl(getServerUrl());
+    setIsEditingUrl(false);
+    setTestStatus('');
+    await resetDeviceSession();
+  }
 
   useEffect(() => {
     if (firstParam(searchParams.resumeParentAction) !== '1') return;
@@ -182,6 +206,74 @@ export default function SettingsScreen() {
       }
     >
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <View style={styles.serverCard}>
+          <Text style={styles.serverEyebrow}>Server Connection</Text>
+          <Text style={styles.serverTitle}>API Server</Text>
+          {isEditingUrl ? (
+            <>
+              <TextInput
+                testID="settings-server-url-input"
+                accessibilityLabel="Server URL"
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                value={editingUrl}
+                onChangeText={setEditingUrl}
+                placeholder="https://your-server.example.com"
+                placeholderTextColor={colors.inkMuted}
+                style={styles.input}
+              />
+              <Text style={styles.serverWarning}>
+                Changing the server URL will require re-activation of this device.
+              </Text>
+              <View style={styles.serverActions}>
+                <Pressable
+                  style={styles.secondaryChip}
+                  onPress={() => setIsEditingUrl(false)}
+                >
+                  <Text style={styles.secondaryChipText}>Cancel</Text>
+                </Pressable>
+                <Pressable style={styles.primaryChip} onPress={handleSaveUrl}>
+                  <Text style={styles.primaryChipText}>Save & Reconnect</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.serverUrlDisplay} numberOfLines={2}>
+                {currentServerUrl}
+              </Text>
+              <View style={styles.serverActions}>
+                <Pressable
+                  style={styles.secondaryChip}
+                  onPress={handleTestConnection}
+                  disabled={testStatus === 'testing'}
+                >
+                  <Text style={styles.secondaryChipText}>
+                    {testStatus === 'testing' ? 'Testing…' : 'Test Connection'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={styles.secondaryChip}
+                  onPress={() => {
+                    setEditingUrl(currentServerUrl);
+                    setIsEditingUrl(true);
+                    setTestStatus('');
+                  }}
+                >
+                  <Text style={styles.secondaryChipText}>Change URL</Text>
+                </Pressable>
+              </View>
+              {testStatus === 'ok' && (
+                <Text style={styles.serverOk}>Server reachable</Text>
+              )}
+              {testStatus === 'error' && (
+                <Text style={styles.serverError}>Could not reach server</Text>
+              )}
+            </>
+          )}
+        </View>
+
         <View style={styles.themeCard}>
           <Text style={styles.themeEyebrow}>Local Appearance</Text>
           <Text style={styles.themeTitle}>App theme</Text>
@@ -784,5 +876,78 @@ const createStyles = (colors) =>
   primaryActionText: {
     color: colors.onAccent,
     fontWeight: '700',
+  },
+  serverCard: {
+    backgroundColor: withAlpha(colors.accentChores, 0.08),
+    borderWidth: 1,
+    borderColor: withAlpha(colors.accentChores, 0.2),
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  serverEyebrow: {
+    color: colors.accentChores,
+    textTransform: 'uppercase',
+    fontWeight: '800',
+    fontSize: 12,
+    letterSpacing: 0.8,
+  },
+  serverTitle: {
+    color: colors.ink,
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  serverUrlDisplay: {
+    color: colors.ink,
+    fontSize: 14,
+    fontFamily: 'Courier',
+  },
+  serverWarning: {
+    color: colors.warning,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  serverActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  secondaryChip: {
+    minHeight: 36,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryChipText: {
+    color: colors.ink,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  primaryChip: {
+    minHeight: 36,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accentChores,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryChipText: {
+    color: colors.onAccent,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  serverOk: {
+    color: colors.success,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  serverError: {
+    color: colors.danger,
+    fontWeight: '600',
+    fontSize: 13,
   },
   });

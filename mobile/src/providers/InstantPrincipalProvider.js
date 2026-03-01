@@ -27,7 +27,7 @@ import {
   setPreferredPrincipal,
 } from '../lib/session-prefs';
 
-const InstantPrincipalContext = createContext(null);
+export const InstantPrincipalContext = createContext(null);
 
 async function safeSignOutInstant() {
   try {

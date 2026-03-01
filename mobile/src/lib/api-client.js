@@ -1,17 +1,8 @@
-import Constants from 'expo-constants';
+import { getServerUrl } from './server-url';
 import { getDeviceSessionToken } from './device-session-store';
 
 export function getApiBaseUrl() {
-  const raw =
-    process.env.EXPO_PUBLIC_API_BASE_URL ||
-    Constants.expoConfig?.extra?.apiBaseUrl ||
-    'http://localhost:3000';
-
-  if (/^https?:\/\//i.test(raw)) {
-    return raw;
-  }
-
-  return `http://${raw}`;
+  return getServerUrl();
 }
 
 async function authHeaders() {

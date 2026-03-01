@@ -4,7 +4,7 @@ import { useDeviceSession } from './DeviceSessionProvider';
 import { useInstantPrincipal } from './InstantPrincipalProvider';
 import { clearCurrentFamilyMemberId, getCurrentFamilyMemberId, setCurrentFamilyMemberId } from '../lib/session-prefs';
 
-const FamilyAuthContext = createContext(null);
+export const FamilyAuthContext = createContext(null);
 
 function mapMember(member) {
   if (!member) return null;
