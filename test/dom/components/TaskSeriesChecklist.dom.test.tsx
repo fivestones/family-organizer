@@ -149,7 +149,7 @@ describe('TaskSeriesChecklist', () => {
             notes: 'Pack gloves and shin guards',
         });
 
-        render(
+        const { container } = render(
             <TaskSeriesChecklist
                 tasks={[noteTask] as any}
                 allTasks={[noteTask] as any}
@@ -160,11 +160,13 @@ describe('TaskSeriesChecklist', () => {
             />
         );
 
-        expect(screen.queryByText(/pack gloves and shin guards/i)).not.toBeInTheDocument();
+        // Notes appear in the always-rendered popover, but the metadata details section should be hidden
+        const metadataSection = () => container.querySelector('.text-gray-700.whitespace-pre-wrap');
+        expect(metadataSection()).not.toBeInTheDocument();
         expect(screen.getByText(/view details/i)).toBeInTheDocument();
 
         await user.click(screen.getByText(/view details/i));
-        expect(screen.getByText(/pack gloves and shin guards/i)).toBeInTheDocument();
+        expect(metadataSection()).toBeInTheDocument();
         expect(screen.getByText(/hide details/i)).toBeInTheDocument();
     });
 
@@ -177,7 +179,7 @@ describe('TaskSeriesChecklist', () => {
             notes: 'Pack gloves and shin guards',
         });
 
-        render(
+        const { container } = render(
             <TaskSeriesChecklist
                 tasks={[noteTask] as any}
                 allTasks={[noteTask] as any}
@@ -188,7 +190,10 @@ describe('TaskSeriesChecklist', () => {
             />
         );
 
-        expect(screen.getByText(/pack gloves and shin guards/i)).toBeInTheDocument();
+        // Metadata details section should be visible immediately
+        const metadataSection = container.querySelector('.text-gray-700.whitespace-pre-wrap');
+        expect(metadataSection).toBeInTheDocument();
+        expect(metadataSection?.textContent).toMatch(/pack gloves and shin guards/i);
         expect(screen.queryByText(/view details/i)).not.toBeInTheDocument();
     });
 

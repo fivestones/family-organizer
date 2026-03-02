@@ -96,6 +96,27 @@ describe('currency-utils mutation helpers', () => {
                     id: 'member-1',
                     payload: { allowanceEnvelopes: 'env-savings' },
                 },
+                {
+                    op: 'update',
+                    entity: 'allowanceTransactions',
+                    id: 'mock-id',
+                    payload: {
+                        createdBy: 'instant-parent-principal',
+                        amount: 0,
+                        currency: 'USD',
+                        transactionType: 'init',
+                        description: 'Envelope Created',
+                        createdAt: '2026-02-26T12:34:56.000Z',
+                        updatedAt: '2026-02-26T12:34:56.000Z',
+                        envelope: 'env-savings',
+                    },
+                },
+                {
+                    op: 'link',
+                    entity: 'allowanceEnvelopes',
+                    id: 'env-savings',
+                    payload: { transactions: 'mock-id' },
+                },
             ]);
         });
 

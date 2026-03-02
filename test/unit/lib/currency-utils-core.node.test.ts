@@ -306,7 +306,7 @@ describe('currency-utils core helpers', () => {
 
         expect(db.transact).toHaveBeenCalledTimes(1);
         const txs = db.transact.mock.calls[0][0] as any[];
-        expect(txs).toHaveLength(2);
+        expect(txs).toHaveLength(4);
         expect(txs[0]).toMatchObject({
             op: 'update',
             entity: 'allowanceEnvelopes',
@@ -322,6 +322,22 @@ describe('currency-utils core helpers', () => {
             entity: 'familyMembers',
             id: 'member-42',
             payload: { allowanceEnvelopes: 'new-savings-id' },
+        });
+        expect(txs[2]).toMatchObject({
+            op: 'update',
+            entity: 'allowanceTransactions',
+            payload: expect.objectContaining({
+                amount: 0,
+                transactionType: 'init',
+                description: 'Envelope Created',
+                envelope: 'new-savings-id',
+            }),
+        });
+        expect(txs[3]).toMatchObject({
+            op: 'link',
+            entity: 'allowanceEnvelopes',
+            id: 'new-savings-id',
+            payload: expect.objectContaining({ transactions: expect.any(String) }),
         });
     });
 

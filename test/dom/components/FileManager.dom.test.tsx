@@ -89,7 +89,7 @@ describe('FileManager', () => {
             url: 'https://uploads.example.test',
             fields: { key: 'abc-notes.txt' },
         });
-        vi.mocked(fetch).mockResolvedValue({ ok: false } as Response);
+        vi.mocked(fetch).mockResolvedValue({ ok: false, status: 403 } as Response);
 
         const user = userEvent.setup();
         const { container } = render(<FileManager initialFiles={[]} />);
