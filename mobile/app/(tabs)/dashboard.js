@@ -19,6 +19,7 @@ import {
   getAssignedMembersForChoreOnDate,
   getCompletedChoreCompletionsForDate,
   getMemberCompletionForDate,
+  localDateToUTC,
 } from '@family-organizer/shared-core';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
@@ -86,12 +87,9 @@ function formatTopStripDate(date) {
 }
 
 function buildDateStrip(selectedDate) {
-  const base = new Date(selectedDate);
   return Array.from({ length: DAY_RANGE }).map((_, index) => {
     const offset = index - Math.floor(DAY_RANGE / 2);
-    const next = new Date(base);
-    next.setDate(base.getDate() + offset);
-    return next;
+    return new Date(selectedDate.getTime() + offset * 86400000);
   });
 }
 
@@ -280,7 +278,7 @@ export default function DashboardTab() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { db, currentUser, familyMembers, isAuthenticated, instantReady, lock } = useAppSession();
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => localDateToUTC(new Date()));
   const [viewedMemberId, setViewedMemberId] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
   const [datePickerVisible, setDatePickerVisible] = useState(false);

@@ -10,6 +10,7 @@ import {
   getAssignedMembersForChoreOnDate,
   getCompletedChoreCompletionsForDate,
   getMemberCompletionForDate,
+  localDateToUTC,
 } from '@family-organizer/shared-core';
 import { radii, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
@@ -88,7 +89,7 @@ export default function ChoresTab() {
     principalType,
     lock,
   } = useAppSession();
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => localDateToUTC(new Date()));
   const [selectedMemberId, setSelectedMemberId] = useState('all');
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [pendingCompletionKeys, setPendingCompletionKeys] = useState(() => new Set());
@@ -102,12 +103,10 @@ export default function ChoresTab() {
   const selectedDateKey = useMemo(() => formatDateKeyUTC(selectedDate), [selectedDate]);
 
   const dateStrip = useMemo(() => {
-    const base = new Date(selectedDate);
     return Array.from({ length: 7 }).map((_, index) => {
       const offset = index - 3;
-      const next = new Date(base);
-      next.setDate(base.getDate() + offset);
-      return next;
+      const d = new Date(selectedDate.getTime() + offset * 86400000);
+      return d;
     });
   }, [selectedDate]);
 
