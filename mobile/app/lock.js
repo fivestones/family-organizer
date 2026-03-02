@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { router, useRootNavigationState } from 'expo-router';
+import { router } from 'expo-router';
 import { ScreenScaffold, PlaceholderCard } from '../src/components/ScreenScaffold';
 import { radii, spacing, withAlpha } from '../src/theme/tokens';
 import { useAppSession } from '../src/providers/AppProviders';
@@ -79,8 +79,6 @@ export default function LockScreen() {
   const [pendingParentActionLoaded, setPendingParentActionLoaded] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState('');
   const hardwarePinInputRef = useRef(null);
-  const rootNavigationState = useRootNavigationState();
-  const navigationReady = Boolean(rootNavigationState?.key);
 
   const selectedMember = useMemo(
     () => familyMembers.find((member) => member.id === selectedMemberId) || null,
@@ -125,9 +123,9 @@ export default function LockScreen() {
     : '';
 
   useEffect(() => {
-    if (!pendingRedirect || !navigationReady) return;
+    if (!pendingRedirect) return;
     router.replace(pendingRedirect);
-  }, [navigationReady, pendingRedirect]);
+  }, [pendingRedirect]);
 
   useEffect(() => {
     if (!selectedMember) return undefined;

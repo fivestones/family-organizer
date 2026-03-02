@@ -11,10 +11,16 @@ let _cachedConfig = null;
 
 /**
  * Synchronous read of the server URL.
- * Falls back to env var -> expo config -> localhost.
+ * In dev builds, falls back to env var -> expo config -> localhost.
+ * In release builds, returns null when no URL has been stored yet
+ * (the user must configure the server URL via the activation screen).
  */
 export function getServerUrl() {
   if (_cachedUrl) return _cachedUrl;
+
+  // Only use the baked-in env var / defaults during development.
+  // Release builds must go through the activation screen to set a URL.
+  if (!__DEV__) return null;
 
   const raw =
     process.env.EXPO_PUBLIC_API_BASE_URL ||
@@ -87,17 +93,19 @@ export async function fetchServerConfig() {
 
   // Try to fetch fresh config from the server (requires device session token)
   const serverUrl = getServerUrl();
-  const token = await getDeviceSessionToken();
-  try {
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    const response = await fetch(`${serverUrl}/api/mobile/config`, { headers });
-    if (response.ok) {
-      const config = await response.json();
-      _cachedConfig = config;
-      await AsyncStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(config));
+  if (serverUrl) {
+    const token = await getDeviceSessionToken();
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await fetch(`${serverUrl}/api/mobile/config`, { headers });
+      if (response.ok) {
+        const config = await response.json();
+        _cachedConfig = config;
+        await AsyncStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(config));
+      }
+    } catch {
+      // Network failure — use cached config if available
     }
-  } catch {
-    // Network failure — use cached config if available
   }
 
   return _cachedConfig;

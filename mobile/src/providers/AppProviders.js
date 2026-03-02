@@ -104,6 +104,7 @@ export function useAppSession() {
 
   const principalBootstrapping =
     !device.activationRequired &&
+    db != null &&
     (principal.bootstrapStatus === 'signing_in' ||
       (principal.bootstrapStatus === 'waiting_for_device' && !!device.deviceSessionToken));
 

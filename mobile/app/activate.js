@@ -18,19 +18,20 @@ function normalizeUrl(raw) {
 }
 
 export default function ActivateScreen() {
-  const { completeActivation, activationRequired, isBootstrapping } = useAppSession();
+  const { completeActivation, activationRequired, instantReady, isBootstrapping } = useAppSession();
   const { rebootstrap } = useBootstrap();
   const { colors } = useAppTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
-  const [serverUrl, setServerUrlState] = useState(() => getServerUrl());
+  const [serverUrl, setServerUrlState] = useState(() => getServerUrl() || '');
 
   // After rebootstrap remounts the tree, Expo Router stays on /activate.
-  // Redirect away once DeviceSessionProvider confirms activation is done.
+  // Redirect away once DeviceSessionProvider confirms activation is done
+  // AND InstantDB is connected (prevents leaving with a stale token but no db).
   useEffect(() => {
-    if (!isBootstrapping && !activationRequired) {
+    if (!isBootstrapping && !activationRequired && instantReady) {
       router.replace('/lock');
     }
-  }, [isBootstrapping, activationRequired]);
+  }, [isBootstrapping, activationRequired, instantReady]);
   const [accessKey, setAccessKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');

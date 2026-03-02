@@ -1,26 +1,24 @@
-import React, { useEffect } from 'react';
-import { useRootNavigationState, useRouter } from 'expo-router';
+import React from 'react';
+import { Redirect } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import { useAppSession } from '../src/providers/AppProviders';
 import { useAppTheme } from '../src/theme/ThemeProvider';
 
 export default function IndexScreen() {
-  const { isBootstrapping, activationRequired, isAuthenticated } = useAppSession();
+  const { isBootstrapping, activationRequired, instantReady, isAuthenticated } = useAppSession();
   const { colors } = useAppTheme();
-  const router = useRouter();
-  const rootNavigationState = useRootNavigationState();
-  const navigationReady = Boolean(rootNavigationState?.key);
 
-  const targetRoute = activationRequired ? '/activate' : isAuthenticated ? '/dashboard' : '/lock';
+  if (isBootstrapping) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
+        <ActivityIndicator size="large" color={colors.accentChores} />
+      </View>
+    );
+  }
 
-  useEffect(() => {
-    if (isBootstrapping || !navigationReady) return;
-    router.replace(targetRoute);
-  }, [isBootstrapping, navigationReady, router, targetRoute]);
-
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
-      <ActivityIndicator size="large" color={colors.accentChores} />
-    </View>
-  );
+  // If device has a stale token but InstantDB isn't initialized (no server
+  // config), send the user to activation to (re-)enter the server URL.
+  const needsActivation = activationRequired || !instantReady;
+  const targetRoute = needsActivation ? '/activate' : isAuthenticated ? '/dashboard' : '/lock';
+  return <Redirect href={targetRoute} />;
 }
