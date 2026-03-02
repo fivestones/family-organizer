@@ -51,6 +51,7 @@ import {
     createInitialSavingsEnvelope,
     deleteEnvelope,
     depositToSpecificEnvelope,
+    reconcileEnvelope,
     transferFunds,
     transferFundsToPerson,
     updateEnvelope,
@@ -146,6 +147,23 @@ describe('currency-utils mutation helpers', () => {
                 id: 'member-1',
                 op: 'link',
                 payload: { allowanceEnvelopes: 'env-extra' },
+            });
+            expect(txs[2]).toMatchObject({
+                op: 'update',
+                entity: 'allowanceTransactions',
+                payload: expect.objectContaining({
+                    amount: 0,
+                    currency: 'USD',
+                    transactionType: 'init',
+                    description: 'Envelope Created',
+                    envelope: 'env-extra',
+                }),
+            });
+            expect(txs[3]).toMatchObject({
+                op: 'link',
+                entity: 'allowanceEnvelopes',
+                id: 'env-extra',
+                payload: expect.objectContaining({ transactions: expect.any(String) }),
             });
         });
 
@@ -467,6 +485,121 @@ describe('currency-utils mutation helpers', () => {
 
             await setLastDisplayCurrencyPref(db as any, '', 'USD');
 
+            expect(db.transact).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('reconcileEnvelope', () => {
+        it('returns fixed:false when calculated balances match current balances', async () => {
+            const db = {
+                transact: vi.fn(),
+                queryOnce: vi.fn().mockResolvedValue({
+                    data: {
+                        allowanceTransactions: [
+                            { amount: 10, currency: 'USD' },
+                            { amount: 5, currency: 'USD' },
+                            { amount: 3, currency: 'EUR' },
+                        ],
+                    },
+                }),
+            };
+
+            const result = await reconcileEnvelope(db as any, 'env-1', { USD: 15, EUR: 3 });
+
+            expect(result).toEqual({ fixed: false });
+            expect(db.transact).not.toHaveBeenCalled();
+            expect(db.queryOnce).toHaveBeenCalledWith({
+                allowanceTransactions: { $: { where: { envelope: 'env-1' } } },
+            });
+        });
+
+        it('fixes and returns calculated balances when mismatch exceeds tolerance', async () => {
+            const db = {
+                transact: vi.fn().mockResolvedValue(undefined),
+                queryOnce: vi.fn().mockResolvedValue({
+                    data: {
+                        allowanceTransactions: [
+                            { amount: 10, currency: 'USD' },
+                            { amount: 7, currency: 'USD' },
+                        ],
+                    },
+                }),
+            };
+
+            const result = await reconcileEnvelope(db as any, 'env-1', { USD: 20 });
+
+            expect(result).toEqual({ fixed: true, balances: { USD: 17 } });
+            expect(db.transact).toHaveBeenCalledTimes(1);
+            expect(db.transact.mock.calls[0][0]).toEqual({
+                op: 'update',
+                entity: 'allowanceEnvelopes',
+                id: 'env-1',
+                payload: { balances: { USD: 17 } },
+            });
+        });
+
+        it('returns fixed:false for empty transactions when current balances are empty', async () => {
+            const db = {
+                transact: vi.fn(),
+                queryOnce: vi.fn().mockResolvedValue({
+                    data: { allowanceTransactions: [] },
+                }),
+            };
+
+            const result = await reconcileEnvelope(db as any, 'env-1', {});
+
+            expect(result).toEqual({ fixed: false });
+            expect(db.transact).not.toHaveBeenCalled();
+        });
+
+        it('fixes when current balances are non-zero but no transactions exist', async () => {
+            const db = {
+                transact: vi.fn().mockResolvedValue(undefined),
+                queryOnce: vi.fn().mockResolvedValue({
+                    data: { allowanceTransactions: [] },
+                }),
+            };
+
+            const result = await reconcileEnvelope(db as any, 'env-1', { USD: 5 });
+
+            expect(result).toEqual({ fixed: true, balances: {} });
+            expect(db.transact).toHaveBeenCalledTimes(1);
+        });
+
+        it('ignores transactions with no currency field when summing balances', async () => {
+            const db = {
+                transact: vi.fn(),
+                queryOnce: vi.fn().mockResolvedValue({
+                    data: {
+                        allowanceTransactions: [
+                            { amount: 10, currency: 'USD' },
+                            { amount: 5 },
+                            { amount: 3, currency: null },
+                            { amount: 2, currency: 'USD' },
+                        ],
+                    },
+                }),
+            };
+
+            const result = await reconcileEnvelope(db as any, 'env-1', { USD: 12 });
+
+            expect(result).toEqual({ fixed: false });
+            expect(db.transact).not.toHaveBeenCalled();
+        });
+
+        it('treats differences within 0.001 tolerance as matching', async () => {
+            const db = {
+                transact: vi.fn(),
+                queryOnce: vi.fn().mockResolvedValue({
+                    data: {
+                        allowanceTransactions: [{ amount: 10.0005, currency: 'USD' }],
+                    },
+                }),
+            };
+
+            const result = await reconcileEnvelope(db as any, 'env-1', { USD: 10.001 });
+
+            expect(result).toEqual({ fixed: false });
             expect(db.transact).not.toHaveBeenCalled();
         });
     });
