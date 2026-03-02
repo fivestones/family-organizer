@@ -48,3 +48,8 @@ AGENTS.md
 
 # Data Directories (Docker volumes)
 minio_data/
+
+#Build artifacts
+mobile/dist/
+mobile/ios/main.jsbundle
+mobile/ios/assets/
