@@ -38,6 +38,7 @@ interface SortableFamilyMemberItemProps {
     currentUser: any; // +++ NEW PROP +++
     // +++ NEW: XP Data +++
     xpData?: { current: number; possible: number };
+    alwaysEditMode?: boolean;
 }
 
 type DropIndicatorEdge = Edge | null; // 'top' | 'bottom' | 'left' | 'right' | null
@@ -55,6 +56,7 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
     handleDeleteMember,
     currentUser, // +++ Destructure +++
     xpData, // +++ Destructure +++
+    alwaysEditMode = false,
 }) => {
     const itemRef = useRef<HTMLDivElement>(null);
     const handleRef = useRef<HTMLButtonElement>(null);
@@ -153,7 +155,7 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
                         variant={selectedMember === member.id ? 'default' : 'ghost'}
                         className="w-full justify-start text-left h-auto py-2"
                         onClick={() => setSelectedMember(member.id)}
-                        disabled={isEditMode} // Disable clicking when in edit mode
+                        disabled={isEditMode && !alwaysEditMode} // Disable clicking when in toggle edit mode, but not in alwaysEditMode
                     >
                         <div className="flex items-center space-x-3 flex-grow">
                             <Avatar className="h-10 w-10 flex-shrink-0">

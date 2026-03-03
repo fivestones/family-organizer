@@ -50,8 +50,8 @@ interface FamilyMember {
 // **** UPDATED: Removed addFamilyMember and deleteFamilyMember from props ****
 interface FamilyMembersListProps {
     familyMembers: FamilyMember[];
-    selectedMember: string | null | 'All';
-    setSelectedMember: (id: string | null | 'All') => void;
+    selectedMember?: string | null | 'All';
+    setSelectedMember?: (id: string | null | 'All') => void;
     db: any; // InstantDB instance
     // **** NEW Props for balance display ****
     showBalances?: boolean; // To control the feature
@@ -59,12 +59,16 @@ interface FamilyMembersListProps {
     membersBalances?: { [memberId: string]: { [currency: string]: number } };
     unitDefinitions?: UnitDefinition[];
     membersXP?: { [memberId: string]: { current: number; possible: number } };
+    // When true, the list is always in edit mode with no toggle (for settings page)
+    alwaysEditMode?: boolean;
 }
+
+const noopSetSelectedMember = () => {};
 
 function FamilyMembersList({
     familyMembers,
-    selectedMember,
-    setSelectedMember,
+    selectedMember = null,
+    setSelectedMember = noopSetSelectedMember,
     db,
     // **** Destructure new props ****
     showBalances = false, // Default to false if not provided
@@ -72,6 +76,7 @@ function FamilyMembersList({
     membersBalances: propBalances,
     unitDefinitions: propUnitDefs,
     membersXP: propXP,
+    alwaysEditMode = false,
 }: FamilyMembersListProps) {
     // **** UPDATED: Removed props ****
     const { currentUser } = useAuth(); // +++ Get current user +++
@@ -151,7 +156,7 @@ function FamilyMembersList({
     const [newMemberRole, setNewMemberRole] = useState('child');
     const [newMemberPin, setNewMemberPin] = useState('');
 
-    const [isEditMode, setIsEditMode] = useState(false);
+    const [isEditMode, setIsEditMode] = useState(alwaysEditMode);
     const { toast } = useToast();
 
     // State variables for cropping images
@@ -581,22 +586,26 @@ function FamilyMembersList({
         <div className="w-full h-full flex flex-col">
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold">Family Members</h2>
-                <div className="flex items-center">
-                    <Label htmlFor="edit-mode" className="mr-2">
-                        Edit
-                    </Label>
-                    <Switch id="edit-mode" checked={isEditMode} onCheckedChange={setIsEditMode} />
-                </div>
+                {!alwaysEditMode && (
+                    <div className="flex items-center">
+                        <Label htmlFor="edit-mode" className="mr-2">
+                            Edit
+                        </Label>
+                        <Switch id="edit-mode" checked={isEditMode} onCheckedChange={setIsEditMode} />
+                    </div>
+                )}
             </div>
             <ScrollArea className="flex-grow">
-                <Button
-                    variant={selectedMember === 'All' ? 'default' : 'ghost'}
-                    className="w-full justify-start mb-2"
-                    onClick={() => setSelectedMember('All')}
-                    disabled={isEditMode} // <-- Disable when editing
-                >
-                    All
-                </Button>
+                {!alwaysEditMode && (
+                    <Button
+                        variant={selectedMember === 'All' ? 'default' : 'ghost'}
+                        className="w-full justify-start mb-2"
+                        onClick={() => setSelectedMember('All')}
+                        disabled={isEditMode} // <-- Disable when editing
+                    >
+                        All
+                    </Button>
+                )}
                 {/* --- NEW: Map over orderedMembers and use SortableFamilyMemberItem --- */}
                 {orderedMembers.map((member, index) => {
                     return (
@@ -615,6 +624,7 @@ function FamilyMembersList({
                             currentUser={currentUser} // <--- Added this prop
                             // +++ Pass XP Data +++
                             xpData={membersXP?.[member.id]}
+                            alwaysEditMode={alwaysEditMode}
                         />
                     );
                 })}
@@ -624,7 +634,7 @@ function FamilyMembersList({
                     <Button
                         className="w-full mt-4"
                         onClick={() => setIsAddMemberOpen(true)}
-                        disabled={isEditMode} // <-- Disable when editing
+                        disabled={isEditMode && !alwaysEditMode} // Disable in toggle edit mode, but not in alwaysEditMode
                     >
                         <PlusCircle className="mr-2 h-4 w-4" /> Add Family Member
                     </Button>
