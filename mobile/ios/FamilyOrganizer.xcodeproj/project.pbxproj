@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -11,6 +11,7 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		50020402768719817692F89C /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4BF1FA7FB9A40633485CAD66 /* XCTest.framework */; };
+		63958DEC2F560118001BB545 /* main.jsbundle in Resources */ = {isa = PBXBuildFile; fileRef = 63958DEB2F560118001BB545 /* main.jsbundle */; };
 		7DEA9CF917CBAAA2BA32C66B /* FamilyOrganizerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CFDE2D4C25615097E91DC0F /* FamilyOrganizerUITests.swift */; };
 		82670B254B5DFD33F377FF1B /* libPods-FamilyOrganizer.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 637E98CE3A80B8001E937873 /* libPods-FamilyOrganizer.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
@@ -39,6 +40,7 @@
 		4CFDE2D4C25615097E91DC0F /* FamilyOrganizerUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = FamilyOrganizerUITests.swift; path = FamilyOrganizerUITests/FamilyOrganizerUITests.swift; sourceTree = "<group>"; };
 		569D1AD493A11B059BD85B50 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-FamilyOrganizer/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		637E98CE3A80B8001E937873 /* libPods-FamilyOrganizer.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-FamilyOrganizer.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		63958DEB2F560118001BB545 /* main.jsbundle */ = {isa = PBXFileReference; lastKnownFileType = file; path = main.jsbundle; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = FamilyOrganizer/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
@@ -48,6 +50,10 @@
 		FB708E397632A1109C1C96B9 /* FamilyOrganizerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FamilyOrganizerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEE8E816BFDF6529F6E27B08 /* Pods-FamilyOrganizer.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FamilyOrganizer.release.xcconfig"; path = "Target Support Files/Pods-FamilyOrganizer/Pods-FamilyOrganizer.release.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		63958E052F560128001BB545 /* assets */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = assets; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		13B07F8C1A680F5B00A75B9A /* Frameworks */ = {
@@ -88,6 +94,8 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				17AB19F3A96DC55EA48C4B7A /* PrivacyInfo.xcprivacy */,
+				63958DEB2F560118001BB545 /* main.jsbundle */,
+				63958E052F560128001BB545 /* assets */,
 			);
 			name = FamilyOrganizer;
 			sourceTree = "<group>";
@@ -197,6 +205,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				63958E052F560128001BB545 /* assets */,
+			);
 			name = FamilyOrganizer;
 			productName = FamilyOrganizer;
 			productReference = 13B07F961A680F5B00A75B9A /* FamilyOrganizer.app */;
@@ -259,6 +270,7 @@
 			files = (
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
+				63958DEC2F560118001BB545 /* main.jsbundle in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				0D56C2C6284BC718730A409F /* PrivacyInfo.xcprivacy in Resources */,
 			);

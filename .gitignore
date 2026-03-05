@@ -53,3 +53,7 @@ minio_data/
 mobile/dist/
 mobile/ios/main.jsbundle
 mobile/ios/assets/
+
+dist/
+
+mobile/eas.json
