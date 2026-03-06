@@ -2,6 +2,7 @@
   "expo": {
     "name": "Family Organizer",
     "slug": "family-organizer-mobile",
+    "icon": "./assets/icon-ios-1024x1024.png",
     "scheme": "familyorganizer",
     "version": "0.0.1",
     "orientation": "portrait",
