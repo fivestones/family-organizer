@@ -68,6 +68,6 @@ describe('mobile device session routes', () => {
             })
         );
         expect(refreshAfterRevoke.status).toBe(401);
-        expect(await refreshAfterRevoke.json()).toEqual({ error: 'Unauthorized device' });
+        expect(await refreshAfterRevoke.json()).toEqual({ error: 'Unauthorized device', reason: 'revoked' });
     });
 });

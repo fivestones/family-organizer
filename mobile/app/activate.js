@@ -3,7 +3,7 @@ import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
 import { ScreenScaffold } from '../src/components/ScreenScaffold';
-import { radii, spacing } from '../src/theme/tokens';
+import { radii, spacing, withAlpha } from '../src/theme/tokens';
 import { mobileDeviceActivate } from '../src/lib/api-client';
 import { getServerUrl, setServerUrl } from '../src/lib/server-url';
 import { useAppSession } from '../src/providers/AppProviders';
@@ -18,20 +18,20 @@ function normalizeUrl(raw) {
 }
 
 export default function ActivateScreen() {
-  const { completeActivation, activationRequired, instantReady, isBootstrapping } = useAppSession();
+  const { completeActivation, activationRequired, activationIssue, clearActivationIssue, isBootstrapping } = useAppSession();
   const { rebootstrap } = useBootstrap();
   const { colors } = useAppTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
   const [serverUrl, setServerUrlState] = useState(() => getServerUrl() || '');
 
   // After rebootstrap remounts the tree, Expo Router stays on /activate.
-  // Redirect away once DeviceSessionProvider confirms activation is done
-  // AND InstantDB is connected (prevents leaving with a stale token but no db).
+  // Redirect away as soon as activation is complete. The lock flow handles
+  // Instant readiness with loading + retry behavior.
   useEffect(() => {
-    if (!isBootstrapping && !activationRequired && instantReady) {
+    if (!isBootstrapping && !activationRequired) {
       router.replace('/lock');
     }
-  }, [isBootstrapping, activationRequired, instantReady]);
+  }, [isBootstrapping, activationRequired]);
   const [accessKey, setAccessKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -81,6 +81,29 @@ export default function ActivateScreen() {
       accent={colors.accentChores}
     >
       <View style={styles.panel}>
+        {activationIssue ? (
+          <View style={styles.issueCard}>
+            <Text style={styles.issueTitle}>Re-activation required</Text>
+            <Text style={styles.issueBody}>{activationIssue.message}</Text>
+            <Text style={styles.issueMeta}>
+              Code: {activationIssue.code} | Source: {activationIssue.source}
+            </Text>
+            {activationIssue.details ? (
+              <Text style={styles.issueDetail} numberOfLines={2}>
+                Detail: {activationIssue.details}
+              </Text>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss activation issue details"
+              style={styles.issueDismiss}
+              onPress={clearActivationIssue}
+            >
+              <Text style={styles.issueDismissText}>Dismiss</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <Text style={styles.label}>Server URL</Text>
         <View style={styles.urlRow}>
           <TextInput
@@ -157,6 +180,44 @@ const createStyles = (colors) =>
     borderRadius: radii.md,
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  issueCard: {
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: withAlpha(colors.danger, 0.35),
+    backgroundColor: withAlpha(colors.danger, 0.08),
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  issueTitle: {
+    color: colors.danger,
+    fontWeight: '800',
+  },
+  issueBody: {
+    color: colors.ink,
+    lineHeight: 19,
+  },
+  issueMeta: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  issueDetail: {
+    color: colors.inkMuted,
+    fontSize: 12,
+  },
+  issueDismiss: {
+    alignSelf: 'flex-start',
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: withAlpha(colors.danger, 0.25),
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  issueDismissText: {
+    color: colors.danger,
+    fontWeight: '700',
+    fontSize: 12,
   },
   label: { fontWeight: '700', color: colors.ink },
   input: {

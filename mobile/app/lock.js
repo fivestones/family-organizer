@@ -16,6 +16,7 @@ import { useAppSession } from '../src/providers/AppProviders';
 import { hashPinClient } from '../src/lib/pin-hash';
 import { clearPendingParentAction, getPendingParentAction } from '../src/lib/session-prefs';
 import { useAppTheme } from '../src/theme/ThemeProvider';
+import { useBootstrap } from './_layout';
 
 const PIN_PAD_LAYOUT = [
   ['1', '2', '3'],
@@ -38,6 +39,7 @@ function automationMemberKey(member) {
 export default function LockScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { rebootstrap } = useBootstrap();
   const {
     activationRequired,
     isAuthenticated,
@@ -113,6 +115,26 @@ export default function LockScreen() {
     if (!pendingRedirect) return;
     router.replace(pendingRedirect);
   }, [pendingRedirect]);
+
+  useEffect(() => {
+    if (activationRequired) return;
+    if (instantReady) return;
+    if (bootstrapStatus === 'signing_in') return;
+
+    const retryTimer = setTimeout(() => {
+      if (bootstrapStatus === 'error') {
+        retryBootstrap();
+        return;
+      }
+      void rebootstrap().catch(() => {
+        // Keep showing lock loading state; next tick retries again.
+      });
+    }, 1200);
+
+    return () => {
+      clearTimeout(retryTimer);
+    };
+  }, [activationRequired, bootstrapStatus, instantReady, rebootstrap, retryBootstrap]);
 
   useEffect(() => {
     if (!selectedMember) return undefined;

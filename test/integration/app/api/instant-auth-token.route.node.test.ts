@@ -23,7 +23,7 @@ describe('GET /api/instant-auth-token', () => {
     it('rejects requests without a valid device cookie', async () => {
         const response = await GET(new NextRequest('http://localhost:3000/api/instant-auth-token'));
         expect(response.status).toBe(401);
-        expect(await response.json()).toEqual({ error: 'Unauthorized device' });
+        expect(await response.json()).toEqual({ error: 'Unauthorized device', reason: 'missing' });
     });
 
     it('returns 503 when instant admin auth is not configured', async () => {

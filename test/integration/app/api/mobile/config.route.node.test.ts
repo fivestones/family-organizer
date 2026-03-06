@@ -19,6 +19,7 @@ describe('GET /api/mobile/config', () => {
         expect(response.status).toBe(401);
         const body = await response.json();
         expect(body.error).toBe('Unauthorized device');
+        expect(body.reason).toBe('missing');
     });
 
     it('returns 503 when INSTANT_APP_ID is not configured', async () => {

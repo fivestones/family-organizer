@@ -9,6 +9,7 @@ import {
   setKidPrincipalToken,
   setParentPrincipalToken,
 } from '../lib/device-session-store';
+import { deriveDeviceAuthIssueFromError } from '../lib/device-auth-issue';
 import { useDeviceSession } from './DeviceSessionProvider';
 import {
   DEFAULT_PARENT_SHARED_DEVICE,
@@ -153,7 +154,7 @@ export function InstantPrincipalProvider({ children }) {
         await signInWithPrincipalToken('kid', response.token);
       } catch (error) {
         if (error?.status === 401) {
-          await resetForUnauthorizedDevice();
+          await resetForUnauthorizedDevice(error);
         }
         throw error;
       } finally {
@@ -207,7 +208,7 @@ export function InstantPrincipalProvider({ children }) {
         await signInWithPrincipalToken('parent', response.token, { unlockParent: true });
       } catch (error) {
         if (error?.status === 401) {
-          await resetForUnauthorizedDevice();
+          await resetForUnauthorizedDevice(error);
         }
         throw error;
       } finally {
@@ -246,9 +247,9 @@ export function InstantPrincipalProvider({ children }) {
     await safeSignOutInstant();
   }, [clearIdleTimer]);
 
-  const resetForUnauthorizedDevice = useCallback(async () => {
+  const resetForUnauthorizedDevice = useCallback(async (error = null) => {
     await clearPrincipalState();
-    await clearDeviceSession();
+    await clearDeviceSession({ issue: deriveDeviceAuthIssueFromError(error, 'instant_principal') });
   }, [clearDeviceSession, clearPrincipalState]);
 
   const retryBootstrap = useCallback(() => {
@@ -357,7 +358,7 @@ export function InstantPrincipalProvider({ children }) {
         }
       } catch (error) {
         if (error?.status === 401) {
-          await resetForUnauthorizedDevice();
+          await resetForUnauthorizedDevice(error);
         }
         if (cancelled) return;
         setBootstrapError(error);

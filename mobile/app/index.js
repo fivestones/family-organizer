@@ -5,7 +5,7 @@ import { useAppSession } from '../src/providers/AppProviders';
 import { useAppTheme } from '../src/theme/ThemeProvider';
 
 export default function IndexScreen() {
-  const { isBootstrapping, activationRequired, instantReady, isAuthenticated } = useAppSession();
+  const { isBootstrapping, activationRequired, isAuthenticated } = useAppSession();
   const { colors } = useAppTheme();
 
   if (isBootstrapping) {
@@ -16,9 +16,9 @@ export default function IndexScreen() {
     );
   }
 
-  // If device has a stale token but InstantDB isn't initialized (no server
-  // config), send the user to activation to (re-)enter the server URL.
-  const needsActivation = activationRequired || !instantReady;
+  // Activation is a device-session concern only. Instant readiness should
+  // recover on lock/tabs via loading + retry without forcing re-activation.
+  const needsActivation = activationRequired;
   const targetRoute = needsActivation ? '/activate' : isAuthenticated ? '/dashboard' : '/lock';
   return <Redirect href={targetRoute} />;
 }

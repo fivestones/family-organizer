@@ -53,7 +53,7 @@ describe('POST /api/instant-auth-parent-token', () => {
     it('rejects unauthorized devices', async () => {
         const response = await POST(makeRequest({ familyMemberId: 'p1', pin: '1234' }, false));
         expect(response.status).toBe(401);
-        expect(await response.json()).toEqual({ error: 'Unauthorized device' });
+        expect(await response.json()).toEqual({ error: 'Unauthorized device', reason: 'missing' });
     });
 
     it('rejects missing familyMemberId', async () => {

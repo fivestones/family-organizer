@@ -18,7 +18,7 @@ type ParentElevationBody = {
 export async function POST(request: NextRequest) {
     const deviceAuth = getDeviceAuthContextFromNextRequest(request);
     if (!deviceAuth.authorized) {
-        return NextResponse.json({ error: 'Unauthorized device' }, { status: 401 });
+        return NextResponse.json({ error: 'Unauthorized device', reason: deviceAuth.reason }, { status: 401 });
     }
 
     if (!isInstantFamilyAuthConfigured()) {
