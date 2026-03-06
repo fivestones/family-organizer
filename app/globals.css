@@ -20,6 +20,12 @@
   .text-balance {
     text-wrap: balance;
   }
+  .scrollbar-hide {
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @layer base {

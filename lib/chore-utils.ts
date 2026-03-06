@@ -699,10 +699,20 @@ export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Dat
         }
     });
 
-    // TODO: This grid function doesn't account for *actual* completions from the DB.
-    // It only shows assignments. If completion status is needed here, it must be fetched
-    // and merged similar to how `calculatePeriodDetails` would handle it.
-    // For ChoreCalendarView, this might be sufficient if it only shows assignment status.
+    // Merge actual completions from the chore object
+    const completions = chore.completions || [];
+    const getCompleterId = (completion: any) => {
+        const raw = completion?.completedBy;
+        return Array.isArray(raw) ? raw[0]?.id : raw?.id;
+    };
+    completions.forEach((completion: any) => {
+        if (!completion.completed || !completion.dateDue) return;
+        const dateStr = completion.dateDue.split('T')[0];
+        const completerId = getCompleterId(completion);
+        if (completerId && dateAssignments[dateStr]?.[completerId]) {
+            dateAssignments[dateStr][completerId].completed = true;
+        }
+    });
 
     return dateAssignments;
 };

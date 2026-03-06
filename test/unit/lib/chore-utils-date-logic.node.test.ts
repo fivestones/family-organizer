@@ -396,4 +396,53 @@ describe('chore-utils date logic', () => {
         expect(grid['2026-03-02']).toMatchObject({ 'kid-b': { assigned: true, completed: false } });
         expect(grid['2026-03-03']).toMatchObject({ 'kid-a': { assigned: true, completed: false } });
     });
+
+    it('merges completions into the assignment grid', async () => {
+        const chore = makeRotatingChore({
+            id: 'rot-comp',
+            startDate: '2026-03-01',
+            rrule: 'FREQ=DAILY',
+            completions: [
+                { id: 'c1', completed: true, dateDue: '2026-03-01', completedBy: { id: 'kid-a' } },
+                { id: 'c2', completed: true, dateDue: '2026-03-02', completedBy: { id: 'kid-b' } },
+            ],
+        } as any);
+
+        const grid = await getChoreAssignmentGridFromChore(chore as any, new Date('2026-03-01T00:00:00Z'), new Date('2026-03-03T00:00:00Z'));
+
+        expect(grid['2026-03-01']['kid-a']).toMatchObject({ assigned: true, completed: true });
+        expect(grid['2026-03-02']['kid-b']).toMatchObject({ assigned: true, completed: true });
+        expect(grid['2026-03-03']['kid-a']).toMatchObject({ assigned: true, completed: false });
+    });
+
+    it('ignores completions for dates outside the grid range', async () => {
+        const chore = makeRotatingChore({
+            id: 'rot-out-of-range',
+            startDate: '2026-03-01',
+            rrule: 'FREQ=DAILY',
+            completions: [
+                { id: 'c1', completed: true, dateDue: '2026-02-28', completedBy: { id: 'kid-a' } },
+            ],
+        } as any);
+
+        const grid = await getChoreAssignmentGridFromChore(chore as any, new Date('2026-03-01T00:00:00Z'), new Date('2026-03-02T00:00:00Z'));
+
+        expect(grid['2026-03-01']['kid-a']).toMatchObject({ assigned: true, completed: false });
+        expect(grid).not.toHaveProperty('2026-02-28');
+    });
+
+    it('handles completedBy as array format from InstantDB', async () => {
+        const chore = makeRotatingChore({
+            id: 'rot-arr',
+            startDate: '2026-03-01',
+            rrule: 'FREQ=DAILY',
+            completions: [
+                { id: 'c1', completed: true, dateDue: '2026-03-01', completedBy: [{ id: 'kid-a' }] },
+            ],
+        } as any);
+
+        const grid = await getChoreAssignmentGridFromChore(chore as any, new Date('2026-03-01T00:00:00Z'), new Date('2026-03-01T00:00:00Z'));
+
+        expect(grid['2026-03-01']['kid-a']).toMatchObject({ assigned: true, completed: true });
+    });
 });
