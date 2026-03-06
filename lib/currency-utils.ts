@@ -411,7 +411,6 @@ export const createAdditionalEnvelope = async (
 export const setDefaultEnvelope = async (db: any, envelopes: Envelope[], newDefaultEnvelopeId: string) => {
     console.log(`Attempting to set default: ${newDefaultEnvelopeId}. Current envelopes:`, envelopes);
     const transactions: any[] = [];
-    let currentDefaultId: string | null = null;
     let newDefaultExists = false;
 
     envelopes.forEach((env: Envelope) => {
@@ -428,7 +427,6 @@ export const setDefaultEnvelope = async (db: any, envelopes: Envelope[], newDefa
         } else if (env.isDefault) {
             // If it's NOT the target, but IS currently default, mark it to be unset
             console.log(`Marking old default ${env.id} to be unset.`);
-            currentDefaultId = env.id; // Keep track of the one we are unsetting
             transactions.push(tx.allowanceEnvelopes[env.id].update({ isDefault: false }));
         }
     });
@@ -442,10 +440,7 @@ export const setDefaultEnvelope = async (db: any, envelopes: Envelope[], newDefa
     }
 
     if (transactions.length > 0) {
-        console.log(
-            'Executing transactions:',
-            transactions.map((t) => t.toString())
-        ); // Log transactions better
+        console.log(`Executing ${transactions.length} default-envelope transaction(s).`);
         try {
             await db.transact(transactions);
             console.log('Default envelope transaction successful.');
