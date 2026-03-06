@@ -1,27 +1,16 @@
 import React, { useEffect, useMemo } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useAppSession } from '../../src/providers/AppProviders';
+import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
 import { radii, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/SubscreenScaffold';
 import { clearPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
-import { getApiBaseUrl } from '../../src/lib/api-client';
 
 function firstParam(value) {
   return Array.isArray(value) ? value[0] : value;
-}
-
-function avatarUriForMember(member) {
-  const fileName =
-    member?.photoUrls?.['320'] ||
-    member?.photoUrls?.[320] ||
-    member?.photoUrls?.['64'] ||
-    member?.photoUrls?.[64];
-
-  if (!fileName) return null;
-  return `${getApiBaseUrl()}/uploads/${fileName}`;
 }
 
 export default function FamilyMembersScreen() {
@@ -119,29 +108,31 @@ export default function FamilyMembersScreen() {
           </View>
         ) : (
           members.map((member, index) => {
-            const avatarUri = avatarUriForMember(member);
             const role = member.role || 'child';
             const roleIsParent = role === 'parent';
             return (
               <View key={member.id} style={styles.memberCard}>
                 <View style={styles.memberHeader}>
                   <View style={styles.memberIdentity}>
-                    {avatarUri ? (
-                      <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
-                    ) : (
-                      <View
-                        style={[
-                          styles.avatarFallback,
-                          {
-                            backgroundColor: roleIsParent
-                              ? withAlpha(colors.accentMore, 0.18)
-                              : withAlpha(colors.warning, 0.16),
-                          },
-                        ]}
-                      >
-                        <Text style={styles.avatarLetter}>{(member.name || '?').slice(0, 1).toUpperCase()}</Text>
-                      </View>
-                    )}
+                    <AvatarPhotoImage
+                      photoUrls={member.photoUrls}
+                      preferredSize="320"
+                      style={styles.avatarImage}
+                      fallback={
+                        <View
+                          style={[
+                            styles.avatarFallback,
+                            {
+                              backgroundColor: roleIsParent
+                                ? withAlpha(colors.accentMore, 0.18)
+                                : withAlpha(colors.warning, 0.16),
+                            },
+                          ]}
+                        >
+                          <Text style={styles.avatarLetter}>{(member.name || '?').slice(0, 1).toUpperCase()}</Text>
+                        </View>
+                      }
+                    />
                     <View style={{ flex: 1, gap: 4 }}>
                       <Text style={styles.memberName}>{member.name}</Text>
                       <Text style={styles.memberMeta}>Sort order #{index + 1}</Text>

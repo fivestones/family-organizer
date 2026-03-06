@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   StyleSheet,
   Switch,
@@ -11,10 +10,10 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { ScreenScaffold, PlaceholderCard } from '../src/components/ScreenScaffold';
+import { AvatarPhotoImage } from '../src/components/AvatarPhotoImage';
 import { radii, spacing, withAlpha } from '../src/theme/tokens';
 import { useAppSession } from '../src/providers/AppProviders';
 import { hashPinClient } from '../src/lib/pin-hash';
-import { getApiBaseUrl } from '../src/lib/api-client';
 import { clearPendingParentAction, getPendingParentAction } from '../src/lib/session-prefs';
 import { useAppTheme } from '../src/theme/ThemeProvider';
 
@@ -26,17 +25,6 @@ const PIN_PAD_LAYOUT = [
 ];
 
 const MAX_PIN_LENGTH = 6;
-
-function avatarUriForMember(member) {
-  const fileName =
-    member?.photoUrls?.['320'] ||
-    member?.photoUrls?.[320] ||
-    member?.photoUrls?.['64'] ||
-    member?.photoUrls?.[64];
-
-  if (!fileName) return null;
-  return `${getApiBaseUrl()}/uploads/${fileName}`;
-}
 
 function automationMemberKey(member) {
   const source = member?.name || member?.id || 'unknown';
@@ -418,7 +406,6 @@ export default function LockScreen() {
 
                   <View style={styles.grid}>
                     {familyMembers.map((member) => {
-                      const avatarUri = avatarUriForMember(member);
                       const isParent = member.role === 'parent';
                       return (
                         <Pressable
@@ -429,22 +416,25 @@ export default function LockScreen() {
                           style={[styles.memberCard, isParent && styles.memberCardParent]}
                           onPress={() => handleSelectMember(member)}
                         >
-                          {avatarUri ? (
-                            <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
-                          ) : (
-                            <View
-                              style={[
-                                styles.avatar,
-                                {
-                                  backgroundColor: isParent
-                                    ? withAlpha(colors.accentMore, 0.18)
-                                    : withAlpha(colors.warning, 0.16),
-                                },
-                              ]}
-                            >
-                              <Text style={styles.avatarFallback}>{(member.name || '?').slice(0, 1).toUpperCase()}</Text>
-                            </View>
-                          )}
+                          <AvatarPhotoImage
+                            photoUrls={member.photoUrls}
+                            preferredSize="320"
+                            style={styles.avatarImage}
+                            fallback={
+                              <View
+                                style={[
+                                  styles.avatar,
+                                  {
+                                    backgroundColor: isParent
+                                      ? withAlpha(colors.accentMore, 0.18)
+                                      : withAlpha(colors.warning, 0.16),
+                                  },
+                                ]}
+                              >
+                                <Text style={styles.avatarFallback}>{(member.name || '?').slice(0, 1).toUpperCase()}</Text>
+                              </View>
+                            }
+                          />
                           <Text style={styles.memberName}>{member.name}</Text>
                           <Text style={styles.memberSub}>
                             {isParent ? 'Parent (elevation required)' : member.pinHash ? 'PIN required' : 'Tap to enter'}
@@ -487,23 +477,23 @@ export default function LockScreen() {
                       importantForAccessibility="no-hide-descendants"
                     />
                     <View style={styles.selectedHeader}>
-                        {avatarUriForMember(selectedMember) ? (
-                          <Image
-                            source={{ uri: avatarUriForMember(selectedMember) }}
-                            style={styles.selectedAvatarImage}
-                          />
-                        ) : (
-                          <View
-                            style={[
-                              styles.selectedAvatarFallback,
-                              { backgroundColor: withAlpha(colors.warning, 0.16) },
-                            ]}
-                          >
-                            <Text style={styles.selectedAvatarLetter}>
-                              {(selectedMember.name || '?').slice(0, 1).toUpperCase()}
-                            </Text>
-                          </View>
-                        )}
+                        <AvatarPhotoImage
+                          photoUrls={selectedMember.photoUrls}
+                          preferredSize="320"
+                          style={styles.selectedAvatarImage}
+                          fallback={
+                            <View
+                              style={[
+                                styles.selectedAvatarFallback,
+                                { backgroundColor: withAlpha(colors.warning, 0.16) },
+                              ]}
+                            >
+                              <Text style={styles.selectedAvatarLetter}>
+                                {(selectedMember.name || '?').slice(0, 1).toUpperCase()}
+                              </Text>
+                            </View>
+                          }
+                        />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.selectedName}>{selectedMember.name}</Text>
                           <Text style={styles.selectedRole}>

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Image,
   Linking,
   Modal,
   Pressable,
@@ -21,9 +20,10 @@ import {
   getMemberCompletionForDate,
   localDateToUTC,
 } from '@family-organizer/shared-core';
+import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
-import { getApiBaseUrl, getPresignedFileUrl } from '../../src/lib/api-client';
+import { getPresignedFileUrl } from '../../src/lib/api-client';
 import { getRecursiveTaskCompletionTransactions, getTasksForDate } from '../../../lib/task-scheduler';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 
@@ -39,17 +39,6 @@ function memberRef(member) {
   if (!member) return null;
   if (Array.isArray(member)) return member[0] || null;
   return member;
-}
-
-function avatarUriForMember(member) {
-  const fileName =
-    member?.photoUrls?.['320'] ||
-    member?.photoUrls?.[320] ||
-    member?.photoUrls?.['64'] ||
-    member?.photoUrls?.[64];
-
-  if (!fileName) return null;
-  return `${getApiBaseUrl()}/uploads/${fileName}`;
 }
 
 function completionMemberId(completion) {
@@ -569,13 +558,16 @@ export default function DashboardTab() {
       style={styles.topStripAvatarButton}
       hitSlop={10}
     >
-      {avatarUriForMember(currentUser) ? (
-        <Image source={{ uri: avatarUriForMember(currentUser) }} style={styles.topStripAvatarImage} />
-      ) : (
-        <View style={styles.topStripAvatarFallback}>
-          <Text style={styles.topStripAvatarFallbackText}>{createInitials(currentUser.name)}</Text>
-        </View>
-      )}
+      <AvatarPhotoImage
+        photoUrls={currentUser.photoUrls}
+        preferredSize="320"
+        style={styles.topStripAvatarImage}
+        fallback={
+          <View style={styles.topStripAvatarFallback}>
+            <Text style={styles.topStripAvatarFallbackText}>{createInitials(currentUser.name)}</Text>
+          </View>
+        }
+      />
     </Pressable>
   ) : null;
 
@@ -593,13 +585,16 @@ export default function DashboardTab() {
           <View style={styles.heroBlock}>
             <View style={styles.heroRow}>
               <View style={styles.heroIdentity}>
-                {avatarUriForMember(viewedMember) ? (
-                  <Image source={{ uri: avatarUriForMember(viewedMember) }} style={styles.heroAvatarImage} />
-                ) : (
-                  <View style={styles.heroAvatarFallback}>
-                    <Text style={styles.heroAvatarFallbackText}>{createInitials(viewedMember?.name)}</Text>
-                  </View>
-                )}
+                <AvatarPhotoImage
+                  photoUrls={viewedMember?.photoUrls}
+                  preferredSize="320"
+                  style={styles.heroAvatarImage}
+                  fallback={
+                    <View style={styles.heroAvatarFallback}>
+                      <Text style={styles.heroAvatarFallbackText}>{createInitials(viewedMember?.name)}</Text>
+                    </View>
+                  }
+                />
                 <View style={styles.heroCopy}>
                   <Text style={styles.heroTitle}>{formatPossessive(viewedMember?.name)}</Text>
                 </View>
@@ -929,13 +924,16 @@ export default function DashboardTab() {
           <View style={styles.menuSheet}>
             <View style={styles.menuHeader}>
               <View style={styles.menuIdentity}>
-                {avatarUriForMember(currentUser) ? (
-                  <Image source={{ uri: avatarUriForMember(currentUser) }} style={styles.menuAvatarImage} />
-                ) : (
-                  <View style={styles.menuAvatarFallback}>
-                    <Text style={styles.menuAvatarFallbackText}>{createInitials(currentUser?.name)}</Text>
-                  </View>
-                )}
+                <AvatarPhotoImage
+                  photoUrls={currentUser?.photoUrls}
+                  preferredSize="320"
+                  style={styles.menuAvatarImage}
+                  fallback={
+                    <View style={styles.menuAvatarFallback}>
+                      <Text style={styles.menuAvatarFallbackText}>{createInitials(currentUser?.name)}</Text>
+                    </View>
+                  }
+                />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.menuTitle}>{currentUser?.name || 'Current member'}</Text>
                   <Text style={styles.menuSubtitle}>Signed in on this shared device</Text>

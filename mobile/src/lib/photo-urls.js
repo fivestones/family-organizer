@@ -1,0 +1,22 @@
+const SIZE_FALLBACKS = {
+  '64': ['64', '320', '1200'],
+  '320': ['320', '1200', '64'],
+  '1200': ['1200', '320', '64'],
+};
+
+function asString(value) {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+export function getPhotoKey(photoUrls, preferredSize = '64') {
+  if (!photoUrls) return null;
+
+  const values = photoUrls || {};
+  const candidates = SIZE_FALLBACKS[preferredSize] || SIZE_FALLBACKS['64'];
+  for (const size of candidates) {
+    const key = asString(values[size]);
+    if (key) return key;
+  }
+
+  return null;
+}
