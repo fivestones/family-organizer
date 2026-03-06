@@ -73,6 +73,10 @@ interface AvatarUploadTarget {
     key: string;
 }
 
+interface AvatarUploadApiResponse {
+    photoUrls: PhotoUrls;
+}
+
 function loadImageForCanvas(file: Blob): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
         const objectUrl = URL.createObjectURL(file);
@@ -368,20 +372,62 @@ function FamilyMembersList({
             filesBySize[size] = await renderSquarePngVariant(image, Number(size));
         }
 
-        const presigned = (await getAvatarVariantUploadUrls({
-            scope: options.scope,
-            memberId: options.memberId ?? null,
-        })) as {
-            uploads: AvatarUploadTarget[];
-            photoUrls: PhotoUrls;
+        const uploadViaServerApi = async (): Promise<PhotoUrls> => {
+            const formData = new FormData();
+            formData.append('scope', options.scope);
+            if (options.memberId) {
+                formData.append('memberId', options.memberId);
+            }
+            AVATAR_UPLOAD_SIZES.forEach((size) => {
+                formData.append(`file${size}`, filesBySize[size]);
+            });
+
+            const fallbackResponse = await fetch('/api/avatar-variants', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!fallbackResponse.ok) {
+                const fallbackBody = await fallbackResponse.json().catch(() => null);
+                const message =
+                    fallbackBody && typeof fallbackBody.error === 'string' ? fallbackBody.error : 'Failed to upload avatar photo via server fallback';
+                throw new Error(message);
+            }
+
+            const fallbackPayload = (await fallbackResponse.json()) as AvatarUploadApiResponse;
+            const fallbackPhotoUrls: PhotoUrls = {
+                '64': fallbackPayload?.photoUrls?.['64'],
+                '320': fallbackPayload?.photoUrls?.['320'],
+                '1200': fallbackPayload?.photoUrls?.['1200'],
+            };
+            if (!fallbackPhotoUrls['64'] || !fallbackPhotoUrls['320'] || !fallbackPhotoUrls['1200']) {
+                throw new Error('Fallback upload response was missing avatar keys');
+            }
+
+            return fallbackPhotoUrls;
         };
 
-        if (!presigned?.uploads?.length) {
-            throw new Error('Failed to generate upload signature');
-        }
-
+        let presigned:
+            | {
+                  uploads: AvatarUploadTarget[];
+                  photoUrls: PhotoUrls;
+              }
+            | null = null;
         const uploadedKeys: string[] = [];
+
         try {
+            presigned = (await getAvatarVariantUploadUrls({
+                scope: options.scope,
+                memberId: options.memberId ?? null,
+            })) as {
+                uploads: AvatarUploadTarget[];
+                photoUrls: PhotoUrls;
+            };
+
+            if (!presigned?.uploads?.length) {
+                throw new Error('Failed to generate upload signature');
+            }
+
             for (const upload of presigned.uploads) {
                 const variantFile = filesBySize[upload.size];
                 if (!variantFile) {
@@ -411,13 +457,15 @@ function FamilyMembersList({
                     console.error('Failed to clean up partial avatar upload:', cleanupError);
                 }
             }
-            throw error;
+
+            console.warn('Direct avatar upload failed; retrying via server upload API.', error);
+            return uploadViaServerApi();
         }
 
         const photoUrls: PhotoUrls = {
-            '64': presigned.photoUrls?.['64'],
-            '320': presigned.photoUrls?.['320'],
-            '1200': presigned.photoUrls?.['1200'],
+            '64': presigned?.photoUrls?.['64'],
+            '320': presigned?.photoUrls?.['320'],
+            '1200': presigned?.photoUrls?.['1200'],
         };
         if (!photoUrls['64'] || !photoUrls['320'] || !photoUrls['1200']) {
             throw new Error('Upload response was missing avatar keys');
@@ -439,9 +487,10 @@ function FamilyMembersList({
                 });
             } catch (error) {
                 console.error('Error uploading photo:', error);
+                const message = error instanceof Error ? error.message : 'Failed to upload photo. Please try again.';
                 toast({
                     title: 'Error',
-                    description: 'Failed to upload photo. Please try again.',
+                    description: message,
                     variant: 'destructive',
                 });
                 return;
@@ -681,9 +730,10 @@ function FamilyMembersList({
                     shouldDeletePreviousPhoto = previousPhotoKeys.length > 0;
                 } catch (error) {
                     console.error('Error uploading photo:', error);
+                    const message = error instanceof Error ? error.message : 'Failed to upload photo. Please try again.';
                     toast({
                         title: 'Error',
-                        description: 'Failed to upload photo. Please try again.',
+                        description: message,
                         variant: 'destructive',
                     });
                     return; // Stop execution if upload fails
@@ -839,9 +889,10 @@ function FamilyMembersList({
             setFamilyPhotoCroppedAreaPixels(null);
         } catch (error) {
             console.error('Failed to upload family photo:', error);
+            const message = error instanceof Error ? error.message : 'Could not update the family photo. Please try again.';
             toast({
                 title: 'Upload Failed',
-                description: 'Could not update the family photo. Please try again.',
+                description: message,
                 variant: 'destructive',
             });
         } finally {

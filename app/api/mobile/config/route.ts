@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
     const deviceAuth = getDeviceAuthContextFromNextRequest(request);
     if (!deviceAuth.authorized) {
-        return NextResponse.json({ error: 'Unauthorized device', reason: deviceAuth.reason }, { status: 401 });
+        const reason = 'reason' in deviceAuth ? deviceAuth.reason : 'unknown';
+        return NextResponse.json({ error: 'Unauthorized device', reason }, { status: 401 });
     }
     const instantAppId =
         process.env.NEXT_PUBLIC_INSTANT_APP_ID || process.env.INSTANT_APP_ID;

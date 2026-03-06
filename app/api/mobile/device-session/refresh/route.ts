@@ -12,7 +12,8 @@ export async function POST(request: NextRequest) {
     const result = refreshMobileDeviceSessionToken(bearer);
 
     if (!result.ok) {
-        return noStoreJson({ error: 'Unauthorized device', reason: result.error }, 401);
+        const reason = 'error' in result ? result.error : 'unknown';
+        return noStoreJson({ error: 'Unauthorized device', reason }, 401);
     }
     if (!('token' in result)) {
         return noStoreJson({ error: 'Unauthorized device', reason: 'unknown' }, 401);
