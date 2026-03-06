@@ -13,8 +13,6 @@ const PUBLIC_ALLOWLIST_PATHS = [
     '/offline.html',
     '/activate',
     '/api/device-activate',
-    '/api/upload',
-    '/api/delete-image',
 ];
 const PUBLIC_ALLOWLIST_PREFIXES = ['/api/mobile/'];
 

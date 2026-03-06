@@ -5,6 +5,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+import { getPhotoUrl } from '@/lib/photo-urls';
 
 // --- Helper: Generate random number in range ---
 const random = (min: number, max: number) => Math.floor(Math.random() * (max - min)) + min;
@@ -258,7 +259,7 @@ const ToggleableAvatar = ({
         .join('')
         .toUpperCase();
 
-    const photoUrl64 = photoUrls?.[64];
+    const photoUrl64 = getPhotoUrl(photoUrls, '64');
 
     // Function to generate random sparkles (Positive Effect)
     const generateSparkles = () => {
@@ -474,7 +475,7 @@ const ToggleableAvatar = ({
                         </svg>
                     )}
                     <Avatar className="h-11 w-11 relative z-20">
-                        {photoUrl64 ? <AvatarImage src={'uploads/' + photoUrl64} alt={name} /> : <AvatarFallback>{initials}</AvatarFallback>}
+                        {photoUrl64 ? <AvatarImage src={photoUrl64} alt={name} /> : <AvatarFallback>{initials}</AvatarFallback>}
                     </Avatar>
                 </div>
             </Toggle>

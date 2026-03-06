@@ -12,6 +12,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { tx, id } from '@instantdb/react';
 import { UnitDefinition } from '@/lib/currency-utils';
 import Link from 'next/link';
+import { deleteS3Objects, getAvatarVariantUploadUrls, hashPin } from '@/app/actions';
+import { getPhotoKeys, getPhotoUrl, type PhotoUrls } from '@/lib/photo-urls';
 
 // **** NEW: Import PDND tools ****
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
@@ -21,8 +23,6 @@ import { SortableFamilyMemberItem } from './SortableFamilyMemberItem'; // <-- Im
 
 // +++ NEW: Import RadioGroup for Role selection +++
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-// +++ NEW: Import Hash util +++
-import { hashPin } from '@/app/actions';
 // +++ NEW: Import Auth Hook +++
 import { useAuth } from '@/components/AuthProvider';
 // +++ NEW: Import Utils for Internal Calculation +++
@@ -44,12 +44,6 @@ interface FamilyMember {
     // Add other fields if needed from the query context (ChoreList vs AllowanceView)
 }
 
-interface PhotoUrls {
-    '64'?: string;
-    '320'?: string;
-    '1200'?: string;
-}
-
 // **** UPDATED: Removed addFamilyMember and deleteFamilyMember from props ****
 interface FamilyMembersListProps {
     familyMembers: FamilyMember[];
@@ -68,6 +62,63 @@ interface FamilyMembersListProps {
 
 const noopSetSelectedMember = () => {};
 const FAMILY_PHOTO_SETTING = 'familyPhotoUrls';
+const AVATAR_UPLOAD_SIZES = ['64', '320', '1200'] as const;
+
+type AvatarUploadSize = (typeof AVATAR_UPLOAD_SIZES)[number];
+
+interface AvatarUploadTarget {
+    size: AvatarUploadSize;
+    url: string;
+    fields: Record<string, string>;
+    key: string;
+}
+
+function loadImageForCanvas(file: Blob): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(image);
+        };
+        image.onerror = (error) => {
+            URL.revokeObjectURL(objectUrl);
+            reject(error);
+        };
+        image.src = objectUrl;
+    });
+}
+
+function renderSquarePngVariant(image: HTMLImageElement, size: number): Promise<File> {
+    return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            reject(new Error('Unable to create canvas context'));
+            return;
+        }
+
+        const sourceSize = Math.min(image.naturalWidth, image.naturalHeight);
+        const sourceX = (image.naturalWidth - sourceSize) / 2;
+        const sourceY = (image.naturalHeight - sourceSize) / 2;
+        ctx.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+
+        canvas.toBlob(
+            (blob) => {
+                if (!blob) {
+                    reject(new Error('Failed to render avatar variant'));
+                    return;
+                }
+                resolve(new File([blob], `avatar-${size}.png`, { type: 'image/png' }));
+            },
+            'image/png',
+            0.95
+        );
+    });
+}
 
 function FamilyMembersList({
     familyMembers,
@@ -281,32 +332,106 @@ function FamilyMembersList({
         return cleanup;
     }, [orderedMembers, familyMembers, db, toast]); // Re-run if these change
 
-    // **** MOVED: Full implementation of addFamilyMember logic ****
-    const _internal_addFamilyMember = async (name: string, email: string | null, photoFile: File | null) => {
-        if (!name) return;
-        let photoUrls: {
-            '64'?: string;
-            '320'?: string;
-            '1200'?: string;
-        } | null = null; // Type annotation
-        if (photoFile) {
-            const formData = new FormData();
-            formData.append('file', photoFile);
+    const showPhotoCleanupWarning = useCallback(
+        (message: string) => {
+            toast({
+                title: 'Saved with warning',
+                description: message,
+                variant: 'destructive',
+            });
+        },
+        [toast]
+    );
 
+    const cleanupS3Photos = useCallback(
+        async (keys: string[], warningMessage: string) => {
+            if (!keys.length) return;
             try {
-                const response = await fetch('/api/upload', {
+                await deleteS3Objects(keys);
+            } catch (error) {
+                console.error('Photo cleanup failed:', error);
+                showPhotoCleanupWarning(warningMessage);
+            }
+        },
+        [showPhotoCleanupWarning]
+    );
+
+    const uploadAvatarPhotoVariants = useCallback(async (sourceFile: File, options: { scope: 'profile-photo' | 'family-photo'; memberId?: string }) => {
+        const image = await loadImageForCanvas(sourceFile);
+        const filesBySize = {} as Record<AvatarUploadSize, File>;
+        for (const size of AVATAR_UPLOAD_SIZES) {
+            filesBySize[size] = await renderSquarePngVariant(image, Number(size));
+        }
+
+        const presigned = (await getAvatarVariantUploadUrls({
+            scope: options.scope,
+            memberId: options.memberId ?? null,
+        })) as {
+            uploads: AvatarUploadTarget[];
+            photoUrls: PhotoUrls;
+        };
+
+        if (!presigned?.uploads?.length) {
+            throw new Error('Failed to generate upload signature');
+        }
+
+        const uploadedKeys: string[] = [];
+        try {
+            for (const upload of presigned.uploads) {
+                const variantFile = filesBySize[upload.size];
+                if (!variantFile) {
+                    throw new Error(`Missing ${upload.size}px variant`);
+                }
+
+                const formData = new FormData();
+                Object.entries(upload.fields || {}).forEach(([fieldName, fieldValue]) => {
+                    formData.append(fieldName, fieldValue);
+                });
+                formData.append('file', variantFile);
+
+                const uploadResponse = await fetch(upload.url, {
                     method: 'POST',
                     body: formData,
                 });
-                if (!response.ok) throw new Error('Failed to upload photo');
+                if (uploadResponse.status >= 400) {
+                    throw new Error(`Failed to upload ${upload.size}px avatar`);
+                }
+                uploadedKeys.push(upload.key);
+            }
+        } catch (error) {
+            if (uploadedKeys.length > 0) {
+                try {
+                    await deleteS3Objects(uploadedKeys);
+                } catch (cleanupError) {
+                    console.error('Failed to clean up partial avatar upload:', cleanupError);
+                }
+            }
+            throw error;
+        }
 
-                const data = await response.json();
-                // Ensure that the response contains the expected properties
-                photoUrls = {
-                    '64': data.photoUrls['64'] || '', // Use string key
-                    '320': data.photoUrls['320'] || '', // Use string key
-                    '1200': data.photoUrls['1200'] || '', // Use string key
-                };
+        const photoUrls: PhotoUrls = {
+            '64': presigned.photoUrls?.['64'],
+            '320': presigned.photoUrls?.['320'],
+            '1200': presigned.photoUrls?.['1200'],
+        };
+        if (!photoUrls['64'] || !photoUrls['320'] || !photoUrls['1200']) {
+            throw new Error('Upload response was missing avatar keys');
+        }
+        return photoUrls;
+    }, []);
+
+    // **** MOVED: Full implementation of addFamilyMember logic ****
+    const _internal_addFamilyMember = async (name: string, email: string | null, photoFile: File | null) => {
+        if (!name) return;
+
+        const memberId = id();
+        let photoUrls: PhotoUrls | null = null;
+        if (photoFile) {
+            try {
+                photoUrls = await uploadAvatarPhotoVariants(photoFile, {
+                    scope: 'profile-photo',
+                    memberId,
+                });
             } catch (error) {
                 console.error('Error uploading photo:', error);
                 toast({
@@ -314,11 +439,10 @@ function FamilyMembersList({
                     description: 'Failed to upload photo. Please try again.',
                     variant: 'destructive',
                 });
-                return; // Stop execution if upload fails
+                return;
             }
         }
 
-        const memberId = id();
         const memberData: any = {
             // Use Partial<FamilyMember> or any to include new fields easily
             name,
@@ -367,7 +491,6 @@ function FamilyMembersList({
     const handleAddMember = async () => {
         if (newMemberName) {
             let photoFile = null;
-            let photoUrls = null;
             if (imageSrc && croppedAreaPixels) {
                 try {
                     photoFile = await getCroppedImg(imageSrc, croppedAreaPixels);
@@ -463,8 +586,7 @@ function FamilyMembersList({
         setEditMemberRole(member.role || 'child');
         setEditMemberPin(''); // Always clear PIN input on open
 
-        // Check if photoUrls exists and has the 1200 key before accessing
-        setEditImageSrc(member.photoUrls?.[1200] ? 'uploads/' + member.photoUrls[1200] : null);
+        setEditImageSrc(getPhotoUrl(member.photoUrls, '1200') || null);
         setEditCrop({ x: 0, y: 0 });
         setEditZoom(1);
         setEditCroppedAreaPixels(null);
@@ -530,55 +652,25 @@ function FamilyMembersList({
                 email: editMemberEmail || '',
                 role: editMemberRole,
             };
+            const previousPhotoKeys = getPhotoKeys(editingMember.photoUrls);
+            let shouldDeletePreviousPhoto = false;
 
             // +++ Update PIN only if user typed something +++
             if (editMemberPin.trim() !== '') {
                 updates.pinHash = await hashPin(editMemberPin);
             }
 
-            // If 'Remove Photo' is checked, delete the photo first
             if (removePhoto) {
-                console.log('Removing photo');
-                const member = familyMembers.find((m) => m.id === editingMember.id);
-                if (member && member.photoUrls) {
-                    try {
-                        const result = await fetch('/api/delete-image', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ urls: member.photoUrls }),
-                        });
-
-                        console.log('JSON.stringify({urls: member.photoUrls }): ', JSON.stringify({ urls: member.photoUrls }));
-                        setRemovePhoto(false);
-                    } catch (error) {
-                        console.error('Error deleting photo: ', error);
-                    }
-                }
-                updates.photoUrls = null; // // Set photo URLs to null if removed
-            } else if (editImageSrc && editCroppedAreaPixels && !editImageSrc.startsWith('uploads/')) {
-                // Check if it's a new image data URL
-                // If 'Remove Photo' is not checked, upload new photo if provided
-                console.log('Uploading new photo');
+                updates.photoUrls = null;
+                shouldDeletePreviousPhoto = previousPhotoKeys.length > 0;
+            } else if (editImageSrc && editCroppedAreaPixels && !editImageSrc.startsWith('/files/')) {
                 try {
                     const photoFile = await getCroppedImg(editImageSrc, editCroppedAreaPixels);
-
-                    const formData = new FormData();
-                    formData.append('file', photoFile);
-
-                    const response = await fetch('/api/upload', {
-                        method: 'POST',
-                        body: formData,
+                    updates.photoUrls = await uploadAvatarPhotoVariants(photoFile, {
+                        scope: 'profile-photo',
+                        memberId: editingMember.id,
                     });
-
-                    if (!response.ok) throw new Error('Failed to upload photo');
-
-                    const data = await response.json();
-
-                    updates.photoUrls = {
-                        '64': data.photoUrls['64'] || '', // Ensure keys are strings
-                        '320': data.photoUrls['320'] || '', // Ensure keys are strings
-                        '1200': data.photoUrls['1200'] || '', // Ensure keys are strings
-                    };
+                    shouldDeletePreviousPhoto = previousPhotoKeys.length > 0;
                 } catch (error) {
                     console.error('Error uploading photo:', error);
                     toast({
@@ -589,8 +681,8 @@ function FamilyMembersList({
                     return; // Stop execution if upload fails
                 }
             }
-            // If editImageSrc exists but starts with 'uploads/', it means no new file was selected, keep existing photoUrls
-            else if (editImageSrc && editImageSrc.startsWith('uploads/')) {
+            // If editImageSrc exists but starts with '/files/', it means no new file was selected.
+            else if (editImageSrc && editImageSrc.startsWith('/files/')) {
                 // No change needed for photoUrls unless removePhoto was checked (handled above)
             }
 
@@ -601,7 +693,7 @@ function FamilyMembersList({
                     description: 'Family member updated successfully.',
                 });
                 const updatedPhotoUrls =
-                    updates.photoUrls === undefined ? editingMember.photoUrls || null : (updates.photoUrls as FamilyMember['photoUrls'] | null);
+                    updates.photoUrls === undefined ? editingMember.photoUrls || null : ((updates.photoUrls as FamilyMember['photoUrls'] | null) ?? null);
                 const updatedMember: FamilyMember = {
                     ...editingMember,
                     name: editMemberName,
@@ -610,7 +702,10 @@ function FamilyMembersList({
                     photoUrls: updatedPhotoUrls,
                 };
                 setEditingMember(updatedMember);
-                setEditImageSrc(updatedPhotoUrls?.['1200'] ? `uploads/${updatedPhotoUrls['1200']}` : null);
+                setEditImageSrc(getPhotoUrl(updatedPhotoUrls, '1200') || null);
+                if (shouldDeletePreviousPhoto) {
+                    await cleanupS3Photos(previousPhotoKeys, 'Family member was saved, but old photo cleanup failed.');
+                }
             } catch (error) {
                 console.error('Error updating family member:', error);
                 toast({
@@ -634,23 +729,23 @@ function FamilyMembersList({
         // Add type annotation
         // Fetch the family member to get the photo URLs
         const member = familyMembers.find((m) => m.id === memberId);
-        if (member && member.photoUrls) {
-            try {
-                await fetch('/api/delete-image', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ urls: member.photoUrls }),
-                });
-            } catch (error) {
-                console.error('Error deleting photo:', error);
-            }
-        }
+        const photoKeysToDelete = getPhotoKeys(member?.photoUrls);
         // Also update the order of remaining members
         const newOrderedList = orderedMembers.filter((m) => m.id !== memberId);
         const transactions = newOrderedList.map((m, index) => tx.familyMembers[m.id].update({ order: index }));
         transactions.push(tx.familyMembers[memberId].delete());
 
-        await db.transact(transactions);
+        try {
+            await db.transact(transactions);
+        } catch (error) {
+            console.error('Error deleting member:', error);
+            toast({
+                title: 'Delete failed',
+                description: 'Could not delete the family member. Please try again.',
+                variant: 'destructive',
+            });
+            return;
+        }
 
         if (selectedMember === memberId) {
             setSelectedMember('All');
@@ -665,6 +760,7 @@ function FamilyMembersList({
             title: 'Member Deleted',
             description: `${member?.name || 'Member'} removed.`,
         });
+        await cleanupS3Photos(photoKeysToDelete, `${member?.name || 'Member'} was removed, but photo cleanup failed.`);
     };
 
     // +++ Helper to detect if the logged-in child is editing themselves +++
@@ -704,36 +800,9 @@ function FamilyMembersList({
         setIsFamilyPhotoSaving(true);
         const previousPhotoUrls = familyPhotoUrls;
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const response = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData,
-            });
-            if (!response.ok) {
-                throw new Error('Failed to upload family photo');
-            }
-            const data = await response.json();
-            const nextPhotoUrls: PhotoUrls = {
-                '64': data.photoUrls?.['64'],
-                '320': data.photoUrls?.['320'],
-                '1200': data.photoUrls?.['1200'],
-            };
-
+            const nextPhotoUrls = await uploadAvatarPhotoVariants(file, { scope: 'family-photo' });
             await handleSaveFamilyPhoto(nextPhotoUrls);
-
-            if (previousPhotoUrls) {
-                try {
-                    await fetch('/api/delete-image', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ urls: previousPhotoUrls }),
-                    });
-                } catch (cleanupErr) {
-                    console.error('Failed to remove previous family photo:', cleanupErr);
-                }
-            }
+            await cleanupS3Photos(getPhotoKeys(previousPhotoUrls), 'Family photo was saved, but old photo cleanup failed.');
 
             toast({
                 title: 'Family Photo Updated',
@@ -758,15 +827,7 @@ function FamilyMembersList({
         const previousPhotoUrls = familyPhotoUrls;
         try {
             await handleSaveFamilyPhoto(null);
-            try {
-                await fetch('/api/delete-image', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ urls: previousPhotoUrls }),
-                });
-            } catch (cleanupErr) {
-                console.error('Failed to remove stored family photo file:', cleanupErr);
-            }
+            await cleanupS3Photos(getPhotoKeys(previousPhotoUrls), 'Family photo was removed, but stored photo cleanup failed.');
             toast({
                 title: 'Family Photo Removed',
                 description: 'The All avatar is back to its default.',
@@ -802,8 +863,8 @@ function FamilyMembersList({
                             >
                                 <div className="flex items-center gap-3 min-w-0 w-full">
                                     <Avatar className="h-10 w-10 flex-shrink-0">
-                                        {familyPhotoUrls?.['64'] ? (
-                                            <AvatarImage src={'uploads/' + familyPhotoUrls['64']} alt="All family members" />
+                                        {getPhotoUrl(familyPhotoUrls, '64') ? (
+                                            <AvatarImage src={getPhotoUrl(familyPhotoUrls, '64')} alt="All family members" />
                                         ) : (
                                             <AvatarFallback>All</AvatarFallback>
                                         )}
@@ -931,8 +992,8 @@ function FamilyMembersList({
                             </p>
                             <div className="flex items-center gap-4">
                                 <Avatar className="h-20 w-20">
-                                    {familyPhotoUrls?.['320'] ? (
-                                        <AvatarImage src={'uploads/' + familyPhotoUrls['320']} alt="All family members" />
+                                    {getPhotoUrl(familyPhotoUrls, '320') ? (
+                                        <AvatarImage src={getPhotoUrl(familyPhotoUrls, '320')} alt="All family members" />
                                     ) : (
                                         <AvatarFallback>All</AvatarFallback>
                                     )}
@@ -1024,7 +1085,7 @@ function FamilyMembersList({
                                     <div className="flex justify-center mt-2 mb-2">
                                         <Avatar className="h-32 w-32">
                                             <AvatarImage
-                                                src={editingMember?.photoUrls?.['320'] ? `uploads/${editingMember.photoUrls['320']}` : undefined}
+                                                src={getPhotoUrl(editingMember?.photoUrls, '320')}
                                                 alt={editingMember?.name}
                                                 className="object-cover"
                                             />
@@ -1057,7 +1118,7 @@ function FamilyMembersList({
                                                 <div className="mt-4">
                                                     <Avatar className="h-16 w-16">
                                                         <AvatarImage
-                                                            src={'uploads/' + editingMember.photoUrls['320']}
+                                                            src={getPhotoUrl(editingMember.photoUrls, '320')}
                                                             alt={editingMember.name}
                                                             className="object-cover"
                                                         />

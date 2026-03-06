@@ -7,6 +7,7 @@ import { DropIndicator } from '@atlaskit/pragmatic-drag-and-drop-react-drop-indi
 import { type Edge, attachClosestEdge, extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
 import { cn } from '@/lib/utils';
 import invariant from 'tiny-invariant';
+import { getPhotoUrl } from '@/lib/photo-urls';
 
 // Import types from FamilyMembersList
 import { UnitDefinition, formatBalances } from '@/lib/currency-utils';
@@ -165,7 +166,7 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
                         <div className="flex items-center gap-3 flex-grow min-w-0">
                             <Avatar className="h-10 w-10 flex-shrink-0">
                                 {member.photoUrls ? (
-                                    <AvatarImage src={'uploads/' + member.photoUrls['64']} alt={member.name} />
+                                    <AvatarImage src={getPhotoUrl(member.photoUrls, '64')} alt={member.name} />
                                 ) : (
                                     <AvatarFallback>
                                         {member.name

@@ -15,6 +15,7 @@ import { LogIn, LogOut, User } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { LoginModal } from './LoginModal';
 import { useParentMode } from '@/components/auth/useParentMode';
+import { getPhotoUrl } from '@/lib/photo-urls';
 
 export function UserMenu() {
     const { currentUser, logout } = useAuth();
@@ -35,7 +36,7 @@ export function UserMenu() {
                         aria-label={currentUser ? 'Open user menu' : 'Open login menu'}
                     >
                         <Avatar className="h-9 w-9 border">
-                            <AvatarImage src={currentUser?.photoUrls?.['64'] ? `uploads/${currentUser.photoUrls['64']}` : undefined} />
+                            <AvatarImage src={getPhotoUrl(currentUser?.photoUrls, '64')} />
                             <AvatarFallback>{currentUser ? currentUser.name.charAt(0) : <User className="h-5 w-5" />}</AvatarFallback>
                         </Avatar>
                     </Button>

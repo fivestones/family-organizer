@@ -15,6 +15,7 @@ import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
 import { useToast } from '@/components/ui/use-toast';
 import { hashPinClient } from '@/lib/pin-client';
 import { hashPin } from '@/app/actions';
+import { getPhotoUrl } from '@/lib/photo-urls';
 
 interface LoginModalProps {
     isOpen: boolean;
@@ -236,7 +237,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                                         className="flex flex-col items-center p-4 rounded-lg hover:bg-muted/50 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
                                     >
                                         <Avatar className="h-20 w-20 mb-2 border-2 border-transparent hover:border-primary">
-                                            <AvatarImage src={member.photoUrls?.['320'] ? `uploads/${member.photoUrls['320']}` : undefined} />
+                                            <AvatarImage src={getPhotoUrl(member.photoUrls, '320')} />
                                             <AvatarFallback className="text-xl">{member.name.charAt(0)}</AvatarFallback>
                                         </Avatar>
                                         <span className="text-sm font-medium text-center">{member.name}</span>
@@ -248,9 +249,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                             <div className="space-y-4">
                                 <div className="flex justify-center mb-4">
                                     <Avatar className="h-24 w-24">
-                                        <AvatarImage
-                                            src={selectedMemberData?.photoUrls?.['320'] ? `uploads/${selectedMemberData.photoUrls['320']}` : undefined}
-                                        />
+                                        <AvatarImage src={getPhotoUrl(selectedMemberData?.photoUrls, '320')} />
                                         <AvatarFallback className="text-2xl">{selectedMemberData?.name.charAt(0)}</AvatarFallback>
                                     </Avatar>
                                 </div>
