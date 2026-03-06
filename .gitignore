@@ -45,6 +45,8 @@ next-env.d.ts
 #LLM context
 llm-context.txt
 AGENTS.md
+plan.md
+.claude/launch.json
 
 # Data Directories (Docker volumes)
 minio_data/
@@ -53,6 +55,7 @@ minio_data/
 mobile/dist/
 mobile/ios/main.jsbundle
 mobile/ios/assets/
+mobile/.expo/
 
 dist/
 
