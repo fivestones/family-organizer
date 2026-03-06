@@ -43,15 +43,21 @@ describe('middleware device auth gate', () => {
         const activateResponse = middleware(new NextRequest('http://localhost:3000/activate'));
         const deviceActivateApiResponse = middleware(new NextRequest('http://localhost:3000/api/device-activate'));
         const mobileApiResponse = middleware(new NextRequest('http://localhost:3000/api/mobile/device-activate'));
-        const uploadApiResponse = middleware(new NextRequest('http://localhost:3000/api/upload'));
-        const deleteImageApiResponse = middleware(new NextRequest('http://localhost:3000/api/delete-image'));
 
         expect(manifestResponse.headers.get('x-middleware-next')).toBe('1');
         expect(offlineResponse.headers.get('x-middleware-next')).toBe('1');
         expect(activateResponse.headers.get('x-middleware-next')).toBe('1');
         expect(deviceActivateApiResponse.headers.get('x-middleware-next')).toBe('1');
         expect(mobileApiResponse.headers.get('x-middleware-next')).toBe('1');
-        expect(uploadApiResponse.headers.get('x-middleware-next')).toBe('1');
-        expect(deleteImageApiResponse.headers.get('x-middleware-next')).toBe('1');
+    });
+
+    it('blocks legacy upload and delete-image routes without device auth', async () => {
+        const uploadApiResponse = middleware(new NextRequest('http://localhost:3000/api/upload'));
+        const deleteImageApiResponse = middleware(new NextRequest('http://localhost:3000/api/delete-image'));
+
+        expect(uploadApiResponse.status).toBe(401);
+        expect(await uploadApiResponse.text()).toContain('Unauthorized Device');
+        expect(deleteImageApiResponse.status).toBe(401);
+        expect(await deleteImageApiResponse.text()).toContain('Unauthorized Device');
     });
 });

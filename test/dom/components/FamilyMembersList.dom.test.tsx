@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const familyMemberMocks = vi.hoisted(() => ({
     toast: vi.fn(),
     hashPin: vi.fn(),
+    deleteS3Objects: vi.fn(),
     currentUser: { id: 'parent-1', role: 'parent' } as any,
     monitorForElements: vi.fn(),
     monitorCleanup: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock('@/components/ui/use-toast', () => ({
 
 vi.mock('@/app/actions', () => ({
     hashPin: familyMemberMocks.hashPin,
+    deleteS3Objects: familyMemberMocks.deleteS3Objects,
 }));
 
 vi.mock('@/components/AuthProvider', () => ({
@@ -246,6 +248,8 @@ describe('FamilyMembersList', () => {
         familyMemberMocks.toast.mockReset();
         familyMemberMocks.hashPin.mockReset();
         familyMemberMocks.hashPin.mockResolvedValue('hashed-pin');
+        familyMemberMocks.deleteS3Objects.mockReset();
+        familyMemberMocks.deleteS3Objects.mockResolvedValue({ deleted: 0 });
         familyMemberMocks.currentUser = { id: 'parent-1', role: 'parent' };
         familyMemberMocks.monitorForElements.mockReset();
         familyMemberMocks.monitorCleanup.mockReset();
@@ -347,10 +351,8 @@ describe('FamilyMembersList', () => {
         );
     });
 
-    it('removes an existing photo in edit mode, calls delete-image API, and clears photoUrls on save', async () => {
+    it('removes an existing photo in edit mode, deletes previous S3 keys, and clears photoUrls on save', async () => {
         const user = userEvent.setup();
-        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-        vi.stubGlobal('fetch', fetchMock);
 
         const memberWithPhoto = {
             id: 'member-1',
@@ -374,14 +376,7 @@ describe('FamilyMembersList', () => {
         await user.click(screen.getByRole('button', { name: /save member/i }));
 
         await waitFor(() => {
-            expect(fetchMock).toHaveBeenCalledWith(
-                '/api/delete-image',
-                expect.objectContaining({
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ urls: memberWithPhoto.photoUrls }),
-                })
-            );
+            expect(familyMemberMocks.deleteS3Objects).toHaveBeenCalledWith(['alex-64.png', 'alex-320.png', 'alex-1200.png']);
         });
         await waitFor(() => {
             expect(db.transact).toHaveBeenCalledTimes(1);
