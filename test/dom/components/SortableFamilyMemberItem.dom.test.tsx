@@ -52,7 +52,6 @@ vi.mock('@/components/allowance/CombinedBalanceDisplay', () => ({
 
 vi.mock('lucide-react', () => ({
     GripVertical: () => <span>GripVertical</span>,
-    Edit: () => <span>Edit</span>,
     Trash2: () => <span>Trash2</span>,
 }));
 
@@ -74,6 +73,13 @@ vi.mock('@/components/ui/avatar', () => ({
     AvatarFallback: ({ children, ...props }: any) => <span {...props}>{children}</span>,
 }));
 
+vi.mock('@/lib/currency-utils', () => ({
+    formatBalances: (balances: Record<string, number>) =>
+        Object.entries(balances || {})
+            .map(([code, amount]) => `${code} ${amount}`)
+            .join(', ') || 'Empty',
+}));
+
 import { SortableFamilyMemberItem } from '@/components/SortableFamilyMemberItem';
 
 const baseMember = {
@@ -92,7 +98,7 @@ function renderItem(overrides: Partial<React.ComponentProps<typeof SortableFamil
         showBalances: false,
         membersBalances: {},
         unitDefinitions: [],
-        handleEditMember: vi.fn(),
+        onMemberActivate: vi.fn(),
         handleDeleteMember: vi.fn(),
         currentUser: { id: 'parent-1', role: 'parent' },
         xpData: { current: 3, possible: 5 },
@@ -114,8 +120,8 @@ describe('SortableFamilyMemberItem', () => {
         dndMocks.extractClosestEdge.mockClear();
     });
 
-    it('shows parent edit controls, registers DnD, and toggles drop indicator state', () => {
-        const { props, unmount } = renderItem();
+    it('shows parent controls, registers DnD, and triggers member activation in always-edit mode', () => {
+        const { props, unmount } = renderItem({ alwaysEditMode: true });
 
         expect(dndMocks.draggable).toHaveBeenCalledTimes(1);
         expect(dndMocks.dropTargetForElements).toHaveBeenCalledTimes(1);
@@ -128,9 +134,8 @@ describe('SortableFamilyMemberItem', () => {
         expect(dropData).toEqual(expect.objectContaining({ memberId: 'member-1', index: 2, __edge: 'top' }));
 
         expect(screen.getByRole('button', { name: /reorder alex kid/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /trash2/i })).toBeInTheDocument();
-        expect(screen.getByText(/3 xp \(of 5 possible today\)/i)).toBeInTheDocument();
+        expect(screen.getByText(/3 xp/i)).toBeInTheDocument();
 
         act(() => {
             dndMocks.dropConfig.onDrag({ self: { data: { __edge: 'top' } } });
@@ -148,8 +153,9 @@ describe('SortableFamilyMemberItem', () => {
         expect(screen.queryByTestId('drop-indicator-top')).not.toBeInTheDocument();
         expect(screen.queryByTestId('drop-indicator-bottom')).not.toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole('button', { name: /edit/i }));
-        expect(props.handleEditMember).toHaveBeenCalledWith(baseMember);
+        const mainButton = screen.getByText('Alex Kid').closest('button') as HTMLButtonElement;
+        fireEvent.click(mainButton);
+        expect(props.onMemberActivate).toHaveBeenCalledWith(baseMember);
 
         fireEvent.click(screen.getByRole('button', { name: /trash2/i }));
         expect(props.handleDeleteMember).toHaveBeenCalledWith('member-1');
@@ -159,19 +165,20 @@ describe('SortableFamilyMemberItem', () => {
         expect(dndMocks.dropCleanup).toHaveBeenCalledTimes(1);
     });
 
-    it('lets a child edit themself in edit mode but hides parent-only delete/reorder controls', () => {
+    it('lets a child activate themself in always-edit mode but hides parent-only delete/reorder controls', () => {
         const { props } = renderItem({
             currentUser: { id: 'member-1', role: 'child' },
+            alwaysEditMode: true,
         });
 
         expect(dndMocks.draggable).not.toHaveBeenCalled();
         expect(dndMocks.dropTargetForElements).not.toHaveBeenCalled();
 
-        const mainButton = screen.getByRole('button', { name: /alex kid/i });
-        expect(mainButton).toBeDisabled();
+        const mainButton = screen.getByText('Alex Kid').closest('button') as HTMLButtonElement;
+        expect(mainButton).toBeEnabled();
 
-        fireEvent.click(screen.getByRole('button', { name: /edit/i }));
-        expect(props.handleEditMember).toHaveBeenCalledWith(baseMember);
+        fireEvent.click(mainButton);
+        expect(props.onMemberActivate).toHaveBeenCalledWith(baseMember);
 
         expect(screen.queryByRole('button', { name: /reorder alex kid/i })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /trash2/i })).not.toBeInTheDocument();
@@ -189,15 +196,15 @@ describe('SortableFamilyMemberItem', () => {
                 showBalances={true}
                 membersBalances={{ 'member-1': {} }}
                 unitDefinitions={[]}
-                handleEditMember={vi.fn()}
+                onMemberActivate={vi.fn()}
                 handleDeleteMember={vi.fn()}
                 currentUser={{ id: 'member-2', role: 'child' }}
                 xpData={undefined}
             />
         );
 
-        expect(screen.getByRole('button', { name: /alex kid/i })).toBeDisabled();
-        expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
+        const disabledButton = screen.getByText('Alex Kid').closest('button') as HTMLButtonElement;
+        expect(disabledButton).toBeDisabled();
         expect(screen.queryByRole('button', { name: /trash2/i })).not.toBeInTheDocument();
         expect(screen.getByText(/no balance/i)).toBeInTheDocument();
 
@@ -211,17 +218,18 @@ describe('SortableFamilyMemberItem', () => {
                 showBalances={true}
                 membersBalances={{ 'member-1': { USD: 10 } }}
                 unitDefinitions={[]}
-                handleEditMember={vi.fn()}
+                onMemberActivate={vi.fn()}
                 handleDeleteMember={vi.fn()}
                 currentUser={{ id: 'member-2', role: 'child' }}
                 xpData={undefined}
             />
         );
 
-        const mainButton = screen.getByRole('button', { name: /alex kid/i });
+        const mainButton = screen.getByText('Alex Kid').closest('button') as HTMLButtonElement;
         expect(mainButton).toBeEnabled();
         fireEvent.click(mainButton);
         expect(setSelectedMember).toHaveBeenCalledWith('member-1');
-        expect(screen.getByTestId('combined-balance')).toHaveTextContent('USD:10');
+        expect(screen.queryByText(/no balance/i)).not.toBeInTheDocument();
+        expect(screen.getByText(/10/)).toBeInTheDocument();
     });
 });

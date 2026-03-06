@@ -54,7 +54,7 @@ export default function AllowanceDistributionScreen() {
       : null
   );
 
-  const members = allowanceQuery.data?.familyMembers || [];
+  const members = useMemo(() => allowanceQuery.data?.familyMembers || [], [allowanceQuery.data?.familyMembers]);
   const configuredMembers = useMemo(
     () =>
       members.filter((member) => member.allowanceAmount != null && member.allowanceCurrency),

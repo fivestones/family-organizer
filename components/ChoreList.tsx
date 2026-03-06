@@ -12,7 +12,7 @@ import { tx } from '@instantdb/react';
 import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions, isSeriesActiveForDate } from '@/lib/task-scheduler'; // Added getRecursiveTaskCompletionTransactions and isSeriesActiveForDate
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 import { useToast } from '@/components/ui/use-toast';
-import { getTaskSeriesProgress } from '@/lib/task-series-progress';
+import { getTaskSeriesProgress, hasScheduledChildren } from '@/lib/task-series-progress';
 
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({

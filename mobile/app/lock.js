@@ -60,7 +60,6 @@ export default function LockScreen() {
     bootstrapStatus,
     bootstrapError,
     retryBootstrap,
-    isSwitchingPrincipal,
     principalType,
     canUseCachedParentPrincipal,
     isParentSessionSharedDevice,

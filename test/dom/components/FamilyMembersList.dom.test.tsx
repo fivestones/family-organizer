@@ -64,12 +64,12 @@ vi.mock('@/components/allowance/CombinedBalanceDisplay', () => ({
 }));
 
 vi.mock('@/components/SortableFamilyMemberItem', () => ({
-    SortableFamilyMemberItem: ({ member, handleEditMember, setSelectedMember }: any) => (
+    SortableFamilyMemberItem: ({ member, onMemberActivate, setSelectedMember }: any) => (
         <div data-testid={`member-row-${member.id}`}>
             <button type="button" onClick={() => setSelectedMember(member.id)}>
                 Select {member.name}
             </button>
-            <button type="button" onClick={() => handleEditMember(member)}>
+            <button type="button" onClick={() => onMemberActivate?.(member)}>
                 Open edit {member.name}
             </button>
         </div>
@@ -86,7 +86,7 @@ vi.mock('@/lib/chore-utils', async () => {
 
 vi.mock('@/components/ui/button', async () => {
     const React = await import('react');
-    const Button = React.forwardRef<HTMLButtonElement, any>(function MockButton({ children, ...props }, ref) {
+    const Button = React.forwardRef<HTMLButtonElement, any>(function MockButton({ children, asChild: _asChild, ...props }, ref) {
         return (
             <button ref={ref} type={props.type ?? 'button'} {...props}>
                 {children}
@@ -264,6 +264,7 @@ describe('FamilyMembersList', () => {
         const user = userEvent.setup();
         const { db } = renderFamilyMembersList({
             familyMembers: [{ id: 'member-1', name: 'Alex Kid', role: 'child', email: '' }] as any,
+            alwaysEditMode: true,
         });
 
         await user.click(screen.getByRole('button', { name: /add family member/i }));
@@ -310,6 +311,7 @@ describe('FamilyMembersList', () => {
         const user = userEvent.setup();
         const { db } = renderFamilyMembersList({
             familyMembers: [{ id: 'member-1', name: 'Alex Kid', role: 'child', email: '' }] as any,
+            alwaysEditMode: true,
         });
 
         await user.click(screen.getByRole('button', { name: /open edit alex kid/i }));
@@ -364,6 +366,7 @@ describe('FamilyMembersList', () => {
 
         const { db } = renderFamilyMembersList({
             familyMembers: [memberWithPhoto] as any,
+            alwaysEditMode: true,
         });
 
         await user.click(screen.getByRole('button', { name: /open edit alex kid/i }));

@@ -3,7 +3,6 @@ import { Tabs, Redirect } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
-import { withAlpha } from '../../src/theme/tokens';
 
 export default function TabsLayout() {
   const { colors } = useAppTheme();

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Keyboard,
@@ -331,6 +331,17 @@ export default function CalendarTab() {
 
   const selectedDayKey = formatYmd(selectedDate);
   const selectedDayEvents = eventsByDayKey.get(selectedDayKey) || [];
+  const openNewEventModal = useCallback((date) => {
+    const baseDate = date || selectedDate || new Date();
+    setEditingEventId(null);
+    setForm(buildInitialForm(baseDate));
+    setModalVisible(true);
+  }, [selectedDate]);
+  const openEditEventModal = useCallback((event) => {
+    setEditingEventId(event.id);
+    setForm(formFromEvent(event));
+    setModalVisible(true);
+  }, []);
 
   useEffect(() => {
     const shouldResume = firstParam(searchParams.resumeParentAction) === '1';
@@ -395,7 +406,7 @@ export default function CalendarTab() {
     }
 
     void clearResume();
-  }, [calendarItems, calendarQuery.isLoading, isAuthenticated, principalType, resumePendingAction, selectedDate]);
+  }, [calendarItems, calendarQuery.isLoading, isAuthenticated, openEditEventModal, openNewEventModal, principalType, resumePendingAction, selectedDate]);
   const bikramMetaByDayKey = useMemo(() => {
     const map = new Map();
     let previousBikram = null;
@@ -446,19 +457,6 @@ export default function CalendarTab() {
       hideSub.remove();
     };
   }, []);
-
-  function openNewEventModal(date) {
-    const baseDate = date || selectedDate || new Date();
-    setEditingEventId(null);
-    setForm(buildInitialForm(baseDate));
-    setModalVisible(true);
-  }
-
-  function openEditEventModal(event) {
-    setEditingEventId(event.id);
-    setForm(formFromEvent(event));
-    setModalVisible(true);
-  }
 
   function closeModal() {
     setModalVisible(false);

@@ -290,7 +290,7 @@ export default function FinanceTab() {
   const isKidPrincipal = principalType === 'kid';
   const currentUserId = currentUser?.id || '';
   const isKidSelfServeUser = isKidPrincipal && currentUser?.role !== 'parent';
-  const selectedMemberEnvelopes = selectedMember?.envelopes || [];
+  const selectedMemberEnvelopes = useMemo(() => selectedMember?.envelopes || [], [selectedMember?.envelopes]);
   const selectedMoneyEnvelope = useMemo(
     () => selectedMemberEnvelopes.find((env) => env.id === moneyEnvelopeIdInput) || null,
     [moneyEnvelopeIdInput, selectedMemberEnvelopes]
@@ -449,7 +449,7 @@ export default function FinanceTab() {
       await clearPendingParentAction();
       setResumePendingAction(null);
     })();
-  }, [currentUser?.id, isAuthenticated, membersWithFinance, principalType, resumePendingAction, selectedMemberId]);
+  }, [currentUser?.id, isAuthenticated, membersWithFinance, principalType, resumePendingAction, selectedMemberId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function getFinanceActionLabel(kind) {
     switch (kind) {
