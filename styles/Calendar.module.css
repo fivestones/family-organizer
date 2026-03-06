@@ -237,12 +237,23 @@
 
 .nepaliMonthName {
     position: absolute;
-    font-size: auto;
+    left: 0;
+    top: 30px;
+    bottom: 0;
+    display: flex;
+    justify-content: flex-end;
+    font-size: 1rem;
+    line-height: 1;
     padding: 8px 0px 4px 0px;
+    overflow: visible;
+    white-space: normal;
     /* margin-left: -5%; */
     writing-mode: vertical-rl;
     transform: rotate(180deg);
-    bottom: 0;
+}
+
+.firstDayOfNepaliYear .nepaliMonthName {
+    top: 34px;
 }
 
 .yearNumber {
