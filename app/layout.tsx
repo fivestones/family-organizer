@@ -13,6 +13,7 @@ import Link from 'next/link';
 
 import NavbarDate from '@/components/NavbarDate';
 import { MainNav } from '@/components/MainNav';
+import CalendarHeaderControls from '@/components/CalendarHeaderControls';
 // Import local Inter font
 const inter = localFont({
     src: '../public/fonts/Inter_18pt-Regular.ttf',
@@ -136,6 +137,7 @@ export default function RootLayout({
                                 </div>
                             </div>
                             <div className="flex items-center gap-3">
+                                <CalendarHeaderControls />
                                 <SyncStatusBadge />
                                 <NavbarDate />
                                 <UserMenu />

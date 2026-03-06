@@ -26,6 +26,18 @@ import { DroppableDayCell } from './DroppableDayCell'; // Import new component
 // Import the component and the interface
 import { DraggableCalendarEvent, CalendarItem } from './DraggableCalendarEvent';
 import { db } from '@/lib/db';
+import {
+    CALENDAR_COMMAND_EVENT,
+    CALENDAR_DAY_HEIGHT_DEFAULT,
+    CALENDAR_DAY_HEIGHT_MAX,
+    CALENDAR_DAY_HEIGHT_MIN,
+    CALENDAR_DAY_HEIGHT_STORAGE_KEY,
+    CALENDAR_STATE_EVENT,
+    CALENDAR_VISIBLE_WEEKS_MAX,
+    CALENDAR_VISIBLE_WEEKS_MIN,
+    type CalendarCommandDetail,
+    type CalendarStateDetail,
+} from '@/lib/calendar-controls';
 
 const ebGaramond = localFont({
     src: '../public/fonts/EBGaramond-Regular.ttf',
@@ -41,7 +53,10 @@ interface CalendarProps {
 
 interface MonthLabel {
     key: string;
-    text: string;
+    gregorianMonth: string;
+    gregorianYear: string;
+    nepaliMonth: string;
+    nepaliYearDevanagari: string;
 }
 
 interface PendingScrollAdjust {
@@ -63,6 +78,12 @@ const MONTH_BOX_VERTICAL_PADDING = 10;
 
 const nepaliMonthsCommonRoman = ['Baisakh', 'Jeth', 'Asar', 'Saun', 'Bhadau', 'Asoj', 'Kattik', 'Mangsir', 'Poush', 'Magh', 'Phagun', 'Chait'];
 const nepaliMonthsCommonDevanagari = ['वैशाख', 'जेठ', 'असार', 'साउन', 'भदौ', 'असोज', 'कात्तिक', 'मंसिर', 'पुष', 'माघ', 'फागुन', 'चैत'];
+const devanagariDigits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
+
+const toDevanagariDigits = (value: string | number) =>
+    String(value).replace(/\d/g, (digit) => devanagariDigits[Number(digit)] ?? digit);
+
+const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: CalendarProps) => {
     // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
@@ -72,6 +93,23 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedEvent, setSelectedEvent] = useState<CalendarItem | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [dayCellHeight, setDayCellHeight] = useState<number>(() => {
+        if (typeof window === 'undefined') {
+            return CALENDAR_DAY_HEIGHT_DEFAULT;
+        }
+
+        const stored = window.localStorage.getItem(CALENDAR_DAY_HEIGHT_STORAGE_KEY);
+        if (!stored) {
+            return CALENDAR_DAY_HEIGHT_DEFAULT;
+        }
+
+        const parsed = Number(stored);
+        if (!Number.isFinite(parsed)) {
+            return CALENDAR_DAY_HEIGHT_DEFAULT;
+        }
+
+        return clampNumber(Math.round(parsed), CALENDAR_DAY_HEIGHT_MIN, CALENDAR_DAY_HEIGHT_MAX);
+    });
 
     const initialWeeksPerSide = Math.max(6, numWeeks);
     const [rangeStart, setRangeStart] = useState<Date>(() =>
@@ -88,10 +126,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         // @ts-ignore - package has no strict Date typing
         const nepaliDate = new NepaliDate(currentDate);
         const nepaliMonth = nepaliDate.getMonth();
-        const bsLabel = `${nepaliMonthsCommonDevanagari[nepaliMonth]} (${nepaliMonthsCommonRoman[nepaliMonth]})`;
+        const nepaliYear = String(nepaliDate.getYear());
         return {
             key: `${format(currentDate, 'yyyy-MM')}-${nepaliDate.getYear()}-${nepaliMonth}`,
-            text: `${format(currentDate, 'MMMM')} / ${bsLabel}`,
+            gregorianMonth: format(currentDate, 'MMMM'),
+            gregorianYear: format(currentDate, 'yyyy'),
+            nepaliMonth: `${nepaliMonthsCommonDevanagari[nepaliMonth]} (${nepaliMonthsCommonRoman[nepaliMonth]})`,
+            nepaliYearDevanagari: toDevanagariDigits(nepaliYear),
         };
     });
     const [previousMonthLabel, setPreviousMonthLabel] = useState<MonthLabel | null>(null);
@@ -111,16 +152,48 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     // const lastBottomTriggerScrollTopRef = useRef<number>(Number.NEGATIVE_INFINITY);
     const activeMonthMeasureRef = useRef<HTMLDivElement>(null);
     const previousMonthMeasureRef = useRef<HTMLDivElement>(null);
+    const pendingScrollToDateRef = useRef<string | null>(null);
 
     const buildMonthLabel = useCallback((date: Date): MonthLabel => {
         // @ts-ignore - package has no strict Date typing
         const nepaliDate = new NepaliDate(date);
         const nepaliMonth = nepaliDate.getMonth();
-        const bsLabel = `${nepaliMonthsCommonDevanagari[nepaliMonth]} (${nepaliMonthsCommonRoman[nepaliMonth]})`;
+        const nepaliYear = String(nepaliDate.getYear());
         return {
             key: `${format(date, 'yyyy-MM')}-${nepaliDate.getYear()}-${nepaliMonth}`,
-            text: `${format(date, 'MMMM')} / ${bsLabel}`,
+            gregorianMonth: format(date, 'MMMM'),
+            gregorianYear: format(date, 'yyyy'),
+            nepaliMonth: `${nepaliMonthsCommonDevanagari[nepaliMonth]} (${nepaliMonthsCommonRoman[nepaliMonth]})`,
+            nepaliYearDevanagari: toDevanagariDigits(nepaliYear),
         };
+    }, []);
+
+    const renderMonthLabel = useCallback((label: MonthLabel) => {
+        return (
+            <div className={styles.stickyMonthLabel}>
+                <div className={`${styles.stickyMonthLine} ${styles.stickyMonthMonthLine}`}>
+                    <span>{label.gregorianMonth}</span>
+                    <span className={styles.stickyMonthNepali}>{label.nepaliMonth}</span>
+                </div>
+                <div className={`${styles.stickyMonthLine} ${styles.stickyMonthYearLine}`}>
+                    <span>{label.gregorianYear}</span>
+                    <span className={styles.stickyMonthYearNepali}>{label.nepaliYearDevanagari}</span>
+                </div>
+            </div>
+        );
+    }, []);
+
+    const scrollToDateStr = useCallback((dateStr: string, behavior: ScrollBehavior = 'smooth') => {
+        const container = scrollContainerRef.current;
+        if (!container) return false;
+
+        const targetCell = container.querySelector<HTMLElement>(`[data-calendar-cell-date="${dateStr}"]`);
+        if (!targetCell) return false;
+
+        const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
+        const targetTop = Math.max(0, targetCell.offsetTop - headerHeight - 8);
+        container.scrollTo({ top: targetTop, behavior });
+        return true;
     }, []);
 
     const recalculateMonthBoxSize = useCallback(() => {
@@ -288,6 +361,59 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         setSelectedDate(null);
         setSelectedEvent(null);
     };
+
+    const setDayHeight = useCallback((nextHeight: number) => {
+        const clampedHeight = clampNumber(Math.round(nextHeight), CALENDAR_DAY_HEIGHT_MIN, CALENDAR_DAY_HEIGHT_MAX);
+        setDayCellHeight(clampedHeight);
+    }, []);
+
+    const visibleWeeksEstimate = useMemo(() => {
+        if (!scrollContainerHeight) {
+            return 6;
+        }
+        const headerHeight = Math.max(0, dayNumberStickyTop - 2);
+        const usableHeight = Math.max(1, scrollContainerHeight - headerHeight);
+        return clampNumber(Math.round(usableHeight / dayCellHeight), CALENDAR_VISIBLE_WEEKS_MIN, CALENDAR_VISIBLE_WEEKS_MAX);
+    }, [scrollContainerHeight, dayNumberStickyTop, dayCellHeight]);
+
+    const applyVisibleWeeks = useCallback(
+        (nextVisibleWeeks: number) => {
+            const requestedWeeks = clampNumber(
+                Math.round(nextVisibleWeeks),
+                CALENDAR_VISIBLE_WEEKS_MIN,
+                CALENDAR_VISIBLE_WEEKS_MAX
+            );
+            const container = scrollContainerRef.current;
+            const headerHeight = headerRef.current?.getBoundingClientRect().height ?? Math.max(0, dayNumberStickyTop - 2);
+            const viewportHeight = container?.clientHeight ?? scrollContainerHeight ?? 0;
+            const usableHeight = Math.max(1, viewportHeight - headerHeight);
+            setDayHeight(usableHeight / requestedWeeks);
+        },
+        [dayNumberStickyTop, scrollContainerHeight, setDayHeight]
+    );
+
+    const handleTodayClick = useCallback(() => {
+        const today = new Date();
+        const normalizedToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const todayStr = format(normalizedToday, 'yyyy-MM-dd');
+
+        if (scrollToDateStr(todayStr, 'smooth')) {
+            return;
+        }
+
+        pendingTopScrollAdjustRef.current = null;
+        pendingScrollToDateRef.current = todayStr;
+        setRangeStart(startOfWeek(addWeeks(normalizedToday, -initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
+        setRangeEnd(endOfWeek(addWeeks(normalizedToday, initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
+    }, [initialWeeksPerSide, scrollToDateStr]);
+
+    const handleQuickAddClick = useCallback(() => {
+        const today = new Date();
+        const normalizedToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        setSelectedDate(normalizedToday);
+        setSelectedEvent(null);
+        setIsModalOpen(true);
+    }, []);
 
     // Code to allow dragging items from one day to another
     useEffect(() => {
@@ -554,6 +680,68 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     }, [weeks.length, updateVisibleMonthFromScroll]);
 
     useEffect(() => {
+        if (typeof window === 'undefined') return;
+        window.localStorage.setItem(CALENDAR_DAY_HEIGHT_STORAGE_KEY, String(dayCellHeight));
+    }, [dayCellHeight]);
+
+    useEffect(() => {
+        const detail: CalendarStateDetail = {
+            dayHeight: dayCellHeight,
+            visibleWeeks: visibleWeeksEstimate,
+        };
+        window.dispatchEvent(new CustomEvent<CalendarStateDetail>(CALENDAR_STATE_EVENT, { detail }));
+    }, [dayCellHeight, visibleWeeksEstimate]);
+
+    useEffect(() => {
+        const onCalendarCommand = (event: Event) => {
+            const detail = (event as CustomEvent<CalendarCommandDetail>).detail;
+            if (!detail) return;
+
+            if (detail.type === 'setDayHeight') {
+                setDayHeight(detail.dayHeight);
+                return;
+            }
+
+            if (detail.type === 'setVisibleWeeks') {
+                applyVisibleWeeks(detail.visibleWeeks);
+                return;
+            }
+
+            if (detail.type === 'scrollToday') {
+                handleTodayClick();
+                return;
+            }
+
+            if (detail.type === 'quickAdd') {
+                handleQuickAddClick();
+                return;
+            }
+
+            if (detail.type === 'requestState') {
+                const stateDetail: CalendarStateDetail = {
+                    dayHeight: dayCellHeight,
+                    visibleWeeks: visibleWeeksEstimate,
+                };
+                window.dispatchEvent(new CustomEvent<CalendarStateDetail>(CALENDAR_STATE_EVENT, { detail: stateDetail }));
+            }
+        };
+
+        window.addEventListener(CALENDAR_COMMAND_EVENT, onCalendarCommand);
+        return () => {
+            window.removeEventListener(CALENDAR_COMMAND_EVENT, onCalendarCommand);
+        };
+    }, [applyVisibleWeeks, dayCellHeight, handleQuickAddClick, handleTodayClick, setDayHeight, visibleWeeksEstimate]);
+
+    useEffect(() => {
+        const pendingDate = pendingScrollToDateRef.current;
+        if (!pendingDate) return;
+
+        if (scrollToDateStr(pendingDate, 'smooth')) {
+            pendingScrollToDateRef.current = null;
+        }
+    }, [weeks.length, scrollToDateStr]);
+
+    useEffect(() => {
         monthLabelRef.current = activeMonthLabel;
     }, [activeMonthLabel]);
 
@@ -652,6 +840,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                         ? ({
                               height: `${scrollContainerHeight}px`,
                               '--calendar-day-number-top': `${dayNumberStickyTop}px`,
+                              '--calendar-day-cell-height': `${dayCellHeight}px`,
                           } as React.CSSProperties)
                         : undefined
                 }
@@ -662,17 +851,21 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                         style={monthBoxSize ? { width: `${monthBoxSize.width}px`, height: `${monthBoxSize.height}px` } : undefined}
                     >
                         <div ref={activeMonthMeasureRef} className={styles.stickyMonthMeasure}>
-                            {activeMonthLabel.text}
+                            {renderMonthLabel(activeMonthLabel)}
                         </div>
                         {previousMonthLabel && (
                             <div ref={previousMonthMeasureRef} className={styles.stickyMonthMeasure}>
-                                {previousMonthLabel.text}
+                                {renderMonthLabel(previousMonthLabel)}
                             </div>
                         )}
                         {previousMonthLabel && (
-                            <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeOut : ''}`}>{previousMonthLabel.text}</div>
+                            <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeOut : ''}`}>
+                                {renderMonthLabel(previousMonthLabel)}
+                            </div>
                         )}
-                        <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeIn : styles.monthStatic}`}>{activeMonthLabel.text}</div>
+                        <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeIn : styles.monthStatic}`}>
+                            {renderMonthLabel(activeMonthLabel)}
+                        </div>
                     </div>
                 </div>
 
