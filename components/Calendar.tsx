@@ -48,6 +48,7 @@ const WEEK_STARTS_ON = 0;
 const WEEKS_PER_LOAD = 8;
 const MONTH_MEMORY_CAP = 24;
 const MONTH_FADE_MS = 260;
+const EDGE_TRIGGER_PX = 220;
 const MONTH_BOX_HORIZONTAL_PADDING = 16;
 const MONTH_BOX_VERTICAL_PADDING = 10;
 
@@ -88,14 +89,14 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const [isMonthTransitioning, setIsMonthTransitioning] = useState(false);
 
     const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const topSentinelRef = useRef<HTMLTableRowElement>(null);
-    const bottomSentinelRef = useRef<HTMLTableRowElement>(null);
     const headerRef = useRef<HTMLTableSectionElement>(null);
     const pendingTopScrollAdjustRef = useRef<{ prevScrollTop: number; prevScrollHeight: number } | null>(null);
     const expandLockRef = useRef(false);
     const monthFadeTimerRef = useRef<number | null>(null);
     const monthLabelRef = useRef<MonthLabel>(activeMonthLabel);
     const scrollRafRef = useRef<number | null>(null);
+    const topLoadArmedRef = useRef(true);
+    const bottomLoadArmedRef = useRef(true);
     const activeMonthMeasureRef = useRef<HTMLDivElement>(null);
     const previousMonthMeasureRef = useRef<HTMLDivElement>(null);
 
@@ -319,38 +320,6 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         pendingTopScrollAdjustRef.current = null;
     }, [rangeStart, rangeEnd]);
 
-    useEffect(() => {
-        const container = scrollContainerRef.current;
-        const topSentinel = topSentinelRef.current;
-        const bottomSentinel = bottomSentinelRef.current;
-        if (!container || !topSentinel || !bottomSentinel) return;
-        if (typeof IntersectionObserver === 'undefined') return;
-
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    if (!entry.isIntersecting) return;
-                    if (entry.target === topSentinel) {
-                        expandRange('up');
-                    }
-                    if (entry.target === bottomSentinel) {
-                        expandRange('down');
-                    }
-                });
-            },
-            {
-                root: container,
-                rootMargin: '240px 0px 240px 0px',
-                threshold: 0.01,
-            }
-        );
-
-        observer.observe(topSentinel);
-        observer.observe(bottomSentinel);
-
-        return () => observer.disconnect();
-    }, [expandRange, weeks.length]);
-
     useLayoutEffect(() => {
         const syncContainerHeight = () => {
             const container = scrollContainerRef.current;
@@ -442,10 +411,34 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             scrollRafRef.current = window.requestAnimationFrame(() => {
                 scrollRafRef.current = null;
                 updateVisibleMonthFromScroll();
+                const activeContainer = scrollContainerRef.current;
+                if (!activeContainer) return;
+
+                const nearTop = activeContainer.scrollTop <= EDGE_TRIGGER_PX;
+                const nearBottom =
+                    activeContainer.scrollHeight - activeContainer.clientHeight - activeContainer.scrollTop <= EDGE_TRIGGER_PX;
+
+                if (nearTop) {
+                    if (topLoadArmedRef.current) {
+                        topLoadArmedRef.current = false;
+                        expandRange('up');
+                    }
+                } else {
+                    topLoadArmedRef.current = true;
+                }
+
+                if (nearBottom) {
+                    if (bottomLoadArmedRef.current) {
+                        bottomLoadArmedRef.current = false;
+                        expandRange('down');
+                    }
+                } else {
+                    bottomLoadArmedRef.current = true;
+                }
             });
         };
 
-        onScroll();
+        updateVisibleMonthFromScroll();
         container.addEventListener('scroll', onScroll, { passive: true });
 
         return () => {
@@ -455,7 +448,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 scrollRafRef.current = null;
             }
         };
-    }, [updateVisibleMonthFromScroll, weeks.length]);
+    }, [expandRange, updateVisibleMonthFromScroll, weeks.length]);
 
     useEffect(() => {
         monthLabelRef.current = activeMonthLabel;
@@ -591,10 +584,6 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                         </tr>
                     </thead>
                     <tbody>
-                        <tr ref={topSentinelRef} className={styles.sentinelRow} aria-hidden="true">
-                            <td colSpan={7} />
-                        </tr>
-
                         {weeks.map((week, weekIndex) => (
                             <tr key={format(week[0], 'yyyy-MM-dd')}>
                                 {week.map((day, dayIndex) => {
@@ -698,9 +687,6 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                             </tr>
                         ))}
 
-                        <tr ref={bottomSentinelRef} className={styles.sentinelRow} aria-hidden="true">
-                            <td colSpan={7} />
-                        </tr>
                     </tbody>
                 </table>
             </div>
