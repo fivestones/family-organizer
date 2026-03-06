@@ -478,6 +478,7 @@ function FamilyMembersList({
         if (!name) return;
 
         const memberId = id();
+        const savingsEnvelopeId = id();
         let photoUrls: PhotoUrls | null = null;
         if (photoFile) {
             try {
@@ -527,7 +528,18 @@ function FamilyMembersList({
         }
 
         try {
-            await db.transact([tx.familyMembers[memberId].update(memberData)]);
+            await db.transact([
+                tx.familyMembers[memberId].update(memberData),
+                tx.allowanceEnvelopes[savingsEnvelopeId].update({
+                    name: 'Savings',
+                    balances: {},
+                    isDefault: true,
+                    goalAmount: null,
+                    goalCurrency: null,
+                    familyMember: memberId,
+                }),
+                tx.familyMembers[memberId].link({ allowanceEnvelopes: savingsEnvelopeId }),
+            ]);
             toast({
                 title: 'Success',
                 description: 'Family member added successfully.',

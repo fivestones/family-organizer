@@ -193,6 +193,9 @@ const instantMocks = vi.hoisted(() => ({
                                 update(payload: unknown) {
                                     return { op: 'update', entity, id, payload };
                                 },
+                                link(payload: unknown) {
+                                    return { op: 'link', entity, id, payload };
+                                },
                                 delete() {
                                     return { op: 'delete', entity, id };
                                 },
@@ -265,6 +268,8 @@ describe('FamilyMembersList', () => {
     });
 
     it('adds a family member with selected role and hashed PIN', async () => {
+        familyMemberMocks.id.mockReset();
+        familyMemberMocks.id.mockReturnValueOnce('member-new').mockReturnValueOnce('env-savings');
         const user = userEvent.setup();
         const { db } = renderFamilyMembersList({
             familyMembers: [{ id: 'member-1', name: 'Alex Kid', role: 'child', email: '' }] as any,
@@ -300,6 +305,27 @@ describe('FamilyMembersList', () => {
                     pinHash: 'hashed-pin',
                     order: 1,
                 }),
+            },
+            {
+                op: 'update',
+                entity: 'allowanceEnvelopes',
+                id: 'env-savings',
+                payload: {
+                    name: 'Savings',
+                    balances: {},
+                    isDefault: true,
+                    goalAmount: null,
+                    goalCurrency: null,
+                    familyMember: 'member-new',
+                },
+            },
+            {
+                op: 'link',
+                entity: 'familyMembers',
+                id: 'member-new',
+                payload: {
+                    allowanceEnvelopes: 'env-savings',
+                },
             },
         ]);
         expect(familyMemberMocks.toast).toHaveBeenCalledWith(
