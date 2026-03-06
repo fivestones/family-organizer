@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'; // <-- Import useEffect, useState, useCallback
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { PlusCircle } from 'lucide-react';
@@ -45,6 +44,12 @@ interface FamilyMember {
     // Add other fields if needed from the query context (ChoreList vs AllowanceView)
 }
 
+interface PhotoUrls {
+    '64'?: string;
+    '320'?: string;
+    '1200'?: string;
+}
+
 // **** UPDATED: Removed addFamilyMember and deleteFamilyMember from props ****
 interface FamilyMembersListProps {
     familyMembers: FamilyMember[];
@@ -62,6 +67,7 @@ interface FamilyMembersListProps {
 }
 
 const noopSetSelectedMember = () => {};
+const FAMILY_PHOTO_SETTING = 'familyPhotoUrls';
 
 function FamilyMembersList({
     familyMembers,
@@ -101,6 +107,31 @@ function FamilyMembersList({
               }
             : null
     );
+    const { data: familyPhotoData } = db.useQuery({
+        settings: {
+            $: {
+                where: {
+                    name: FAMILY_PHOTO_SETTING,
+                },
+            },
+        },
+    });
+
+    const familyPhotoUrls = useMemo<PhotoUrls | null>(() => {
+        const setting = familyPhotoData?.settings?.[0];
+        if (!setting?.value) return null;
+        try {
+            const parsed = JSON.parse(setting.value);
+            if (!parsed || typeof parsed !== 'object') return null;
+            return {
+                '64': typeof parsed['64'] === 'string' ? parsed['64'] : undefined,
+                '320': typeof parsed['320'] === 'string' ? parsed['320'] : undefined,
+                '1200': typeof parsed['1200'] === 'string' ? parsed['1200'] : undefined,
+            };
+        } catch {
+            return null;
+        }
+    }, [familyPhotoData?.settings]);
 
     // +++ INTERNAL CALCULATIONS +++
 
@@ -147,7 +178,7 @@ function FamilyMembersList({
 
     // --- End Internal Calculation ---
 
-    const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
+    const [isCreatingMember, setIsCreatingMember] = useState(false);
     const [newMemberName, setNewMemberName] = useState('');
     const [newMemberEmail, setNewMemberEmail] = useState('');
     // +++ NEW State for Add Member +++
@@ -176,6 +207,9 @@ function FamilyMembersList({
     const [editZoom, setEditZoom] = useState(1);
     const [editCroppedAreaPixels, setEditCroppedAreaPixels] = useState(null);
     const [removePhoto, setRemovePhoto] = useState(false);
+    const [isEditingAll, setIsEditingAll] = useState(alwaysEditMode);
+    const [isFamilyPhotoSaving, setIsFamilyPhotoSaving] = useState(false);
+    const needsAllHandleSpacer = alwaysEditMode && currentUser?.role === 'parent';
 
     // --- NEW: State for optimistic UI reordering ---
     const [orderedMembers, setOrderedMembers] = useState<FamilyMember[]>(familyMembers);
@@ -352,7 +386,10 @@ function FamilyMembersList({
             setCrop({ x: 0, y: 0 });
             setZoom(1);
             setCroppedAreaPixels(null);
-            setIsAddMemberOpen(false);
+            if (alwaysEditMode) {
+                setIsCreatingMember(false);
+                setIsEditingAll(true);
+            }
         }
     };
 
@@ -414,8 +451,12 @@ function FamilyMembersList({
     // Edit member functions
     const activateMemberForEditing = (member: FamilyMember) => {
         // Type annotation
+        setIsCreatingMember(false);
+        setIsEditingAll(false);
         setEditingMember(member);
-        setSelectedMember(member.id);
+        if (!alwaysEditMode) {
+            setSelectedMember(member.id);
+        }
         setEditMemberName(member.name);
         setEditMemberEmail(member.email || '');
         // +++ Populate Role +++
@@ -428,6 +469,42 @@ function FamilyMembersList({
         setEditZoom(1);
         setEditCroppedAreaPixels(null);
         setRemovePhoto(false);
+    };
+
+    const activateAllForSettings = () => {
+        if (!alwaysEditMode) {
+            setSelectedMember('All');
+            return;
+        }
+        setIsCreatingMember(false);
+        setIsEditingAll(true);
+        setEditingMember(null);
+        setEditMemberName('');
+        setEditMemberEmail('');
+        setEditMemberRole('child');
+        setEditMemberPin('');
+        setEditImageSrc(null);
+        setEditCrop({ x: 0, y: 0 });
+        setEditZoom(1);
+        setEditCroppedAreaPixels(null);
+        setRemovePhoto(false);
+    };
+
+    const activateCreateMember = () => {
+        if (!alwaysEditMode) {
+            return;
+        }
+        setIsCreatingMember(true);
+        setIsEditingAll(false);
+        setEditingMember(null);
+        setNewMemberName('');
+        setNewMemberEmail('');
+        setNewMemberRole('child');
+        setNewMemberPin('');
+        setImageSrc(null);
+        setCrop({ x: 0, y: 0 });
+        setZoom(1);
+        setCroppedAreaPixels(null);
     };
 
     const onEditFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -580,6 +657,9 @@ function FamilyMembersList({
         }
         if (editingMember?.id === memberId) {
             setEditingMember(null);
+            if (alwaysEditMode) {
+                setIsEditingAll(true);
+            }
         }
         toast({
             title: 'Member Deleted',
@@ -590,7 +670,118 @@ function FamilyMembersList({
     // +++ Helper to detect if the logged-in child is editing themselves +++
     const isChildSelfEdit = currentUser?.role === 'child' && currentUser?.id === editingMember?.id;
 
-    const activeMemberId = alwaysEditMode ? (editingMember?.id ?? null) : selectedMember;
+    const activeMemberId = alwaysEditMode ? (isCreatingMember ? null : isEditingAll ? 'All' : editingMember?.id ?? null) : selectedMember;
+
+    const handleSaveFamilyPhoto = async (nextPhotoUrls: PhotoUrls | null) => {
+        const currentSetting = familyPhotoData?.settings?.[0];
+        if (currentSetting?.id) {
+            if (nextPhotoUrls) {
+                await db.transact([
+                    tx.settings[currentSetting.id].update({
+                        value: JSON.stringify(nextPhotoUrls),
+                    }),
+                ]);
+            } else {
+                await db.transact([tx.settings[currentSetting.id].delete()]);
+            }
+            return;
+        }
+        if (nextPhotoUrls) {
+            const settingId = id();
+            await db.transact([
+                tx.settings[settingId].update({
+                    name: FAMILY_PHOTO_SETTING,
+                    value: JSON.stringify(nextPhotoUrls),
+                }),
+            ]);
+        }
+    };
+
+    const uploadFamilyPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setIsFamilyPhotoSaving(true);
+        const previousPhotoUrls = familyPhotoUrls;
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData,
+            });
+            if (!response.ok) {
+                throw new Error('Failed to upload family photo');
+            }
+            const data = await response.json();
+            const nextPhotoUrls: PhotoUrls = {
+                '64': data.photoUrls?.['64'],
+                '320': data.photoUrls?.['320'],
+                '1200': data.photoUrls?.['1200'],
+            };
+
+            await handleSaveFamilyPhoto(nextPhotoUrls);
+
+            if (previousPhotoUrls) {
+                try {
+                    await fetch('/api/delete-image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ urls: previousPhotoUrls }),
+                    });
+                } catch (cleanupErr) {
+                    console.error('Failed to remove previous family photo:', cleanupErr);
+                }
+            }
+
+            toast({
+                title: 'Family Photo Updated',
+                description: 'The All avatar now uses this photo.',
+            });
+        } catch (error) {
+            console.error('Failed to upload family photo:', error);
+            toast({
+                title: 'Upload Failed',
+                description: 'Could not update the family photo. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsFamilyPhotoSaving(false);
+            event.target.value = '';
+        }
+    };
+
+    const removeFamilyPhoto = async () => {
+        if (!familyPhotoUrls) return;
+        setIsFamilyPhotoSaving(true);
+        const previousPhotoUrls = familyPhotoUrls;
+        try {
+            await handleSaveFamilyPhoto(null);
+            try {
+                await fetch('/api/delete-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ urls: previousPhotoUrls }),
+                });
+            } catch (cleanupErr) {
+                console.error('Failed to remove stored family photo file:', cleanupErr);
+            }
+            toast({
+                title: 'Family Photo Removed',
+                description: 'The All avatar is back to its default.',
+            });
+        } catch (error) {
+            console.error('Failed to remove family photo:', error);
+            toast({
+                title: 'Remove Failed',
+                description: 'Could not remove the family photo. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsFamilyPhotoSaving(false);
+        }
+    };
 
     return (
         <div className={alwaysEditMode ? 'w-full grid gap-6 md:grid-cols-[minmax(280px,360px)_minmax(420px,1fr)]' : 'w-full h-full min-h-0 flex flex-col'}>
@@ -599,106 +790,28 @@ function FamilyMembersList({
                     <div className="flex justify-between items-center">
                         <h2 className="text-xl font-bold">Family Members</h2>
                     </div>
-                    {alwaysEditMode && (
-                        <Dialog open={isAddMemberOpen} onOpenChange={setIsAddMemberOpen}>
-                            <DialogTrigger asChild>
-                                <Button className="w-full" onClick={() => setIsAddMemberOpen(true)}>
-                                    <PlusCircle className="mr-2 h-4 w-4" /> Add Family Member
-                                </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogHeader>
-                                    <DialogTitle>Add Family Member</DialogTitle>
-                                </DialogHeader>
-                                <div className="grid gap-4 py-4">
-                                    <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="name" className="text-right">
-                                            Name
-                                        </Label>
-                                        <Input id="name" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="col-span-3" />
-                                    </div>
-                                    <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="email" className="text-right">
-                                            Email (optional)
-                                        </Label>
-                                        <Input
-                                            id="email"
-                                            type="email"
-                                            value={newMemberEmail}
-                                            onChange={(e) => setNewMemberEmail(e.target.value)}
-                                            className="col-span-3"
-                                        />
-                                    </div>
-
-                                    <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label className="text-right">Role</Label>
-                                        <RadioGroup value={newMemberRole} onValueChange={setNewMemberRole} className="col-span-3 flex gap-4">
-                                            <div className="flex items-center space-x-2">
-                                                <RadioGroupItem value="parent" id="role-parent-add" />
-                                                <Label htmlFor="role-parent-add">Parent</Label>
-                                            </div>
-                                            <div className="flex items-center space-x-2">
-                                                <RadioGroupItem value="child" id="role-child-add" />
-                                                <Label htmlFor="role-child-add">Child</Label>
-                                            </div>
-                                        </RadioGroup>
-                                    </div>
-
-                                    <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="pin" className="text-right">
-                                            PIN (Numbers)
-                                        </Label>
-                                        <Input
-                                            id="pin"
-                                            type="password"
-                                            inputMode="numeric"
-                                            pattern="[0-9]*"
-                                            maxLength={6}
-                                            value={newMemberPin}
-                                            onChange={(e) => setNewMemberPin(e.target.value)}
-                                            className="col-span-3"
-                                            placeholder="4-6 digit code"
-                                        />
-                                    </div>
-
-                                    <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="photo" className="text-right">
-                                            Photo
-                                        </Label>
-                                        <div className="col-span-3">
-                                            <Input id="photo" type="file" accept="image/*" onChange={onFileChange} />
-                                            {imageSrc && (
-                                                <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
-                                                    <Cropper
-                                                        image={imageSrc}
-                                                        crop={crop}
-                                                        zoom={zoom}
-                                                        aspect={1}
-                                                        cropShape="round"
-                                                        showGrid={false}
-                                                        onCropChange={setCrop}
-                                                        onZoomChange={setZoom}
-                                                        onCropComplete={onCropComplete}
-                                                    />
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                                <Button onClick={handleAddMember} disabled={!newMemberName}>
-                                    Add Member
-                                </Button>
-                            </DialogContent>
-                        </Dialog>
-                    )}
                 </div>
                 <ScrollArea className="flex-grow min-h-0">
                     <div className="pr-2 pb-1">
-                        {!alwaysEditMode && (
-                            <Button variant={selectedMember === 'All' ? 'default' : 'ghost'} className="w-full justify-start mb-2" onClick={() => setSelectedMember('All')}>
-                                All
+                        <div className="flex items-center mb-2">
+                            {needsAllHandleSpacer && <div className="h-10 w-10 shrink-0" aria-hidden="true" />}
+                            <Button
+                                variant={activeMemberId === 'All' ? 'default' : 'ghost'}
+                                className="w-full justify-start h-auto py-2"
+                                onClick={activateAllForSettings}
+                            >
+                                <div className="flex items-center gap-3 min-w-0 w-full">
+                                    <Avatar className="h-10 w-10 flex-shrink-0">
+                                        {familyPhotoUrls?.['64'] ? (
+                                            <AvatarImage src={'uploads/' + familyPhotoUrls['64']} alt="All family members" />
+                                        ) : (
+                                            <AvatarFallback>All</AvatarFallback>
+                                        )}
+                                    </Avatar>
+                                    <span className="font-medium truncate">All</span>
+                                </div>
                             </Button>
-                        )}
+                        </div>
                         {orderedMembers.map((member, index) => {
                             return (
                                 <SortableFamilyMemberItem
@@ -721,6 +834,11 @@ function FamilyMembersList({
                         })}
                     </div>
                 </ScrollArea>
+                {alwaysEditMode && (
+                    <Button className="w-full mt-4" onClick={activateCreateMember}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Family Member
+                    </Button>
+                )}
                 {!alwaysEditMode && (
                     <Button asChild variant="outline" className="w-full mt-4">
                         <Link href="/settings#family-member-settings">Family Member Settings</Link>
@@ -730,7 +848,114 @@ function FamilyMembersList({
 
             {alwaysEditMode && (
                 <div className="border rounded-lg bg-card p-4 md:p-6 min-h-[320px]">
-                    {editingMember ? (
+                    {isCreatingMember ? (
+                        <div className="space-y-4">
+                            <h3 className="text-xl font-semibold">Add Family Member</h3>
+                            <div className="grid gap-4 py-2">
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="name" className="text-right">
+                                        Name
+                                    </Label>
+                                    <Input id="name" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="col-span-3" />
+                                </div>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="email" className="text-right">
+                                        Email (optional)
+                                    </Label>
+                                    <Input id="email" type="email" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} className="col-span-3" />
+                                </div>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Role</Label>
+                                    <RadioGroup value={newMemberRole} onValueChange={setNewMemberRole} className="col-span-3 flex gap-4">
+                                        <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="parent" id="role-parent-add" />
+                                            <Label htmlFor="role-parent-add">Parent</Label>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="child" id="role-child-add" />
+                                            <Label htmlFor="role-child-add">Child</Label>
+                                        </div>
+                                    </RadioGroup>
+                                </div>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="pin" className="text-right">
+                                        PIN (Numbers)
+                                    </Label>
+                                    <Input
+                                        id="pin"
+                                        type="password"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        maxLength={6}
+                                        value={newMemberPin}
+                                        onChange={(e) => setNewMemberPin(e.target.value)}
+                                        className="col-span-3"
+                                        placeholder="4-6 digit code"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="photo" className="text-right">
+                                        Photo
+                                    </Label>
+                                    <div className="col-span-3">
+                                        <Input id="photo" type="file" accept="image/*" onChange={onFileChange} />
+                                        {imageSrc && (
+                                            <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
+                                                <Cropper
+                                                    image={imageSrc}
+                                                    crop={crop}
+                                                    zoom={zoom}
+                                                    aspect={1}
+                                                    cropShape="round"
+                                                    showGrid={false}
+                                                    onCropChange={setCrop}
+                                                    onZoomChange={setZoom}
+                                                    onCropComplete={onCropComplete}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex justify-end">
+                                <Button onClick={handleAddMember} disabled={!newMemberName}>
+                                    Add Member
+                                </Button>
+                            </div>
+                        </div>
+                    ) : isEditingAll ? (
+                        <div className="space-y-4">
+                            <h3 className="text-xl font-semibold">All Family Avatar</h3>
+                            <p className="text-sm text-muted-foreground">
+                                This photo is used for the <strong>All</strong> row avatar in family member lists.
+                            </p>
+                            <div className="flex items-center gap-4">
+                                <Avatar className="h-20 w-20">
+                                    {familyPhotoUrls?.['320'] ? (
+                                        <AvatarImage src={'uploads/' + familyPhotoUrls['320']} alt="All family members" />
+                                    ) : (
+                                        <AvatarFallback>All</AvatarFallback>
+                                    )}
+                                </Avatar>
+                                <div className="space-y-2">
+                                    <Input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={uploadFamilyPhoto}
+                                        disabled={isFamilyPhotoSaving}
+                                        className="max-w-sm"
+                                    />
+                                    <Button
+                                        variant="outline"
+                                        onClick={removeFamilyPhoto}
+                                        disabled={isFamilyPhotoSaving || !familyPhotoUrls}
+                                    >
+                                        Remove Family Photo
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    ) : editingMember ? (
                         <div className="space-y-4">
                             <h3 className="text-xl font-semibold">{isChildSelfEdit ? 'Update Profile' : `Edit ${editingMember.name}`}</h3>
                             <div className="grid gap-4 py-2">
