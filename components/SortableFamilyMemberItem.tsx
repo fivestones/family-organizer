@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { GripVertical, Edit, Trash2 } from 'lucide-react';
+import { GripVertical, Trash2 } from 'lucide-react';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { DropIndicator } from '@atlaskit/pragmatic-drag-and-drop-react-drop-indicator/box';
 import { type Edge, attachClosestEdge, extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
@@ -9,8 +9,7 @@ import { cn } from '@/lib/utils';
 import invariant from 'tiny-invariant';
 
 // Import types from FamilyMembersList
-import CombinedBalanceDisplay from '@/components/allowance/CombinedBalanceDisplay';
-import { UnitDefinition } from '@/lib/currency-utils';
+import { UnitDefinition, formatBalances } from '@/lib/currency-utils';
 
 interface FamilyMember {
     id: string;
@@ -33,7 +32,8 @@ interface SortableFamilyMemberItemProps {
     showBalances?: boolean;
     membersBalances?: { [memberId: string]: { [currency: string]: number } };
     unitDefinitions?: UnitDefinition[];
-    handleEditMember: (member: FamilyMember) => void;
+    handleEditMember?: (member: FamilyMember) => void;
+    onMemberActivate?: (member: FamilyMember) => void;
     handleDeleteMember: (memberId: string) => void;
     currentUser: any; // +++ NEW PROP +++
     // +++ NEW: XP Data +++
@@ -52,7 +52,7 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
     showBalances,
     membersBalances,
     unitDefinitions = [],
-    handleEditMember,
+    onMemberActivate,
     handleDeleteMember,
     currentUser, // +++ Destructure +++
     xpData, // +++ Destructure +++
@@ -66,12 +66,10 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
 
     // +++ Permission Checks +++
     const isParent = currentUser?.role === 'parent';
-    const isSelf = currentUser?.id === member.id;
 
     // Only parents can reorder/delete.
     // Parents can edit anyone. Children can only edit themselves.
     const canDrag = isEditMode && isParent;
-    const canEdit = isEditMode && (isParent || isSelf);
     const canDelete = isEditMode && isParent;
 
     // Register the element as draggable and a drop target only if allowed
@@ -129,6 +127,7 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
 
     const memberBalance = showBalances ? membersBalances?.[member.id] : null;
     const hasBalanceData = !!memberBalance && Object.keys(memberBalance).length > 0;
+    const balanceText = showBalances ? (hasBalanceData ? formatBalances(memberBalance!, unitDefinitions) : 'No balance') : null;
 
     return (
         <div ref={itemRef} style={{ opacity: isDragging ? 0.4 : 1 }} className="relative">
@@ -153,11 +152,17 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
                 <div className="flex-grow mr-2">
                     <Button
                         variant={selectedMember === member.id ? 'default' : 'ghost'}
-                        className="w-full justify-start text-left h-auto py-2"
-                        onClick={() => setSelectedMember(member.id)}
+                        className="w-full justify-start text-left h-auto py-2 whitespace-normal"
+                        onClick={() => {
+                            if (alwaysEditMode && onMemberActivate) {
+                                onMemberActivate(member);
+                                return;
+                            }
+                            setSelectedMember(member.id);
+                        }}
                         disabled={isEditMode && !alwaysEditMode} // Disable clicking when in toggle edit mode, but not in alwaysEditMode
                     >
-                        <div className="flex items-center space-x-3 flex-grow">
+                        <div className="flex items-center gap-3 flex-grow min-w-0">
                             <Avatar className="h-10 w-10 flex-shrink-0">
                                 {member.photoUrls ? (
                                     <AvatarImage src={'uploads/' + member.photoUrls['64']} alt={member.name} />
@@ -171,46 +176,21 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
                                     </AvatarFallback>
                                 )}
                             </Avatar>
-                            {/* +++ Layout Change: Column for Name + XP +++ */}
-                            <div className="flex flex-col flex-grow min-w-0">
-                                <span className="font-medium truncate">{member.name}</span>
-                                {/* +++ XP Display +++ */}
-                                {xpData && (
-                                    <span className="text-xs text-muted-foreground">
-                                        {xpData.current} XP (of {xpData.possible} possible today)
-                                    </span>
-                                )}
-                            </div>
-
-                            {/* Balance Display - Right Aligned */}
-                            {showBalances && hasBalanceData && (
-                                <div className="ml-auto pl-2 flex-shrink-0 text-xs self-center">
-                                    <CombinedBalanceDisplay
-                                        totalBalances={memberBalance!}
-                                        unitDefinitions={unitDefinitions}
-                                        showCombinedBalance={false}
-                                        isLoading={false}
-                                        className="text-right"
-                                    />
+                            <div className="flex flex-col min-w-0 flex-1">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <span className="font-medium truncate">{member.name}</span>
+                                    {xpData && (
+                                        <span className="text-xs text-muted-foreground shrink-0">
+                                            {xpData.current} XP
+                                            <span className="hidden 2xl:inline"> (of {xpData.possible} today)</span>
+                                        </span>
+                                    )}
                                 </div>
-                            )}
-                            {showBalances && !hasBalanceData && (
-                                <div className="ml-auto pl-2 flex-shrink-0 text-xs text-muted-foreground italic self-center">No balance</div>
-                            )}
+                                {showBalances && <div className="mt-0.5 text-xs text-muted-foreground truncate">{balanceText}</div>}
+                            </div>
                         </div>
                     </Button>
                 </div>
-                {/* Edit/Delete Buttons (visible only based on permission) */}
-
-                {/* Edit Button */}
-                {canEdit ? (
-                    <Button variant="ghost" size="icon" onClick={() => handleEditMember(member)}>
-                        <Edit className="h-4 w-4" />
-                    </Button>
-                ) : isEditMode ? // Placeholder to keep alignment if needed, or simply render nothing.
-                // Rendering nothing is cleaner for restricted views.
-                null : null}
-
                 {/* Delete Button */}
                 {canDelete && (
                     <Button variant="ghost" size="icon" onClick={() => handleDeleteMember(member.id)}>

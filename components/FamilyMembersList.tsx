@@ -5,16 +5,14 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { PlusCircle, Trash2, Edit } from 'lucide-react';
-import { Switch } from '@/components/ui/switch';
+import { PlusCircle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/components/ui/use-toast';
 import Cropper from 'react-easy-crop';
 import { Checkbox } from '@/components/ui/checkbox';
 import { tx, id } from '@instantdb/react';
-// **** NEW: Import types and components ****
-import CombinedBalanceDisplay from '@/components/allowance/CombinedBalanceDisplay';
 import { UnitDefinition } from '@/lib/currency-utils';
+import Link from 'next/link';
 
 // **** NEW: Import PDND tools ****
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
@@ -156,7 +154,7 @@ function FamilyMembersList({
     const [newMemberRole, setNewMemberRole] = useState('child');
     const [newMemberPin, setNewMemberPin] = useState('');
 
-    const [isEditMode, setIsEditMode] = useState(alwaysEditMode);
+    const isEditMode = alwaysEditMode;
     const { toast } = useToast();
 
     // State variables for cropping images
@@ -414,9 +412,10 @@ function FamilyMembersList({
     };
 
     // Edit member functions
-    const handleEditMember = (member: FamilyMember) => {
+    const activateMemberForEditing = (member: FamilyMember) => {
         // Type annotation
         setEditingMember(member);
+        setSelectedMember(member.id);
         setEditMemberName(member.name);
         setEditMemberEmail(member.email || '');
         // +++ Populate Role +++
@@ -524,6 +523,17 @@ function FamilyMembersList({
                     title: 'Success',
                     description: 'Family member updated successfully.',
                 });
+                const updatedPhotoUrls =
+                    updates.photoUrls === undefined ? editingMember.photoUrls || null : (updates.photoUrls as FamilyMember['photoUrls'] | null);
+                const updatedMember: FamilyMember = {
+                    ...editingMember,
+                    name: editMemberName,
+                    email: editMemberEmail || '',
+                    role: editMemberRole,
+                    photoUrls: updatedPhotoUrls,
+                };
+                setEditingMember(updatedMember);
+                setEditImageSrc(updatedPhotoUrls?.['1200'] ? `uploads/${updatedPhotoUrls['1200']}` : null);
             } catch (error) {
                 console.error('Error updating family member:', error);
                 toast({
@@ -534,12 +544,7 @@ function FamilyMembersList({
             }
 
             // Reset states
-            setEditingMember(null);
-            setEditMemberName('');
-            setEditMemberEmail('');
             setEditMemberPin(''); // Reset
-            setEditMemberRole('child'); // Reset
-            setEditImageSrc(null);
             setEditCrop({ x: 0, y: 0 });
             setEditZoom(1);
             setEditCroppedAreaPixels(null);
@@ -573,6 +578,9 @@ function FamilyMembersList({
         if (selectedMember === memberId) {
             setSelectedMember('All');
         }
+        if (editingMember?.id === memberId) {
+            setEditingMember(null);
+        }
         toast({
             title: 'Member Deleted',
             description: `${member?.name || 'Member'} removed.`,
@@ -582,283 +590,282 @@ function FamilyMembersList({
     // +++ Helper to detect if the logged-in child is editing themselves +++
     const isChildSelfEdit = currentUser?.role === 'child' && currentUser?.id === editingMember?.id;
 
+    const activeMemberId = alwaysEditMode ? (editingMember?.id ?? null) : selectedMember;
+
     return (
-        <div className="w-full h-full flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Family Members</h2>
-                {!alwaysEditMode && (
-                    <div className="flex items-center">
-                        <Label htmlFor="edit-mode" className="mr-2">
-                            Edit
-                        </Label>
-                        <Switch id="edit-mode" checked={isEditMode} onCheckedChange={setIsEditMode} />
+        <div className={alwaysEditMode ? 'w-full grid gap-6 md:grid-cols-[minmax(280px,360px)_minmax(420px,1fr)]' : 'w-full h-full min-h-0 flex flex-col'}>
+            <div className="w-full h-full min-h-0 flex flex-col">
+                <div className="mb-4 space-y-3">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold">Family Members</h2>
                     </div>
+                    {alwaysEditMode && (
+                        <Dialog open={isAddMemberOpen} onOpenChange={setIsAddMemberOpen}>
+                            <DialogTrigger asChild>
+                                <Button className="w-full" onClick={() => setIsAddMemberOpen(true)}>
+                                    <PlusCircle className="mr-2 h-4 w-4" /> Add Family Member
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Add Family Member</DialogTitle>
+                                </DialogHeader>
+                                <div className="grid gap-4 py-4">
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="name" className="text-right">
+                                            Name
+                                        </Label>
+                                        <Input id="name" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="col-span-3" />
+                                    </div>
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="email" className="text-right">
+                                            Email (optional)
+                                        </Label>
+                                        <Input
+                                            id="email"
+                                            type="email"
+                                            value={newMemberEmail}
+                                            onChange={(e) => setNewMemberEmail(e.target.value)}
+                                            className="col-span-3"
+                                        />
+                                    </div>
+
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label className="text-right">Role</Label>
+                                        <RadioGroup value={newMemberRole} onValueChange={setNewMemberRole} className="col-span-3 flex gap-4">
+                                            <div className="flex items-center space-x-2">
+                                                <RadioGroupItem value="parent" id="role-parent-add" />
+                                                <Label htmlFor="role-parent-add">Parent</Label>
+                                            </div>
+                                            <div className="flex items-center space-x-2">
+                                                <RadioGroupItem value="child" id="role-child-add" />
+                                                <Label htmlFor="role-child-add">Child</Label>
+                                            </div>
+                                        </RadioGroup>
+                                    </div>
+
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="pin" className="text-right">
+                                            PIN (Numbers)
+                                        </Label>
+                                        <Input
+                                            id="pin"
+                                            type="password"
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
+                                            maxLength={6}
+                                            value={newMemberPin}
+                                            onChange={(e) => setNewMemberPin(e.target.value)}
+                                            className="col-span-3"
+                                            placeholder="4-6 digit code"
+                                        />
+                                    </div>
+
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="photo" className="text-right">
+                                            Photo
+                                        </Label>
+                                        <div className="col-span-3">
+                                            <Input id="photo" type="file" accept="image/*" onChange={onFileChange} />
+                                            {imageSrc && (
+                                                <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
+                                                    <Cropper
+                                                        image={imageSrc}
+                                                        crop={crop}
+                                                        zoom={zoom}
+                                                        aspect={1}
+                                                        cropShape="round"
+                                                        showGrid={false}
+                                                        onCropChange={setCrop}
+                                                        onZoomChange={setZoom}
+                                                        onCropComplete={onCropComplete}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <Button onClick={handleAddMember} disabled={!newMemberName}>
+                                    Add Member
+                                </Button>
+                            </DialogContent>
+                        </Dialog>
+                    )}
+                </div>
+                <ScrollArea className="flex-grow min-h-0">
+                    <div className="pr-2 pb-1">
+                        {!alwaysEditMode && (
+                            <Button variant={selectedMember === 'All' ? 'default' : 'ghost'} className="w-full justify-start mb-2" onClick={() => setSelectedMember('All')}>
+                                All
+                            </Button>
+                        )}
+                        {orderedMembers.map((member, index) => {
+                            return (
+                                <SortableFamilyMemberItem
+                                    key={member.id}
+                                    member={member}
+                                    index={index}
+                                    isEditMode={isEditMode}
+                                    selectedMember={activeMemberId}
+                                    setSelectedMember={setSelectedMember}
+                                    showBalances={showBalances}
+                                    membersBalances={membersBalances}
+                                    unitDefinitions={unitDefinitions}
+                                    onMemberActivate={activateMemberForEditing}
+                                    handleDeleteMember={handleDeleteMember}
+                                    currentUser={currentUser}
+                                    xpData={membersXP?.[member.id]}
+                                    alwaysEditMode={alwaysEditMode}
+                                />
+                            );
+                        })}
+                    </div>
+                </ScrollArea>
+                {!alwaysEditMode && (
+                    <Button asChild variant="outline" className="w-full mt-4">
+                        <Link href="/settings#family-member-settings">Family Member Settings</Link>
+                    </Button>
                 )}
             </div>
-            <ScrollArea className="flex-grow">
-                {!alwaysEditMode && (
-                    <Button
-                        variant={selectedMember === 'All' ? 'default' : 'ghost'}
-                        className="w-full justify-start mb-2"
-                        onClick={() => setSelectedMember('All')}
-                        disabled={isEditMode} // <-- Disable when editing
-                    >
-                        All
-                    </Button>
-                )}
-                {/* --- NEW: Map over orderedMembers and use SortableFamilyMemberItem --- */}
-                {orderedMembers.map((member, index) => {
-                    return (
-                        <SortableFamilyMemberItem
-                            key={member.id}
-                            member={member}
-                            index={index}
-                            isEditMode={isEditMode}
-                            selectedMember={selectedMember}
-                            setSelectedMember={setSelectedMember}
-                            showBalances={showBalances}
-                            membersBalances={membersBalances} // +++ Pass calculated or prop balances +++
-                            unitDefinitions={unitDefinitions} // +++ Pass calculated or prop definitions +++
-                            handleEditMember={handleEditMember}
-                            handleDeleteMember={handleDeleteMember}
-                            currentUser={currentUser} // <--- Added this prop
-                            // +++ Pass XP Data +++
-                            xpData={membersXP?.[member.id]}
-                            alwaysEditMode={alwaysEditMode}
-                        />
-                    );
-                })}
-            </ScrollArea>
-            <Dialog open={isAddMemberOpen} onOpenChange={setIsAddMemberOpen}>
-                <DialogTrigger asChild>
-                    <Button
-                        className="w-full mt-4"
-                        onClick={() => setIsAddMemberOpen(true)}
-                        disabled={isEditMode && !alwaysEditMode} // Disable in toggle edit mode, but not in alwaysEditMode
-                    >
-                        <PlusCircle className="mr-2 h-4 w-4" /> Add Family Member
-                    </Button>
-                </DialogTrigger>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Add Family Member</DialogTitle>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="name" className="text-right">
-                                Name
-                            </Label>
-                            <Input id="name" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="col-span-3" />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="email" className="text-right">
-                                Email (optional)
-                            </Label>
-                            <Input id="email" type="email" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} className="col-span-3" />
-                        </div>
 
-                        {/* +++ NEW: Role Selection +++ */}
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Role</Label>
-                            <RadioGroup value={newMemberRole} onValueChange={setNewMemberRole} className="col-span-3 flex gap-4">
-                                <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="parent" id="role-parent-add" />
-                                    <Label htmlFor="role-parent-add">Parent</Label>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="child" id="role-child-add" />
-                                    <Label htmlFor="role-child-add">Child</Label>
-                                </div>
-                            </RadioGroup>
-                        </div>
+            {alwaysEditMode && (
+                <div className="border rounded-lg bg-card p-4 md:p-6 min-h-[320px]">
+                    {editingMember ? (
+                        <div className="space-y-4">
+                            <h3 className="text-xl font-semibold">{isChildSelfEdit ? 'Update Profile' : `Edit ${editingMember.name}`}</h3>
+                            <div className="grid gap-4 py-2">
+                                {isChildSelfEdit ? (
+                                    <div className="flex justify-center py-2">
+                                        <h4 className="text-2xl font-bold">{editingMember?.name}</h4>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="edit-name" className="text-right">
+                                            Name
+                                        </Label>
+                                        <Input id="edit-name" value={editMemberName} onChange={(e) => setEditMemberName(e.target.value)} className="col-span-3" />
+                                    </div>
+                                )}
 
-                        {/* +++ NEW: PIN Input +++ */}
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="pin" className="text-right">
-                                PIN (Numbers)
-                            </Label>
-                            <Input
-                                id="pin"
-                                type="password"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                maxLength={6}
-                                value={newMemberPin}
-                                onChange={(e) => setNewMemberPin(e.target.value)}
-                                className="col-span-3"
-                                placeholder="4-6 digit code"
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="photo" className="text-right">
-                                Photo
-                            </Label>
-                            <div className="col-span-3">
-                                <Input id="photo" type="file" accept="image/*" onChange={onFileChange} />
-                                {imageSrc && (
-                                    <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
-                                        <Cropper
-                                            image={imageSrc}
-                                            crop={crop}
-                                            zoom={zoom}
-                                            aspect={1}
-                                            cropShape="round"
-                                            showGrid={false}
-                                            onCropChange={setCrop}
-                                            onZoomChange={setZoom}
-                                            onCropComplete={onCropComplete}
+                                {!isChildSelfEdit && (
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="edit-email" className="text-right">
+                                            Email (optional)
+                                        </Label>
+                                        <Input
+                                            id="edit-email"
+                                            type="email"
+                                            value={editMemberEmail}
+                                            onChange={(e) => setEditMemberEmail(e.target.value)}
+                                            className="col-span-3"
                                         />
                                     </div>
                                 )}
-                            </div>
-                        </div>
-                    </div>
-                    <Button onClick={handleAddMember} disabled={!newMemberName}>
-                        Add Member
-                    </Button>
-                </DialogContent>
-            </Dialog>
 
-            {/* Edit Member Dialog */}
-            <Dialog open={editingMember !== null} onOpenChange={() => setEditingMember(null)}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>{isChildSelfEdit ? 'Update Profile' : 'Edit Family Member'}</DialogTitle>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        {/* Name Field */}
-                        {isChildSelfEdit ? (
-                            <div className="flex justify-center py-4">
-                                <h3 className="text-2xl font-bold">{editingMember?.name}</h3>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="edit-name" className="text-right">
-                                    Name
-                                </Label>
-                                <Input id="edit-name" value={editMemberName} onChange={(e) => setEditMemberName(e.target.value)} className="col-span-3" />
-                            </div>
-                        )}
-
-                        {/* Email Field - Hidden if Child Self Edit */}
-                        {!isChildSelfEdit && (
-                            <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="edit-email" className="text-right">
-                                    Email (optional)
-                                </Label>
-                                <Input
-                                    id="edit-email"
-                                    type="email"
-                                    value={editMemberEmail}
-                                    onChange={(e) => setEditMemberEmail(e.target.value)}
-                                    className="col-span-3"
-                                />
-                            </div>
-                        )}
-
-                        {/* +++ NEW: Role Selection - Hidden if Child Self Edit +++ */}
-                        {!isChildSelfEdit && (
-                            <div className="grid grid-cols-4 items-center gap-4">
-                                <Label className="text-right">Role</Label>
-                                <RadioGroup value={editMemberRole} onValueChange={setEditMemberRole} className="col-span-3 flex gap-4">
-                                    <div className="flex items-center space-x-2">
-                                        <RadioGroupItem value="parent" id="role-parent-edit" />
-                                        <Label htmlFor="role-parent-edit">Parent</Label>
+                                {!isChildSelfEdit && (
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label className="text-right">Role</Label>
+                                        <RadioGroup value={editMemberRole} onValueChange={setEditMemberRole} className="col-span-3 flex gap-4">
+                                            <div className="flex items-center space-x-2">
+                                                <RadioGroupItem value="parent" id="role-parent-edit" />
+                                                <Label htmlFor="role-parent-edit">Parent</Label>
+                                            </div>
+                                            <div className="flex items-center space-x-2">
+                                                <RadioGroupItem value="child" id="role-child-edit" />
+                                                <Label htmlFor="role-child-edit">Child</Label>
+                                            </div>
+                                        </RadioGroup>
                                     </div>
-                                    <div className="flex items-center space-x-2">
-                                        <RadioGroupItem value="child" id="role-child-edit" />
-                                        <Label htmlFor="role-child-edit">Child</Label>
-                                    </div>
-                                </RadioGroup>
-                            </div>
-                        )}
+                                )}
 
-                        {/* +++ NEW: PIN Input - Always Visible +++ */}
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-pin" className={isChildSelfEdit ? 'text-right font-semibold' : 'text-right'}>
-                                {isChildSelfEdit ? 'New PIN' : 'New PIN'}
-                            </Label>
-                            <Input
-                                id="edit-pin"
-                                type="password"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                maxLength={6}
-                                value={editMemberPin}
-                                onChange={(e) => setEditMemberPin(e.target.value)}
-                                className="col-span-3"
-                                placeholder={isChildSelfEdit ? 'Enter new PIN to change' : 'Leave blank to keep existing'}
-                            />
-                        </div>
-
-                        {/* Photo Input and Cropping */}
-                        {isChildSelfEdit ? (
-                            <div className="flex justify-center mt-4 mb-4">
-                                <Avatar className="h-32 w-32">
-                                    <AvatarImage
-                                        src={editingMember?.photoUrls?.['320'] ? `uploads/${editingMember.photoUrls['320']}` : undefined}
-                                        alt={editingMember?.name}
-                                        className="object-cover"
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="edit-pin" className={isChildSelfEdit ? 'text-right font-semibold' : 'text-right'}>
+                                        New PIN
+                                    </Label>
+                                    <Input
+                                        id="edit-pin"
+                                        type="password"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        maxLength={6}
+                                        value={editMemberPin}
+                                        onChange={(e) => setEditMemberPin(e.target.value)}
+                                        className="col-span-3"
+                                        placeholder={isChildSelfEdit ? 'Enter new PIN to change' : 'Leave blank to keep existing'}
                                     />
-                                    <AvatarFallback className="text-4xl">{editingMember?.name?.charAt(0).toUpperCase()}</AvatarFallback>
-                                </Avatar>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-4 items-start gap-4">
-                                <Label htmlFor="edit-photo" className="text-right">
-                                    Photo
-                                </Label>
-                                <div className="col-span-3">
-                                    <Input id="edit-photo" type="file" accept="image/*" onChange={onEditFileChange} />
-                                    {editImageSrc && (
-                                        <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
-                                            <Cropper
-                                                image={editImageSrc}
-                                                crop={editCrop}
-                                                zoom={editZoom}
-                                                aspect={1}
-                                                cropShape="round"
-                                                showGrid={false}
-                                                onCropChange={setEditCrop}
-                                                onZoomChange={setEditZoom}
-                                                onCropComplete={onEditCropComplete}
-                                            />
-                                        </div>
-                                    )}
-                                    {!editImageSrc && editingMember?.photoUrls && (
-                                        <div className="mt-4">
-                                            <Avatar className="h-16 w-16">
-                                                <AvatarImage
-                                                    src={'uploads/' + editingMember.photoUrls['320']}
-                                                    alt={editingMember.name}
-                                                    className="object-cover"
-                                                />
-                                                <AvatarFallback className="text-lg">{editingMember.name.charAt(0).toUpperCase()}</AvatarFallback>
-                                            </Avatar>
-                                        </div>
-                                    )}
                                 </div>
-                            </div>
-                        )}
 
-                        {/* Remove Photo Checkbox - Hidden if Child Self Edit */}
-                        {!isChildSelfEdit && editingMember?.photoUrls && (
-                            <div className="flex items-center">
-                                <Checkbox id="remove-photo" checked={removePhoto} onCheckedChange={(checked) => setRemovePhoto(checked === true)} />
-                                <Label htmlFor="remove-photo" className="ml-2">
-                                    Remove existing photo
-                                </Label>
-                            </div>
-                        )}
-                    </div>
+                                {isChildSelfEdit ? (
+                                    <div className="flex justify-center mt-2 mb-2">
+                                        <Avatar className="h-32 w-32">
+                                            <AvatarImage
+                                                src={editingMember?.photoUrls?.['320'] ? `uploads/${editingMember.photoUrls['320']}` : undefined}
+                                                alt={editingMember?.name}
+                                                className="object-cover"
+                                            />
+                                            <AvatarFallback className="text-4xl">{editingMember?.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                                        </Avatar>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-4 items-start gap-4">
+                                        <Label htmlFor="edit-photo" className="text-right">
+                                            Photo
+                                        </Label>
+                                        <div className="col-span-3">
+                                            <Input id="edit-photo" type="file" accept="image/*" onChange={onEditFileChange} />
+                                            {editImageSrc && (
+                                                <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
+                                                    <Cropper
+                                                        image={editImageSrc}
+                                                        crop={editCrop}
+                                                        zoom={editZoom}
+                                                        aspect={1}
+                                                        cropShape="round"
+                                                        showGrid={false}
+                                                        onCropChange={setEditCrop}
+                                                        onZoomChange={setEditZoom}
+                                                        onCropComplete={onEditCropComplete}
+                                                    />
+                                                </div>
+                                            )}
+                                            {!editImageSrc && editingMember?.photoUrls && (
+                                                <div className="mt-4">
+                                                    <Avatar className="h-16 w-16">
+                                                        <AvatarImage
+                                                            src={'uploads/' + editingMember.photoUrls['320']}
+                                                            alt={editingMember.name}
+                                                            className="object-cover"
+                                                        />
+                                                        <AvatarFallback className="text-lg">{editingMember.name.charAt(0).toUpperCase()}</AvatarFallback>
+                                                    </Avatar>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
 
-                    {/* Save Button */}
-                    <Button onClick={handleUpdateMember} disabled={!editMemberName}>
-                        Save Member
-                    </Button>
-                </DialogContent>
-            </Dialog>
+                                {!isChildSelfEdit && editingMember?.photoUrls && (
+                                    <div className="flex items-center">
+                                        <Checkbox id="remove-photo" checked={removePhoto} onCheckedChange={(checked) => setRemovePhoto(checked === true)} />
+                                        <Label htmlFor="remove-photo" className="ml-2">
+                                            Remove existing photo
+                                        </Label>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex justify-end">
+                                <Button onClick={handleUpdateMember} disabled={!editMemberName}>
+                                    Save Member
+                                </Button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="h-full min-h-[240px] flex items-center justify-center text-sm text-muted-foreground">
+                            Select a family member to edit their profile and permissions.
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

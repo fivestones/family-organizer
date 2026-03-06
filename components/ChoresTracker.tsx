@@ -641,20 +641,22 @@ function ChoresTracker() {
     };
 
     return (
-        <div className="min-h-screen flex flex-col md:flex-row">
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col md:flex-row md:px-4">
             {/* Left Sidebar (Desktop Only) */}
-            <div className="hidden md:block w-1/4 bg-gray-100 p-4 flex-shrink-0 border-r min-h-screen">
-                <FamilyMembersList
-                    familyMembers={familyMembers}
-                    selectedMember={selectedMember}
-                    setSelectedMember={setSelectedMember}
-                    // **** REMOVED: addFamilyMember and deleteFamilyMember props ****
-                    db={db}
-                    // **** NEW: Pass balance data ****
-                    showBalances={true} // Enable balance display
-                    membersBalances={membersBalances}
-                    unitDefinitions={unitDefinitions}
-                />
+            <div className="hidden md:flex md:w-[clamp(260px,24vw,360px)] md:flex-shrink-0 md:py-4">
+                <div className="w-full h-full min-h-0 rounded-lg border bg-card p-4 shadow-sm">
+                    <FamilyMembersList
+                        familyMembers={familyMembers}
+                        selectedMember={selectedMember}
+                        setSelectedMember={setSelectedMember}
+                        // **** REMOVED: addFamilyMember and deleteFamilyMember props ****
+                        db={db}
+                        // **** NEW: Pass balance data ****
+                        showBalances={true} // Enable balance display
+                        membersBalances={membersBalances}
+                        unitDefinitions={unitDefinitions}
+                    />
+                </div>
             </div>
 
             {/* Mobile Menu Modal (New Layout) */}
@@ -741,9 +743,7 @@ function ChoresTracker() {
             </Dialog>
 
             {/* Right content area */}
-            <div className="w-full md:w-3/4 p-4 flex flex-col h-screen space-y-4">
-                {' '}
-                {/* h-screen on Right Panel: Sets a fixed boundary for the right panel based on the viewport height. Content exceeding this won't cause page scroll if overflow is handled internally. */}
+            <div className="w-full md:flex-1 p-4 md:py-4 flex flex-col h-full min-h-0 space-y-4">
                 {/* +++ UPDATED LAYOUT: Top Bar Container +++ */}
                 <div className="flex items-center justify-between gap-2 md:gap-4 flex-shrink-0">
                     {/* 1. Header Title & Add Chore Button Column */}

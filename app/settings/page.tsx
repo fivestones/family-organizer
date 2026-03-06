@@ -17,10 +17,10 @@ export default function SettingsPage() {
 
     return (
         <ParentGate>
-            <div className="container mx-auto p-8">
+            <div className="container mx-auto max-w-7xl p-8">
                 <h1 className="text-3xl font-bold mb-8">Settings</h1>
 
-                <div className="mb-8 max-w-md">
+                <div id="family-member-settings" className="mb-8 scroll-mt-24">
                     <FamilyMembersList
                         familyMembers={familyMembers}
                         db={db}

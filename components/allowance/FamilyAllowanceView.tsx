@@ -82,45 +82,47 @@ export default function FamilyAllowanceView() {
     }
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
-            {/* Column 1: Family Member List */}
-            <div className="md:col-span-1 border rounded-lg p-4 bg-card">
-                <FamilyMembersList
-                    familyMembers={familyMembers}
-                    selectedMember={selectedMemberId}
-                    setSelectedMember={setSelectedMemberId}
-                    // **** REMOVED: addFamilyMember and deleteFamilyMember props ****
-                    db={db}
-                    // **** NEW: Pass balance data ****
-                    showBalances={true} // Enable balance display
-                    // membersBalances and unitDefinitions are now optional.
-                    // FamilyMembersList will fetch them internally if not passed.
-                    // But since we have them here already, passing them is fine too.
-                    // Actually, let's let the component handle it to prove it works.
-                    // But for efficiency, if we have them, we should pass them.
-                    // Let's pass the unitDefinitions at least as they are cheap.
-                    unitDefinitions={unitDefinitions}
-                />
-            </div>
-
-            {/* Column 2: Member Allowance Details (Conditional) */}
-            <div className="md:col-span-2">
-                {selectedMemberId && selectedMemberId !== 'All' ? (
-                    <MemberAllowanceDetail
-                        memberId={selectedMemberId}
-                        // Pass only the members needed for transfer recipient list
-                        allFamilyMembers={familyMembers.map((m) => ({ id: m.id, name: m.name }))}
-                        // **** Pass the computed list and definitions ****
-                        allMonetaryCurrenciesInUse={allMonetaryCurrenciesInUse}
+        <div className="p-4">
+            <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 md:flex-row md:items-start">
+                {/* Column 1: Family Member List */}
+                <div className="border rounded-lg p-4 bg-card md:w-[clamp(260px,24vw,360px)] md:flex-shrink-0">
+                    <FamilyMembersList
+                        familyMembers={familyMembers}
+                        selectedMember={selectedMemberId}
+                        setSelectedMember={setSelectedMemberId}
+                        // **** REMOVED: addFamilyMember and deleteFamilyMember props ****
+                        db={db}
+                        // **** NEW: Pass balance data ****
+                        showBalances={true} // Enable balance display
+                        // membersBalances and unitDefinitions are now optional.
+                        // FamilyMembersList will fetch them internally if not passed.
+                        // But since we have them here already, passing them is fine too.
+                        // Actually, let's let the component handle it to prove it works.
+                        // But for efficiency, if we have them, we should pass them.
+                        // Let's pass the unitDefinitions at least as they are cheap.
                         unitDefinitions={unitDefinitions}
-                        db={db} // Pass db instance
                     />
-                ) : (
-                    // Placeholder when no family member is selected
-                    <div className="p-4 border rounded-lg bg-muted text-muted-foreground h-full flex items-center justify-center min-h-[200px]">
-                        <p>Select a family member to view their allowance details.</p>
-                    </div>
-                )}
+                </div>
+
+                {/* Column 2: Member Allowance Details (Conditional) */}
+                <div className="min-w-0 flex-1">
+                    {selectedMemberId && selectedMemberId !== 'All' ? (
+                        <MemberAllowanceDetail
+                            memberId={selectedMemberId}
+                            // Pass only the members needed for transfer recipient list
+                            allFamilyMembers={familyMembers.map((m) => ({ id: m.id, name: m.name }))}
+                            // **** Pass the computed list and definitions ****
+                            allMonetaryCurrenciesInUse={allMonetaryCurrenciesInUse}
+                            unitDefinitions={unitDefinitions}
+                            db={db} // Pass db instance
+                        />
+                    ) : (
+                        // Placeholder when no family member is selected
+                        <div className="p-4 border rounded-lg bg-muted text-muted-foreground h-full flex items-center justify-center min-h-[200px]">
+                            <p>Select a family member to view their allowance details.</p>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

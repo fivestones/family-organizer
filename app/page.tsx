@@ -4,11 +4,7 @@
 import FamilyChoreTracker from '@/components/ChoresTracker';
 
 function App() {
-    return (
-        <div>
-            <FamilyChoreTracker />
-        </div>
-    );
+    return <FamilyChoreTracker />;
 }
 
 export default App;
