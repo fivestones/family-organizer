@@ -260,6 +260,11 @@ function FamilyMembersList({
     const [removePhoto, setRemovePhoto] = useState(false);
     const [isEditingAll, setIsEditingAll] = useState(alwaysEditMode);
     const [isFamilyPhotoSaving, setIsFamilyPhotoSaving] = useState(false);
+    const [isMemberSaving, setIsMemberSaving] = useState(false);
+    const [familyPhotoImageSrc, setFamilyPhotoImageSrc] = useState<string | null>(null);
+    const [familyPhotoCrop, setFamilyPhotoCrop] = useState({ x: 0, y: 0 });
+    const [familyPhotoZoom, setFamilyPhotoZoom] = useState(1);
+    const [familyPhotoCroppedAreaPixels, setFamilyPhotoCroppedAreaPixels] = useState(null);
     const needsAllHandleSpacer = alwaysEditMode && currentUser?.role === 'parent';
 
     // --- NEW: State for optimistic UI reordering ---
@@ -645,7 +650,10 @@ function FamilyMembersList({
     };
 
     const handleUpdateMember = async () => {
-        if (editMemberName && editingMember) {
+        if (!editMemberName || !editingMember || isMemberSaving) return;
+
+        setIsMemberSaving(true);
+        try {
             // Check editingMember is not null
             const updates: { [key: string]: any } = {
                 name: editMemberName,
@@ -721,6 +729,8 @@ function FamilyMembersList({
             setEditZoom(1);
             setEditCroppedAreaPixels(null);
             setRemovePhoto(false);
+        } finally {
+            setIsMemberSaving(false);
         }
     };
 
@@ -793,14 +803,29 @@ function FamilyMembersList({
         }
     };
 
-    const uploadFamilyPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const onFamilyPhotoFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
+
+        const imageDataUrl = await readFile(file);
+        setFamilyPhotoImageSrc(imageDataUrl);
+        setFamilyPhotoCrop({ x: 0, y: 0 });
+        setFamilyPhotoZoom(1);
+        setFamilyPhotoCroppedAreaPixels(null);
+    };
+
+    const onFamilyPhotoCropComplete = (croppedArea, croppedAreaPixels) => {
+        setFamilyPhotoCroppedAreaPixels(croppedAreaPixels);
+    };
+
+    const uploadFamilyPhoto = async () => {
+        if (!familyPhotoImageSrc || !familyPhotoCroppedAreaPixels) return;
 
         setIsFamilyPhotoSaving(true);
         const previousPhotoUrls = familyPhotoUrls;
         try {
-            const nextPhotoUrls = await uploadAvatarPhotoVariants(file, { scope: 'family-photo' });
+            const photoFile = await getCroppedImg(familyPhotoImageSrc, familyPhotoCroppedAreaPixels);
+            const nextPhotoUrls = await uploadAvatarPhotoVariants(photoFile, { scope: 'family-photo' });
             await handleSaveFamilyPhoto(nextPhotoUrls);
             await cleanupS3Photos(getPhotoKeys(previousPhotoUrls), 'Family photo was saved, but old photo cleanup failed.');
 
@@ -808,6 +833,10 @@ function FamilyMembersList({
                 title: 'Family Photo Updated',
                 description: 'The All avatar now uses this photo.',
             });
+            setFamilyPhotoImageSrc(null);
+            setFamilyPhotoCrop({ x: 0, y: 0 });
+            setFamilyPhotoZoom(1);
+            setFamilyPhotoCroppedAreaPixels(null);
         } catch (error) {
             console.error('Failed to upload family photo:', error);
             toast({
@@ -817,7 +846,6 @@ function FamilyMembersList({
             });
         } finally {
             setIsFamilyPhotoSaving(false);
-            event.target.value = '';
         }
     };
 
@@ -990,22 +1018,45 @@ function FamilyMembersList({
                             <p className="text-sm text-muted-foreground">
                                 This photo is used for the <strong>All</strong> row avatar in family member lists.
                             </p>
-                            <div className="flex items-center gap-4">
-                                <Avatar className="h-20 w-20">
-                                    {getPhotoUrl(familyPhotoUrls, '320') ? (
-                                        <AvatarImage src={getPhotoUrl(familyPhotoUrls, '320')} alt="All family members" />
-                                    ) : (
-                                        <AvatarFallback>All</AvatarFallback>
-                                    )}
-                                </Avatar>
-                                <div className="space-y-2">
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-4">
+                                    <Avatar className="h-20 w-20">
+                                        {getPhotoUrl(familyPhotoUrls, '320') ? (
+                                            <AvatarImage src={getPhotoUrl(familyPhotoUrls, '320')} alt="All family members" />
+                                        ) : (
+                                            <AvatarFallback>All</AvatarFallback>
+                                        )}
+                                    </Avatar>
                                     <Input
                                         type="file"
                                         accept="image/*"
-                                        onChange={uploadFamilyPhoto}
+                                        onChange={onFamilyPhotoFileChange}
                                         disabled={isFamilyPhotoSaving}
                                         className="max-w-sm"
                                     />
+                                </div>
+                                {familyPhotoImageSrc && (
+                                    <div className="space-y-2">
+                                        <div className="relative w-full h-64 mt-1" style={{ height: '300px' }}>
+                                            <Cropper
+                                                image={familyPhotoImageSrc}
+                                                crop={familyPhotoCrop}
+                                                zoom={familyPhotoZoom}
+                                                aspect={1}
+                                                cropShape="round"
+                                                showGrid={false}
+                                                onCropChange={setFamilyPhotoCrop}
+                                                onZoomChange={setFamilyPhotoZoom}
+                                                onCropComplete={onFamilyPhotoCropComplete}
+                                            />
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">Drag to reframe and use scroll or pinch to zoom before saving.</p>
+                                    </div>
+                                )}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button onClick={uploadFamilyPhoto} disabled={isFamilyPhotoSaving || !familyPhotoImageSrc || !familyPhotoCroppedAreaPixels}>
+                                        {isFamilyPhotoSaving ? 'Saving…' : 'Save Family Photo'}
+                                    </Button>
                                     <Button
                                         variant="outline"
                                         onClick={removeFamilyPhoto}
@@ -1140,8 +1191,8 @@ function FamilyMembersList({
                                 )}
                             </div>
                             <div className="flex justify-end">
-                                <Button onClick={handleUpdateMember} disabled={!editMemberName}>
-                                    Save Member
+                                <Button onClick={handleUpdateMember} disabled={!editMemberName || isMemberSaving}>
+                                    {isMemberSaving ? 'Saving Member…' : 'Save Member'}
                                 </Button>
                             </div>
                         </div>
