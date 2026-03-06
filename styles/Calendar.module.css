@@ -1,13 +1,27 @@
+.calendarScrollContainer {
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    background-color: #fff;
+    padding: 0 0 12px;
+}
+
 .calendarTable {
     width: 100%;
     border-collapse: collapse; /* Ensures there are no gaps between borders */
-    margin: 20px auto;
+    margin: 0 auto;
     /* font-family: 'EB Garamond'; */
     table-layout: fixed; /* Columns of equal width */
 }
 
 .headerCell {
-    background-color: transparent; /* No background color */
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background-color: #fff;
     font-weight: normal;
     font-size: xx-large;
     padding-right: 0.5%; /* Remove default padding */
@@ -16,6 +30,82 @@
     border-right: 0.5px solid black; /* Remove right border */
     border-bottom: 0.5px solid #000; /* 0.5px bottom border */
     text-align: right; /* Right-justify the text */
+}
+
+.stickyMonthBox {
+    position: sticky;
+    left: 0;
+    z-index: 45;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.stickyMonthFrame {
+    position: absolute;
+    left: 0;
+    top: 0;
+    overflow: hidden;
+    border: 0.5px solid #333;
+    background-color: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    transition:
+        width 140ms ease,
+        height 140ms ease;
+}
+
+.stickyMonthText {
+    position: absolute;
+    inset: 0;
+    padding: 4px 8px 6px;
+    font-size: 1.05rem;
+    line-height: 1.25;
+    white-space: nowrap;
+}
+
+.stickyMonthMeasure {
+    position: absolute;
+    visibility: hidden;
+    pointer-events: none;
+    white-space: nowrap;
+    font-size: 1.05rem;
+    line-height: 1.25;
+}
+
+.monthFadeIn {
+    animation: monthFadeIn 260ms ease both;
+}
+
+.monthFadeOut {
+    animation: monthFadeOut 260ms ease both;
+}
+
+.monthStatic {
+    opacity: 1;
+}
+
+@keyframes monthFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes monthFadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+.sentinelRow td {
+    border: none;
+    height: 1px;
+    padding: 0;
 }
 
 .dayCell {
@@ -98,11 +188,13 @@
 }
 
 .dayNumber {
+    position: sticky;
+    top: var(--calendar-day-number-top, 0px);
+    z-index: 12;
+    display: block;
     font-size: 16px;
     color: #333;
     padding-right: 1.5%;
-    /* position: absolute; */ /* Positioning the day number */
-    top: 5px; /* Closer to the top */
     right: 5px; /* Right-justified within the cell */
 }
 
