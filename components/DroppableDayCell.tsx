@@ -50,7 +50,12 @@ export const DroppableDayCell = ({ day, dateStr, className, onClick, children }:
 
     return (
         // CHANGED: Apply conditional class for drag-over state
-        <td ref={cellRef} className={cn(className, isBeingDraggedOver && styles.dragOverCell)} onClick={() => onClick(day)}>
+        <td
+            ref={cellRef}
+            data-calendar-cell-date={dateStr}
+            className={cn(className, isBeingDraggedOver && styles.dragOverCell)}
+            onClick={() => onClick(day)}
+        >
             {/* REMOVED: DropIndicator elements */}
             {/* Render the cell's content */}
             {children}

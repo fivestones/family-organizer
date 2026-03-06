@@ -44,11 +44,20 @@ interface MonthLabel {
     text: string;
 }
 
+interface PendingScrollAdjust {
+    prevScrollTop: number;
+    prevScrollHeight: number;
+    anchorDateStr?: string | null;
+    anchorOffset?: number | null;
+}
+
 const WEEK_STARTS_ON = 0;
 const WEEKS_PER_LOAD = 8;
-const MONTH_MEMORY_CAP = 24;
+const MONTH_MEMORY_CAP = 240;
+const MEMORY_CAP_WEEKS = Math.round((MONTH_MEMORY_CAP * 365.2425) / 12 / 7);
 const MONTH_FADE_MS = 260;
 const EDGE_TRIGGER_PX = 220;
+const EDGE_LOAD_COOLDOWN_MS = 220;
 const MONTH_BOX_HORIZONTAL_PADDING = 16;
 const MONTH_BOX_VERTICAL_PADDING = 10;
 
@@ -90,13 +99,16 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLTableSectionElement>(null);
-    const pendingTopScrollAdjustRef = useRef<{ prevScrollTop: number; prevScrollHeight: number } | null>(null);
+    const pendingTopScrollAdjustRef = useRef<PendingScrollAdjust | null>(null);
     const expandLockRef = useRef(false);
     const monthFadeTimerRef = useRef<number | null>(null);
     const monthLabelRef = useRef<MonthLabel>(activeMonthLabel);
     const scrollRafRef = useRef<number | null>(null);
-    const topLoadArmedRef = useRef(true);
-    const bottomLoadArmedRef = useRef(true);
+    const lastScrollTopRef = useRef<number | null>(null);
+    const lastTopLoadAtRef = useRef(0);
+    const lastBottomLoadAtRef = useRef(0);
+    // const lastTopTriggerScrollTopRef = useRef<number>(Number.POSITIVE_INFINITY);
+    // const lastBottomTriggerScrollTopRef = useRef<number>(Number.NEGATIVE_INFINITY);
     const activeMonthMeasureRef = useRef<HTMLDivElement>(null);
     const previousMonthMeasureRef = useRef<HTMLDivElement>(null);
 
@@ -181,12 +193,12 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         let cappedEnd = end;
 
         if (direction === 'down') {
-            const minimumStart = startOfWeek(addMonths(cappedEnd, -MONTH_MEMORY_CAP), { weekStartsOn: WEEK_STARTS_ON });
+            const minimumStart = startOfWeek(addWeeks(cappedEnd, -MEMORY_CAP_WEEKS), { weekStartsOn: WEEK_STARTS_ON });
             if (cappedStart.getTime() < minimumStart.getTime()) {
                 cappedStart = minimumStart;
             }
         } else {
-            const maximumEnd = endOfWeek(addMonths(cappedStart, MONTH_MEMORY_CAP), { weekStartsOn: WEEK_STARTS_ON });
+            const maximumEnd = endOfWeek(addWeeks(cappedStart, MEMORY_CAP_WEEKS), { weekStartsOn: WEEK_STARTS_ON });
             if (cappedEnd.getTime() > maximumEnd.getTime()) {
                 cappedEnd = maximumEnd;
             }
@@ -198,9 +210,29 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const captureTopScrollAnchor = useCallback(() => {
         const container = scrollContainerRef.current;
         if (!container) return;
+
+        let anchorDateStr: string | null = null;
+        let anchorOffset: number | null = null;
+
+        const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
+        const containerTop = container.getBoundingClientRect().top;
+        const scanLine = containerTop + headerHeight;
+
+        const dayMarkers = Array.from(container.querySelectorAll<HTMLElement>('[data-calendar-cell-date]'));
+        for (const marker of dayMarkers) {
+            const rect = marker.getBoundingClientRect();
+            if (rect.bottom > scanLine) {
+                anchorDateStr = marker.dataset.calendarCellDate ?? null;
+                anchorOffset = rect.top - containerTop;
+                break;
+            }
+        }
+
         pendingTopScrollAdjustRef.current = {
             prevScrollTop: container.scrollTop,
             prevScrollHeight: container.scrollHeight,
+            anchorDateStr,
+            anchorOffset,
         };
     }, []);
 
@@ -315,8 +347,29 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const container = scrollContainerRef.current;
         if (!pendingAdjust || !container) return;
 
-        const deltaHeight = container.scrollHeight - pendingAdjust.prevScrollHeight;
-        container.scrollTop = Math.max(0, pendingAdjust.prevScrollTop + deltaHeight);
+        let adjusted = false;
+
+        // 1. Try to anchor to the exact physical element we tracked
+        if (pendingAdjust.anchorDateStr) {
+            const anchorElement = container.querySelector<HTMLElement>(`[data-calendar-cell-date="${pendingAdjust.anchorDateStr}"]`);
+            if (anchorElement) {
+                const containerTop = container.getBoundingClientRect().top;
+                const currentOffset = anchorElement.getBoundingClientRect().top - containerTop;
+                const shift = currentOffset - pendingAdjust.anchorOffset;
+
+                if (shift !== 0) {
+                    container.scrollTop += shift;
+                    adjusted = true;
+                }
+            }
+        }
+
+        // 2. Fallback to the old logic if the anchor element vanished (unlikely)
+        if (!adjusted && pendingAdjust.prevScrollHeight) {
+            const deltaHeight = container.scrollHeight - pendingAdjust.prevScrollHeight;
+            container.scrollTop = Math.max(0, pendingAdjust.prevScrollTop + deltaHeight);
+        }
+
         pendingTopScrollAdjustRef.current = null;
     }, [rangeStart, rangeEnd]);
 
@@ -376,7 +429,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
         const containerTop = container.getBoundingClientRect().top;
         const scanLine = containerTop + headerHeight + 8;
-        const dayMarkers = Array.from(container.querySelectorAll<HTMLElement>('[data-calendar-date]'));
+        const dayMarkers = Array.from(container.querySelectorAll<HTMLElement>('[data-calendar-cell-date]'));
 
         if (dayMarkers.length === 0) return;
 
@@ -393,7 +446,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             activeMarker = dayMarkers[dayMarkers.length - 1];
         }
 
-        const dateStr = activeMarker.dataset.calendarDate;
+        const dateStr = activeMarker.dataset.calendarCellDate;
         if (!dateStr) return;
 
         const visibleDate = parseISO(dateStr);
@@ -401,6 +454,16 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
         transitionToMonth(buildMonthLabel(visibleDate));
     }, [buildMonthLabel, transitionToMonth]);
+
+    const expandRangeRef = useRef(expandRange);
+    useEffect(() => {
+        expandRangeRef.current = expandRange;
+    }, [expandRange]);
+
+    const updateVisibleMonthFromScrollRef = useRef(updateVisibleMonthFromScroll);
+    useEffect(() => {
+        updateVisibleMonthFromScrollRef.current = updateVisibleMonthFromScroll;
+    }, [updateVisibleMonthFromScroll]);
 
     useEffect(() => {
         const container = scrollContainerRef.current;
@@ -410,45 +473,85 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             if (scrollRafRef.current !== null) return;
             scrollRafRef.current = window.requestAnimationFrame(() => {
                 scrollRafRef.current = null;
-                updateVisibleMonthFromScroll();
+                
+                updateVisibleMonthFromScrollRef.current(); 
+                
                 const activeContainer = scrollContainerRef.current;
                 if (!activeContainer) return;
 
-                const nearTop = activeContainer.scrollTop <= EDGE_TRIGGER_PX;
-                const nearBottom =
-                    activeContainer.scrollHeight - activeContainer.clientHeight - activeContainer.scrollTop <= EDGE_TRIGGER_PX;
+                const now = Date.now();
+                const scrollTop = activeContainer.scrollTop;
+                const previousScrollTop = lastScrollTopRef.current;
+                const scrollDelta = previousScrollTop === null ? 0 : scrollTop - previousScrollTop;
+                lastScrollTopRef.current = scrollTop;
 
-                if (nearTop) {
-                    if (topLoadArmedRef.current) {
-                        topLoadArmedRef.current = false;
-                        expandRange('up');
+                const nearTop = activeContainer.scrollTop <= EDGE_TRIGGER_PX;
+                const nearBottom = activeContainer.scrollHeight - activeContainer.clientHeight - activeContainer.scrollTop <= EDGE_TRIGGER_PX;
+
+                // Simplified Top Trigger
+                if (nearTop && scrollDelta < 0) {
+                    const cooldownElapsed = now - lastTopLoadAtRef.current >= EDGE_LOAD_COOLDOWN_MS;
+                    if (cooldownElapsed) {
+                        lastTopLoadAtRef.current = now;
+                        expandRangeRef.current('up'); 
                     }
-                } else {
-                    topLoadArmedRef.current = true;
                 }
 
-                if (nearBottom) {
-                    if (bottomLoadArmedRef.current) {
-                        bottomLoadArmedRef.current = false;
-                        expandRange('down');
+                // Simplified Bottom Trigger
+                if (nearBottom && scrollDelta > 0) {
+                    const cooldownElapsed = now - lastBottomLoadAtRef.current >= EDGE_LOAD_COOLDOWN_MS;
+                    if (cooldownElapsed) {
+                        lastBottomLoadAtRef.current = now;
+                        expandRangeRef.current('down'); 
                     }
-                } else {
-                    bottomLoadArmedRef.current = true;
                 }
             });
         };
 
-        updateVisibleMonthFromScroll();
+        const onWheel = (event: WheelEvent) => {
+            const activeContainer = scrollContainerRef.current;
+            if (!activeContainer) return;
+
+            const now = Date.now();
+            const nearTop = activeContainer.scrollTop <= EDGE_TRIGGER_PX;
+            const nearBottom = activeContainer.scrollHeight - activeContainer.clientHeight - activeContainer.scrollTop <= EDGE_TRIGGER_PX;
+
+            if (event.deltaY < 0 && nearTop) {
+                const cooldownElapsed = now - lastTopLoadAtRef.current >= EDGE_LOAD_COOLDOWN_MS;
+                if (cooldownElapsed) {
+                    lastTopLoadAtRef.current = now;
+                    expandRangeRef.current('up');
+                }
+            }
+
+            if (event.deltaY > 0 && nearBottom) {
+                const cooldownElapsed = now - lastBottomLoadAtRef.current >= EDGE_LOAD_COOLDOWN_MS;
+                if (cooldownElapsed) {
+                    lastBottomLoadAtRef.current = now;
+                    expandRangeRef.current('down');
+                }
+            }
+        };
+
+        updateVisibleMonthFromScrollRef.current();
+        lastScrollTopRef.current = container.scrollTop;
         container.addEventListener('scroll', onScroll, { passive: true });
+        container.addEventListener('wheel', onWheel, { passive: true });
 
         return () => {
             container.removeEventListener('scroll', onScroll);
+            container.removeEventListener('wheel', onWheel);
             if (scrollRafRef.current !== null) {
                 window.cancelAnimationFrame(scrollRafRef.current);
                 scrollRafRef.current = null;
             }
+            // Do NOT reset lastScrollTopRef.current here anymore
         };
-    }, [expandRange, updateVisibleMonthFromScroll, weeks.length]);
+    }, []); // <-- Empty dependency array!
+
+    useEffect(() => {
+        updateVisibleMonthFromScroll();
+    }, [weeks.length, updateVisibleMonthFromScroll]);
 
     useEffect(() => {
         monthLabelRef.current = activeMonthLabel;
