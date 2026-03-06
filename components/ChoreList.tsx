@@ -1,5 +1,5 @@
 // components/ChoreList.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -34,6 +34,8 @@ function ChoreList({
     showTaskDetails, // View Setting
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
+    const [expandedTaskSeriesByMember, setExpandedTaskSeriesByMember] = useState<Record<string, Record<string, boolean>>>({});
+    const [expandedTaskSeriesInAllView, setExpandedTaskSeriesInAllView] = useState<Record<string, boolean>>({});
 
     // Guardrail State for Task Series
     const [pendingCompletion, setPendingCompletion] = useState<{
@@ -60,6 +62,13 @@ function ChoreList({
 
     // +++ NEW HOOK +++
     const { toast } = useToast();
+
+    useEffect(() => {
+        if (selectedMember === 'All') {
+            // Always start "All family members" view collapsed.
+            setExpandedTaskSeriesInAllView({});
+        }
+    }, [selectedMember]);
 
     /* const toggleChoreDetails = (choreId: string) => {
         setExpandedChores((prev) => ({
@@ -519,6 +528,35 @@ function ChoreList({
 
                                 if (tasks.length === 0 || isUpForGrabsDisabled) return null;
 
+                                const seriesToggleKey = `${chore.id}:${series.id}`;
+                                const hasMoreThanTwoTasks = tasks.length > 2;
+                                const memberKey = selectedMember === 'All' ? 'All' : selectedMember;
+                                const isExpanded = !hasMoreThanTwoTasks
+                                    ? true
+                                    : selectedMember === 'All'
+                                      ? (expandedTaskSeriesInAllView[seriesToggleKey] ?? false)
+                                      : (expandedTaskSeriesByMember[memberKey]?.[seriesToggleKey] ?? true);
+                                const visibleTasks = hasMoreThanTwoTasks && !isExpanded ? tasks.slice(0, 2) : tasks;
+
+                                const handleTaskSeriesVisibilityToggle = () => {
+                                    if (!hasMoreThanTwoTasks) return;
+                                    if (selectedMember === 'All') {
+                                        setExpandedTaskSeriesInAllView((prev) => ({
+                                            ...prev,
+                                            [seriesToggleKey]: !isExpanded,
+                                        }));
+                                        return;
+                                    }
+
+                                    setExpandedTaskSeriesByMember((prev) => ({
+                                        ...prev,
+                                        [memberKey]: {
+                                            ...(prev[memberKey] || {}),
+                                            [seriesToggleKey]: !isExpanded,
+                                        },
+                                    }));
+                                };
+
                                 return (
                                     <div key={series.id} className="border-t pt-2 mt-1 first:border-t-0 first:mt-0">
                                         {/* Header: Only show if we are in 'All' view to distinguish lists */}
@@ -530,13 +568,23 @@ function ChoreList({
                                         )}
 
                                         <TaskSeriesChecklist
-                                            tasks={tasks}
+                                            tasks={visibleTasks}
                                             allTasks={allTasks}
                                             onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks)}
                                             isReadOnly={isPastDate}
                                             selectedMember={selectedMember} // <--- PASS DOWN FOR TOGGLE LOGIC
                                             showDetails={showDetails} // <--- Pass controlled prop (GLOBAL SETTING)
                                         />
+
+                                        {hasMoreThanTwoTasks && (
+                                            <button
+                                                type="button"
+                                                className="mt-1 ml-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                                                onClick={handleTaskSeriesVisibilityToggle}
+                                            >
+                                                {isExpanded ? 'hide tasks' : 'view more'}
+                                            </button>
+                                        )}
                                     </div>
                                 );
                             })}
