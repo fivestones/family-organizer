@@ -265,6 +265,7 @@ function FamilyMembersList({
     const [isEditingAll, setIsEditingAll] = useState(alwaysEditMode);
     const [isFamilyPhotoSaving, setIsFamilyPhotoSaving] = useState(false);
     const [isMemberSaving, setIsMemberSaving] = useState(false);
+    const [isMemberDeleting, setIsMemberDeleting] = useState(false);
     const [familyPhotoImageSrc, setFamilyPhotoImageSrc] = useState<string | null>(null);
     const [familyPhotoCrop, setFamilyPhotoCrop] = useState({ x: 0, y: 0 });
     const [familyPhotoZoom, setFamilyPhotoZoom] = useState(1);
@@ -835,8 +836,25 @@ function FamilyMembersList({
         await cleanupS3Photos(photoKeysToDelete, `${member?.name || 'Member'} was removed, but photo cleanup failed.`);
     };
 
+    const handleDeleteMemberFromDetail = async () => {
+        if (!editingMember || isMemberSaving || isMemberDeleting) return;
+
+        const shouldDelete = window.confirm(
+            `Delete ${editingMember.name}? This will permanently remove this family member and cannot be undone.`
+        );
+        if (!shouldDelete) return;
+
+        setIsMemberDeleting(true);
+        try {
+            await handleDeleteMember(editingMember.id);
+        } finally {
+            setIsMemberDeleting(false);
+        }
+    };
+
     // +++ Helper to detect if the logged-in child is editing themselves +++
     const isChildSelfEdit = currentUser?.role === 'child' && currentUser?.id === editingMember?.id;
+    const canDeleteFromDetail = currentUser?.role === 'parent' && !!editingMember;
 
     const activeMemberId = alwaysEditMode ? (isCreatingMember ? null : isEditingAll ? 'All' : editingMember?.id ?? null) : selectedMember;
 
@@ -1253,8 +1271,19 @@ function FamilyMembersList({
                                     </div>
                                 )}
                             </div>
-                            <div className="flex justify-end">
-                                <Button onClick={handleUpdateMember} disabled={!editMemberName || isMemberSaving}>
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    {canDeleteFromDetail && (
+                                        <Button
+                                            variant="destructive"
+                                            onClick={handleDeleteMemberFromDetail}
+                                            disabled={isMemberSaving || isMemberDeleting}
+                                        >
+                                            {isMemberDeleting ? 'Deleting Member…' : 'Delete Member'}
+                                        </Button>
+                                    )}
+                                </div>
+                                <Button onClick={handleUpdateMember} disabled={!editMemberName || isMemberSaving || isMemberDeleting}>
                                     {isMemberSaving ? 'Saving Member…' : 'Save Member'}
                                 </Button>
                             </div>
