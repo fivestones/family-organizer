@@ -14,6 +14,16 @@ import { UnitDefinition } from '@/lib/currency-utils';
 import Link from 'next/link';
 import { deleteS3Objects, getAvatarVariantUploadUrls, hashPin } from '@/app/actions';
 import { getPhotoKeys, getPhotoUrl, type PhotoUrls } from '@/lib/photo-urls';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 // **** NEW: Import PDND tools ****
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
@@ -266,6 +276,7 @@ function FamilyMembersList({
     const [isFamilyPhotoSaving, setIsFamilyPhotoSaving] = useState(false);
     const [isMemberSaving, setIsMemberSaving] = useState(false);
     const [isMemberDeleting, setIsMemberDeleting] = useState(false);
+    const [isDeleteMemberDialogOpen, setIsDeleteMemberDialogOpen] = useState(false);
     const [familyPhotoImageSrc, setFamilyPhotoImageSrc] = useState<string | null>(null);
     const [familyPhotoCrop, setFamilyPhotoCrop] = useState({ x: 0, y: 0 });
     const [familyPhotoZoom, setFamilyPhotoZoom] = useState(1);
@@ -836,17 +847,17 @@ function FamilyMembersList({
         await cleanupS3Photos(photoKeysToDelete, `${member?.name || 'Member'} was removed, but photo cleanup failed.`);
     };
 
-    const handleDeleteMemberFromDetail = async () => {
+    const handleDeleteMemberFromDetail = () => {
         if (!editingMember || isMemberSaving || isMemberDeleting) return;
+        setIsDeleteMemberDialogOpen(true);
+    };
 
-        const shouldDelete = window.confirm(
-            `Delete ${editingMember.name}? This will permanently remove this family member and cannot be undone.`
-        );
-        if (!shouldDelete) return;
-
+    const confirmDeleteMemberFromDetail = async () => {
+        if (!editingMember || isMemberSaving || isMemberDeleting) return;
         setIsMemberDeleting(true);
         try {
             await handleDeleteMember(editingMember.id);
+            setIsDeleteMemberDialogOpen(false);
         } finally {
             setIsMemberDeleting(false);
         }
@@ -1277,7 +1288,7 @@ function FamilyMembersList({
                                         <Button
                                             variant="destructive"
                                             onClick={handleDeleteMemberFromDetail}
-                                            disabled={isMemberSaving || isMemberDeleting}
+                                            disabled={isMemberSaving || isMemberDeleting || isDeleteMemberDialogOpen}
                                         >
                                             {isMemberDeleting ? 'Deleting Member…' : 'Delete Member'}
                                         </Button>
@@ -1287,6 +1298,26 @@ function FamilyMembersList({
                                     {isMemberSaving ? 'Saving Member…' : 'Save Member'}
                                 </Button>
                             </div>
+                            <AlertDialog open={isDeleteMemberDialogOpen} onOpenChange={setIsDeleteMemberDialogOpen}>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete {editingMember.name}?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            This permanently removes this family member and cannot be undone.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel disabled={isMemberDeleting}>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                            onClick={confirmDeleteMemberFromDetail}
+                                            disabled={isMemberDeleting}
+                                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        >
+                                            {isMemberDeleting ? 'Deleting…' : 'Delete Member'}
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
                         </div>
                     ) : (
                         <div className="h-full min-h-[240px] flex items-center justify-center text-sm text-muted-foreground">
