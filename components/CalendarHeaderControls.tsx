@@ -2,10 +2,12 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Plus, SlidersHorizontal } from 'lucide-react';
+import { Filter, Plus, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { db } from '@/lib/db';
 import {
     CALENDAR_COMMAND_EVENT,
     CALENDAR_DAY_HEIGHT_DEFAULT,
@@ -20,6 +22,12 @@ import {
 } from '@/lib/calendar-controls';
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const normalizeChecked = (value: boolean | 'indeterminate') => value === true;
+
+interface FamilyMember {
+    id: string;
+    name?: string | null;
+}
 
 const dispatchCalendarCommand = (detail: CalendarCommandDetail) => {
     window.dispatchEvent(new CustomEvent<CalendarCommandDetail>(CALENDAR_COMMAND_EVENT, { detail }));
@@ -30,6 +38,22 @@ export default function CalendarHeaderControls() {
     const isCalendarRoute = useMemo(() => pathname?.startsWith('/calendar') ?? false, [pathname]);
     const [dayHeight, setDayHeight] = useState(CALENDAR_DAY_HEIGHT_DEFAULT);
     const [visibleWeeks, setVisibleWeeks] = useState(6);
+    const [everyoneSelected, setEveryoneSelected] = useState(true);
+    const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+
+    const familyMembersQuery = db.useQuery({
+        familyMembers: {
+            $: {
+                order: {
+                    order: 'asc',
+                },
+            },
+        },
+    });
+    const familyMembers = useMemo(() => {
+        return (((familyMembersQuery.data?.familyMembers as FamilyMember[]) || []).filter((member) => Boolean(member?.id)));
+    }, [familyMembersQuery.data?.familyMembers]);
+    const familyMemberIds = useMemo(() => familyMembers.map((member) => member.id), [familyMembers]);
 
     useEffect(() => {
         if (!isCalendarRoute) return;
@@ -51,6 +75,18 @@ export default function CalendarHeaderControls() {
             if (!detail) return;
             setDayHeight(clampNumber(Math.round(detail.dayHeight), CALENDAR_DAY_HEIGHT_MIN, CALENDAR_DAY_HEIGHT_MAX));
             setVisibleWeeks(clampNumber(Math.round(detail.visibleWeeks), CALENDAR_VISIBLE_WEEKS_MIN, CALENDAR_VISIBLE_WEEKS_MAX));
+            if (detail.memberFilter) {
+                setEveryoneSelected(Boolean(detail.memberFilter.everyoneSelected));
+                setSelectedMemberIds(
+                    Array.from(
+                        new Set(
+                            (Array.isArray(detail.memberFilter.selectedMemberIds) ? detail.memberFilter.selectedMemberIds : [])
+                                .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+                                .map((value) => value.trim())
+                        )
+                    )
+                );
+            }
         };
 
         window.addEventListener(CALENDAR_STATE_EVENT, onCalendarState);
@@ -60,6 +96,36 @@ export default function CalendarHeaderControls() {
             window.removeEventListener(CALENDAR_STATE_EVENT, onCalendarState);
         };
     }, [isCalendarRoute]);
+
+    useEffect(() => {
+        if (!isCalendarRoute) return;
+        if (familyMemberIds.length === 0) return;
+
+        setSelectedMemberIds((previousIds) => {
+            const previousSet = new Set(previousIds);
+            const normalizedExisting = familyMemberIds.filter((id) => previousSet.has(id));
+
+            if (normalizedExisting.length > 0 || !everyoneSelected) {
+                return normalizedExisting.length === previousIds.length &&
+                    normalizedExisting.every((id, index) => id === previousIds[index])
+                    ? previousIds
+                    : normalizedExisting;
+            }
+
+            return familyMemberIds;
+        });
+    }, [everyoneSelected, familyMemberIds, isCalendarRoute]);
+
+    const applyMemberFilter = (nextEveryoneSelected: boolean, nextMemberIds: string[]) => {
+        const dedupedMemberIds = Array.from(new Set(nextMemberIds));
+        setEveryoneSelected(nextEveryoneSelected);
+        setSelectedMemberIds(dedupedMemberIds);
+        dispatchCalendarCommand({
+            type: 'setMemberFilter',
+            everyoneSelected: nextEveryoneSelected,
+            selectedMemberIds: dedupedMemberIds,
+        });
+    };
 
     if (!isCalendarRoute) {
         return null;
@@ -125,6 +191,88 @@ export default function CalendarHeaderControls() {
                             />
                             <p className="text-xs text-muted-foreground">Approx. days visible: {visibleWeeks * 7}</p>
                         </div>
+                    </div>
+                </PopoverContent>
+            </Popover>
+
+            <Popover>
+                <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1.5">
+                        <Filter className="h-4 w-4" />
+                        Filter
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80">
+                    <div className="grid gap-4">
+                        <div className="space-y-1">
+                            <h4 className="text-sm font-semibold leading-none">Member Filter</h4>
+                            <p className="text-xs text-muted-foreground">
+                                Turn off Everyone to filter calendar events by selected family members.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                onClick={() => applyMemberFilter(true, familyMemberIds)}
+                            >
+                                Select all
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                onClick={() => applyMemberFilter(false, [])}
+                            >
+                                Select none
+                            </Button>
+                        </div>
+
+                        <label
+                            htmlFor="calendar-filter-everyone"
+                            className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
+                        >
+                            <Checkbox
+                                id="calendar-filter-everyone"
+                                checked={everyoneSelected}
+                                onCheckedChange={(checked) => applyMemberFilter(normalizeChecked(checked), selectedMemberIds)}
+                            />
+                            <span className="text-sm font-medium">Everyone</span>
+                        </label>
+
+                        {familyMembersQuery.isLoading ? (
+                            <p className="text-xs text-muted-foreground">Loading family members...</p>
+                        ) : familyMembersQuery.error ? (
+                            <p className="text-xs text-destructive">Could not load family members.</p>
+                        ) : familyMembers.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">No family members available yet.</p>
+                        ) : (
+                            <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
+                                {familyMembers.map((member) => (
+                                    <label
+                                        key={member.id}
+                                        htmlFor={`calendar-filter-member-${member.id}`}
+                                        className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
+                                    >
+                                        <Checkbox
+                                            id={`calendar-filter-member-${member.id}`}
+                                            checked={selectedMemberIds.includes(member.id)}
+                                            onCheckedChange={(checked) => {
+                                                const next = normalizeChecked(checked)
+                                                    ? [...selectedMemberIds, member.id]
+                                                    : selectedMemberIds.filter((id) => id !== member.id);
+                                                applyMemberFilter(everyoneSelected, next);
+                                            }}
+                                        />
+                                        <span className="text-sm">{member.name || 'Unnamed member'}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </PopoverContent>
             </Popover>

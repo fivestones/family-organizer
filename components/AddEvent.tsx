@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { format, addHours, addDays, parse, parseISO } from 'date-fns';
+import { RecurrenceScopeDialog } from '@/components/RecurrenceScopeDialog';
 import { db } from '@/lib/db';
 
 interface FamilyMember {
@@ -116,6 +117,7 @@ type MonthPatternMode = 'days' | 'week';
 type RepeatEndMode = 'forever' | 'until' | 'count';
 type WeekdayToken = 'SU' | 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'DAY' | 'WEEKDAY' | 'WEEKEND';
 type RecurrenceExceptionMode = 'date' | 'range';
+type RecurrenceEditScope = 'single' | 'following' | 'cancel';
 
 interface RecurrenceExceptionRow {
     rowId: string;
@@ -832,7 +834,7 @@ function normalizeDateOnlyList(values: string[]): string[] {
     ).sort((left, right) => left.localeCompare(right));
 }
 
-function buildExceptionDateList(rows: RecurrenceExceptionRow[]): string[] {
+function buildDateListFromRows(rows: RecurrenceExceptionRow[]): string[] {
     const collected: string[] = [];
 
     for (const row of rows) {
@@ -959,6 +961,159 @@ function buildRecurrenceLines(rrule: string, rdates: string[], exdates: string[]
     return lines;
 }
 
+function parseRecurrenceDateToken(token: string): Date | null {
+    const trimmed = token.trim();
+    if (!trimmed) return null;
+
+    const compactDate = trimmed.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (compactDate) {
+        const [, year, month, day] = compactDate;
+        const parsed = parseISO(`${year}-${month}-${day}`);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const compactUtcDateTime = trimmed.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+    if (compactUtcDateTime) {
+        const [, year, month, day, hours, minutes, seconds] = compactUtcDateTime;
+        const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hours), Number(minutes), Number(seconds)));
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const compactLocalDateTime = trimmed.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/);
+    if (compactLocalDateTime) {
+        const [, year, month, day, hours, minutes, seconds] = compactLocalDateTime;
+        const parsed = new Date(Number(year), Number(month) - 1, Number(day), Number(hours), Number(minutes), Number(seconds));
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const isoParsed = parseISO(trimmed);
+    if (!Number.isNaN(isoParsed.getTime())) {
+        return isoParsed;
+    }
+
+    const nativeParsed = new Date(trimmed);
+    return Number.isNaN(nativeParsed.getTime()) ? null : nativeParsed;
+}
+
+function formatIcsDateTimeUtc(value: Date): string {
+    const year = value.getUTCFullYear();
+    const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(value.getUTCDate()).padStart(2, '0');
+    const hours = String(value.getUTCHours()).padStart(2, '0');
+    const minutes = String(value.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(value.getUTCSeconds()).padStart(2, '0');
+    return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+}
+
+function capRruleBeforeOccurrence(rruleValue: string, occurrenceStart: Date, isAllDay: boolean): string {
+    const normalized = normalizeRrule(rruleValue);
+    if (!normalized) return '';
+
+    const rawParts = normalized
+        .replace(/^RRULE:/i, '')
+        .split(';')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+    if (rawParts.length === 0) return normalized;
+
+    const withoutEndParts = rawParts.filter((entry) => {
+        const upper = entry.toUpperCase();
+        return !upper.startsWith('COUNT=') && !upper.startsWith('UNTIL=');
+    });
+    if (withoutEndParts.length === 0) return normalized;
+
+    const untilDate = isAllDay ? addDays(new Date(occurrenceStart), -1) : new Date(occurrenceStart.getTime() - 1000);
+    const untilToken = isAllDay ? `${format(untilDate, 'yyyyMMdd')}T235959Z` : formatIcsDateTimeUtc(untilDate);
+    return `RRULE:${[...withoutEndParts, `UNTIL=${untilToken}`].join(';')}`;
+}
+
+function normalizeRecurrenceTokens(tokens: string[]): string[] {
+    const deduped = Array.from(new Set(tokens.map((entry) => String(entry || '').trim()).filter(Boolean)));
+    return deduped.sort((left, right) => {
+        const leftDate = parseRecurrenceDateToken(left);
+        const rightDate = parseRecurrenceDateToken(right);
+        if (leftDate && rightDate) {
+            const diff = leftDate.getTime() - rightDate.getTime();
+            if (diff !== 0) return diff;
+        }
+        if (leftDate && !rightDate) return -1;
+        if (!leftDate && rightDate) return 1;
+        return left.localeCompare(right);
+    });
+}
+
+function partitionRecurrenceTokensByBoundary(tokens: string[], boundary: Date, isAllDay: boolean): { before: string[]; onOrAfter: string[] } {
+    const before: string[] = [];
+    const onOrAfter: string[] = [];
+    const boundaryTime = isAllDay ? parseISO(`${format(boundary, 'yyyy-MM-dd')}T00:00:00`).getTime() : boundary.getTime();
+
+    for (const token of normalizeRecurrenceTokens(tokens)) {
+        const parsed = parseRecurrenceDateToken(token);
+        if (!parsed) {
+            before.push(token);
+            continue;
+        }
+        const tokenTime = isAllDay ? parseISO(`${format(parsed, 'yyyy-MM-dd')}T00:00:00`).getTime() : parsed.getTime();
+        if (tokenTime < boundaryTime) {
+            before.push(token);
+        } else {
+            onOrAfter.push(token);
+        }
+    }
+
+    return {
+        before: normalizeRecurrenceTokens(before),
+        onOrAfter: normalizeRecurrenceTokens(onOrAfter),
+    };
+}
+
+function splitRecurrenceRowsAtBoundary(rows: StoredRecurrenceExceptionRow[], boundaryDateOnly: string) {
+    const before: StoredRecurrenceExceptionRow[] = [];
+    const onOrAfter: StoredRecurrenceExceptionRow[] = [];
+
+    for (const row of rows) {
+        if (row.mode === 'date') {
+            if (row.date.localeCompare(boundaryDateOnly) < 0) {
+                before.push(row);
+            } else {
+                onOrAfter.push(row);
+            }
+            continue;
+        }
+
+        const start = row.rangeStart;
+        const end = row.rangeEnd;
+        if (end.localeCompare(boundaryDateOnly) < 0) {
+            before.push(row);
+            continue;
+        }
+        if (start.localeCompare(boundaryDateOnly) >= 0) {
+            onOrAfter.push(row);
+            continue;
+        }
+
+        const boundaryDate = parseISO(`${boundaryDateOnly}T00:00:00`);
+        if (Number.isNaN(boundaryDate.getTime())) continue;
+        const dayBeforeBoundary = format(addDays(boundaryDate, -1), 'yyyy-MM-dd');
+
+        before.push({
+            mode: 'range',
+            date: start,
+            rangeStart: start,
+            rangeEnd: dayBeforeBoundary,
+        });
+        onOrAfter.push({
+            mode: 'range',
+            date: boundaryDateOnly,
+            rangeStart: boundaryDateOnly,
+            rangeEnd: end,
+        });
+    }
+
+    return { before, onOrAfter };
+}
+
 function shouldRetryLegacyCalendarMutation(error: unknown): boolean {
     const message = String((error as any)?.message || '').toLowerCase();
     return message.includes('permission denied') || message.includes('mutation failed') || message.includes('attrs');
@@ -1042,11 +1197,17 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
     const submitLockRef = useRef(false);
     const isMountedRef = useRef(true);
     const recurrenceExceptionIdRef = useRef(1);
+    const recurrenceRdateIdRef = useRef(1);
+    const recurrenceScopeResolverRef = useRef<((scope: RecurrenceEditScope) => void) | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [recurrenceUi, setRecurrenceUi] = useState<RecurrenceUiState>(() => getDefaultRecurrenceUiState(format(new Date(), 'yyyy-MM-dd')));
     const [exceptionsEnabled, setExceptionsEnabled] = useState(false);
     const [recurrenceExceptions, setRecurrenceExceptions] = useState<RecurrenceExceptionRow[]>([]);
+    const [rdatesEnabled, setRdatesEnabled] = useState(false);
+    const [recurrenceRdates, setRecurrenceRdates] = useState<RecurrenceExceptionRow[]>([]);
     const [selectedFamilyMemberIds, setSelectedFamilyMemberIds] = useState<string[]>([]);
+    const [recurrenceScopeDialogOpen, setRecurrenceScopeDialogOpen] = useState(false);
+    const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag'>('edit');
     const memberGridRef = useRef<HTMLDivElement>(null);
     const [memberGridWidth, setMemberGridWidth] = useState(0);
     const familyMembersQuery = db.useQuery({
@@ -1080,7 +1241,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         [formData.startDate, recurrenceUi]
     );
     const expandedExceptionDates = useMemo(
-        () => (exceptionsEnabled ? buildExceptionDateList(recurrenceExceptions) : []),
+        () => (exceptionsEnabled ? buildDateListFromRows(recurrenceExceptions) : []),
         [exceptionsEnabled, recurrenceExceptions]
     );
     const exceptionsSummaryText = useMemo(() => {
@@ -1088,6 +1249,15 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         const count = expandedExceptionDates.length;
         return count === 0 ? 'On' : `${count} excluded date${count === 1 ? '' : 's'}`;
     }, [exceptionsEnabled, expandedExceptionDates.length]);
+    const expandedRdates = useMemo(
+        () => (rdatesEnabled ? buildDateListFromRows(recurrenceRdates) : []),
+        [rdatesEnabled, recurrenceRdates]
+    );
+    const rdatesSummaryText = useMemo(() => {
+        if (!rdatesEnabled) return 'Off';
+        const count = expandedRdates.length;
+        return count === 0 ? 'On' : `${count} extra date${count === 1 ? '' : 's'}`;
+    }, [rdatesEnabled, expandedRdates.length]);
     const repeatEndSummaryText = useMemo(() => {
         if (recurrenceUi.mode === 'never') return 'No end (does not repeat)';
         if (recurrenceUi.repeatEndMode === 'forever') return 'Repeat forever';
@@ -1102,9 +1272,28 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             : `Ends on ${parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
     }, [recurrenceUi]);
 
+    const requestRecurrenceScope = useCallback((action: 'edit' | 'drag') => {
+        return new Promise<RecurrenceEditScope>((resolve) => {
+            recurrenceScopeResolverRef.current = resolve;
+            setRecurrenceScopeDialogAction(action);
+            setRecurrenceScopeDialogOpen(true);
+        });
+    }, []);
+
+    const resolveRecurrenceScope = useCallback((scope: RecurrenceEditScope) => {
+        setRecurrenceScopeDialogOpen(false);
+        const resolver = recurrenceScopeResolverRef.current;
+        recurrenceScopeResolverRef.current = null;
+        resolver?.(scope);
+    }, []);
+
     useEffect(() => {
         return () => {
             isMountedRef.current = false;
+            if (recurrenceScopeResolverRef.current) {
+                recurrenceScopeResolverRef.current('cancel');
+                recurrenceScopeResolverRef.current = null;
+            }
         };
     }, []);
 
@@ -1199,11 +1388,25 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 ...(Array.isArray(selectedEvent.exdates) ? selectedEvent.exdates.map((entry) => String(entry)) : []),
                 ...collectRecurrenceLineTokens(selectedEvent.recurrenceLines, 'EXDATE'),
             ]);
+            const loadedRdateTokens = normalizeDateOnlyList([
+                ...(Array.isArray(selectedEvent.rdates) ? selectedEvent.rdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(selectedEvent.recurrenceLines, 'RDATE'),
+            ]);
             const storedExceptionRows = normalizeStoredRecurrenceExceptionRows((selectedEvent as any)?.xProps?.recurrenceExceptionRows);
             const exceptionRowsToRender =
                 storedExceptionRows.length > 0
                     ? storedExceptionRows
                     : loadedExdateTokens.map((dateOnly) => ({
+                          mode: 'date' as const,
+                          date: dateOnly,
+                          rangeStart: dateOnly,
+                          rangeEnd: dateOnly,
+                      }));
+            const storedRdateRows = normalizeStoredRecurrenceExceptionRows((selectedEvent as any)?.xProps?.recurrenceRdateRows);
+            const rdateRowsToRender =
+                storedRdateRows.length > 0
+                    ? storedRdateRows
+                    : loadedRdateTokens.map((dateOnly) => ({
                           mode: 'date' as const,
                           date: dateOnly,
                           rangeStart: dateOnly,
@@ -1236,10 +1439,21 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             });
             setRecurrenceUi(parseRecurrenceUiStateFromRrule(selectedEvent.rrule || '', startDate));
             recurrenceExceptionIdRef.current = Math.max(recurrenceExceptionIdRef.current, exceptionRowsToRender.length + 1);
+            recurrenceRdateIdRef.current = Math.max(recurrenceRdateIdRef.current, rdateRowsToRender.length + 1);
             setExceptionsEnabled(exceptionRowsToRender.length > 0);
             setRecurrenceExceptions(
                 exceptionRowsToRender.map((row, index) => ({
                     rowId: `recurrence-exception-loaded-${index + 1}`,
+                    mode: row.mode,
+                    date: row.date,
+                    rangeStart: row.rangeStart,
+                    rangeEnd: row.rangeEnd,
+                }))
+            );
+            setRdatesEnabled(rdateRowsToRender.length > 0);
+            setRecurrenceRdates(
+                rdateRowsToRender.map((row, index) => ({
+                    rowId: `recurrence-rdate-loaded-${index + 1}`,
                     mode: row.mode,
                     date: row.date,
                     rangeStart: row.rangeStart,
@@ -1284,8 +1498,11 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             }));
             setRecurrenceUi(getDefaultRecurrenceUiState(formattedDate));
             recurrenceExceptionIdRef.current = 1;
+            recurrenceRdateIdRef.current = 1;
             setExceptionsEnabled(false);
             setRecurrenceExceptions([]);
+            setRdatesEnabled(false);
+            setRecurrenceRdates([]);
             setSelectedFamilyMemberIds([]);
         }
     }, [selectedDate, selectedEvent, defaultStartTime]);
@@ -1363,6 +1580,48 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         [recurrenceExceptions]
     );
 
+    const makeDefaultRdateRow = useCallback((defaultDate: string): RecurrenceExceptionRow => {
+        const normalizedDefault = parseExdateTokenToDateOnly(defaultDate) || format(new Date(), 'yyyy-MM-dd');
+        const nextId = recurrenceRdateIdRef.current++;
+        return {
+            rowId: `recurrence-rdate-${nextId}`,
+            mode: 'date',
+            date: normalizedDefault,
+            rangeStart: normalizedDefault,
+            rangeEnd: normalizedDefault,
+        };
+    }, []);
+
+    const addRdateRow = useCallback(() => {
+        const fallbackDate = formData.startDate || format(new Date(), 'yyyy-MM-dd');
+        setRecurrenceRdates((prev) => [...prev, makeDefaultRdateRow(fallbackDate)]);
+    }, [formData.startDate, makeDefaultRdateRow]);
+
+    const removeRdateRow = useCallback(
+        (rowId: string) => {
+            const hasRemainingRows = recurrenceRdates.some((entry) => entry.rowId !== rowId);
+            setRecurrenceRdates((prev) => prev.filter((entry) => entry.rowId !== rowId));
+            if (!hasRemainingRows) {
+                setRdatesEnabled(false);
+            }
+        },
+        [recurrenceRdates]
+    );
+
+    const toggleRdatesWidget = useCallback(() => {
+        if (rdatesEnabled) {
+            setRdatesEnabled(false);
+            return;
+        }
+
+        setRdatesEnabled(true);
+        setRecurrenceRdates((prev) => {
+            if (prev.length > 0) return prev;
+            const fallbackDate = formData.startDate || format(new Date(), 'yyyy-MM-dd');
+            return [makeDefaultRdateRow(fallbackDate)];
+        });
+    }, [rdatesEnabled, formData.startDate, makeDefaultRdateRow]);
+
     const toggleExceptionsWidget = useCallback(() => {
         if (exceptionsEnabled) {
             setExceptionsEnabled(false);
@@ -1413,7 +1672,8 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         const normalizedRrule = normalizeRrule(
             serializeRecurrenceToRrule(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd'))
         );
-        const rdates = parseCsvList(formData.rdatesCsv);
+        const rdates = recurrenceUi.mode !== 'never' && rdatesEnabled ? expandedRdates : [];
+        const storedRdateRows = recurrenceUi.mode !== 'never' && rdatesEnabled ? serializeRecurrenceExceptionRows(recurrenceRdates) : [];
         const exdates = recurrenceUi.mode !== 'never' && exceptionsEnabled ? expandedExceptionDates : [];
         const storedExceptionRows =
             recurrenceUi.mode !== 'never' && exceptionsEnabled ? serializeRecurrenceExceptionRows(recurrenceExceptions) : [];
@@ -1451,6 +1711,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             month: startDateObj.getMonth() + 1,
             dayOfMonth: startDateObj.getDate(),
         };
+
         const baseXProps =
             selectedEvent?.xProps && typeof selectedEvent.xProps === 'object' && !Array.isArray(selectedEvent.xProps)
                 ? { ...(selectedEvent.xProps as Record<string, unknown>) }
@@ -1459,6 +1720,11 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             baseXProps.recurrenceExceptionRows = storedExceptionRows;
         } else {
             delete baseXProps.recurrenceExceptionRows;
+        }
+        if (storedRdateRows.length > 0) {
+            baseXProps.recurrenceRdateRows = storedRdateRows;
+        } else {
+            delete baseXProps.recurrenceRdateRows;
         }
 
         const extendedEventPatch = {
@@ -1491,35 +1757,303 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             ...extendedEventPatch,
         };
 
-        const previousMemberIds = new Set((selectedEvent?.pertainsTo || []).map((member) => member.id));
-        const nextMemberIds = new Set(selectedFamilyMemberIds);
-        const buildTxOps = (payload: Record<string, any>) => {
-            const txOps: any[] = [tx.calendarItems[eventId].update(payload)];
+        const masterEvent = (((selectedEvent as any)?.__masterEvent as CalendarItem | undefined) || selectedEvent) ?? null;
+        const masterRrule = normalizeRrule(String(masterEvent?.rrule || ''));
+        const isOverrideEdit = Boolean(
+            selectedEvent &&
+                !normalizeRrule(String(selectedEvent.rrule || '')) &&
+                String(selectedEvent.recurringEventId || '').trim()
+        );
+        const isRecurringSeriesEdit = Boolean(formData.id && selectedEvent && masterEvent && masterRrule && !isOverrideEdit);
+        const recurrenceReferenceTokenRaw =
+            String((selectedEvent as any)?.recurrenceId || '').trim() || String(selectedEvent?.startDate || '').trim();
+        const recurrenceReferenceDate = parseRecurrenceDateToken(recurrenceReferenceTokenRaw);
+        const recurrenceBoundaryDateOnly = recurrenceReferenceDate ? format(recurrenceReferenceDate, 'yyyy-MM-dd') : '';
 
-            for (const memberId of Array.from(previousMemberIds)) {
-                if (!nextMemberIds.has(memberId)) {
-                    txOps.push(tx.calendarItems[eventId].unlink({ pertainsTo: memberId }));
+        let recurrenceScope: RecurrenceEditScope = 'following';
+        if (isRecurringSeriesEdit) {
+            recurrenceScope = await requestRecurrenceScope('edit');
+            if (recurrenceScope === 'cancel') {
+                abortSubmit();
+                return;
+            }
+        }
+
+        const rollbackOptimisticHandlers: Array<() => void> = [];
+        const registerOptimistic = (item: CalendarItem) => {
+            const rollback = onOptimisticUpsert?.(item);
+            if (typeof rollback === 'function') {
+                rollbackOptimisticHandlers.push(rollback);
+            }
+        };
+        const rollbackAllOptimistic = () => {
+            while (rollbackOptimisticHandlers.length > 0) {
+                const rollback = rollbackOptimisticHandlers.pop();
+                try {
+                    rollback?.();
+                } catch (error) {
+                    console.error('Unable to rollback optimistic calendar save:', error);
                 }
             }
-
-            for (const memberId of Array.from(nextMemberIds)) {
-                if (!previousMemberIds.has(memberId)) {
-                    txOps.push(tx.calendarItems[eventId].link({ pertainsTo: memberId }));
-                }
-            }
-
-            return txOps;
         };
 
+        const nextMemberIds = new Set(selectedFamilyMemberIds);
         const optimisticPertainsTo = Array.from(nextMemberIds).map((memberId) => ({
             id: memberId,
             name: selectedFamilyMembersById.get(memberId)?.name || null,
         }));
-        const rollbackOptimistic = onOptimisticUpsert?.({
+
+        const buildMemberDiffTxOps = (targetEventId: string, previousMemberIds: Set<string>, nextIds: Set<string>) => {
+            const txOps: any[] = [];
+            for (const memberId of Array.from(previousMemberIds)) {
+                if (!nextIds.has(memberId)) {
+                    txOps.push(tx.calendarItems[targetEventId].unlink({ pertainsTo: memberId }));
+                }
+            }
+            for (const memberId of Array.from(nextIds)) {
+                if (!previousMemberIds.has(memberId)) {
+                    txOps.push(tx.calendarItems[targetEventId].link({ pertainsTo: memberId }));
+                }
+            }
+            return txOps;
+        };
+
+        if (isRecurringSeriesEdit && recurrenceScope === 'single') {
+            if (!masterEvent || !recurrenceReferenceDate) {
+                abortSubmit();
+                window.alert('Unable to identify this occurrence in the recurrence. Please try again.');
+                return;
+            }
+
+            const masterExdateTokens = normalizeRecurrenceTokens([
+                ...(Array.isArray(masterEvent.exdates) ? masterEvent.exdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(masterEvent.recurrenceLines, 'EXDATE'),
+            ]);
+            const masterRdateTokens = normalizeRecurrenceTokens([
+                ...(Array.isArray(masterEvent.rdates) ? masterEvent.rdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(masterEvent.recurrenceLines, 'RDATE'),
+            ]);
+            const referenceToken = masterEvent.isAllDay ? format(recurrenceReferenceDate, 'yyyy-MM-dd') : recurrenceReferenceDate.toISOString();
+            const nextMasterExdates = normalizeRecurrenceTokens([...masterExdateTokens, referenceToken]);
+            const masterSequenceBase = typeof masterEvent.sequence === 'number' ? masterEvent.sequence : 0;
+            const masterXProps =
+                masterEvent.xProps && typeof masterEvent.xProps === 'object' && !Array.isArray(masterEvent.xProps)
+                    ? { ...(masterEvent.xProps as Record<string, unknown>) }
+                    : {};
+            const existingMasterExceptionRows = normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceExceptionRows);
+            const referenceDateOnly = format(recurrenceReferenceDate, 'yyyy-MM-dd');
+            if (
+                existingMasterExceptionRows.length > 0 &&
+                !existingMasterExceptionRows.some((row) =>
+                    row.mode === 'date'
+                        ? row.date === referenceDateOnly
+                        : row.rangeStart.localeCompare(referenceDateOnly) <= 0 && row.rangeEnd.localeCompare(referenceDateOnly) >= 0
+                )
+            ) {
+                existingMasterExceptionRows.push({
+                    mode: 'date',
+                    date: referenceDateOnly,
+                    rangeStart: referenceDateOnly,
+                    rangeEnd: referenceDateOnly,
+                });
+                masterXProps.recurrenceExceptionRows = existingMasterExceptionRows;
+            }
+
+            const masterPatch = {
+                exdates: nextMasterExdates,
+                recurrenceLines: buildRecurrenceLines(masterRrule, masterRdateTokens, nextMasterExdates),
+                updatedAt: nowIso,
+                dtStamp: nowIso,
+                lastModified: nowIso,
+                sequence: masterSequenceBase + 1,
+                xProps: masterXProps,
+            };
+
+            const overrideId = id();
+            const overrideXProps = {
+                ...(baseXProps || {}),
+            } as Record<string, unknown>;
+            delete overrideXProps.recurrenceExceptionRows;
+            delete overrideXProps.recurrenceRdateRows;
+            const overridePatch = {
+                ...extendedEventPatch,
+                uid: `${String(masterEvent.uid || masterEvent.id)}-${referenceToken}`,
+                sequence: 0,
+                createdAt: nowIso,
+                updatedAt: nowIso,
+                dtStamp: nowIso,
+                lastModified: nowIso,
+                rrule: '',
+                rdates: [],
+                exdates: [],
+                recurrenceLines: [],
+                recurrenceId: referenceToken,
+                recurringEventId: String(masterEvent.id),
+                recurrenceIdRange: '',
+                xProps: overrideXProps,
+            };
+            const overrideData = {
+                ...legacyEventData,
+                ...overridePatch,
+            };
+
+            registerOptimistic({
+                ...masterEvent,
+                ...masterPatch,
+                id: masterEvent.id,
+            } as CalendarItem);
+            registerOptimistic({
+                ...eventData,
+                ...overrideData,
+                id: overrideId,
+                pertainsTo: optimisticPertainsTo,
+            } as CalendarItem);
+            onClose();
+
+            const txOps: any[] = [tx.calendarItems[masterEvent.id].update(masterPatch), tx.calendarItems[overrideId].update(overrideData)];
+            for (const memberId of Array.from(nextMemberIds)) {
+                txOps.push(tx.calendarItems[overrideId].link({ pertainsTo: memberId }));
+            }
+
+            try {
+                await db.transact(txOps);
+            } catch (error) {
+                rollbackAllOptimistic();
+                console.error('Unable to save single recurring exception:', error);
+                window.alert('Unable to save event. Please try again.');
+                abortSubmit();
+                return;
+            }
+
+            submitLockRef.current = false;
+            return;
+        }
+
+        if (isRecurringSeriesEdit && recurrenceScope === 'following' && masterEvent && recurrenceReferenceDate) {
+            const masterStartDate = parseRecurrenceDateToken(masterEvent.startDate);
+            const boundaryTime = masterEvent.isAllDay
+                ? parseISO(`${format(recurrenceReferenceDate, 'yyyy-MM-dd')}T00:00:00`).getTime()
+                : recurrenceReferenceDate.getTime();
+            const masterStartTime = masterStartDate
+                ? masterEvent.isAllDay
+                    ? parseISO(`${format(masterStartDate, 'yyyy-MM-dd')}T00:00:00`).getTime()
+                    : masterStartDate.getTime()
+                : Number.NaN;
+            const splittingAfterStart = Number.isFinite(masterStartTime) && boundaryTime > masterStartTime;
+
+            if (splittingAfterStart) {
+                const partitionedExdates = partitionRecurrenceTokensByBoundary(exdates, recurrenceReferenceDate, masterEvent.isAllDay);
+                const partitionedRdates = partitionRecurrenceTokensByBoundary(rdates, recurrenceReferenceDate, masterEvent.isAllDay);
+                const splitExceptionRows = splitRecurrenceRowsAtBoundary(storedExceptionRows, recurrenceBoundaryDateOnly);
+                const splitRdateRows = splitRecurrenceRowsAtBoundary(storedRdateRows, recurrenceBoundaryDateOnly);
+                const cappedMasterRrule = capRruleBeforeOccurrence(masterRrule, recurrenceReferenceDate, masterEvent.isAllDay);
+                const masterSequenceBase = typeof masterEvent.sequence === 'number' ? masterEvent.sequence : 0;
+                const masterXProps =
+                    masterEvent.xProps && typeof masterEvent.xProps === 'object' && !Array.isArray(masterEvent.xProps)
+                        ? { ...(masterEvent.xProps as Record<string, unknown>) }
+                        : {};
+                const oldSeriesXProps = { ...masterXProps };
+                const newSeriesXProps = { ...masterXProps };
+                if (splitExceptionRows.before.length > 0) {
+                    oldSeriesXProps.recurrenceExceptionRows = splitExceptionRows.before;
+                } else {
+                    delete oldSeriesXProps.recurrenceExceptionRows;
+                }
+                if (splitExceptionRows.onOrAfter.length > 0) {
+                    newSeriesXProps.recurrenceExceptionRows = splitExceptionRows.onOrAfter;
+                } else {
+                    delete newSeriesXProps.recurrenceExceptionRows;
+                }
+                if (splitRdateRows.before.length > 0) {
+                    oldSeriesXProps.recurrenceRdateRows = splitRdateRows.before;
+                } else {
+                    delete oldSeriesXProps.recurrenceRdateRows;
+                }
+                if (splitRdateRows.onOrAfter.length > 0) {
+                    newSeriesXProps.recurrenceRdateRows = splitRdateRows.onOrAfter;
+                } else {
+                    delete newSeriesXProps.recurrenceRdateRows;
+                }
+
+                const oldSeriesPatch = {
+                    rrule: cappedMasterRrule,
+                    rdates: partitionedRdates.before,
+                    exdates: partitionedExdates.before,
+                    recurrenceLines: buildRecurrenceLines(cappedMasterRrule, partitionedRdates.before, partitionedExdates.before),
+                    updatedAt: nowIso,
+                    dtStamp: nowIso,
+                    lastModified: nowIso,
+                    sequence: masterSequenceBase + 1,
+                    xProps: oldSeriesXProps,
+                };
+
+                const newSeriesId = id();
+                const newSeriesPatch = {
+                    ...extendedEventPatch,
+                    uid: `${String(masterEvent.uid || masterEvent.id)}-split-${newSeriesId}`,
+                    sequence: 0,
+                    createdAt: nowIso,
+                    updatedAt: nowIso,
+                    dtStamp: nowIso,
+                    lastModified: nowIso,
+                    rrule: normalizedRrule,
+                    rdates: partitionedRdates.onOrAfter,
+                    exdates: partitionedExdates.onOrAfter,
+                    recurrenceLines: buildRecurrenceLines(normalizedRrule, partitionedRdates.onOrAfter, partitionedExdates.onOrAfter),
+                    recurrenceId: '',
+                    recurringEventId: '',
+                    recurrenceIdRange: '',
+                    xProps: newSeriesXProps,
+                };
+                const newSeriesData = {
+                    ...legacyEventData,
+                    ...newSeriesPatch,
+                };
+
+                registerOptimistic({
+                    ...masterEvent,
+                    ...oldSeriesPatch,
+                    id: masterEvent.id,
+                } as CalendarItem);
+                registerOptimistic({
+                    ...eventData,
+                    ...newSeriesData,
+                    id: newSeriesId,
+                    pertainsTo: optimisticPertainsTo,
+                } as CalendarItem);
+                onClose();
+
+                const txOps: any[] = [tx.calendarItems[masterEvent.id].update(oldSeriesPatch), tx.calendarItems[newSeriesId].update(newSeriesData)];
+                for (const memberId of Array.from(nextMemberIds)) {
+                    txOps.push(tx.calendarItems[newSeriesId].link({ pertainsTo: memberId }));
+                }
+
+                try {
+                    await db.transact(txOps);
+                } catch (error) {
+                    rollbackAllOptimistic();
+                    console.error('Unable to split recurring event series:', error);
+                    window.alert('Unable to save event. Please try again.');
+                    abortSubmit();
+                    return;
+                }
+
+                submitLockRef.current = false;
+                return;
+            }
+        }
+
+        const previousMemberIds = new Set((selectedEvent?.pertainsTo || []).map((member) => member.id));
+        const buildTxOps = (payload: Record<string, any>) => {
+            const txOps: any[] = [tx.calendarItems[eventId].update(payload)];
+            return [...txOps, ...buildMemberDiffTxOps(eventId, previousMemberIds, nextMemberIds)];
+        };
+
+        registerOptimistic({
             id: eventId,
             ...eventData,
             pertainsTo: optimisticPertainsTo,
-        });
+        } as CalendarItem);
         onClose();
 
         try {
@@ -1530,7 +2064,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 }
             });
         } catch (error) {
-            if (typeof rollbackOptimistic === 'function') rollbackOptimistic();
+            rollbackAllOptimistic();
             console.error('Unable to save event:', error);
             window.alert('Unable to save event. Please try again.');
             abortSubmit();
@@ -1541,6 +2075,11 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
+            <RecurrenceScopeDialog
+                open={recurrenceScopeDialogOpen}
+                action={recurrenceScopeDialogAction}
+                onSelect={resolveRecurrenceScope}
+            />
             <div>
                 <Label htmlFor="title">Title</Label>
                 <Input ref={titleInputRef} type="text" id="title" name="title" value={formData.title} onChange={handleChange} required />
@@ -1935,12 +2474,112 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                     </div>
                 ) : null}
                 <input type="hidden" name="rrule" value={serializeRecurrenceToRrule(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd'))} />
-                <input type="hidden" name="rdatesCsv" value={formData.rdatesCsv} />
+                <input type="hidden" name="rdatesCsv" value={recurrenceUi.mode !== 'never' && rdatesEnabled ? expandedRdates.join(', ') : ''} />
                 <input type="hidden" name="exdatesCsv" value={recurrenceUi.mode !== 'never' && exceptionsEnabled ? expandedExceptionDates.join(', ') : ''} />
                 <input type="hidden" name="recurrenceId" value={formData.recurrenceId} />
                 <input type="hidden" name="recurringEventId" value={formData.recurringEventId} />
                 <input type="hidden" name="recurrenceIdRange" value={formData.recurrenceIdRange} />
             </div>
+            {recurrenceUi.mode !== 'never' ? (
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                    <button type="button" onClick={toggleRdatesWidget} className="flex w-full items-center justify-between gap-3 text-left">
+                        <span className="text-sm font-medium text-slate-900">One-off Days</span>
+                        <span className="text-xs text-muted-foreground">{rdatesSummaryText}</span>
+                    </button>
+                    {rdatesEnabled ? (
+                        <div className="space-y-3">
+                            {recurrenceRdates.map((oneOff, index) => (
+                                <div key={oneOff.rowId} className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <Label htmlFor={`rdate-mode-${oneOff.rowId}`}>One-off {index + 1}</Label>
+                                        <Button type="button" size="sm" variant="outline" onClick={() => removeRdateRow(oneOff.rowId)}>
+                                            Remove
+                                        </Button>
+                                    </div>
+                                    <div>
+                                        <Label htmlFor={`rdate-mode-${oneOff.rowId}`}>Type</Label>
+                                        <select
+                                            id={`rdate-mode-${oneOff.rowId}`}
+                                            value={oneOff.mode}
+                                            onChange={(event) =>
+                                                setRecurrenceRdates((prev) =>
+                                                    prev.map((entry) =>
+                                                        entry.rowId === oneOff.rowId
+                                                            ? {
+                                                                  ...entry,
+                                                                  mode: event.target.value as RecurrenceExceptionMode,
+                                                              }
+                                                            : entry
+                                                    )
+                                                )
+                                            }
+                                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        >
+                                            <option value="date">Single date</option>
+                                            <option value="range">Date range</option>
+                                        </select>
+                                    </div>
+                                    {oneOff.mode === 'date' ? (
+                                        <div>
+                                            <Label htmlFor={`rdate-date-${oneOff.rowId}`}>One-off Date</Label>
+                                            <Input
+                                                id={`rdate-date-${oneOff.rowId}`}
+                                                type="date"
+                                                value={oneOff.date}
+                                                onChange={(event) =>
+                                                    setRecurrenceRdates((prev) =>
+                                                        prev.map((entry) =>
+                                                            entry.rowId === oneOff.rowId
+                                                                ? { ...entry, date: event.target.value, rangeStart: event.target.value, rangeEnd: event.target.value }
+                                                                : entry
+                                                        )
+                                                    )
+                                                }
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <div>
+                                                <Label htmlFor={`rdate-range-start-${oneOff.rowId}`}>Range Start</Label>
+                                                <Input
+                                                    id={`rdate-range-start-${oneOff.rowId}`}
+                                                    type="date"
+                                                    value={oneOff.rangeStart}
+                                                    onChange={(event) =>
+                                                        setRecurrenceRdates((prev) =>
+                                                            prev.map((entry) =>
+                                                                entry.rowId === oneOff.rowId ? { ...entry, rangeStart: event.target.value } : entry
+                                                            )
+                                                        )
+                                                    }
+                                                />
+                                            </div>
+                                            <div>
+                                                <Label htmlFor={`rdate-range-end-${oneOff.rowId}`}>Range End</Label>
+                                                <Input
+                                                    id={`rdate-range-end-${oneOff.rowId}`}
+                                                    type="date"
+                                                    value={oneOff.rangeEnd}
+                                                    onChange={(event) =>
+                                                        setRecurrenceRdates((prev) =>
+                                                            prev.map((entry) =>
+                                                                entry.rowId === oneOff.rowId ? { ...entry, rangeEnd: event.target.value } : entry
+                                                            )
+                                                        )
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                            <Button type="button" variant="outline" onClick={addRdateRow}>
+                                Add another one-off day
+                            </Button>
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
             {recurrenceUi.mode !== 'never' ? (
                 <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                     <button type="button" onClick={toggleExceptionsWidget} className="flex w-full items-center justify-between gap-3 text-left">

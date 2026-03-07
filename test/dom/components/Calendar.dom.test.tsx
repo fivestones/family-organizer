@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CALENDAR_COMMAND_EVENT } from '@/lib/calendar-controls';
 
 const mocks = vi.hoisted(() => ({
     dbUseQuery: vi.fn(),
@@ -80,6 +81,23 @@ vi.mock('@/components/AddEvent', () => ({
     ),
 }));
 
+vi.mock('@/components/RecurrenceScopeDialog', () => ({
+    RecurrenceScopeDialog: ({ open, onSelect }: any) =>
+        open ? (
+            <div data-testid="recurrence-scope-dialog">
+                <button type="button" onClick={() => onSelect('single')}>
+                    Only this event
+                </button>
+                <button type="button" onClick={() => onSelect('following')}>
+                    This and following events
+                </button>
+                <button type="button" onClick={() => onSelect('cancel')}>
+                    Cancel
+                </button>
+            </div>
+        ) : null,
+}));
+
 vi.mock('@/components/ui/dialog', () => ({
     Dialog: ({ open, children }: any) => (open ? <div data-testid="dialog-root">{children}</div> : null),
     DialogContent: ({ children }: any) => <div>{children}</div>,
@@ -87,6 +105,7 @@ vi.mock('@/components/ui/dialog', () => ({
 }));
 
 vi.mock('@instantdb/react', () => ({
+    id: () => 'evt-generated',
     tx: {
         calendarItems: new Proxy(
             {},
@@ -123,6 +142,7 @@ function renderCalendarWithItems(items: any[], props?: Partial<React.ComponentPr
 
 describe('Calendar', () => {
     beforeEach(() => {
+        vi.restoreAllMocks();
         mocks.dbUseQuery.mockReset();
         mocks.dbTransact.mockReset();
         mocks.monitorForElements.mockReset();
@@ -319,7 +339,7 @@ describe('Calendar', () => {
         expect(within(screen.getByTestId('day-cell-2026-03-24')).getByRole('button', { name: 'Weekly Class' })).toBeInTheDocument();
     });
 
-    it('after dragging a recurring master to another weekday, keeps start day and RRULE weekdays visible', () => {
+    it('after dragging a recurring master to another weekday, keeps start day and RRULE weekdays visible', async () => {
         renderCalendarWithItems([
             {
                 id: 'evt-1',
@@ -353,9 +373,169 @@ describe('Calendar', () => {
                 },
             });
         });
+        fireEvent.click(screen.getByRole('button', { name: 'This and following events' }));
 
-        expect(within(screen.getByTestId('day-cell-2026-03-19')).getByRole('button', { name: 'Soccer' })).toBeInTheDocument();
-        expect(within(screen.getByTestId('day-cell-2026-03-24')).getByRole('button', { name: 'Soccer' })).toBeInTheDocument();
+        await waitFor(() => {
+            expect(within(screen.getByTestId('day-cell-2026-03-19')).getByRole('button', { name: 'Soccer' })).toBeInTheDocument();
+            expect(within(screen.getByTestId('day-cell-2026-03-24')).getByRole('button', { name: 'Soccer' })).toBeInTheDocument();
+        });
+    });
+
+    it('can drag one recurring occurrence as a single override when choosing single scope', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-master',
+                title: 'Soccer',
+                startDate: '2026-03-17',
+                endDate: '2026-03-18',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+            },
+        ]);
+
+        act(() => {
+            mocks.monitorConfig.onDrop({
+                source: {
+                    data: {
+                        type: 'calendar-event',
+                        event: {
+                            id: 'evt-master',
+                            title: 'Soccer',
+                            startDate: '2026-03-24',
+                            endDate: '2026-03-25',
+                            isAllDay: true,
+                            rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                            recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+                            __isRecurrenceInstance: true,
+                            __masterEvent: {
+                                id: 'evt-master',
+                                title: 'Soccer',
+                                startDate: '2026-03-17',
+                                endDate: '2026-03-18',
+                                isAllDay: true,
+                                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+                            },
+                        },
+                    },
+                },
+                location: {
+                    current: {
+                        dropTargets: [{ data: { type: 'calendar-day', dateStr: '2026-03-26' } }],
+                    },
+                },
+            });
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Only this event' }));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-master',
+                    op: 'update',
+                    payload: expect.objectContaining({
+                        exdates: expect.arrayContaining(['2026-03-24']),
+                    }),
+                }),
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-generated',
+                    op: 'update',
+                    payload: expect.objectContaining({
+                        recurringEventId: 'evt-master',
+                        recurrenceId: '2026-03-24',
+                        startDate: '2026-03-26',
+                    }),
+                }),
+            ])
+        );
+    });
+
+    it('filters calendar events by selected family members when Everyone is off', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-everyone',
+                title: 'All Hands',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+            },
+            {
+                id: 'evt-alex',
+                title: 'Alex Event',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                pertainsTo: [{ id: 'member-alex', name: 'Alex' }],
+            },
+            {
+                id: 'evt-sam',
+                title: 'Sam Event',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                pertainsTo: [{ id: 'member-sam', name: 'Sam' }],
+            },
+        ]);
+
+        const dayCell = screen.getByTestId('day-cell-2026-03-15');
+        expect(within(dayCell).getByRole('button', { name: 'All Hands' })).toBeInTheDocument();
+        expect(within(dayCell).getByRole('button', { name: 'Alex Event' })).toBeInTheDocument();
+        expect(within(dayCell).getByRole('button', { name: 'Sam Event' })).toBeInTheDocument();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: {
+                        type: 'setMemberFilter',
+                        everyoneSelected: false,
+                        selectedMemberIds: ['member-sam'],
+                    },
+                })
+            );
+        });
+
+        expect(within(dayCell).getByRole('button', { name: 'All Hands' })).toBeInTheDocument();
+        expect(within(dayCell).queryByRole('button', { name: 'Alex Event' })).toBeNull();
+        expect(within(dayCell).getByRole('button', { name: 'Sam Event' })).toBeInTheDocument();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: {
+                        type: 'setMemberFilter',
+                        everyoneSelected: false,
+                        selectedMemberIds: [],
+                    },
+                })
+            );
+        });
+
+        expect(within(dayCell).queryByRole('button', { name: 'All Hands' })).toBeNull();
+        expect(within(dayCell).queryByRole('button', { name: 'Alex Event' })).toBeNull();
+        expect(within(dayCell).queryByRole('button', { name: 'Sam Event' })).toBeNull();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: {
+                        type: 'setMemberFilter',
+                        everyoneSelected: true,
+                        selectedMemberIds: [],
+                    },
+                })
+            );
+        });
+
+        expect(within(dayCell).getByRole('button', { name: 'All Hands' })).toBeInTheDocument();
+        expect(within(dayCell).getByRole('button', { name: 'Alex Event' })).toBeInTheDocument();
+        expect(within(dayCell).getByRole('button', { name: 'Sam Event' })).toBeInTheDocument();
     });
 
     it('includes recurring masters in the Instant query filter', () => {

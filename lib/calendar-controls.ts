@@ -11,6 +11,7 @@ export const CALENDAR_STATE_EVENT = 'calendar:state';
 export type CalendarCommandDetail =
     | { type: 'setDayHeight'; dayHeight: number }
     | { type: 'setVisibleWeeks'; visibleWeeks: number }
+    | { type: 'setMemberFilter'; everyoneSelected: boolean; selectedMemberIds: string[] }
     | { type: 'scrollToday' }
     | { type: 'quickAdd' }
     | { type: 'requestState' };
@@ -18,4 +19,8 @@ export type CalendarCommandDetail =
 export interface CalendarStateDetail {
     dayHeight: number;
     visibleWeeks: number;
+    memberFilter?: {
+        everyoneSelected: boolean;
+        selectedMemberIds: string[];
+    };
 }

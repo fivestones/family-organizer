@@ -16,7 +16,7 @@ import {
     startOfMonth,
     startOfWeek,
 } from 'date-fns';
-import { tx } from '@instantdb/react';
+import { id, tx } from '@instantdb/react';
 import NepaliDate from 'nepali-date-converter';
 import { RRule } from 'rrule';
 import AddEventForm from './AddEvent';
@@ -26,6 +26,7 @@ import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/ad
 import { DroppableDayCell } from './DroppableDayCell'; // Import new component
 // Import the component and the interface
 import { DraggableCalendarEvent, CalendarItem } from './DraggableCalendarEvent';
+import { RecurrenceScopeDialog } from './RecurrenceScopeDialog';
 import { db } from '@/lib/db';
 import {
     CALENDAR_COMMAND_EVENT,
@@ -189,6 +190,205 @@ const collectRecurrenceLineTokens = (lines: unknown, prefix: 'RDATE' | 'EXDATE')
     return tokens;
 };
 
+type RecurrenceEditScope = 'single' | 'following' | 'cancel';
+type RecurrenceExceptionMode = 'date' | 'range';
+
+interface StoredRecurrenceExceptionRow {
+    mode: RecurrenceExceptionMode;
+    date: string;
+    rangeStart: string;
+    rangeEnd: string;
+}
+
+const parseDateOnlyToken = (token: string): string | null => {
+    const trimmed = token.trim();
+    if (!trimmed) return null;
+
+    const hyphenDateMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (hyphenDateMatch) {
+        const parsed = parseISO(`${hyphenDateMatch[1]}T00:00:00`);
+        return Number.isNaN(parsed.getTime()) ? null : hyphenDateMatch[1];
+    }
+
+    const compactDateMatch = trimmed.match(/^(\d{4})(\d{2})(\d{2})/);
+    if (compactDateMatch) {
+        const normalized = `${compactDateMatch[1]}-${compactDateMatch[2]}-${compactDateMatch[3]}`;
+        const parsed = parseISO(`${normalized}T00:00:00`);
+        return Number.isNaN(parsed.getTime()) ? null : normalized;
+    }
+
+    const parsed = parseISO(trimmed);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return format(parsed, 'yyyy-MM-dd');
+};
+
+const formatIcsDateTimeUtc = (value: Date) => {
+    const year = value.getUTCFullYear();
+    const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(value.getUTCDate()).padStart(2, '0');
+    const hours = String(value.getUTCHours()).padStart(2, '0');
+    const minutes = String(value.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(value.getUTCSeconds()).padStart(2, '0');
+    return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+};
+
+const capRruleBeforeOccurrence = (rruleValue: string, occurrenceStart: Date, isAllDay: boolean) => {
+    const normalized = normalizeRruleString(rruleValue);
+    if (!normalized) return '';
+
+    const rawParts = normalized
+        .replace(/^RRULE:/i, '')
+        .split(';')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+    if (rawParts.length === 0) return normalized;
+
+    const withoutEndParts = rawParts.filter((entry) => {
+        const upper = entry.toUpperCase();
+        return !upper.startsWith('COUNT=') && !upper.startsWith('UNTIL=');
+    });
+
+    if (withoutEndParts.length === 0) return normalized;
+
+    const untilDate = isAllDay ? addDays(new Date(occurrenceStart), -1) : new Date(occurrenceStart.getTime() - 1000);
+    const untilToken = isAllDay
+        ? `${format(untilDate, 'yyyyMMdd')}T235959Z`
+        : formatIcsDateTimeUtc(untilDate);
+
+    return `RRULE:${[...withoutEndParts, `UNTIL=${untilToken}`].join(';')}`;
+};
+
+const normalizeRecurrenceTokens = (tokens: string[]) => {
+    const deduped = Array.from(new Set(tokens.map((entry) => String(entry || '').trim()).filter(Boolean)));
+    return deduped.sort((left, right) => {
+        const leftDate = parseRecurrenceDateToken(left);
+        const rightDate = parseRecurrenceDateToken(right);
+        if (leftDate && rightDate) {
+            const diff = leftDate.getTime() - rightDate.getTime();
+            if (diff !== 0) return diff;
+        }
+        if (leftDate && !rightDate) return -1;
+        if (!leftDate && rightDate) return 1;
+        return left.localeCompare(right);
+    });
+};
+
+const partitionRecurrenceTokensByBoundary = (tokens: string[], boundary: Date, isAllDay: boolean) => {
+    const before: string[] = [];
+    const onOrAfter: string[] = [];
+    const boundaryTime = isAllDay ? parseISO(`${format(boundary, 'yyyy-MM-dd')}T00:00:00`).getTime() : boundary.getTime();
+
+    for (const token of normalizeRecurrenceTokens(tokens)) {
+        const parsed = parseRecurrenceDateToken(token);
+        if (!parsed) {
+            before.push(token);
+            continue;
+        }
+        const tokenTime = isAllDay ? parseISO(`${format(parsed, 'yyyy-MM-dd')}T00:00:00`).getTime() : parsed.getTime();
+        if (tokenTime < boundaryTime) {
+            before.push(token);
+        } else {
+            onOrAfter.push(token);
+        }
+    }
+
+    return {
+        before: normalizeRecurrenceTokens(before),
+        onOrAfter: normalizeRecurrenceTokens(onOrAfter),
+    };
+};
+
+const buildRecurrenceLines = (rrule: string, rdates: string[], exdates: string[]) => {
+    const lines: string[] = [];
+    if (rrule) lines.push(rrule);
+    if (rdates.length > 0) lines.push(`RDATE:${rdates.join(',')}`);
+    if (exdates.length > 0) lines.push(`EXDATE:${exdates.join(',')}`);
+    return lines;
+};
+
+const normalizeStoredRecurrenceExceptionRows = (value: unknown): StoredRecurrenceExceptionRow[] => {
+    if (!Array.isArray(value)) return [];
+
+    const rows: StoredRecurrenceExceptionRow[] = [];
+    for (const row of value) {
+        if (!row || typeof row !== 'object') continue;
+        const source = row as Record<string, unknown>;
+        const mode = String(source.mode || '').toLowerCase();
+
+        if (mode === 'range') {
+            const start = parseDateOnlyToken(String(source.rangeStart || source.start || ''));
+            const end = parseDateOnlyToken(String(source.rangeEnd || source.end || ''));
+            if (!start || !end) continue;
+            const [rangeStart, rangeEnd] = start.localeCompare(end) <= 0 ? [start, end] : [end, start];
+            rows.push({
+                mode: 'range',
+                date: rangeStart,
+                rangeStart,
+                rangeEnd,
+            });
+            continue;
+        }
+
+        const date = parseDateOnlyToken(String(source.date || source.rangeStart || source.start || ''));
+        if (!date) continue;
+        rows.push({
+            mode: 'date',
+            date,
+            rangeStart: date,
+            rangeEnd: date,
+        });
+    }
+
+    return rows;
+};
+
+const splitRecurrenceRowsAtBoundary = (rows: StoredRecurrenceExceptionRow[], boundaryDateOnly: string) => {
+    const before: StoredRecurrenceExceptionRow[] = [];
+    const onOrAfter: StoredRecurrenceExceptionRow[] = [];
+
+    for (const row of rows) {
+        if (row.mode === 'date') {
+            if (row.date.localeCompare(boundaryDateOnly) < 0) {
+                before.push(row);
+            } else {
+                onOrAfter.push(row);
+            }
+            continue;
+        }
+
+        const start = row.rangeStart;
+        const end = row.rangeEnd;
+        if (end.localeCompare(boundaryDateOnly) < 0) {
+            before.push(row);
+            continue;
+        }
+        if (start.localeCompare(boundaryDateOnly) >= 0) {
+            onOrAfter.push(row);
+            continue;
+        }
+
+        const boundaryDate = parseISO(`${boundaryDateOnly}T00:00:00`);
+        if (Number.isNaN(boundaryDate.getTime())) continue;
+        const dayBeforeBoundary = format(addDays(boundaryDate, -1), 'yyyy-MM-dd');
+
+        before.push({
+            mode: 'range',
+            date: start,
+            rangeStart: start,
+            rangeEnd: dayBeforeBoundary,
+        });
+        onOrAfter.push({
+            mode: 'range',
+            date: boundaryDateOnly,
+            rangeStart: boundaryDateOnly,
+            rangeEnd: end,
+        });
+    }
+
+    return { before, onOrAfter };
+};
+
 const valuesEqual = (left: unknown, right: unknown) => {
     if (left === right) return true;
 
@@ -246,6 +446,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedEvent, setSelectedEvent] = useState<CalendarItem | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [everyoneSelected, setEveryoneSelected] = useState(true);
+    const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+    const [recurrenceScopeDialogOpen, setRecurrenceScopeDialogOpen] = useState(false);
+    const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag'>('drag');
     const [dayCellHeight, setDayCellHeight] = useState<number>(() => {
         if (typeof window === 'undefined') {
             return CALENDAR_DAY_HEIGHT_DEFAULT;
@@ -306,6 +510,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const activeMonthMeasureRef = useRef<HTMLDivElement>(null);
     const previousMonthMeasureRef = useRef<HTMLDivElement>(null);
     const pendingScrollToDateRef = useRef<string | null>(null);
+    const recurrenceScopeResolverRef = useRef<((scope: RecurrenceEditScope) => void) | null>(null);
 
     const buildMonthLabel = useCallback((date: Date): MonthLabel => {
         // @ts-ignore - package has no strict Date typing
@@ -504,9 +709,8 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     const handleEventClick = (e: React.MouseEvent, calendarEvent: CalendarItem) => {
         e.stopPropagation();
-        const baseEvent = ((calendarEvent as any).__masterEvent as CalendarItem | undefined) || calendarEvent;
-        setSelectedDate(parseISO(baseEvent.startDate));
-        setSelectedEvent(baseEvent);
+        setSelectedDate(parseISO(calendarEvent.startDate));
+        setSelectedEvent(calendarEvent);
         setIsModalOpen(true);
     };
 
@@ -515,6 +719,30 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         setSelectedDate(null);
         setSelectedEvent(null);
     };
+
+    const requestRecurrenceScope = useCallback((action: 'edit' | 'drag') => {
+        return new Promise<RecurrenceEditScope>((resolve) => {
+            recurrenceScopeResolverRef.current = resolve;
+            setRecurrenceScopeDialogAction(action);
+            setRecurrenceScopeDialogOpen(true);
+        });
+    }, []);
+
+    const resolveRecurrenceScope = useCallback((scope: RecurrenceEditScope) => {
+        setRecurrenceScopeDialogOpen(false);
+        const resolver = recurrenceScopeResolverRef.current;
+        recurrenceScopeResolverRef.current = null;
+        resolver?.(scope);
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (recurrenceScopeResolverRef.current) {
+                recurrenceScopeResolverRef.current('cancel');
+                recurrenceScopeResolverRef.current = null;
+            }
+        };
+    }, []);
 
     const applyOptimisticCalendarItem = useCallback(
         (item: CalendarItem) => {
@@ -614,6 +842,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     useEffect(() => {
         const cleanup = monitorForElements({
             onDrop: (args) => {
+                void (async () => {
                 const { source, location } = args;
                 const destination = location.current.dropTargets[0];
 
@@ -624,12 +853,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     return;
                 }
 
-                const event = sourceData.event as CalendarItem; // Get the event object
-                const destinationDateStr = destData.dateStr as string; // Get the YYYY-MM-DD string
-
-                if ((event as any).__isRecurrenceInstance) {
-                    return;
-                }
+                const event = sourceData.event as CalendarItem;
+                const destinationDateStr = destData.dateStr as string;
+                const masterEvent = (((event as any).__masterEvent as CalendarItem | undefined) || event) as CalendarItem;
+                const masterRrule = normalizeRruleString(String(masterEvent.rrule || ''));
 
                 const sourceDate = parseISO(event.isAllDay ? event.startDate : format(parseISO(event.startDate), 'yyyy-MM-dd'));
                 const destinationDate = parseISO(destinationDateStr);
@@ -649,7 +876,6 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     newEndDate = addDays(parseISO(event.endDate), daysDifference).toISOString();
                 }
                 const nowIso = new Date().toISOString();
-                const nextSequence = typeof event.sequence === 'number' ? event.sequence + 1 : 1;
                 const legacyPayload = {
                     startDate: newStartDate,
                     endDate: newEndDate,
@@ -657,43 +883,349 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     month: destinationDate.getMonth() + 1,
                     dayOfMonth: destinationDate.getDate(),
                 };
-                const fullPayload = {
-                    ...legacyPayload,
+                const doSimpleMove = (targetEvent: CalendarItem) => {
+                    const nextSequence = typeof targetEvent.sequence === 'number' ? targetEvent.sequence + 1 : 1;
+                    const fullPayload = {
+                        ...legacyPayload,
+                        updatedAt: nowIso,
+                        lastModified: nowIso,
+                        dtStamp: nowIso,
+                        sequence: nextSequence,
+                    };
+                    const rollbackOptimisticMove = applyOptimisticCalendarItem({
+                        ...targetEvent,
+                        ...fullPayload,
+                        id: targetEvent.id,
+                    } as CalendarItem);
+
+                    void (async () => {
+                        try {
+                            await db.transact([tx.calendarItems[targetEvent.id].update(fullPayload)]);
+                        } catch (error) {
+                            if (shouldRetryLegacyCalendarMutation(error)) {
+                                try {
+                                    await db.transact([tx.calendarItems[targetEvent.id].update(legacyPayload)]);
+                                    return;
+                                } catch (fallbackError) {
+                                    console.error('Calendar move failed after legacy fallback:', fallbackError);
+                                }
+                            } else {
+                                console.error('Calendar move failed:', error);
+                            }
+
+                            rollbackOptimisticMove();
+                        }
+                    })();
+                };
+
+                if (!masterRrule) {
+                    doSimpleMove(event);
+                    return;
+                }
+
+                const recurrenceScope = await requestRecurrenceScope('drag');
+                if (recurrenceScope === 'cancel') {
+                    return;
+                }
+
+                const sourceStartForRecurrence = parseISO(event.startDate);
+                if (Number.isNaN(sourceStartForRecurrence.getTime())) {
+                    return;
+                }
+                const recurrenceReferenceToken = event.isAllDay
+                    ? format(sourceStartForRecurrence, 'yyyy-MM-dd')
+                    : sourceStartForRecurrence.toISOString();
+                const boundaryDateOnly = format(sourceStartForRecurrence, 'yyyy-MM-dd');
+
+                const baseRdateTokens = normalizeRecurrenceTokens([
+                    ...splitDateTokens(masterEvent.rdates),
+                    ...collectRecurrenceLineTokens(masterEvent.recurrenceLines, 'RDATE'),
+                ]);
+                const baseExdateTokens = normalizeRecurrenceTokens([
+                    ...splitDateTokens(masterEvent.exdates),
+                    ...collectRecurrenceLineTokens(masterEvent.recurrenceLines, 'EXDATE'),
+                ]);
+                const masterSequence = typeof masterEvent.sequence === 'number' ? masterEvent.sequence : 0;
+
+                const rollbackOptimisticHandlers: Array<() => void> = [];
+                const registerRollback = (rollback: (() => void) | void) => {
+                    if (typeof rollback === 'function') {
+                        rollbackOptimisticHandlers.push(rollback);
+                    }
+                };
+                const rollbackAll = () => {
+                    while (rollbackOptimisticHandlers.length > 0) {
+                        const rollback = rollbackOptimisticHandlers.pop();
+                        try {
+                            rollback?.();
+                        } catch (error) {
+                            console.error('Unable to rollback optimistic calendar update:', error);
+                        }
+                    }
+                };
+
+                if (recurrenceScope === 'single') {
+                    const nextMasterExdates = normalizeRecurrenceTokens([...baseExdateTokens, recurrenceReferenceToken]);
+                    const nextMasterPatch: Record<string, any> = {
+                        exdates: nextMasterExdates,
+                        recurrenceLines: buildRecurrenceLines(masterRrule, baseRdateTokens, nextMasterExdates),
+                        updatedAt: nowIso,
+                        lastModified: nowIso,
+                        dtStamp: nowIso,
+                        sequence: masterSequence + 1,
+                    };
+
+                    const overrideId = id();
+                    const overrideMembers = Array.isArray(event.pertainsTo)
+                        ? event.pertainsTo
+                        : Array.isArray(masterEvent.pertainsTo)
+                          ? masterEvent.pertainsTo
+                          : [];
+                    const overridePayload: Record<string, any> = {
+                        ...legacyPayload,
+                        title: String(event.title || masterEvent.title || ''),
+                        description: String(event.description || masterEvent.description || ''),
+                        isAllDay: event.isAllDay,
+                        startDate: newStartDate,
+                        endDate: newEndDate,
+                        uid: `${String(masterEvent.uid || masterEvent.id)}-${recurrenceReferenceToken}`,
+                        sequence: 0,
+                        status: String(event.status || masterEvent.status || 'confirmed'),
+                        createdAt: nowIso,
+                        updatedAt: nowIso,
+                        dtStamp: nowIso,
+                        lastModified: nowIso,
+                        location: String(event.location || masterEvent.location || ''),
+                        timeZone: String(event.timeZone || masterEvent.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
+                        rrule: '',
+                        rdates: [],
+                        exdates: [],
+                        recurrenceLines: [],
+                        recurrenceId: recurrenceReferenceToken,
+                        recurringEventId: String(masterEvent.id),
+                        recurrenceIdRange: '',
+                        alarms: event.alarms || masterEvent.alarms || [],
+                        eventType: String(event.eventType || masterEvent.eventType || 'default'),
+                        visibility: String(event.visibility || masterEvent.visibility || 'default'),
+                        transparency: String(event.transparency || masterEvent.transparency || (event.isAllDay ? 'transparent' : 'opaque')),
+                        ...(typeof event.travelDurationBeforeMinutes === 'number'
+                            ? { travelDurationBeforeMinutes: event.travelDurationBeforeMinutes }
+                            : typeof masterEvent.travelDurationBeforeMinutes === 'number'
+                              ? { travelDurationBeforeMinutes: masterEvent.travelDurationBeforeMinutes }
+                              : {}),
+                        ...(typeof event.travelDurationAfterMinutes === 'number'
+                            ? { travelDurationAfterMinutes: event.travelDurationAfterMinutes }
+                            : typeof masterEvent.travelDurationAfterMinutes === 'number'
+                              ? { travelDurationAfterMinutes: masterEvent.travelDurationAfterMinutes }
+                              : {}),
+                    };
+
+                    registerRollback(
+                        applyOptimisticCalendarItem({
+                            ...masterEvent,
+                            ...nextMasterPatch,
+                            id: masterEvent.id,
+                        } as CalendarItem)
+                    );
+                    registerRollback(
+                        applyOptimisticCalendarItem({
+                            ...(event as any),
+                            ...overridePayload,
+                            id: overrideId,
+                            pertainsTo: overrideMembers,
+                        } as CalendarItem)
+                    );
+
+                    const txOps: any[] = [tx.calendarItems[masterEvent.id].update(nextMasterPatch), tx.calendarItems[overrideId].update(overridePayload)];
+                    for (const member of overrideMembers) {
+                        if (member?.id) {
+                            txOps.push(tx.calendarItems[overrideId].link({ pertainsTo: member.id }));
+                        }
+                    }
+
+                    void (async () => {
+                        try {
+                            await db.transact(txOps);
+                        } catch (error) {
+                            console.error('Calendar recurring single move failed:', error);
+                            rollbackAll();
+                        }
+                    })();
+                    return;
+                }
+
+                const masterStart = parseISO(masterEvent.startDate);
+                const isFirstOccurrence = !Number.isNaN(masterStart.getTime()) && masterStart.getTime() === sourceStartForRecurrence.getTime();
+
+                if (isFirstOccurrence) {
+                    doSimpleMove(masterEvent);
+                    return;
+                }
+
+                const cappedMasterRrule = capRruleBeforeOccurrence(masterRrule, sourceStartForRecurrence, event.isAllDay);
+                const oldSeriesRdates = partitionRecurrenceTokensByBoundary(baseRdateTokens, sourceStartForRecurrence, event.isAllDay);
+                const oldSeriesExdates = partitionRecurrenceTokensByBoundary(baseExdateTokens, sourceStartForRecurrence, event.isAllDay);
+                const masterXProps =
+                    masterEvent.xProps && typeof masterEvent.xProps === 'object' && !Array.isArray(masterEvent.xProps)
+                        ? { ...(masterEvent.xProps as Record<string, unknown>) }
+                        : {};
+                const oldExceptionRowsSplit = splitRecurrenceRowsAtBoundary(
+                    normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceExceptionRows),
+                    boundaryDateOnly
+                );
+                const oldRdateRowsSplit = splitRecurrenceRowsAtBoundary(
+                    normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceRdateRows),
+                    boundaryDateOnly
+                );
+                const oldSeriesXProps = { ...masterXProps };
+                const newSeriesXProps = { ...masterXProps };
+                if (oldExceptionRowsSplit.before.length > 0) {
+                    oldSeriesXProps.recurrenceExceptionRows = oldExceptionRowsSplit.before;
+                } else {
+                    delete oldSeriesXProps.recurrenceExceptionRows;
+                }
+                if (oldExceptionRowsSplit.onOrAfter.length > 0) {
+                    newSeriesXProps.recurrenceExceptionRows = oldExceptionRowsSplit.onOrAfter;
+                } else {
+                    delete newSeriesXProps.recurrenceExceptionRows;
+                }
+                if (oldRdateRowsSplit.before.length > 0) {
+                    oldSeriesXProps.recurrenceRdateRows = oldRdateRowsSplit.before;
+                } else {
+                    delete oldSeriesXProps.recurrenceRdateRows;
+                }
+                if (oldRdateRowsSplit.onOrAfter.length > 0) {
+                    newSeriesXProps.recurrenceRdateRows = oldRdateRowsSplit.onOrAfter;
+                } else {
+                    delete newSeriesXProps.recurrenceRdateRows;
+                }
+
+                const oldSeriesPatch: Record<string, any> = {
+                    rrule: cappedMasterRrule,
+                    rdates: oldSeriesRdates.before,
+                    exdates: oldSeriesExdates.before,
+                    recurrenceLines: buildRecurrenceLines(cappedMasterRrule, oldSeriesRdates.before, oldSeriesExdates.before),
                     updatedAt: nowIso,
                     lastModified: nowIso,
                     dtStamp: nowIso,
-                    sequence: nextSequence,
+                    sequence: masterSequence + 1,
+                    xProps: oldSeriesXProps,
                 };
-                const rollbackOptimisticMove = applyOptimisticCalendarItem({
-                    ...event,
-                    ...fullPayload,
-                    id: event.id,
-                } as CalendarItem);
+
+                const newSeriesId = id();
+                const newSeriesMembers = Array.isArray(masterEvent.pertainsTo) ? masterEvent.pertainsTo : [];
+                const newSeriesPayload: Record<string, any> = {
+                    ...legacyPayload,
+                    title: String(event.title || masterEvent.title || ''),
+                    description: String(event.description || masterEvent.description || ''),
+                    isAllDay: event.isAllDay,
+                    startDate: newStartDate,
+                    endDate: newEndDate,
+                    uid: `${String(masterEvent.uid || masterEvent.id)}-split-${newSeriesId}`,
+                    sequence: 0,
+                    status: String(event.status || masterEvent.status || 'confirmed'),
+                    createdAt: nowIso,
+                    updatedAt: nowIso,
+                    dtStamp: nowIso,
+                    lastModified: nowIso,
+                    location: String(event.location || masterEvent.location || ''),
+                    timeZone: String(event.timeZone || masterEvent.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
+                    rrule: masterRrule,
+                    rdates: oldSeriesRdates.onOrAfter,
+                    exdates: oldSeriesExdates.onOrAfter,
+                    recurrenceLines: buildRecurrenceLines(masterRrule, oldSeriesRdates.onOrAfter, oldSeriesExdates.onOrAfter),
+                    recurrenceId: '',
+                    recurringEventId: '',
+                    recurrenceIdRange: '',
+                    alarms: event.alarms || masterEvent.alarms || [],
+                    eventType: String(event.eventType || masterEvent.eventType || 'default'),
+                    visibility: String(event.visibility || masterEvent.visibility || 'default'),
+                    transparency: String(event.transparency || masterEvent.transparency || (event.isAllDay ? 'transparent' : 'opaque')),
+                    xProps: newSeriesXProps,
+                    ...(typeof event.travelDurationBeforeMinutes === 'number'
+                        ? { travelDurationBeforeMinutes: event.travelDurationBeforeMinutes }
+                        : typeof masterEvent.travelDurationBeforeMinutes === 'number'
+                          ? { travelDurationBeforeMinutes: masterEvent.travelDurationBeforeMinutes }
+                          : {}),
+                    ...(typeof event.travelDurationAfterMinutes === 'number'
+                        ? { travelDurationAfterMinutes: event.travelDurationAfterMinutes }
+                        : typeof masterEvent.travelDurationAfterMinutes === 'number'
+                          ? { travelDurationAfterMinutes: masterEvent.travelDurationAfterMinutes }
+                          : {}),
+                };
+
+                const boundaryTime = event.isAllDay
+                    ? parseISO(`${boundaryDateOnly}T00:00:00`).getTime()
+                    : sourceStartForRecurrence.getTime();
+                const overridesToMove = calendarItems.filter((candidate) => {
+                    const parentId = String(candidate.recurringEventId || '').trim();
+                    if (!parentId || parentId !== String(masterEvent.id)) return false;
+                    const recurrenceRefToken =
+                        typeof candidate.recurrenceId === 'string' && candidate.recurrenceId.trim()
+                            ? candidate.recurrenceId
+                            : candidate.startDate;
+                    const recurrenceRefDate = parseRecurrenceDateToken(String(recurrenceRefToken || ''));
+                    if (!recurrenceRefDate) return false;
+                    const recurrenceTime = candidate.isAllDay
+                        ? parseISO(`${format(recurrenceRefDate, 'yyyy-MM-dd')}T00:00:00`).getTime()
+                        : recurrenceRefDate.getTime();
+                    return recurrenceTime >= boundaryTime;
+                });
+
+                registerRollback(
+                    applyOptimisticCalendarItem({
+                        ...masterEvent,
+                        ...oldSeriesPatch,
+                        id: masterEvent.id,
+                    } as CalendarItem)
+                );
+                registerRollback(
+                    applyOptimisticCalendarItem({
+                        ...masterEvent,
+                        ...newSeriesPayload,
+                        id: newSeriesId,
+                        pertainsTo: newSeriesMembers,
+                    } as CalendarItem)
+                );
+
+                const txOps: any[] = [tx.calendarItems[masterEvent.id].update(oldSeriesPatch), tx.calendarItems[newSeriesId].update(newSeriesPayload)];
+                for (const member of newSeriesMembers) {
+                    if (member?.id) {
+                        txOps.push(tx.calendarItems[newSeriesId].link({ pertainsTo: member.id }));
+                    }
+                }
+                for (const override of overridesToMove) {
+                    const overridePatch = {
+                        recurringEventId: newSeriesId,
+                        updatedAt: nowIso,
+                        lastModified: nowIso,
+                        dtStamp: nowIso,
+                        sequence: typeof override.sequence === 'number' ? override.sequence + 1 : 1,
+                    };
+                    registerRollback(
+                        applyOptimisticCalendarItem({
+                            ...override,
+                            ...overridePatch,
+                            id: override.id,
+                        } as CalendarItem)
+                    );
+                    txOps.push(tx.calendarItems[override.id].update(overridePatch));
+                }
 
                 void (async () => {
                     try {
-                        await db.transact([tx.calendarItems[event.id].update(fullPayload)]);
+                        await db.transact(txOps);
                     } catch (error) {
-                        if (shouldRetryLegacyCalendarMutation(error)) {
-                            try {
-                                await db.transact([tx.calendarItems[event.id].update(legacyPayload)]);
-                                return;
-                            } catch (fallbackError) {
-                                console.error('Calendar move failed after legacy fallback:', fallbackError);
-                            }
-                        } else {
-                            console.error('Calendar move failed:', error);
-                        }
-
-                        // Revert optimistic move if both writes fail.
-                        rollbackOptimisticMove();
+                        console.error('Calendar recurring split move failed:', error);
+                        rollbackAll();
                     }
+                })();
                 })();
             },
         });
 
         return cleanup;
-    }, [applyOptimisticCalendarItem]);
+    }, [applyOptimisticCalendarItem, calendarItems, requestRecurrenceScope]);
 
     useLayoutEffect(() => {
         const pendingAdjust = pendingTopScrollAdjustRef.current;
@@ -915,9 +1447,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const detail: CalendarStateDetail = {
             dayHeight: dayCellHeight,
             visibleWeeks: visibleWeeksEstimate,
+            memberFilter: {
+                everyoneSelected,
+                selectedMemberIds,
+            },
         };
         window.dispatchEvent(new CustomEvent<CalendarStateDetail>(CALENDAR_STATE_EVENT, { detail }));
-    }, [dayCellHeight, visibleWeeksEstimate]);
+    }, [dayCellHeight, everyoneSelected, selectedMemberIds, visibleWeeksEstimate]);
 
     useEffect(() => {
         const onCalendarCommand = (event: Event) => {
@@ -931,6 +1467,19 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
             if (detail.type === 'setVisibleWeeks') {
                 applyVisibleWeeks(detail.visibleWeeks);
+                return;
+            }
+
+            if (detail.type === 'setMemberFilter') {
+                const sanitizedMemberIds = Array.from(
+                    new Set(
+                        (Array.isArray(detail.selectedMemberIds) ? detail.selectedMemberIds : [])
+                            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+                            .map((value) => value.trim())
+                    )
+                );
+                setEveryoneSelected(Boolean(detail.everyoneSelected));
+                setSelectedMemberIds(sanitizedMemberIds);
                 return;
             }
 
@@ -948,6 +1497,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 const stateDetail: CalendarStateDetail = {
                     dayHeight: dayCellHeight,
                     visibleWeeks: visibleWeeksEstimate,
+                    memberFilter: {
+                        everyoneSelected,
+                        selectedMemberIds,
+                    },
                 };
                 window.dispatchEvent(new CustomEvent<CalendarStateDetail>(CALENDAR_STATE_EVENT, { detail: stateDetail }));
             }
@@ -957,7 +1510,16 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         return () => {
             window.removeEventListener(CALENDAR_COMMAND_EVENT, onCalendarCommand);
         };
-    }, [applyVisibleWeeks, dayCellHeight, handleQuickAddClick, handleTodayClick, setDayHeight, visibleWeeksEstimate]);
+    }, [
+        applyVisibleWeeks,
+        dayCellHeight,
+        everyoneSelected,
+        handleQuickAddClick,
+        handleTodayClick,
+        selectedMemberIds,
+        setDayHeight,
+        visibleWeeksEstimate,
+    ]);
 
     useEffect(() => {
         const pendingDate = pendingScrollToDateRef.current;
@@ -1030,6 +1592,26 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const rangeStartTime = rangeStart.getTime();
         const rangeEndTime = rangeEnd.getTime();
         const recurrenceOverrideDayKeysByMasterId = new Map<string, Set<string>>();
+        const selectedMemberIdSet = new Set(selectedMemberIds);
+
+        const matchesMemberFilter = (item: CalendarItem) => {
+            if (everyoneSelected) return true;
+            if (selectedMemberIdSet.size === 0) return false;
+
+            const pertainsToIds = (Array.isArray(item.pertainsTo) ? item.pertainsTo : [])
+                .map((member) => member?.id)
+                .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+                .map((id) => id.trim());
+
+            // Empty pertainsTo means the event applies to everyone.
+            if (pertainsToIds.length === 0) return true;
+            return pertainsToIds.some((id) => selectedMemberIdSet.has(id));
+        };
+
+        const calendarItemsForView = calendarItems.filter(matchesMemberFilter);
+        if (!everyoneSelected && selectedMemberIdSet.size === 0) {
+            return byDate;
+        }
 
         const pushByDate = (dateKey: string, item: CalendarItem) => {
             const existing = byDate.get(dateKey);
@@ -1040,7 +1622,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             }
         };
 
-        for (const item of calendarItems) {
+        for (const item of calendarItemsForView) {
             const masterId = typeof item.recurringEventId === 'string' ? item.recurringEventId.trim() : '';
             if (!masterId) continue;
 
@@ -1155,7 +1737,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             }
         };
 
-        for (const baseItem of calendarItems) {
+        for (const baseItem of calendarItemsForView) {
             const itemsToRender = expandRecurringItemForRange(baseItem);
             for (const item of itemsToRender) {
                 if (item.isAllDay) {
@@ -1192,7 +1774,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         });
 
         return byDate;
-    }, [calendarItems, rangeStart, rangeEnd]);
+    }, [calendarItems, everyoneSelected, rangeEnd, rangeStart, selectedMemberIds]);
 
     const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -1205,6 +1787,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     return (
         <>
+            <RecurrenceScopeDialog
+                open={recurrenceScopeDialogOpen}
+                action={recurrenceScopeDialogAction}
+                onSelect={resolveRecurrenceScope}
+            />
             <div
                 ref={scrollContainerRef}
                 className={styles.calendarScrollContainer}

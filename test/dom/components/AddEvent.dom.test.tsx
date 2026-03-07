@@ -71,6 +71,23 @@ vi.mock('@/components/ui/checkbox', () => ({
     ),
 }));
 
+vi.mock('@/components/RecurrenceScopeDialog', () => ({
+    RecurrenceScopeDialog: ({ open, onSelect }: any) =>
+        open ? (
+            <div data-testid="recurrence-scope-dialog">
+                <button type="button" onClick={() => onSelect('single')}>
+                    Only this event
+                </button>
+                <button type="button" onClick={() => onSelect('following')}>
+                    This and following events
+                </button>
+                <button type="button" onClick={() => onSelect('cancel')}>
+                    Cancel
+                </button>
+            </div>
+        ) : null,
+}));
+
 import AddEventForm from '@/components/AddEvent';
 
 function renderForm(props?: Partial<React.ComponentProps<typeof AddEventForm>>) {
@@ -96,6 +113,7 @@ function getOps() {
 
 describe('AddEventForm', () => {
     beforeEach(() => {
+        vi.restoreAllMocks();
         mocks.id.mockReset();
         mocks.id.mockReturnValue('evt-new');
         mocks.dbTransact.mockReset();
@@ -228,6 +246,34 @@ describe('AddEventForm', () => {
         ]);
     });
 
+    it('builds RDATE values from single-date and range one-off rows', async () => {
+        renderForm();
+        const user = userEvent.setup();
+
+        await user.type(screen.getByLabelText('Title'), 'Recurrence with one-offs');
+        await user.selectOptions(screen.getByLabelText('Repeat'), 'daily');
+        await user.click(screen.getByRole('button', { name: /one-off days/i }));
+
+        await user.selectOptions(screen.getByLabelText('Type'), 'date');
+        fireEvent.change(screen.getByLabelText('One-off Date'), { target: { value: '2026-03-19' } });
+
+        await user.click(screen.getByRole('button', { name: /add another one-off day/i }));
+        await user.selectOptions(screen.getAllByLabelText('Type')[1], 'range');
+        fireEvent.change(screen.getByLabelText('Range Start'), { target: { value: '2026-03-25' } });
+        fireEvent.change(screen.getByLabelText('Range End'), { target: { value: '2026-03-27' } });
+
+        await user.click(screen.getByRole('button', { name: /add event/i }));
+
+        expect(mocks.dbTransact).toHaveBeenCalledTimes(2);
+        const [advancedOps] = mocks.dbTransact.mock.calls[1];
+        expect(advancedOps[0].data.rdates).toEqual(['2026-03-19', '2026-03-25', '2026-03-26', '2026-03-27']);
+        expect(advancedOps[0].data.recurrenceLines).toEqual(expect.arrayContaining(['RRULE:FREQ=DAILY', 'RDATE:2026-03-19,2026-03-25,2026-03-26,2026-03-27']));
+        expect(advancedOps[0].data.xProps?.recurrenceRdateRows).toEqual([
+            { mode: 'date', date: '2026-03-19', rangeStart: '2026-03-19', rangeEnd: '2026-03-19' },
+            { mode: 'range', date: '2026-03-25', rangeStart: '2026-03-25', rangeEnd: '2026-03-27' },
+        ]);
+    });
+
     it('restores saved range exceptions as ranges instead of flattened dates', () => {
         renderForm({
             selectedDate: null,
@@ -252,6 +298,32 @@ describe('AddEventForm', () => {
         expect((screen.getByLabelText('Range Start') as HTMLInputElement).value).toBe('2026-03-22');
         expect((screen.getByLabelText('Range End') as HTMLInputElement).value).toBe('2026-03-24');
         expect(screen.queryByLabelText('Exception Date')).not.toBeInTheDocument();
+    });
+
+    it('restores saved one-off range rows as ranges instead of flattened dates', () => {
+        renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-rdate-range',
+                title: 'Training',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=DAILY',
+                rdates: ['2026-03-28', '2026-03-29', '2026-03-30'],
+                xProps: {
+                    recurrenceRdateRows: [{ mode: 'range', date: '2026-03-28', rangeStart: '2026-03-28', rangeEnd: '2026-03-30' }],
+                },
+            } as any,
+        });
+
+        const typeSelects = screen.getAllByLabelText('Type') as HTMLSelectElement[];
+        expect(typeSelects).toHaveLength(1);
+        expect(typeSelects[0].value).toBe('range');
+        expect((screen.getByLabelText('Range Start') as HTMLInputElement).value).toBe('2026-03-28');
+        expect((screen.getByLabelText('Range End') as HTMLInputElement).value).toBe('2026-03-30');
+        expect(screen.queryByLabelText('One-off Date')).not.toBeInTheDocument();
     });
 
     it('turns exceptions off when removing the last exception row', async () => {
@@ -412,6 +484,120 @@ describe('AddEventForm', () => {
                 data: { pertainsTo: 'mem-2' },
             },
         ]);
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('when editing one recurring occurrence and choosing "only this", creates a recurrence override with RECURRENCE-ID', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-master',
+                title: 'Weekly Class',
+                description: '',
+                startDate: '2026-03-24',
+                endDate: '2026-03-25',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                __masterEvent: {
+                    id: 'evt-master',
+                    title: 'Weekly Class',
+                    description: '',
+                    startDate: '2026-03-17',
+                    endDate: '2026-03-18',
+                    isAllDay: true,
+                    rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                    exdates: [],
+                    recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+                },
+            } as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: /update event/i }));
+        await user.click(screen.getByRole('button', { name: 'Only this event' }));
+
+        expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-master',
+                    action: 'update',
+                    data: expect.objectContaining({
+                        exdates: expect.arrayContaining(['2026-03-24']),
+                    }),
+                }),
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-new',
+                    action: 'update',
+                    data: expect.objectContaining({
+                        recurringEventId: 'evt-master',
+                        recurrenceId: '2026-03-24',
+                        rrule: '',
+                    }),
+                }),
+            ])
+        );
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('when editing recurring occurrence and choosing "this and following", splits the series and carries forward later exceptions', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-master',
+                title: 'Split Me',
+                description: '',
+                startDate: '2026-03-20',
+                endDate: '2026-03-21',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=DAILY',
+                exdates: ['2026-03-18', '2026-03-19', '2026-03-20', '2026-03-21'],
+                recurrenceLines: ['RRULE:FREQ=DAILY', 'EXDATE:2026-03-18,2026-03-19,2026-03-20,2026-03-21'],
+                xProps: {
+                    recurrenceExceptionRows: [{ mode: 'range', date: '2026-03-18', rangeStart: '2026-03-18', rangeEnd: '2026-03-21' }],
+                },
+                __masterEvent: {
+                    id: 'evt-master',
+                    title: 'Split Me',
+                    description: '',
+                    startDate: '2026-03-15',
+                    endDate: '2026-03-16',
+                    isAllDay: true,
+                    rrule: 'RRULE:FREQ=DAILY',
+                    exdates: ['2026-03-18', '2026-03-19', '2026-03-20', '2026-03-21'],
+                    recurrenceLines: ['RRULE:FREQ=DAILY', 'EXDATE:2026-03-18,2026-03-19,2026-03-20,2026-03-21'],
+                    xProps: {
+                        recurrenceExceptionRows: [{ mode: 'range', date: '2026-03-18', rangeStart: '2026-03-18', rangeEnd: '2026-03-21' }],
+                    },
+                },
+            } as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: /update event/i }));
+        await user.click(screen.getByRole('button', { name: 'This and following events' }));
+
+        expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops[0]).toMatchObject({
+            entity: 'calendarItems',
+            id: 'evt-master',
+            action: 'update',
+            data: expect.objectContaining({
+                exdates: ['2026-03-18', '2026-03-19'],
+            }),
+        });
+        expect(ops[1]).toMatchObject({
+            entity: 'calendarItems',
+            id: 'evt-new',
+            action: 'update',
+            data: expect.objectContaining({
+                exdates: ['2026-03-20', '2026-03-21'],
+            }),
+        });
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 });
