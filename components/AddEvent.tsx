@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { tx, id } from '@instantdb/react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -46,6 +46,12 @@ interface EventFormData {
     isAllDay: boolean;
 }
 
+const MEMBER_GRID_MAX_HEIGHT_PX = 176; // Tailwind max-h-44
+const MEMBER_GRID_GAP_PX = 8; // Tailwind gap-2
+const MEMBER_GRID_ROW_HEIGHT_PX = 40;
+const MEMBER_GRID_CHROME_WIDTH_PX = 56; // checkbox + internal padding + spacing
+const MEMBER_GRID_TEXT_FONT = "500 14px ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial";
+
 const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime = '10:00' }: AddEventFormProps) => {
     const [formData, setFormData] = useState<EventFormData>({
         id: '',
@@ -57,7 +63,10 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         endTime: '',
         isAllDay: true,
     });
+    const titleInputRef = useRef<HTMLInputElement>(null);
     const [selectedFamilyMemberIds, setSelectedFamilyMemberIds] = useState<string[]>([]);
+    const memberGridRef = useRef<HTMLDivElement>(null);
+    const [memberGridWidth, setMemberGridWidth] = useState(0);
     const familyMembersQuery = db.useQuery({
         familyMembers: {
             $: {
@@ -83,6 +92,78 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
 
         return byId;
     }, [familyMembers, selectedEvent]);
+
+    useEffect(() => {
+        const gridElement = memberGridRef.current;
+        if (!gridElement) return;
+
+        const updateWidth = () => {
+            setMemberGridWidth(gridElement.clientWidth);
+        };
+
+        updateWidth();
+        const raf = window.requestAnimationFrame(updateWidth);
+
+        if (typeof ResizeObserver !== 'undefined') {
+            const observer = new ResizeObserver(updateWidth);
+            observer.observe(gridElement);
+
+            return () => {
+                window.cancelAnimationFrame(raf);
+                observer.disconnect();
+            };
+        }
+
+        window.addEventListener('resize', updateWidth);
+        return () => {
+            window.cancelAnimationFrame(raf);
+            window.removeEventListener('resize', updateWidth);
+        };
+    }, [familyMembers.length]);
+
+    const useThreeColumnMemberGrid = useMemo(() => {
+        if (familyMembers.length < 3 || memberGridWidth <= 0 || typeof document === 'undefined') {
+            return false;
+        }
+
+        const visibleRowsAtTwoWide = Math.max(1, Math.floor(MEMBER_GRID_MAX_HEIGHT_PX / MEMBER_GRID_ROW_HEIGHT_PX));
+        const twoWideWouldScroll = Math.ceil(familyMembers.length / 2) > visibleRowsAtTwoWide;
+        if (!twoWideWouldScroll) {
+            return false;
+        }
+
+        const estimatedColumnWidth = (memberGridWidth - MEMBER_GRID_GAP_PX * 2) / 3;
+        const maxTextWidth = estimatedColumnWidth - MEMBER_GRID_CHROME_WIDTH_PX;
+        if (!Number.isFinite(maxTextWidth) || maxTextWidth <= 0) {
+            return false;
+        }
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (!context) {
+            return false;
+        }
+        context.font = MEMBER_GRID_TEXT_FONT;
+
+        return familyMembers.every((member) => {
+            const label = member.name || 'Unnamed member';
+            return context.measureText(label).width <= maxTextWidth;
+        });
+    }, [familyMembers, memberGridWidth]);
+
+    useEffect(() => {
+        if (!selectedDate || selectedEvent) {
+            return;
+        }
+
+        const raf = window.requestAnimationFrame(() => {
+            titleInputRef.current?.focus();
+        });
+
+        return () => {
+            window.cancelAnimationFrame(raf);
+        };
+    }, [selectedDate, selectedEvent]);
 
     useEffect(() => {
         if (selectedEvent) {
@@ -212,7 +293,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         <form onSubmit={handleSubmit} className="space-y-4">
             <div>
                 <Label htmlFor="title">Title</Label>
-                <Input type="text" id="title" name="title" value={formData.title} onChange={handleChange} required />
+                <Input ref={titleInputRef} type="text" id="title" name="title" value={formData.title} onChange={handleChange} required />
             </div>
             <div>
                 <Label htmlFor="description">Description</Label>
@@ -255,14 +336,17 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 ) : familyMembers.length === 0 ? (
                     <p className="text-xs text-muted-foreground">No family members available yet.</p>
                 ) : (
-                    <div className="grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                    <div
+                        ref={memberGridRef}
+                        className={`grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1 ${useThreeColumnMemberGrid ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
+                    >
                         {familyMembers.map((member) => {
                             const isChecked = selectedFamilyMemberIds.includes(member.id);
                             return (
                                 <label
                                     key={member.id}
                                     htmlFor={`event-member-${member.id}`}
-                                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                                    className={`flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
                                         isChecked ? 'border-primary/40 bg-primary/10' : 'border-slate-200 bg-white hover:bg-slate-100'
                                     }`}
                                 >
@@ -271,7 +355,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                                         checked={isChecked}
                                         onCheckedChange={(checked) => handleFamilyMemberToggle(member.id, checked)}
                                     />
-                                    <span className="truncate">{member.name || 'Unnamed member'}</span>
+                                    <span className="min-w-0 truncate">{member.name || 'Unnamed member'}</span>
                                 </label>
                             );
                         })}

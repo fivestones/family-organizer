@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -112,6 +112,14 @@ describe('AddEventForm', () => {
             },
         });
         mocks.txOps.length = 0;
+    });
+
+    it('focuses the title input when opened in create mode', async () => {
+        renderForm();
+
+        await waitFor(() => {
+            expect(screen.getByLabelText('Title')).toHaveFocus();
+        });
     });
 
     it('creates an all-day event with exclusive end date and calendar index fields', async () => {
