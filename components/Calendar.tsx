@@ -19,7 +19,7 @@ import {
 import { tx } from '@instantdb/react';
 import NepaliDate from 'nepali-date-converter';
 import AddEventForm from './AddEvent';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import localFont from 'next/font/local';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { DroppableDayCell } from './DroppableDayCell'; // Import new component
@@ -85,11 +85,65 @@ const toDevanagariDigits = (value: string | number) =>
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const shouldRetryLegacyCalendarMutation = (error: unknown) => {
+    const message = String((error as any)?.message || '').toLowerCase();
+    return message.includes('permission denied') || message.includes('mutation failed') || message.includes('attrs');
+};
+
+const valuesEqual = (left: unknown, right: unknown) => {
+    if (left === right) return true;
+
+    if (left == null || right == null) {
+        return left == null && right == null;
+    }
+
+    if (typeof left === 'object' || typeof right === 'object') {
+        try {
+            return JSON.stringify(left) === JSON.stringify(right);
+        } catch {
+            return false;
+        }
+    }
+
+    return false;
+};
+
+const mergeCalendarItemsWithOptimistic = (
+    serverItems: CalendarItem[],
+    optimisticItemsById: Record<string, Partial<CalendarItem> & { id: string }>
+) => {
+    const mergedById = new Map<string, CalendarItem>();
+
+    for (const item of serverItems) {
+        mergedById.set(item.id, item);
+    }
+
+    for (const [id, optimisticItem] of Object.entries(optimisticItemsById)) {
+        const existing = mergedById.get(id);
+        mergedById.set(id, existing ? ({ ...existing, ...optimisticItem } as CalendarItem) : (optimisticItem as CalendarItem));
+    }
+
+    return Array.from(mergedById.values());
+};
+
+const optimisticItemSatisfiedByServer = (
+    serverItem: CalendarItem | undefined,
+    optimisticItem: Partial<CalendarItem> & { id: string }
+) => {
+    if (!serverItem) return false;
+
+    return Object.entries(optimisticItem).every(([key, value]) => {
+        if (key === 'id') return true;
+        return valuesEqual((serverItem as any)[key], value);
+    });
+};
+
 const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: CalendarProps) => {
     // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
     // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
     // and displayMonthNumber = false, to display the month number as well as the name.
     const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
+    const [optimisticItemsById, setOptimisticItemsById] = useState<Record<string, Partial<CalendarItem> & { id: string }>>({});
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedEvent, setSelectedEvent] = useState<CalendarItem | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -362,6 +416,47 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         setSelectedEvent(null);
     };
 
+    const applyOptimisticCalendarItem = useCallback(
+        (item: CalendarItem) => {
+            const previousItem = calendarItems.find((existing) => existing.id === item.id) || null;
+            setOptimisticItemsById((prev) => ({ ...prev, [item.id]: item }));
+            setCalendarItems((prev) => {
+                const index = prev.findIndex((existing) => existing.id === item.id);
+                if (index === -1) {
+                    return [...prev, item];
+                }
+
+                const next = [...prev];
+                next[index] = { ...next[index], ...item };
+                return next;
+            });
+
+            return () => {
+                setOptimisticItemsById((prev) => {
+                    if (!prev[item.id]) return prev;
+                    const next = { ...prev };
+                    delete next[item.id];
+                    return next;
+                });
+                setCalendarItems((prev) => {
+                    const index = prev.findIndex((existing) => existing.id === item.id);
+                    if (index === -1) {
+                        return prev;
+                    }
+
+                    if (previousItem) {
+                        const next = [...prev];
+                        next[index] = previousItem;
+                        return next;
+                    }
+
+                    return prev.filter((existing) => existing.id !== item.id);
+                });
+            };
+        },
+        [calendarItems]
+    );
+
     const setDayHeight = useCallback((nextHeight: number) => {
         const clampedHeight = clampNumber(Math.round(nextHeight), CALENDAR_DAY_HEIGHT_MIN, CALENDAR_DAY_HEIGHT_MAX);
         setDayCellHeight(clampedHeight);
@@ -449,24 +544,52 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     newStartDate = addDays(parseISO(event.startDate), daysDifference).toISOString();
                     newEndDate = addDays(parseISO(event.endDate), daysDifference).toISOString();
                 }
+                const nowIso = new Date().toISOString();
+                const nextSequence = typeof event.sequence === 'number' ? event.sequence + 1 : 1;
+                const legacyPayload = {
+                    startDate: newStartDate,
+                    endDate: newEndDate,
+                    year: destinationDate.getFullYear(),
+                    month: destinationDate.getMonth() + 1,
+                    dayOfMonth: destinationDate.getDate(),
+                };
+                const fullPayload = {
+                    ...legacyPayload,
+                    updatedAt: nowIso,
+                    lastModified: nowIso,
+                    dtStamp: nowIso,
+                    sequence: nextSequence,
+                };
+                const rollbackOptimisticMove = applyOptimisticCalendarItem({
+                    ...event,
+                    ...fullPayload,
+                    id: event.id,
+                } as CalendarItem);
 
-                const updatedItems = calendarItems.map((item) => (item.id === event.id ? { ...item, startDate: newStartDate, endDate: newEndDate } : item));
-                setCalendarItems(updatedItems);
+                void (async () => {
+                    try {
+                        await db.transact([tx.calendarItems[event.id].update(fullPayload)]);
+                    } catch (error) {
+                        if (shouldRetryLegacyCalendarMutation(error)) {
+                            try {
+                                await db.transact([tx.calendarItems[event.id].update(legacyPayload)]);
+                                return;
+                            } catch (fallbackError) {
+                                console.error('Calendar move failed after legacy fallback:', fallbackError);
+                            }
+                        } else {
+                            console.error('Calendar move failed:', error);
+                        }
 
-                db.transact([
-                    tx.calendarItems[event.id].update({
-                        startDate: newStartDate,
-                        endDate: newEndDate,
-                        year: destinationDate.getFullYear(),
-                        month: destinationDate.getMonth() + 1,
-                        dayOfMonth: destinationDate.getDate(),
-                    }),
-                ]);
+                        // Revert optimistic move if both writes fail.
+                        rollbackOptimisticMove();
+                    }
+                })();
             },
         });
 
         return cleanup;
-    }, [calendarItems]);
+    }, [applyOptimisticCalendarItem]);
 
     useLayoutEffect(() => {
         const pendingAdjust = pendingTopScrollAdjustRef.current;
@@ -772,9 +895,31 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     useEffect(() => {
         if (!isLoading && !error && data) {
-            setCalendarItems(data.calendarItems as CalendarItem[]);
+            setCalendarItems(
+                mergeCalendarItemsWithOptimistic(data.calendarItems as CalendarItem[], optimisticItemsById)
+            );
         }
-    }, [isLoading, data, error]);
+    }, [isLoading, data, error, optimisticItemsById]);
+
+    useEffect(() => {
+        if (!data || isLoading || error) return;
+
+        const serverItems = (data.calendarItems || []) as CalendarItem[];
+        setOptimisticItemsById((prev) => {
+            let changed = false;
+            const next = { ...prev };
+
+            for (const [id, optimisticItem] of Object.entries(prev)) {
+                const serverItem = serverItems.find((item) => item.id === id);
+                if (optimisticItemSatisfiedByServer(serverItem, optimisticItem)) {
+                    delete next[id];
+                    changed = true;
+                }
+            }
+
+            return changed ? next : prev;
+        });
+    }, [data, isLoading, error]);
 
     const dayItemsByDate = useMemo(() => {
         const byDate = new Map<string, CalendarItem[]>();
@@ -990,7 +1135,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
                 <DialogContent>
-                    <AddEventForm selectedDate={selectedDate} selectedEvent={selectedEvent} onClose={handleCloseModal} />
+                    <DialogTitle className="sr-only">{selectedEvent ? 'Edit calendar event' : 'Add calendar event'}</DialogTitle>
+                    <AddEventForm
+                        selectedDate={selectedDate}
+                        selectedEvent={selectedEvent}
+                        onClose={handleCloseModal}
+                        onOptimisticUpsert={applyOptimisticCalendarItem}
+                    />
                 </DialogContent>
             </Dialog>
         </>

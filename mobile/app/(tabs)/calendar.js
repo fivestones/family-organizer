@@ -26,6 +26,7 @@ import { useAppTheme } from '../../src/theme/ThemeProvider';
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DEVANAGARI_DIGITS = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
 const NEPALI_MONTHS_COMMON_DEVANAGARI = ['वैशाख', 'जेठ', 'असार', 'साउन', 'भदौ', 'असोज', 'कात्तिक', 'मंसिर', 'पुष', 'माघ', 'फागुन', 'चैत'];
+const DEFAULT_EVENT_STATUS = 'confirmed';
 
 function startOfDay(date) {
   const next = new Date(date);
@@ -74,6 +75,19 @@ function parseTime(value) {
   const [hours, minutes] = value.split(':').map(Number);
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return { hours, minutes };
+}
+
+function getLocalTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+function shouldRetryLegacyCalendarMutation(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('permission denied') || message.includes('mutation failed') || message.includes('attrs');
 }
 
 function combineLocalDateAndTime(dateValue, timeValue) {
@@ -213,6 +227,28 @@ function buildInitialForm(date = new Date()) {
     endDate: formatYmd(start),
     startTime: `${String(startTimed.getHours()).padStart(2, '0')}:${String(startTimed.getMinutes()).padStart(2, '0')}`,
     endTime: `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`,
+    status: DEFAULT_EVENT_STATUS,
+    location: '',
+    timeZone: getLocalTimeZone(),
+    rrule: '',
+    rdates: [],
+    exdates: [],
+    recurrenceLines: [],
+    recurrenceId: '',
+    recurringEventId: '',
+    recurrenceIdRange: '',
+    travelDurationBeforeMinutes: null,
+    travelDurationAfterMinutes: null,
+    alarms: [],
+    eventType: 'default',
+    visibility: 'default',
+    transparency: 'transparent',
+    uid: '',
+    sequence: 0,
+    createdAt: '',
+    updatedAt: '',
+    dtStamp: '',
+    lastModified: '',
   };
 }
 
@@ -231,6 +267,30 @@ function formFromEvent(event) {
       endDate: formatYmd(endInclusive),
       startTime: '10:00',
       endTime: '11:00',
+      status: event.status || DEFAULT_EVENT_STATUS,
+      location: event.location || '',
+      timeZone: event.timeZone || getLocalTimeZone(),
+      rrule: event.rrule || '',
+      rdates: Array.isArray(event.rdates) ? event.rdates : [],
+      exdates: Array.isArray(event.exdates) ? event.exdates : [],
+      recurrenceLines: Array.isArray(event.recurrenceLines) ? event.recurrenceLines : [],
+      recurrenceId: event.recurrenceId || '',
+      recurringEventId: event.recurringEventId || '',
+      recurrenceIdRange: event.recurrenceIdRange || '',
+      travelDurationBeforeMinutes:
+        typeof event.travelDurationBeforeMinutes === 'number' ? event.travelDurationBeforeMinutes : null,
+      travelDurationAfterMinutes:
+        typeof event.travelDurationAfterMinutes === 'number' ? event.travelDurationAfterMinutes : null,
+      alarms: Array.isArray(event.alarms) ? event.alarms : [],
+      eventType: event.eventType || 'default',
+      visibility: event.visibility || 'default',
+      transparency: event.transparency || 'transparent',
+      uid: event.uid || '',
+      sequence: typeof event.sequence === 'number' ? event.sequence : 0,
+      createdAt: event.createdAt || '',
+      updatedAt: event.updatedAt || '',
+      dtStamp: event.dtStamp || '',
+      lastModified: event.lastModified || '',
     };
   }
 
@@ -248,6 +308,30 @@ function formFromEvent(event) {
     endTime: Number.isNaN(end.getTime())
       ? '11:00'
       : `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`,
+    status: event.status || DEFAULT_EVENT_STATUS,
+    location: event.location || '',
+    timeZone: event.timeZone || getLocalTimeZone(),
+    rrule: event.rrule || '',
+    rdates: Array.isArray(event.rdates) ? event.rdates : [],
+    exdates: Array.isArray(event.exdates) ? event.exdates : [],
+    recurrenceLines: Array.isArray(event.recurrenceLines) ? event.recurrenceLines : [],
+    recurrenceId: event.recurrenceId || '',
+    recurringEventId: event.recurringEventId || '',
+    recurrenceIdRange: event.recurrenceIdRange || '',
+    travelDurationBeforeMinutes:
+      typeof event.travelDurationBeforeMinutes === 'number' ? event.travelDurationBeforeMinutes : null,
+    travelDurationAfterMinutes:
+      typeof event.travelDurationAfterMinutes === 'number' ? event.travelDurationAfterMinutes : null,
+    alarms: Array.isArray(event.alarms) ? event.alarms : [],
+    eventType: event.eventType || 'default',
+    visibility: event.visibility || 'default',
+    transparency: event.transparency || 'opaque',
+    uid: event.uid || '',
+    sequence: typeof event.sequence === 'number' ? event.sequence : 0,
+    createdAt: event.createdAt || '',
+    updatedAt: event.updatedAt || '',
+    dtStamp: event.dtStamp || '',
+    lastModified: event.lastModified || '',
   };
 }
 
@@ -262,6 +346,30 @@ function normalizeCalendarItem(item) {
     year: item.year,
     month: item.month,
     dayOfMonth: item.dayOfMonth,
+    status: item.status || DEFAULT_EVENT_STATUS,
+    location: item.location || '',
+    timeZone: item.timeZone || '',
+    rrule: item.rrule || '',
+    rdates: Array.isArray(item.rdates) ? item.rdates : [],
+    exdates: Array.isArray(item.exdates) ? item.exdates : [],
+    recurrenceLines: Array.isArray(item.recurrenceLines) ? item.recurrenceLines : [],
+    recurrenceId: item.recurrenceId || '',
+    recurringEventId: item.recurringEventId || '',
+    recurrenceIdRange: item.recurrenceIdRange || '',
+    travelDurationBeforeMinutes:
+      typeof item.travelDurationBeforeMinutes === 'number' ? item.travelDurationBeforeMinutes : null,
+    travelDurationAfterMinutes:
+      typeof item.travelDurationAfterMinutes === 'number' ? item.travelDurationAfterMinutes : null,
+    alarms: Array.isArray(item.alarms) ? item.alarms : [],
+    eventType: item.eventType || 'default',
+    visibility: item.visibility || 'default',
+    transparency: item.transparency || (item.isAllDay ? 'transparent' : 'opaque'),
+    uid: item.uid || '',
+    sequence: typeof item.sequence === 'number' ? item.sequence : 0,
+    createdAt: item.createdAt || '',
+    updatedAt: item.updatedAt || '',
+    dtStamp: item.dtStamp || '',
+    lastModified: item.lastModified || '',
   };
 }
 
@@ -331,6 +439,10 @@ export default function CalendarTab() {
 
   const selectedDayKey = formatYmd(selectedDate);
   const selectedDayEvents = eventsByDayKey.get(selectedDayKey) || [];
+  const editingEvent = useMemo(
+    () => (editingEventId ? calendarItems.find((item) => item.id === editingEventId) || null : null),
+    [calendarItems, editingEventId]
+  );
   const openNewEventModal = useCallback((date) => {
     const baseDate = date || selectedDate || new Date();
     setEditingEventId(null);
@@ -573,13 +685,62 @@ export default function CalendarTab() {
       };
     }
 
+    const legacyPayload = payload;
+    const nowIso = new Date().toISOString();
+    const eventId = editingEventId || id();
+    const previousSequence = typeof editingEvent?.sequence === 'number' ? editingEvent.sequence : 0;
+    const status = String(form.status || editingEvent?.status || DEFAULT_EVENT_STATUS).trim().toLowerCase() || DEFAULT_EVENT_STATUS;
+    const payloadBase = {
+      uid: editingEvent?.uid || form.uid || eventId,
+      sequence: editingEventId ? previousSequence + 1 : previousSequence,
+      status,
+      createdAt: editingEvent?.createdAt || form.createdAt || nowIso,
+      updatedAt: nowIso,
+      dtStamp: nowIso,
+      lastModified: nowIso,
+      location: String(form.location || editingEvent?.location || '').trim(),
+      timeZone: String(form.timeZone || editingEvent?.timeZone || getLocalTimeZone()).trim(),
+      rrule: String(form.rrule || editingEvent?.rrule || '').trim(),
+      rdates: Array.isArray(form.rdates) ? form.rdates : Array.isArray(editingEvent?.rdates) ? editingEvent.rdates : [],
+      exdates: Array.isArray(form.exdates) ? form.exdates : Array.isArray(editingEvent?.exdates) ? editingEvent.exdates : [],
+      recurrenceLines:
+        Array.isArray(form.recurrenceLines)
+          ? form.recurrenceLines
+          : Array.isArray(editingEvent?.recurrenceLines)
+            ? editingEvent.recurrenceLines
+            : [],
+      recurrenceId: String(form.recurrenceId || editingEvent?.recurrenceId || '').trim(),
+      recurringEventId: String(form.recurringEventId || editingEvent?.recurringEventId || '').trim(),
+      recurrenceIdRange: String(form.recurrenceIdRange || editingEvent?.recurrenceIdRange || '').trim(),
+      alarms: Array.isArray(form.alarms) ? form.alarms : Array.isArray(editingEvent?.alarms) ? editingEvent.alarms : [],
+      eventType: String(form.eventType || editingEvent?.eventType || 'default'),
+      visibility: String(form.visibility || editingEvent?.visibility || 'default'),
+      transparency: String(form.transparency || editingEvent?.transparency || (form.isAllDay ? 'transparent' : 'opaque')),
+      ...(typeof form.travelDurationBeforeMinutes === 'number' ? { travelDurationBeforeMinutes: form.travelDurationBeforeMinutes } : {}),
+      ...(typeof form.travelDurationAfterMinutes === 'number' ? { travelDurationAfterMinutes: form.travelDurationAfterMinutes } : {}),
+    };
+
+    payload = { ...payload, ...payloadBase };
+
     setSaving(true);
     try {
-      const eventId = editingEventId || id();
       await db.transact([tx.calendarItems[eventId].update(payload)]);
       setSelectedDate(parseYmdLocal(form.startDate) || selectedDate);
       closeModal();
     } catch (error) {
+      if (shouldRetryLegacyCalendarMutation(error)) {
+        try {
+          await db.transact([tx.calendarItems[eventId].update(legacyPayload)]);
+          setSelectedDate(parseYmdLocal(form.startDate) || selectedDate);
+          closeModal();
+          return;
+        } catch (fallbackError) {
+          setSaving(false);
+          Alert.alert('Unable to save event', fallbackError?.message || 'Please try again.');
+          return;
+        }
+      }
+
       setSaving(false);
       Alert.alert('Unable to save event', error?.message || 'Please try again.');
     }
@@ -849,6 +1010,7 @@ export default function CalendarTab() {
                   </View>
                   <Text style={styles.eventMeta}>{formatEventRangeLabel(event)}</Text>
                   {!!event.description ? <Text style={styles.eventDescription}>{event.description}</Text> : null}
+                  <Text style={styles.eventHint}>Status: {String(event.status || DEFAULT_EVENT_STATUS)}</Text>
                   {!canEditEvents ? <Text style={styles.eventHint}>Read only in kid mode</Text> : null}
                 </Pressable>
               ))}

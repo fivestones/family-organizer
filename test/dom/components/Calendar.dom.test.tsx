@@ -83,6 +83,7 @@ vi.mock('@/components/AddEvent', () => ({
 vi.mock('@/components/ui/dialog', () => ({
     Dialog: ({ open, children }: any) => (open ? <div data-testid="dialog-root">{children}</div> : null),
     DialogContent: ({ children }: any) => <div>{children}</div>,
+    DialogTitle: ({ children }: any) => <h2>{children}</h2>,
 }));
 
 vi.mock('@instantdb/react', () => ({
@@ -198,20 +199,23 @@ describe('Calendar', () => {
 
         expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
         const [ops] = mocks.dbTransact.mock.calls[0];
-        expect(ops).toEqual([
-            {
-                entity: 'calendarItems',
-                id: 'evt-1',
-                op: 'update',
-                payload: {
-                    startDate: '2026-03-17',
-                    endDate: '2026-03-18',
-                    year: 2026,
-                    month: 3,
-                    dayOfMonth: 17,
-                },
+        expect(ops).toHaveLength(1);
+        expect(ops[0]).toMatchObject({
+            entity: 'calendarItems',
+            id: 'evt-1',
+            op: 'update',
+            payload: {
+                startDate: '2026-03-17',
+                endDate: '2026-03-18',
+                year: 2026,
+                month: 3,
+                dayOfMonth: 17,
+                sequence: 1,
             },
-        ]);
+        });
+        expect(typeof ops[0].payload.updatedAt).toBe('string');
+        expect(typeof ops[0].payload.lastModified).toBe('string');
+        expect(typeof ops[0].payload.dtStamp).toBe('string');
     });
 
     it('ignores drops onto the same day or non-calendar targets', () => {

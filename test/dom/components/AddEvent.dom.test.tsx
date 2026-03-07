@@ -88,7 +88,7 @@ function renderForm(props?: Partial<React.ComponentProps<typeof AddEventForm>>) 
 }
 
 function getOps() {
-    expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+    expect(mocks.dbTransact).toHaveBeenCalled();
     const [ops] = mocks.dbTransact.mock.calls[0];
     expect(Array.isArray(ops)).toBe(true);
     return ops;
