@@ -179,6 +179,89 @@ describe('AddEventForm', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
+    it('builds custom recurrence rules with repeat-end counts', async () => {
+        renderForm();
+        const user = userEvent.setup();
+
+        await user.type(screen.getByLabelText('Title'), 'Homework Club');
+        await user.selectOptions(screen.getByLabelText('Repeat'), 'custom');
+        fireEvent.change(screen.getByLabelText('Every'), { target: { value: '3' } });
+        await user.selectOptions(screen.getByLabelText('Unit'), 'week');
+        await user.click(screen.getByRole('button', { name: 'Tuesday' }));
+        await user.click(screen.getByRole('button', { name: 'Thursday' }));
+        await user.selectOptions(screen.getByLabelText('Repeat End'), 'count');
+        fireEvent.change(screen.getByLabelText('Occurrences'), { target: { value: '8' } });
+        await user.click(screen.getByRole('button', { name: /add event/i }));
+
+        expect(mocks.dbTransact).toHaveBeenCalledTimes(2);
+        const [advancedOps] = mocks.dbTransact.mock.calls[1];
+        expect(advancedOps[0].data.rrule).toBe('RRULE:FREQ=WEEKLY;INTERVAL=3;BYDAY=SU,TU,TH;COUNT=8');
+    });
+
+    it('sorts custom monthly day summaries in natural order', async () => {
+        renderForm();
+        const user = userEvent.setup();
+
+        await user.selectOptions(screen.getByLabelText('Repeat'), 'custom');
+        fireEvent.change(screen.getByLabelText('Every'), { target: { value: '2' } });
+        await user.selectOptions(screen.getByLabelText('Unit'), 'month');
+        await user.click(screen.getByRole('button', { name: '10' }));
+
+        expect(screen.getAllByText('Every 2 months on the 10th and 15th').length).toBeGreaterThan(0);
+        expect(screen.queryByText('Every 2 months on the 15th and 10th')).not.toBeInTheDocument();
+    });
+
+    it('sorts weekly day summaries and collapses weekday/weekend groups', async () => {
+        renderForm();
+        const user = userEvent.setup();
+
+        await user.selectOptions(screen.getByLabelText('Repeat'), 'custom');
+        await user.selectOptions(screen.getByLabelText('Unit'), 'week');
+        await user.click(screen.getByRole('button', { name: 'Tuesday' }));
+        await user.click(screen.getByRole('button', { name: 'Monday' }));
+        await user.click(screen.getByRole('button', { name: 'Wednesday' }));
+
+        expect(screen.getAllByText('Every week on Sunday, Monday, Tuesday, and Wednesday').length).toBeGreaterThan(0);
+
+        fireEvent.change(screen.getByLabelText('Every'), { target: { value: '2' } });
+        await user.click(screen.getByRole('button', { name: 'Sunday' }));
+        await user.click(screen.getByRole('button', { name: 'Monday' }));
+        await user.click(screen.getByRole('button', { name: 'Tuesday' }));
+        await user.click(screen.getByRole('button', { name: 'Wednesday' }));
+        await user.click(screen.getByRole('button', { name: 'Monday' }));
+        await user.click(screen.getByRole('button', { name: 'Tuesday' }));
+        await user.click(screen.getByRole('button', { name: 'Wednesday' }));
+        await user.click(screen.getByRole('button', { name: 'Thursday' }));
+        await user.click(screen.getByRole('button', { name: 'Friday' }));
+        expect(screen.getAllByText('Every 2 weeks on weekdays').length).toBeGreaterThan(0);
+
+        await user.click(screen.getByRole('button', { name: 'Monday' }));
+        await user.click(screen.getByRole('button', { name: 'Tuesday' }));
+        await user.click(screen.getByRole('button', { name: 'Wednesday' }));
+        await user.click(screen.getByRole('button', { name: 'Thursday' }));
+        await user.click(screen.getByRole('button', { name: 'Friday' }));
+        await user.click(screen.getByRole('button', { name: 'Saturday' }));
+        await user.click(screen.getByRole('button', { name: 'Sunday' }));
+        expect(screen.getAllByText('Every 2 weeks on weekends').length).toBeGreaterThan(0);
+    });
+
+    it('defaults yearly custom month to the start month and only names non-default month selections', async () => {
+        renderForm();
+        const user = userEvent.setup();
+
+        await user.selectOptions(screen.getByLabelText('Repeat'), 'custom');
+        fireEvent.change(screen.getByLabelText('Every'), { target: { value: '2' } });
+        await user.selectOptions(screen.getByLabelText('Unit'), 'year');
+
+        expect(screen.getAllByText('Every 2 years').length).toBeGreaterThan(0);
+
+        await user.click(screen.getByRole('button', { name: 'Jul' }));
+        expect(screen.getAllByText('Every 2 years in March and July').length).toBeGreaterThan(0);
+
+        await user.click(screen.getByRole('button', { name: 'Mar' }));
+        expect(screen.getAllByText('Every 2 years in July').length).toBeGreaterThan(0);
+    });
+
     it('switches to timed mode and keeps event duration when the start time changes', async () => {
         renderForm();
         const user = userEvent.setup();

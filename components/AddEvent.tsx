@@ -110,6 +110,642 @@ const MEMBER_GRID_ROW_HEIGHT_PX = 40;
 const MEMBER_GRID_CHROME_WIDTH_PX = 56; // checkbox + internal padding + spacing
 const MEMBER_GRID_TEXT_FONT = "500 14px ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial";
 
+type RepeatMode = 'never' | 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom' | 'rrule';
+type CustomUnit = 'day' | 'week' | 'month' | 'year';
+type MonthPatternMode = 'days' | 'week';
+type RepeatEndMode = 'forever' | 'until' | 'count';
+type WeekdayToken = 'SU' | 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'DAY' | 'WEEKDAY' | 'WEEKEND';
+
+interface RecurrenceUiState {
+    mode: RepeatMode;
+    customInterval: number;
+    customUnit: CustomUnit;
+    customWeekDays: string[];
+    customMonthMode: MonthPatternMode;
+    customMonthDays: number[];
+    customMonthOrdinal: number;
+    customMonthWeekday: WeekdayToken;
+    customYearMonths: number[];
+    customYearUseWeekday: boolean;
+    customYearOrdinal: number;
+    customYearWeekday: WeekdayToken;
+    repeatEndMode: RepeatEndMode;
+    repeatEndUntil: string;
+    repeatEndCount: number;
+    advancedRrule: string;
+    customExpanded: boolean;
+    unsupportedRrule: boolean;
+}
+
+const WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const;
+const WEEKDAY_CHIPS = [
+    { code: 'SU', label: 'Sunday' },
+    { code: 'MO', label: 'Monday' },
+    { code: 'TU', label: 'Tuesday' },
+    { code: 'WE', label: 'Wednesday' },
+    { code: 'TH', label: 'Thursday' },
+    { code: 'FR', label: 'Friday' },
+    { code: 'SA', label: 'Saturday' },
+] as const;
+const WEEKDAY_GROUP_LABELS: Record<WeekdayToken, string> = {
+    SU: 'Sunday',
+    MO: 'Monday',
+    TU: 'Tuesday',
+    WE: 'Wednesday',
+    TH: 'Thursday',
+    FR: 'Friday',
+    SA: 'Saturday',
+    DAY: 'Day',
+    WEEKDAY: 'Weekday',
+    WEEKEND: 'Weekend Day',
+};
+const MONTH_OPTIONS = [
+    { value: 1, label: 'January' },
+    { value: 2, label: 'February' },
+    { value: 3, label: 'March' },
+    { value: 4, label: 'April' },
+    { value: 5, label: 'May' },
+    { value: 6, label: 'June' },
+    { value: 7, label: 'July' },
+    { value: 8, label: 'August' },
+    { value: 9, label: 'September' },
+    { value: 10, label: 'October' },
+    { value: 11, label: 'November' },
+    { value: 12, label: 'December' },
+] as const;
+const MONTH_DAY_CHOICES = [...Array.from({ length: 31 }, (_value, index) => index + 1), -1];
+const SUPPORTED_RRULE_KEYS = new Set(['FREQ', 'INTERVAL', 'BYDAY', 'BYMONTHDAY', 'BYMONTH', 'COUNT', 'UNTIL', 'BYSETPOS']);
+
+function clampRecurrenceNumber(value: number, min: number, max: number) {
+    if (!Number.isFinite(value)) return min;
+    return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function humanJoin(items: string[]): string {
+    if (items.length === 0) return '';
+    if (items.length === 1) return items[0];
+    if (items.length === 2) return `${items[0]} and ${items[1]}`;
+    return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
+function weekdayCodeFromDate(startDateValue: string) {
+    const parsed = parseISO(`${startDateValue || format(new Date(), 'yyyy-MM-dd')}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return 'SU';
+    return WEEKDAY_CODES[parsed.getDay()] || 'SU';
+}
+
+function dayOfMonthFromDate(startDateValue: string) {
+    const parsed = parseISO(`${startDateValue || format(new Date(), 'yyyy-MM-dd')}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return 1;
+    return parsed.getDate();
+}
+
+function monthOfDate(startDateValue: string) {
+    const parsed = parseISO(`${startDateValue || format(new Date(), 'yyyy-MM-dd')}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return 1;
+    return parsed.getMonth() + 1;
+}
+
+function ordinalSuffix(value: number): string {
+    const absolute = Math.abs(value);
+    const mod100 = absolute % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
+    const mod10 = absolute % 10;
+    if (mod10 === 1) return `${value}st`;
+    if (mod10 === 2) return `${value}nd`;
+    if (mod10 === 3) return `${value}rd`;
+    return `${value}th`;
+}
+
+function ordinalLabel(value: number): string {
+    if (value === -1) return 'last';
+    return ordinalSuffix(value);
+}
+
+function singularOrPlural(unit: CustomUnit, count: number): string {
+    const singular = unit;
+    const plural = `${unit}s`;
+    return count === 1 ? singular : plural;
+}
+
+function weekdayTokenLabel(token: WeekdayToken): string {
+    return WEEKDAY_GROUP_LABELS[token] || token;
+}
+
+function sortWeekdayCodes(codes: string[]): string[] {
+    const order = new Map<string, number>(WEEKDAY_CODES.map((code, index) => [code, index]));
+    return Array.from(new Set(codes.filter((code) => WEEKDAY_CODES.includes(code as any)))).sort((left, right) => {
+        return (order.get(left) ?? 999) - (order.get(right) ?? 999);
+    });
+}
+
+function sortMonthDays(dayValues: number[]): number[] {
+    const unique = Array.from(
+        new Set(dayValues.map((entry) => Math.trunc(entry)).filter((entry) => entry === -1 || (entry >= 1 && entry <= 31)))
+    );
+    return unique.sort((left, right) => {
+        if (left === -1) return 1;
+        if (right === -1) return -1;
+        return left - right;
+    });
+}
+
+function sortMonthNumbers(monthValues: number[]): number[] {
+    return Array.from(
+        new Set(
+            monthValues
+                .map((entry) => Math.trunc(entry))
+                .filter((entry) => Number.isFinite(entry) && entry >= 1 && entry <= 12)
+        )
+    ).sort((left, right) => left - right);
+}
+
+function shouldUseWeekdaysLabel(weekdays: string[]): boolean {
+    return sameSet(weekdays, ['MO', 'TU', 'WE', 'TH', 'FR']);
+}
+
+function shouldUseWeekendsLabel(weekdays: string[]): boolean {
+    return sameSet(weekdays, ['SU', 'SA']);
+}
+
+function weekdayTokenToByday(token: WeekdayToken): string[] {
+    if (token === 'DAY') return [...WEEKDAY_CODES];
+    if (token === 'WEEKDAY') return ['MO', 'TU', 'WE', 'TH', 'FR'];
+    if (token === 'WEEKEND') return ['SU', 'SA'];
+    return [token];
+}
+
+function splitRruleParts(rrule: string): Record<string, string> | null {
+    const normalized = normalizeRrule(rrule);
+    const raw = normalized.replace(/^RRULE:/i, '');
+    if (!raw.trim()) return {};
+    const result: Record<string, string> = {};
+    const parts = raw.split(';').filter(Boolean);
+    for (const part of parts) {
+        const [rawKey, ...rawValueParts] = part.split('=');
+        const key = String(rawKey || '').trim().toUpperCase();
+        const value = rawValueParts.join('=').trim();
+        if (!key || !value) return null;
+        result[key] = value;
+    }
+    return result;
+}
+
+function parseIntList(value: string | undefined): number[] {
+    if (!value) return [];
+    return value
+        .split(',')
+        .map((item) => Number(item.trim()))
+        .filter((numberValue) => Number.isFinite(numberValue))
+        .map((numberValue) => Math.trunc(numberValue));
+}
+
+function parseBydayToken(token: string): { ordinal: number | null; day: string } | null {
+    const match = token.match(/^([+-]?\d+)?(SU|MO|TU|WE|TH|FR|SA)$/i);
+    if (!match) return null;
+    const rawOrdinal = match[1];
+    const day = match[2].toUpperCase();
+    if (!rawOrdinal) return { ordinal: null, day };
+    const parsedOrdinal = Number(rawOrdinal);
+    if (!Number.isFinite(parsedOrdinal)) return null;
+    return { ordinal: Math.trunc(parsedOrdinal), day };
+}
+
+function sameSet(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) return false;
+    const leftSorted = [...left].sort();
+    const rightSorted = [...right].sort();
+    return leftSorted.every((entry, index) => entry === rightSorted[index]);
+}
+
+function parseUntilToInputValue(value: string | undefined): string {
+    if (!value) return '';
+    const cleaned = value.replace(/[^0-9]/g, '');
+    if (cleaned.length < 8) return '';
+    const year = cleaned.slice(0, 4);
+    const month = cleaned.slice(4, 6);
+    const day = cleaned.slice(6, 8);
+    if (!year || !month || !day) return '';
+    return `${year}-${month}-${day}`;
+}
+
+function buildUntilToken(untilDate: string): string {
+    const datePart = String(untilDate || '').replace(/-/g, '');
+    if (!/^\d{8}$/.test(datePart)) return '';
+    return `${datePart}T235959Z`;
+}
+
+function getDefaultRecurrenceUiState(startDateValue: string): RecurrenceUiState {
+    return {
+        mode: 'never',
+        customInterval: 1,
+        customUnit: 'day',
+        customWeekDays: [weekdayCodeFromDate(startDateValue)],
+        customMonthMode: 'days',
+        customMonthDays: [dayOfMonthFromDate(startDateValue)],
+        customMonthOrdinal: 1,
+        customMonthWeekday: weekdayCodeFromDate(startDateValue) as WeekdayToken,
+        customYearMonths: [monthOfDate(startDateValue)],
+        customYearUseWeekday: false,
+        customYearOrdinal: 1,
+        customYearWeekday: weekdayCodeFromDate(startDateValue) as WeekdayToken,
+        repeatEndMode: 'forever',
+        repeatEndUntil: '',
+        repeatEndCount: 1,
+        advancedRrule: '',
+        customExpanded: true,
+        unsupportedRrule: false,
+    };
+}
+
+function decodeWeekPattern(bydayValues: string[], bysetposValue?: number): { ordinal: number; token: WeekdayToken } | null {
+    const parsed = bydayValues.map((entry) => parseBydayToken(entry)).filter(Boolean) as Array<{ ordinal: number | null; day: string }>;
+    if (parsed.length === 0) return null;
+
+    if (bysetposValue != null) {
+        const ordinal = Math.trunc(bysetposValue);
+        if (![1, 2, 3, 4, 5, -1].includes(ordinal)) return null;
+        const plainDays = parsed.filter((entry) => entry.ordinal == null).map((entry) => entry.day);
+        if (plainDays.length !== parsed.length) return null;
+        if (sameSet(plainDays, ['MO', 'TU', 'WE', 'TH', 'FR'])) {
+            return { ordinal, token: 'WEEKDAY' };
+        }
+        if (sameSet(plainDays, ['SU', 'SA'])) {
+            return { ordinal, token: 'WEEKEND' };
+        }
+        if (sameSet(plainDays, [...WEEKDAY_CODES])) {
+            return { ordinal, token: 'DAY' };
+        }
+        if (plainDays.length === 1 && WEEKDAY_CODES.includes(plainDays[0] as any)) {
+            return { ordinal, token: plainDays[0] as WeekdayToken };
+        }
+        return null;
+    }
+
+    if (parsed.length === 1 && parsed[0].ordinal != null && [1, 2, 3, 4, 5, -1].includes(parsed[0].ordinal)) {
+        return { ordinal: parsed[0].ordinal, token: parsed[0].day as WeekdayToken };
+    }
+
+    return null;
+}
+
+function parseRecurrenceUiStateFromRrule(rrule: string | undefined, startDateValue: string): RecurrenceUiState {
+    const base = getDefaultRecurrenceUiState(startDateValue);
+    if (!rrule || !rrule.trim()) return base;
+
+    const normalized = normalizeRrule(rrule);
+    const parts = splitRruleParts(normalized);
+    if (!parts) {
+        return { ...base, mode: 'rrule', advancedRrule: normalized, unsupportedRrule: true };
+    }
+
+    const keys = Object.keys(parts);
+    if (keys.some((key) => !SUPPORTED_RRULE_KEYS.has(key))) {
+        const maybeEnd = { ...base };
+        if (parts.COUNT) {
+            maybeEnd.repeatEndMode = 'count';
+            maybeEnd.repeatEndCount = clampRecurrenceNumber(Number(parts.COUNT), 1, 1000);
+        } else if (parts.UNTIL) {
+            maybeEnd.repeatEndMode = 'until';
+            maybeEnd.repeatEndUntil = parseUntilToInputValue(parts.UNTIL);
+        }
+        return { ...maybeEnd, mode: 'rrule', advancedRrule: normalized, unsupportedRrule: true };
+    }
+
+    const next = { ...base, advancedRrule: normalized };
+    if (parts.COUNT) {
+        next.repeatEndMode = 'count';
+        next.repeatEndCount = clampRecurrenceNumber(Number(parts.COUNT), 1, 1000);
+    } else if (parts.UNTIL) {
+        next.repeatEndMode = 'until';
+        next.repeatEndUntil = parseUntilToInputValue(parts.UNTIL);
+    }
+
+    const freq = String(parts.FREQ || '').toUpperCase();
+    if (!freq) {
+        return { ...next, mode: 'rrule', unsupportedRrule: true };
+    }
+
+    const interval = clampRecurrenceNumber(Number(parts.INTERVAL || 1), 1, 1000);
+    const bydayValues = String(parts.BYDAY || '')
+        .split(',')
+        .map((entry) => entry.trim().toUpperCase())
+        .filter(Boolean);
+    const bymonthdayValues = parseIntList(parts.BYMONTHDAY);
+    const bymonthValues = parseIntList(parts.BYMONTH).filter((entry) => entry >= 1 && entry <= 12);
+    const bysetposValue = parts.BYSETPOS ? Number(parts.BYSETPOS) : undefined;
+
+    if (
+        freq === 'DAILY' &&
+        interval === 1 &&
+        bydayValues.length === 0 &&
+        bymonthdayValues.length === 0 &&
+        bymonthValues.length === 0 &&
+        bysetposValue == null
+    ) {
+        return { ...next, mode: 'daily' };
+    }
+
+    if (
+        freq === 'WEEKLY' &&
+        bymonthdayValues.length === 0 &&
+        bymonthValues.length === 0 &&
+        bysetposValue == null &&
+        bydayValues.every((entry) => WEEKDAY_CODES.includes(entry as any))
+    ) {
+        if (interval === 1) {
+            return { ...next, mode: 'weekly', customWeekDays: sortWeekdayCodes(bydayValues.length > 0 ? bydayValues : next.customWeekDays) };
+        }
+        if (interval === 2) {
+            return { ...next, mode: 'biweekly', customWeekDays: sortWeekdayCodes(bydayValues.length > 0 ? bydayValues : next.customWeekDays) };
+        }
+    }
+
+    if (
+        freq === 'MONTHLY' &&
+        interval === 1 &&
+        bydayValues.length === 0 &&
+        bymonthdayValues.length === 0 &&
+        bymonthValues.length === 0 &&
+        bysetposValue == null
+    ) {
+        return { ...next, mode: 'monthly' };
+    }
+
+    if (
+        freq === 'YEARLY' &&
+        interval === 1 &&
+        bydayValues.length === 0 &&
+        bymonthdayValues.length === 0 &&
+        bymonthValues.length === 0 &&
+        bysetposValue == null
+    ) {
+        return { ...next, mode: 'yearly' };
+    }
+
+    const asCustom = { ...next, mode: 'custom' as const, customInterval: interval, customExpanded: true };
+    if (freq === 'DAILY') {
+        return { ...asCustom, customUnit: 'day' };
+    }
+
+    if (freq === 'WEEKLY') {
+        if (bymonthdayValues.length > 0 || bymonthValues.length > 0 || bysetposValue != null) {
+            return { ...next, mode: 'rrule', unsupportedRrule: true };
+        }
+        if (bydayValues.some((entry) => !WEEKDAY_CODES.includes(entry as any))) {
+            return { ...next, mode: 'rrule', unsupportedRrule: true };
+        }
+        return { ...asCustom, customUnit: 'week', customWeekDays: sortWeekdayCodes(bydayValues.length > 0 ? bydayValues : asCustom.customWeekDays) };
+    }
+
+    if (freq === 'MONTHLY') {
+        if (bymonthValues.length > 0) return { ...next, mode: 'rrule', unsupportedRrule: true };
+
+        if (bymonthdayValues.length > 0) {
+            const validDays = bymonthdayValues.filter((value) => value === -1 || (value >= 1 && value <= 31));
+            if (validDays.length === 0) return { ...next, mode: 'rrule', unsupportedRrule: true };
+            return {
+                ...asCustom,
+                customUnit: 'month',
+                customMonthMode: 'days',
+                customMonthDays: sortMonthDays(validDays),
+            };
+        }
+
+        if (bydayValues.length > 0) {
+            const pattern = decodeWeekPattern(bydayValues, Number.isFinite(bysetposValue as number) ? (bysetposValue as number) : undefined);
+            if (!pattern) return { ...next, mode: 'rrule', unsupportedRrule: true };
+            return {
+                ...asCustom,
+                customUnit: 'month',
+                customMonthMode: 'week',
+                customMonthOrdinal: pattern.ordinal,
+                customMonthWeekday: pattern.token,
+            };
+        }
+
+        return { ...asCustom, customUnit: 'month' };
+    }
+
+    if (freq === 'YEARLY') {
+        const monthlySelection = sortMonthNumbers(bymonthValues);
+        const yearState = {
+            ...asCustom,
+            customUnit: 'year' as const,
+            customYearMonths: monthlySelection.length > 0 ? monthlySelection : [monthOfDate(startDateValue)],
+        };
+
+        if (bydayValues.length === 0 && bymonthdayValues.length === 0 && bysetposValue == null) {
+            return yearState;
+        }
+
+        if (bymonthdayValues.length === 1 && bydayValues.length === 0 && bysetposValue == null) {
+            const monthDay = bymonthdayValues[0];
+            if (monthDay === -1 || (monthDay >= 1 && monthDay <= 5)) {
+                return {
+                    ...yearState,
+                    customYearUseWeekday: true,
+                    customYearWeekday: 'DAY',
+                    customYearOrdinal: monthDay,
+                };
+            }
+        }
+
+        const pattern = decodeWeekPattern(bydayValues, Number.isFinite(bysetposValue as number) ? (bysetposValue as number) : undefined);
+        if (!pattern) {
+            return { ...next, mode: 'rrule', unsupportedRrule: true };
+        }
+
+        return {
+            ...yearState,
+            customYearUseWeekday: true,
+            customYearWeekday: pattern.token,
+            customYearOrdinal: pattern.ordinal,
+        };
+    }
+
+    return { ...next, mode: 'rrule', unsupportedRrule: true };
+}
+
+function serializeRecurrenceToRrule(state: RecurrenceUiState, startDateValue: string): string {
+    const startWeekday = weekdayCodeFromDate(startDateValue);
+    const startMonthDay = dayOfMonthFromDate(startDateValue);
+
+    if (state.mode === 'never') return '';
+
+    const applyRepeatEnd = (baseRrule: string): string => {
+        const normalized = normalizeRrule(baseRrule);
+        if (!normalized) return '';
+        const parts = normalized.replace(/^RRULE:/i, '').split(';').filter(Boolean);
+        const noEndParts = parts.filter((entry) => !entry.toUpperCase().startsWith('COUNT=') && !entry.toUpperCase().startsWith('UNTIL='));
+        if (state.repeatEndMode === 'count') {
+            noEndParts.push(`COUNT=${clampRecurrenceNumber(state.repeatEndCount, 1, 1000)}`);
+        } else if (state.repeatEndMode === 'until') {
+            const untilToken = buildUntilToken(state.repeatEndUntil);
+            if (untilToken) {
+                noEndParts.push(`UNTIL=${untilToken}`);
+            }
+        }
+        return noEndParts.length > 0 ? `RRULE:${noEndParts.join(';')}` : '';
+    };
+
+    if (state.mode === 'rrule') {
+        return applyRepeatEnd(state.advancedRrule);
+    }
+
+    let freq = '';
+    let interval = 1;
+    let byday: string[] = [];
+    let bymonthday: number[] = [];
+    let bymonth: number[] = [];
+    let bysetpos: number | undefined;
+
+    if (state.mode === 'daily') {
+        freq = 'DAILY';
+    } else if (state.mode === 'weekly') {
+        freq = 'WEEKLY';
+        byday = sortWeekdayCodes(state.customWeekDays.length > 0 ? state.customWeekDays : [startWeekday]);
+    } else if (state.mode === 'biweekly') {
+        freq = 'WEEKLY';
+        interval = 2;
+        byday = sortWeekdayCodes(state.customWeekDays.length > 0 ? state.customWeekDays : [startWeekday]);
+    } else if (state.mode === 'monthly') {
+        freq = 'MONTHLY';
+    } else if (state.mode === 'yearly') {
+        freq = 'YEARLY';
+    } else if (state.mode === 'custom') {
+        interval = clampRecurrenceNumber(state.customInterval, 1, 1000);
+        if (state.customUnit === 'day') {
+            freq = 'DAILY';
+        } else if (state.customUnit === 'week') {
+            freq = 'WEEKLY';
+            byday = sortWeekdayCodes(state.customWeekDays.length > 0 ? state.customWeekDays : [startWeekday]);
+        } else if (state.customUnit === 'month') {
+            freq = 'MONTHLY';
+            if (state.customMonthMode === 'days') {
+                const days = state.customMonthDays.length > 0 ? state.customMonthDays : [startMonthDay];
+                bymonthday = sortMonthDays(days);
+            } else {
+                const ordinal = [1, 2, 3, 4, 5, -1].includes(state.customMonthOrdinal) ? state.customMonthOrdinal : 1;
+                if (state.customMonthWeekday === 'DAY') {
+                    bymonthday = [ordinal === -1 ? -1 : ordinal];
+                } else if (state.customMonthWeekday === 'WEEKDAY' || state.customMonthWeekday === 'WEEKEND') {
+                    byday = weekdayTokenToByday(state.customMonthWeekday);
+                    bysetpos = ordinal;
+                } else {
+                    byday = [`${ordinal === -1 ? '-1' : String(ordinal)}${state.customMonthWeekday}`];
+                }
+            }
+        } else {
+            freq = 'YEARLY';
+            const yearMonths = sortMonthNumbers(state.customYearMonths);
+            if (!(yearMonths.length === 1 && yearMonths[0] === monthOfDate(startDateValue))) {
+                bymonth = yearMonths;
+            }
+            if (state.customYearUseWeekday) {
+                const ordinal = [1, 2, 3, 4, 5, -1].includes(state.customYearOrdinal) ? state.customYearOrdinal : 1;
+                if (state.customYearWeekday === 'DAY') {
+                    bymonthday = [ordinal === -1 ? -1 : ordinal];
+                } else if (state.customYearWeekday === 'WEEKDAY' || state.customYearWeekday === 'WEEKEND') {
+                    byday = weekdayTokenToByday(state.customYearWeekday);
+                    bysetpos = ordinal;
+                } else {
+                    byday = [`${ordinal === -1 ? '-1' : String(ordinal)}${state.customYearWeekday}`];
+                }
+            }
+        }
+    }
+
+    if (!freq) return '';
+
+    const parts: string[] = [`FREQ=${freq}`];
+    if (interval > 1) {
+        parts.push(`INTERVAL=${interval}`);
+    }
+    if (bymonth.length > 0) {
+        parts.push(`BYMONTH=${bymonth.join(',')}`);
+    }
+    if (bymonthday.length > 0) {
+        parts.push(`BYMONTHDAY=${bymonthday.join(',')}`);
+    }
+    if (byday.length > 0) {
+        parts.push(`BYDAY=${byday.join(',')}`);
+    }
+    if (bysetpos != null) {
+        parts.push(`BYSETPOS=${bysetpos}`);
+    }
+
+    return applyRepeatEnd(`RRULE:${parts.join(';')}`);
+}
+
+function recurrenceSummary(state: RecurrenceUiState, startDateValue: string): string {
+    if (state.mode === 'never') return 'Never';
+    if (state.mode === 'daily') return 'Every day';
+    if (state.mode === 'weekly') return 'Every week';
+    if (state.mode === 'biweekly') return 'Every 2 weeks';
+    if (state.mode === 'monthly') return 'Every month';
+    if (state.mode === 'yearly') return 'Every year';
+    if (state.mode === 'rrule') return state.unsupportedRrule ? 'Custom RRULE string (advanced)' : 'Custom RRULE string';
+
+    const interval = clampRecurrenceNumber(state.customInterval, 1, 1000);
+    const base = interval === 1 ? `Every ${singularOrPlural(state.customUnit, 1)}` : `Every ${interval} ${singularOrPlural(state.customUnit, interval)}`;
+
+    if (state.customUnit === 'day') return base;
+
+    if (state.customUnit === 'week') {
+        const selectedDays = sortWeekdayCodes(state.customWeekDays.length > 0 ? state.customWeekDays : [weekdayCodeFromDate(startDateValue)]);
+        if (shouldUseWeekdaysLabel(selectedDays)) {
+            return `${base} on weekdays`;
+        }
+        if (shouldUseWeekendsLabel(selectedDays)) {
+            return `${base} on weekends`;
+        }
+        const labels = selectedDays.map((entry) => weekdayTokenLabel(entry as WeekdayToken));
+        return `${base} on ${humanJoin(labels)}`;
+    }
+
+    if (state.customUnit === 'month') {
+        if (state.customMonthMode === 'days') {
+            const selectedDays = sortMonthDays(state.customMonthDays.length > 0 ? state.customMonthDays : [dayOfMonthFromDate(startDateValue)]);
+            const dayLabels = selectedDays.map((entry) => (entry === -1 ? 'last day' : ordinalSuffix(entry)));
+            return `${base} on the ${humanJoin(dayLabels)}`;
+        }
+
+        const ordinal = ordinalLabel(state.customMonthOrdinal);
+        const weekday = state.customMonthWeekday;
+        if (weekday === 'DAY') return `${base} on the ${ordinal} day of the month`;
+        if (weekday === 'WEEKDAY') return `${base} on the ${ordinal} weekday of the month`;
+        if (weekday === 'WEEKEND') return `${base} on the ${ordinal} weekend day of the month`;
+        return `${base} on the ${ordinal} ${weekdayTokenLabel(weekday)} of the month`;
+    }
+
+    const startMonth = monthOfDate(startDateValue);
+    const sortedMonths = sortMonthNumbers(state.customYearMonths);
+    const includeMonthPhrase = !(sortedMonths.length === 1 && sortedMonths[0] === startMonth);
+    const months = sortedMonths
+        .map((monthNumber) => MONTH_OPTIONS.find((month) => month.value === monthNumber)?.label)
+        .filter(Boolean) as string[];
+
+    if (!state.customYearUseWeekday) {
+        if (!includeMonthPhrase || months.length === 0) return base;
+        return `${base} in ${humanJoin(months)}`;
+    }
+
+    const ordinal = ordinalLabel(state.customYearOrdinal);
+    const weekday = state.customYearWeekday;
+    if (!includeMonthPhrase || months.length === 0) {
+        if (weekday === 'DAY') return `${base} on the ${ordinal} day`;
+        if (weekday === 'WEEKDAY') return `${base} on the ${ordinal} weekday`;
+        if (weekday === 'WEEKEND') return `${base} on the ${ordinal} weekend day`;
+        return `${base} on the ${ordinal} ${weekdayTokenLabel(weekday)}`;
+    }
+
+    if (weekday === 'DAY') return `${base} on the ${ordinal} day of ${humanJoin(months)}`;
+    if (weekday === 'WEEKDAY') return `${base} on the ${ordinal} weekday of ${humanJoin(months)}`;
+    if (weekday === 'WEEKEND') return `${base} on the ${ordinal} weekend day of ${humanJoin(months)}`;
+    return `${base} on the ${ordinal} ${weekdayTokenLabel(weekday)} of ${humanJoin(months)}`;
+}
+
 function getLocalTimeZone(): string {
     try {
         const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -242,6 +878,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
     const submitLockRef = useRef(false);
     const isMountedRef = useRef(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [recurrenceUi, setRecurrenceUi] = useState<RecurrenceUiState>(() => getDefaultRecurrenceUiState(format(new Date(), 'yyyy-MM-dd')));
     const [selectedFamilyMemberIds, setSelectedFamilyMemberIds] = useState<string[]>([]);
     const memberGridRef = useRef<HTMLDivElement>(null);
     const [memberGridWidth, setMemberGridWidth] = useState(0);
@@ -270,6 +907,24 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
 
         return byId;
     }, [familyMembers, selectedEvent]);
+
+    const recurrenceSummaryText = useMemo(
+        () => recurrenceSummary(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd')),
+        [formData.startDate, recurrenceUi]
+    );
+    const repeatEndSummaryText = useMemo(() => {
+        if (recurrenceUi.mode === 'never') return 'No end (does not repeat)';
+        if (recurrenceUi.repeatEndMode === 'forever') return 'Repeat forever';
+        if (recurrenceUi.repeatEndMode === 'count') {
+            const count = clampRecurrenceNumber(recurrenceUi.repeatEndCount, 1, 1000);
+            return `End after ${count} occurrence${count === 1 ? '' : 's'}`;
+        }
+        if (!recurrenceUi.repeatEndUntil) return 'Ends on a specific date';
+        const parsed = parseISO(`${recurrenceUi.repeatEndUntil}T00:00:00`);
+        return Number.isNaN(parsed.getTime())
+            ? 'Ends on a specific date'
+            : `Ends on ${parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    }, [recurrenceUi]);
 
     useEffect(() => {
         return () => {
@@ -389,6 +1044,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                     typeof selectedEvent.travelDurationAfterMinutes === 'number' ? String(selectedEvent.travelDurationAfterMinutes) : '',
                 ...alarmDefaults,
             });
+            setRecurrenceUi(parseRecurrenceUiStateFromRrule(selectedEvent.rrule || '', startDate));
             setSelectedFamilyMemberIds((selectedEvent.pertainsTo || []).map((member) => member.id));
         } else if (selectedDate) {
             const formattedDate = format(selectedDate, 'yyyy-MM-dd');
@@ -425,6 +1081,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 alarmRepeatDurationMinutes: '',
                 alarmRepeatUntilAcknowledged: false,
             }));
+            setRecurrenceUi(getDefaultRecurrenceUiState(formattedDate));
             setSelectedFamilyMemberIds([]);
         }
     }, [selectedDate, selectedEvent, defaultStartTime]);
@@ -507,7 +1164,9 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         const eventId = formData.id || id();
         const nowIso = new Date().toISOString();
         const normalizedStatus = formData.status.trim().toLowerCase() || DEFAULT_EVENT_STATUS;
-        const normalizedRrule = normalizeRrule(formData.rrule);
+        const normalizedRrule = normalizeRrule(
+            serializeRecurrenceToRrule(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd'))
+        );
         const rdates = parseCsvList(formData.rdatesCsv);
         const exdates = parseCsvList(formData.exdatesCsv);
         const recurrenceLines = buildRecurrenceLines(normalizedRrule, rdates, exdates);
@@ -682,40 +1341,403 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             )}
             <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <Label htmlFor="rrule">Recurrence</Label>
-                    <p className="text-xs text-muted-foreground">RRULE, EXDATE, RDATE, and RECURRENCE-ID for sync-safe recurrence.</p>
+                    <Label>Repeat</Label>
+                    <p className="text-xs text-muted-foreground">{recurrenceSummaryText}</p>
                 </div>
                 <div>
-                    <Label htmlFor="rrule">RRULE</Label>
-                    <Input
-                        id="rrule"
-                        name="rrule"
-                        value={formData.rrule}
-                        onChange={handleChange}
-                        placeholder="FREQ=WEEKLY;BYDAY=MO,WE,FR"
-                    />
+                    <Label htmlFor="repeatMode">Repeat</Label>
+                    <select
+                        id="repeatMode"
+                        value={recurrenceUi.mode}
+                        onChange={(event) => {
+                            const nextMode = event.target.value as RepeatMode;
+                            setRecurrenceUi((prev) => ({
+                                ...prev,
+                                mode: nextMode,
+                                customExpanded: nextMode === 'custom' ? true : prev.customExpanded,
+                                unsupportedRrule: nextMode === 'rrule' ? prev.unsupportedRrule : false,
+                            }));
+                        }}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                        <option value="never">Never</option>
+                        <option value="daily">Every day</option>
+                        <option value="weekly">Every week</option>
+                        <option value="biweekly">Every 2 weeks</option>
+                        <option value="monthly">Every month</option>
+                        <option value="yearly">Every year</option>
+                        <option value="custom">Custom</option>
+                        <option value="rrule">Custom RRULE string</option>
+                    </select>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                        <Label htmlFor="rdatesCsv">RDATEs (comma-separated)</Label>
+                {recurrenceUi.mode === 'custom' ? (
+                    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                        <div className="grid gap-3 sm:grid-cols-[120px_1fr]">
+                            <div>
+                                <Label htmlFor="customInterval">Every</Label>
+                                <Input
+                                    id="customInterval"
+                                    type="number"
+                                    min={1}
+                                    max={1000}
+                                    value={String(recurrenceUi.customInterval)}
+                                    onChange={(event) => {
+                                        const parsed = clampRecurrenceNumber(Number(event.target.value || 1), 1, 1000);
+                                        setRecurrenceUi((prev) => ({ ...prev, customInterval: parsed }));
+                                    }}
+                                />
+                            </div>
+                            <div>
+                                <Label htmlFor="customUnit">Unit</Label>
+                                <select
+                                    id="customUnit"
+                                    value={recurrenceUi.customUnit}
+                                    onChange={(event) =>
+                                        setRecurrenceUi((prev) => {
+                                            const nextUnit = event.target.value as CustomUnit;
+                                            const fallbackStartMonth = monthOfDate(formData.startDate || format(new Date(), 'yyyy-MM-dd'));
+                                            return {
+                                                ...prev,
+                                                customUnit: nextUnit,
+                                                customYearMonths:
+                                                    nextUnit === 'year' && prev.customYearMonths.length === 0
+                                                        ? [fallbackStartMonth]
+                                                        : prev.customYearMonths,
+                                            };
+                                        })
+                                    }
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                >
+                                    <option value="day">{recurrenceUi.customInterval === 1 ? 'day' : 'days'}</option>
+                                    <option value="week">{recurrenceUi.customInterval === 1 ? 'week' : 'weeks'}</option>
+                                    <option value="month">{recurrenceUi.customInterval === 1 ? 'month' : 'months'}</option>
+                                    <option value="year">{recurrenceUi.customInterval === 1 ? 'year' : 'years'}</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm text-slate-700">{recurrenceSummaryText}</p>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setRecurrenceUi((prev) => ({ ...prev, customExpanded: !prev.customExpanded }))}
+                            >
+                                {recurrenceUi.customExpanded ? 'Hide details' : 'Edit details'}
+                            </Button>
+                        </div>
+                        {recurrenceUi.customExpanded ? (
+                            <div className="space-y-3">
+                                {recurrenceUi.customUnit === 'week' ? (
+                                    <div className="space-y-2">
+                                        <Label>Days of week</Label>
+                                        <div className="flex flex-wrap gap-2">
+                                            {WEEKDAY_CHIPS.map((weekday) => {
+                                                const selected = recurrenceUi.customWeekDays.includes(weekday.code);
+                                                return (
+                                                    <button
+                                                        key={weekday.code}
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setRecurrenceUi((prev) => {
+                                                                const exists = prev.customWeekDays.includes(weekday.code);
+                                                                const nextDays = exists
+                                                                    ? prev.customWeekDays.filter((entry) => entry !== weekday.code)
+                                                                    : [...prev.customWeekDays, weekday.code];
+                                                                return { ...prev, customWeekDays: sortWeekdayCodes(nextDays) };
+                                                            })
+                                                        }
+                                                        className={`rounded-md border px-3 py-1 text-xs ${
+                                                            selected ? 'border-primary bg-primary/10 text-primary' : 'border-slate-300 bg-white text-slate-700'
+                                                        }`}
+                                                    >
+                                                        {weekday.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ) : null}
+                                {recurrenceUi.customUnit === 'month' ? (
+                                    <div className="space-y-3">
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setRecurrenceUi((prev) => ({ ...prev, customMonthMode: 'days' }))}
+                                                className={`rounded-md border px-3 py-1 text-xs ${
+                                                    recurrenceUi.customMonthMode === 'days'
+                                                        ? 'border-primary bg-primary/10 text-primary'
+                                                        : 'border-slate-300 bg-white text-slate-700'
+                                                }`}
+                                            >
+                                                On days
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setRecurrenceUi((prev) => ({ ...prev, customMonthMode: 'week' }))}
+                                                className={`rounded-md border px-3 py-1 text-xs ${
+                                                    recurrenceUi.customMonthMode === 'week'
+                                                        ? 'border-primary bg-primary/10 text-primary'
+                                                        : 'border-slate-300 bg-white text-slate-700'
+                                                }`}
+                                            >
+                                                On week
+                                            </button>
+                                        </div>
+                                        {recurrenceUi.customMonthMode === 'days' ? (
+                                            <div className="space-y-2">
+                                                <Label>Month days</Label>
+                                                <div className="grid grid-cols-7 gap-1">
+                                                    {MONTH_DAY_CHOICES.map((dayValue) => {
+                                                        const selected = recurrenceUi.customMonthDays.includes(dayValue);
+                                                        const text = dayValue === -1 ? 'Last' : String(dayValue);
+                                                        return (
+                                                            <button
+                                                                key={dayValue}
+                                                                type="button"
+                                                                onClick={() =>
+                                                                setRecurrenceUi((prev) => {
+                                                                    const exists = prev.customMonthDays.includes(dayValue);
+                                                                    const next = exists
+                                                                        ? prev.customMonthDays.filter((entry) => entry !== dayValue)
+                                                                        : [...prev.customMonthDays, dayValue];
+                                                                    return { ...prev, customMonthDays: sortMonthDays(next) };
+                                                                })
+                                                            }
+                                                                className={`rounded border px-2 py-1 text-xs ${
+                                                                    selected
+                                                                        ? 'border-primary bg-primary/10 text-primary'
+                                                                        : 'border-slate-300 bg-white text-slate-700'
+                                                                }`}
+                                                            >
+                                                                {text}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="grid gap-3 sm:grid-cols-2">
+                                                <div>
+                                                    <Label htmlFor="customMonthOrdinal">Week</Label>
+                                                    <select
+                                                        id="customMonthOrdinal"
+                                                        value={String(recurrenceUi.customMonthOrdinal)}
+                                                        onChange={(event) =>
+                                                            setRecurrenceUi((prev) => ({ ...prev, customMonthOrdinal: Number(event.target.value) }))
+                                                        }
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
+                                                        <option value="1">1st</option>
+                                                        <option value="2">2nd</option>
+                                                        <option value="3">3rd</option>
+                                                        <option value="4">4th</option>
+                                                        <option value="5">5th</option>
+                                                        <option value="-1">Last</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <Label htmlFor="customMonthWeekday">Day</Label>
+                                                    <select
+                                                        id="customMonthWeekday"
+                                                        value={recurrenceUi.customMonthWeekday}
+                                                        onChange={(event) =>
+                                                            setRecurrenceUi((prev) => ({ ...prev, customMonthWeekday: event.target.value as WeekdayToken }))
+                                                        }
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
+                                                        <option value="SU">Sunday</option>
+                                                        <option value="MO">Monday</option>
+                                                        <option value="TU">Tuesday</option>
+                                                        <option value="WE">Wednesday</option>
+                                                        <option value="TH">Thursday</option>
+                                                        <option value="FR">Friday</option>
+                                                        <option value="SA">Saturday</option>
+                                                        <option value="DAY">Day</option>
+                                                        <option value="WEEKDAY">Weekday</option>
+                                                        <option value="WEEKEND">Weekend Day</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : null}
+                                {recurrenceUi.customUnit === 'year' ? (
+                                    <div className="space-y-3">
+                                        <div>
+                                            <Label>Months</Label>
+                                            <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                                                {MONTH_OPTIONS.map((month) => {
+                                                    const selected = recurrenceUi.customYearMonths.includes(month.value);
+                                                    return (
+                                                        <button
+                                                            key={month.value}
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setRecurrenceUi((prev) => {
+                                                                    const exists = prev.customYearMonths.includes(month.value);
+                                                                    const next = exists
+                                                                        ? prev.customYearMonths.filter((entry) => entry !== month.value)
+                                                                        : [...prev.customYearMonths, month.value];
+                                                                    return { ...prev, customYearMonths: sortMonthNumbers(next) };
+                                                                })
+                                                            }
+                                                            className={`rounded border px-2 py-1 text-xs ${
+                                                                selected
+                                                                    ? 'border-primary bg-primary/10 text-primary'
+                                                                    : 'border-slate-300 bg-white text-slate-700'
+                                                            }`}
+                                                        >
+                                                            {month.label.slice(0, 3)}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <Switch
+                                                id="customYearUseWeekday"
+                                                checked={recurrenceUi.customYearUseWeekday}
+                                                onCheckedChange={(checked) =>
+                                                    setRecurrenceUi((prev) => ({ ...prev, customYearUseWeekday: checked }))
+                                                }
+                                            />
+                                            <Label htmlFor="customYearUseWeekday">On week</Label>
+                                        </div>
+                                        {recurrenceUi.customYearUseWeekday ? (
+                                            <div className="grid gap-3 sm:grid-cols-2">
+                                                <div>
+                                                    <Label htmlFor="customYearOrdinal">Week</Label>
+                                                    <select
+                                                        id="customYearOrdinal"
+                                                        value={String(recurrenceUi.customYearOrdinal)}
+                                                        onChange={(event) =>
+                                                            setRecurrenceUi((prev) => ({ ...prev, customYearOrdinal: Number(event.target.value) }))
+                                                        }
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
+                                                        <option value="1">1st</option>
+                                                        <option value="2">2nd</option>
+                                                        <option value="3">3rd</option>
+                                                        <option value="4">4th</option>
+                                                        <option value="5">5th</option>
+                                                        <option value="-1">Last</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <Label htmlFor="customYearWeekday">Day</Label>
+                                                    <select
+                                                        id="customYearWeekday"
+                                                        value={recurrenceUi.customYearWeekday}
+                                                        onChange={(event) =>
+                                                            setRecurrenceUi((prev) => ({ ...prev, customYearWeekday: event.target.value as WeekdayToken }))
+                                                        }
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
+                                                        <option value="SU">Sunday</option>
+                                                        <option value="MO">Monday</option>
+                                                        <option value="TU">Tuesday</option>
+                                                        <option value="WE">Wednesday</option>
+                                                        <option value="TH">Thursday</option>
+                                                        <option value="FR">Friday</option>
+                                                        <option value="SA">Saturday</option>
+                                                        <option value="DAY">Day</option>
+                                                        <option value="WEEKDAY">Weekday</option>
+                                                        <option value="WEEKEND">Weekend Day</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
+                    </div>
+                ) : null}
+                {recurrenceUi.mode === 'rrule' ? (
+                    <div className="space-y-2">
+                        <Label htmlFor="advancedRrule">RRULE</Label>
                         <Input
-                            id="rdatesCsv"
-                            name="rdatesCsv"
-                            value={formData.rdatesCsv}
-                            onChange={handleChange}
-                            placeholder="2026-04-01T09:00:00Z, 2026-04-15T09:00:00Z"
+                            id="advancedRrule"
+                            value={recurrenceUi.advancedRrule}
+                            onChange={(event) =>
+                                setRecurrenceUi((prev) => ({
+                                    ...prev,
+                                    advancedRrule: event.target.value,
+                                    unsupportedRrule: false,
+                                }))
+                            }
+                            placeholder="FREQ=WEEKLY;BYDAY=MO,WE,FR"
                         />
+                        {recurrenceUi.unsupportedRrule ? (
+                            <p className="text-xs text-amber-700">
+                                This existing rule uses options outside this simplified builder. Edit with RRULE string mode to preserve it.
+                            </p>
+                        ) : null}
+                    </div>
+                ) : null}
+                <input type="hidden" name="rrule" value={serializeRecurrenceToRrule(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd'))} />
+                <input type="hidden" name="rdatesCsv" value={formData.rdatesCsv} />
+                <input type="hidden" name="exdatesCsv" value={formData.exdatesCsv} />
+                <input type="hidden" name="recurrenceId" value={formData.recurrenceId} />
+                <input type="hidden" name="recurringEventId" value={formData.recurringEventId} />
+                <input type="hidden" name="recurrenceIdRange" value={formData.recurrenceIdRange} />
+            </div>
+            {recurrenceUi.mode !== 'never' ? (
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <Label htmlFor="repeatEndMode">Repeat End</Label>
+                        <p className="text-xs text-muted-foreground">{repeatEndSummaryText}</p>
                     </div>
                     <div>
-                        <Label htmlFor="exdatesCsv">EXDATEs (comma-separated)</Label>
-                        <Input
-                            id="exdatesCsv"
-                            name="exdatesCsv"
-                            value={formData.exdatesCsv}
-                            onChange={handleChange}
-                            placeholder="2026-04-08T09:00:00Z"
-                        />
+                        <select
+                            id="repeatEndMode"
+                            value={recurrenceUi.repeatEndMode}
+                            onChange={(event) => {
+                                const nextMode = event.target.value as RepeatEndMode;
+                                setRecurrenceUi((prev) => ({ ...prev, repeatEndMode: nextMode }));
+                            }}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                            <option value="forever">Repeat forever</option>
+                            <option value="until">End on date</option>
+                            <option value="count">End after occurrences</option>
+                        </select>
                     </div>
+                    {recurrenceUi.repeatEndMode === 'until' ? (
+                        <div>
+                            <Label htmlFor="repeatEndUntil">Ends On</Label>
+                            <Input
+                                id="repeatEndUntil"
+                                type="date"
+                                value={recurrenceUi.repeatEndUntil}
+                                onChange={(event) => setRecurrenceUi((prev) => ({ ...prev, repeatEndUntil: event.target.value }))}
+                                min={formData.startDate || undefined}
+                            />
+                        </div>
+                    ) : null}
+                    {recurrenceUi.repeatEndMode === 'count' ? (
+                        <div>
+                            <Label htmlFor="repeatEndCount">Occurrences</Label>
+                            <Input
+                                id="repeatEndCount"
+                                type="number"
+                                min={1}
+                                max={1000}
+                                value={String(recurrenceUi.repeatEndCount)}
+                                onChange={(event) => {
+                                    const parsed = clampRecurrenceNumber(Number(event.target.value || 1), 1, 1000);
+                                    setRecurrenceUi((prev) => ({ ...prev, repeatEndCount: parsed }));
+                                }}
+                            />
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <Label>Recurrence Sync Metadata</Label>
+                    <p className="text-xs text-muted-foreground">Optional advanced fields for recurrence exceptions and sync.</p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                     <div>
