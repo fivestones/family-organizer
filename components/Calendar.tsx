@@ -1113,7 +1113,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
                 const overrideDayKeys = recurrenceOverrideDayKeysByMasterId.get(item.id);
                 const seenOccurrenceKeys = new Set<string>();
-                const starts = [...generatedStarts, ...rdateStarts].sort((left, right) => left.getTime() - right.getTime());
+                const starts = [start, ...generatedStarts, ...rdateStarts].sort((left, right) => left.getTime() - right.getTime());
 
                 const occurrenceItems: CalendarItem[] = [];
                 for (const rawStart of starts) {

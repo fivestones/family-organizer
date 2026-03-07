@@ -303,6 +303,61 @@ describe('Calendar', () => {
         expect(within(screen.getByTestId('day-cell-2026-03-22')).queryByRole('button', { name: 'Family Lunch' })).toBeNull();
     });
 
+    it('keeps the original start-day event visible even when RRULE BYDAY differs', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-recurring',
+                title: 'Weekly Class',
+                startDate: '2026-03-23',
+                endDate: '2026-03-24',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+            },
+        ]);
+
+        expect(within(screen.getByTestId('day-cell-2026-03-23')).getByRole('button', { name: 'Weekly Class' })).toBeInTheDocument();
+        expect(within(screen.getByTestId('day-cell-2026-03-24')).getByRole('button', { name: 'Weekly Class' })).toBeInTheDocument();
+    });
+
+    it('after dragging a recurring master to another weekday, keeps start day and RRULE weekdays visible', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-1',
+                title: 'Soccer',
+                startDate: '2026-03-17',
+                endDate: '2026-03-18',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+            },
+        ]);
+
+        act(() => {
+            mocks.monitorConfig.onDrop({
+                source: {
+                    data: {
+                        type: 'calendar-event',
+                        event: {
+                            id: 'evt-1',
+                            title: 'Soccer',
+                            startDate: '2026-03-17',
+                            endDate: '2026-03-18',
+                            isAllDay: true,
+                            rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                        },
+                    },
+                },
+                location: {
+                    current: {
+                        dropTargets: [{ data: { type: 'calendar-day', dateStr: '2026-03-19' } }],
+                    },
+                },
+            });
+        });
+
+        expect(within(screen.getByTestId('day-cell-2026-03-19')).getByRole('button', { name: 'Soccer' })).toBeInTheDocument();
+        expect(within(screen.getByTestId('day-cell-2026-03-24')).getByRole('button', { name: 'Soccer' })).toBeInTheDocument();
+    });
+
     it('includes recurring masters in the Instant query filter', () => {
         renderCalendarWithItems([]);
 
