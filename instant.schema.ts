@@ -296,6 +296,18 @@ const _schema = i.schema({
                 label: 'chore',
             },
         },
+        calendarItemsPertainsToFamilyMembers: {
+            forward: {
+                on: 'calendarItems',
+                has: 'many',
+                label: 'pertainsTo',
+            },
+            reverse: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'calendarItems',
+            },
+        },
         familyMembersAllowancePeriods: {
             forward: {
                 on: 'familyMembers',

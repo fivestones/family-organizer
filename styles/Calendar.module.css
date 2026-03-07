@@ -236,22 +236,78 @@
 }
 
 .event {
-    /* font-family: 'EB Garamond'; */
-    font-size: normal;
-    /*display: inline-block; /* Makes div behave more like span */
-    /* margin-left: 12%; */
-    /* margin-right: 2%; */
+    margin-top: 3px;
+    font-size: 0.76rem;
+    line-height: 1.1;
 }
 
 .circled {
-    border-radius: 15px; /* Making border radius */
+    border-radius: 9px;
     border-width: 1px;
-    border-color: #b9f8d0;
-    background-color: #b9f8d0;
-    width: auto; /* Auto-sizable width */
-    height: auto; /* Auto-sizable height */
-    padding: 1px 4px; /* Space around letters */
+    border-color: #a7f3d0;
+    background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+    width: auto;
+    height: auto;
+    padding: 3px 6px 4px;
     border-style: solid;
+}
+
+.calendarItem {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    cursor: pointer;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06);
+}
+
+.eventTitle {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    text-align: left;
+    color: #14532d;
+    font-weight: 600;
+}
+
+.eventAudienceRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.eventAudienceAll {
+    border-radius: 9999px;
+    border: 1px solid #86efac;
+    background: rgba(255, 255, 255, 0.72);
+    color: #166534;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    padding: 1px 5px;
+}
+
+.eventAudienceAvatar {
+    width: 18px;
+    height: 18px;
+    border-radius: 9999px;
+    border: 1px solid #34d399;
+    background: rgba(255, 255, 255, 0.82);
+    color: #065f46;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.56rem;
+    font-weight: 700;
+}
+
+.eventAudienceCount {
+    border-radius: 9999px;
+    background: rgba(6, 95, 70, 0.1);
+    color: #065f46;
+    font-size: 0.56rem;
+    font-weight: 700;
+    padding: 1px 5px;
 }
 
 .highlighted {

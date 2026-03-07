@@ -16,10 +16,11 @@ export function MainNav({ className, onNavigate }: MainNavProps) {
     const pathname = usePathname();
 
     const links = [
-        { href: '/', label: 'Chores' },
+        { href: '/', label: 'Dashboard' },
+        { href: '/chores', label: 'Chores' },
         { href: '/calendar', label: 'Calendar' },
         { href: '/task-series', label: 'Task Series' },
-        { href: '/familyMemberDetail', label: 'Manage Allowance and Finances' },
+        { href: '/familyMemberDetail', label: 'Finance' },
         { href: '/allowance-distribution', label: 'Allowance Distribution' },
         { href: '/settings', label: 'Settings' },
     ];

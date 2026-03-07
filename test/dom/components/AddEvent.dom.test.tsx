@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     id: vi.fn(() => 'evt-new'),
     dbTransact: vi.fn(),
+    dbUseQuery: vi.fn(),
     txOps: [] as any[],
 }));
 
@@ -24,6 +25,16 @@ vi.mock('@instantdb/react', () => ({
                             mocks.txOps.push(op);
                             return op;
                         },
+                        link(data: any) {
+                            const op = { entity: 'calendarItems', id: String(key), action: 'link', data };
+                            mocks.txOps.push(op);
+                            return op;
+                        },
+                        unlink(data: any) {
+                            const op = { entity: 'calendarItems', id: String(key), action: 'unlink', data };
+                            mocks.txOps.push(op);
+                            return op;
+                        },
                     };
                 },
             }
@@ -34,11 +45,23 @@ vi.mock('@instantdb/react', () => ({
 vi.mock('@/lib/db', () => ({
     db: {
         transact: mocks.dbTransact,
+        useQuery: mocks.dbUseQuery,
     },
 }));
 
 vi.mock('@/components/ui/switch', () => ({
     Switch: ({ id, checked, onCheckedChange }: any) => (
+        <input
+            id={id}
+            type="checkbox"
+            checked={Boolean(checked)}
+            onChange={(e) => onCheckedChange?.(e.target.checked)}
+        />
+    ),
+}));
+
+vi.mock('@/components/ui/checkbox', () => ({
+    Checkbox: ({ id, checked, onCheckedChange }: any) => (
         <input
             id={id}
             type="checkbox"
@@ -64,12 +87,11 @@ function renderForm(props?: Partial<React.ComponentProps<typeof AddEventForm>>) 
     return { onClose };
 }
 
-function getSingleOp() {
+function getOps() {
     expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
     const [ops] = mocks.dbTransact.mock.calls[0];
     expect(Array.isArray(ops)).toBe(true);
-    expect(ops).toHaveLength(1);
-    return ops[0];
+    return ops;
 }
 
 describe('AddEventForm', () => {
@@ -77,6 +99,18 @@ describe('AddEventForm', () => {
         mocks.id.mockReset();
         mocks.id.mockReturnValue('evt-new');
         mocks.dbTransact.mockReset();
+        mocks.dbUseQuery.mockReset();
+        mocks.dbUseQuery.mockReturnValue({
+            isLoading: false,
+            error: null,
+            data: {
+                familyMembers: [
+                    { id: 'mem-1', name: 'Judah' },
+                    { id: 'mem-2', name: 'Leah' },
+                    { id: 'mem-3', name: 'Noah' },
+                ],
+            },
+        });
         mocks.txOps.length = 0;
     });
 
@@ -87,7 +121,7 @@ describe('AddEventForm', () => {
         await user.type(screen.getByLabelText('Title'), 'Family Dinner');
         await user.click(screen.getByRole('button', { name: /add event/i }));
 
-        const op = getSingleOp();
+        const [op] = getOps();
         expect(op).toMatchObject({
             entity: 'calendarItems',
             id: 'evt-new',
@@ -102,6 +136,38 @@ describe('AddEventForm', () => {
                 dayOfMonth: 15,
             }),
         });
+        expect(getOps()).toHaveLength(1);
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('creates member links when one or more family members are selected', async () => {
+        const { onClose } = renderForm();
+        const user = userEvent.setup();
+
+        await user.type(screen.getByLabelText('Title'), 'Science Fair');
+        await user.click(screen.getByLabelText('Judah'));
+        await user.click(screen.getByLabelText('Leah'));
+        await user.click(screen.getByRole('button', { name: /add event/i }));
+
+        expect(getOps()).toEqual([
+            expect.objectContaining({
+                entity: 'calendarItems',
+                id: 'evt-new',
+                action: 'update',
+            }),
+            {
+                entity: 'calendarItems',
+                id: 'evt-new',
+                action: 'link',
+                data: { pertainsTo: 'mem-1' },
+            },
+            {
+                entity: 'calendarItems',
+                id: 'evt-new',
+                action: 'link',
+                data: { pertainsTo: 'mem-2' },
+            },
+        ]);
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
@@ -132,6 +198,7 @@ describe('AddEventForm', () => {
                 startDate: '2026-03-15T14:30:00',
                 endDate: '2026-03-15T15:30:00',
                 isAllDay: false,
+                pertainsTo: [{ id: 'mem-1', name: 'Judah' }],
             } as any,
         });
         const user = userEvent.setup();
@@ -144,9 +211,11 @@ describe('AddEventForm', () => {
 
         await user.clear(screen.getByLabelText('Title'));
         await user.type(screen.getByLabelText('Title'), 'Soccer Practice (Updated)');
+        await user.click(screen.getByLabelText('Judah'));
+        await user.click(screen.getByLabelText('Leah'));
         await user.click(screen.getByRole('button', { name: /update event/i }));
 
-        const op = getSingleOp();
+        const [op] = getOps();
         expect(op.id).toBe('evt-123');
         expect(op.data).toEqual(
             expect.objectContaining({
@@ -161,6 +230,25 @@ describe('AddEventForm', () => {
         expect(typeof op.data.startDate).toBe('string');
         expect(typeof op.data.endDate).toBe('string');
         expect(Date.parse(op.data.endDate) - Date.parse(op.data.startDate)).toBe(60 * 60 * 1000);
+        expect(getOps()).toEqual([
+            expect.objectContaining({
+                entity: 'calendarItems',
+                id: 'evt-123',
+                action: 'update',
+            }),
+            {
+                entity: 'calendarItems',
+                id: 'evt-123',
+                action: 'unlink',
+                data: { pertainsTo: 'mem-1' },
+            },
+            {
+                entity: 'calendarItems',
+                id: 'evt-123',
+                action: 'link',
+                data: { pertainsTo: 'mem-2' },
+            },
+        ]);
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 });

@@ -756,6 +756,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const query = useMemo(
         () => ({
             calendarItems: {
+                pertainsTo: {},
                 $: {
                     where: {
                         or: monthConditions,

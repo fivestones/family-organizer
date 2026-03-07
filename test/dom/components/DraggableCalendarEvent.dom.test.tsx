@@ -46,7 +46,7 @@ describe('DraggableCalendarEvent', () => {
             index: 2,
         });
 
-        const eventNode = screen.getByText('Piano');
+        const eventNode = screen.getByTestId('calendar-event-evt-1');
         expect(eventNode).toHaveStyle({ opacity: '1' });
 
         act(() => {

@@ -1,10 +1,5 @@
-'use client';
+import WebFamilyDashboard from '@/components/dashboard/WebFamilyDashboard';
 
-// import React from 'react';
-import FamilyChoreTracker from '@/components/ChoresTracker';
-
-function App() {
-    return <FamilyChoreTracker />;
+export default function HomePage() {
+    return <WebFamilyDashboard />;
 }
-
-export default App;

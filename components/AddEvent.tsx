@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { tx, id } from '@instantdb/react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -10,7 +11,11 @@ import { Switch } from '@/components/ui/switch';
 import { format, addHours, addDays, parse, parseISO } from 'date-fns';
 import { db } from '@/lib/db';
 
-// Define a local interface for the event structure
+interface FamilyMember {
+    id: string;
+    name?: string | null;
+}
+
 interface CalendarItem {
     id: string;
     title: string;
@@ -18,6 +23,7 @@ interface CalendarItem {
     startDate: string;
     endDate: string;
     isAllDay: boolean;
+    pertainsTo?: FamilyMember[];
     [key: string]: any;
 }
 
@@ -41,7 +47,6 @@ interface EventFormData {
 }
 
 const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime = '10:00' }: AddEventFormProps) => {
-    // FIX: Ensure there is a ( immediately after the generic >
     const [formData, setFormData] = useState<EventFormData>({
         id: '',
         title: '',
@@ -52,11 +57,35 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         endTime: '',
         isAllDay: true,
     });
+    const [selectedFamilyMemberIds, setSelectedFamilyMemberIds] = useState<string[]>([]);
+    const familyMembersQuery = db.useQuery({
+        familyMembers: {
+            $: {
+                order: {
+                    order: 'asc',
+                },
+            },
+        },
+    });
+    const familyMembers = ((familyMembersQuery.data?.familyMembers as FamilyMember[]) || []).filter((member) => Boolean(member?.id));
+
+    const selectedFamilyMembersById = useMemo(() => {
+        const byId = new Map<string, FamilyMember>();
+        for (const member of familyMembers) {
+            byId.set(member.id, member);
+        }
+
+        for (const member of selectedEvent?.pertainsTo || []) {
+            if (!byId.has(member.id)) {
+                byId.set(member.id, member);
+            }
+        }
+
+        return byId;
+    }, [familyMembers, selectedEvent]);
 
     useEffect(() => {
         if (selectedEvent) {
-            console.log('Populating form with selected event:', selectedEvent);
-            // Editing an existing event
             const startDate = selectedEvent.isAllDay ? selectedEvent.startDate : format(parseISO(selectedEvent.startDate), 'yyyy-MM-dd');
             const endDate = selectedEvent.isAllDay ? selectedEvent.endDate : format(parseISO(selectedEvent.endDate), 'yyyy-MM-dd');
             const startTime = selectedEvent.isAllDay ? defaultStartTime : format(parseISO(selectedEvent.startDate), 'HH:mm');
@@ -74,9 +103,8 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 endTime,
                 isAllDay: selectedEvent.isAllDay,
             });
+            setSelectedFamilyMemberIds((selectedEvent.pertainsTo || []).map((member) => member.id));
         } else if (selectedDate) {
-            console.log('Setting up form for new event on:', selectedDate);
-            // Adding a new event
             const formattedDate = format(selectedDate, 'yyyy-MM-dd');
             const startDateTime = parse(defaultStartTime, 'HH:mm', new Date());
             const endDateTime = addHours(startDateTime, 1);
@@ -92,6 +120,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 endTime: format(endDateTime, 'HH:mm'),
                 isAllDay: true,
             }));
+            setSelectedFamilyMemberIds([]);
         }
     }, [selectedDate, selectedEvent, defaultStartTime]);
 
@@ -117,6 +146,19 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             isAllDay: checked,
             endDate: checked ? prevState.startDate : prevState.endDate,
         }));
+    };
+
+    const handleFamilyMemberToggle = (memberId: string, checked: boolean | 'indeterminate') => {
+        if (checked === 'indeterminate') {
+            return;
+        }
+
+        setSelectedFamilyMemberIds((previous) => {
+            if (checked) {
+                return previous.includes(memberId) ? previous : [...previous, memberId];
+            }
+            return previous.filter((id) => id !== memberId);
+        });
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -145,16 +187,24 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             dayOfMonth: startDateObj.getDate(),
         };
 
-        // Add or update the event in the database
-        if (formData.id) {
-            // Updating existing event
-            db.transact([tx.calendarItems[formData.id].update(eventData)]);
-        } else {
-            // Adding new event
-            db.transact([tx.calendarItems[id()].update(eventData)]);
+        const eventId = formData.id || id();
+        const previousMemberIds = new Set((selectedEvent?.pertainsTo || []).map((member) => member.id));
+        const nextMemberIds = new Set(selectedFamilyMemberIds);
+        const txOps: any[] = [tx.calendarItems[eventId].update(eventData)];
+
+        for (const memberId of Array.from(previousMemberIds)) {
+            if (!nextMemberIds.has(memberId)) {
+                txOps.push(tx.calendarItems[eventId].unlink({ pertainsTo: memberId }));
+            }
         }
 
-        // Close the modal
+        for (const memberId of Array.from(nextMemberIds)) {
+            if (!previousMemberIds.has(memberId)) {
+                txOps.push(tx.calendarItems[eventId].link({ pertainsTo: memberId }));
+            }
+        }
+
+        db.transact(txOps);
         onClose();
     };
 
@@ -193,6 +243,55 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                     <Input type="time" id="endTime" name="endTime" value={formData.endTime} onChange={handleChange} min={formData.startTime} required />
                 </div>
             )}
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <Label>Pertains To</Label>
+                    <p className="text-xs text-muted-foreground">Leave unselected to apply to everyone</p>
+                </div>
+                {familyMembersQuery.isLoading ? (
+                    <p className="text-xs text-muted-foreground">Loading family members...</p>
+                ) : familyMembersQuery.error ? (
+                    <p className="text-xs text-destructive">Could not load family members.</p>
+                ) : familyMembers.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No family members available yet.</p>
+                ) : (
+                    <div className="grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                        {familyMembers.map((member) => {
+                            const isChecked = selectedFamilyMemberIds.includes(member.id);
+                            return (
+                                <label
+                                    key={member.id}
+                                    htmlFor={`event-member-${member.id}`}
+                                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                                        isChecked ? 'border-primary/40 bg-primary/10' : 'border-slate-200 bg-white hover:bg-slate-100'
+                                    }`}
+                                >
+                                    <Checkbox
+                                        id={`event-member-${member.id}`}
+                                        checked={isChecked}
+                                        onCheckedChange={(checked) => handleFamilyMemberToggle(member.id, checked)}
+                                    />
+                                    <span className="truncate">{member.name || 'Unnamed member'}</span>
+                                </label>
+                            );
+                        })}
+                    </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                    {selectedFamilyMemberIds.length === 0 ? (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900">
+                            Everyone
+                        </span>
+                    ) : (
+                        selectedFamilyMemberIds.map((memberId) => (
+                            <span key={memberId} className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs font-medium text-slate-700">
+                                {selectedFamilyMembersById.get(memberId)?.name || 'Unknown member'}
+                            </span>
+                        ))
+                    )}
+                </div>
+            </div>
             <div className="flex justify-end space-x-2">
                 <Button type="button" variant="outline" onClick={onClose}>
                     Cancel
