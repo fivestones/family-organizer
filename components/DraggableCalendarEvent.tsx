@@ -52,13 +52,14 @@ const getMemberInitials = (name: string | null | undefined) => {
 export const DraggableCalendarEvent = ({ item, index, onClick }: DraggableCalendarEventProps) => {
     const eventRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const isRecurrenceInstance = Boolean((item as any).__isRecurrenceInstance);
     const members = item.pertainsTo || [];
     const visibleMembers = useMemo(() => members.slice(0, 3), [members]);
     const remainingMemberCount = Math.max(0, members.length - visibleMembers.length);
 
     useEffect(() => {
         const element = eventRef.current;
-        if (!element) return;
+        if (!element || isRecurrenceInstance) return;
 
         const cleanupDraggable = draggable({
             element: element,
@@ -68,7 +69,7 @@ export const DraggableCalendarEvent = ({ item, index, onClick }: DraggableCalend
         });
 
         return cleanupDraggable;
-    }, [item, index]);
+    }, [item, index, isRecurrenceInstance]);
 
     return (
         <div

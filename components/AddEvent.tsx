@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tx, id } from '@instantdb/react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -115,6 +115,22 @@ type CustomUnit = 'day' | 'week' | 'month' | 'year';
 type MonthPatternMode = 'days' | 'week';
 type RepeatEndMode = 'forever' | 'until' | 'count';
 type WeekdayToken = 'SU' | 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'DAY' | 'WEEKDAY' | 'WEEKEND';
+type RecurrenceExceptionMode = 'date' | 'range';
+
+interface RecurrenceExceptionRow {
+    rowId: string;
+    mode: RecurrenceExceptionMode;
+    date: string;
+    rangeStart: string;
+    rangeEnd: string;
+}
+
+interface StoredRecurrenceExceptionRow {
+    mode: RecurrenceExceptionMode;
+    date: string;
+    rangeStart: string;
+    rangeEnd: string;
+}
 
 interface RecurrenceUiState {
     mode: RepeatMode;
@@ -768,6 +784,154 @@ function parseCsvList(value: string): string[] {
         .filter(Boolean);
 }
 
+function parseExdateTokenToDateOnly(token: string): string | null {
+    const trimmed = token.trim();
+    if (!trimmed) return null;
+
+    const hyphenDateMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (hyphenDateMatch) {
+        const parsed = parseISO(`${hyphenDateMatch[1]}T00:00:00`);
+        return Number.isNaN(parsed.getTime()) ? null : hyphenDateMatch[1];
+    }
+
+    const compactMatch = trimmed.match(/^(\d{4})(\d{2})(\d{2})/);
+    if (compactMatch) {
+        const normalized = `${compactMatch[1]}-${compactMatch[2]}-${compactMatch[3]}`;
+        const parsed = parseISO(`${normalized}T00:00:00`);
+        return Number.isNaN(parsed.getTime()) ? null : normalized;
+    }
+
+    const parsed = parseISO(trimmed);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return format(parsed, 'yyyy-MM-dd');
+}
+
+function collectRecurrenceLineTokens(lines: unknown, prefix: 'RDATE' | 'EXDATE'): string[] {
+    if (!Array.isArray(lines)) return [];
+    const results: string[] = [];
+
+    for (const line of lines) {
+        if (typeof line !== 'string') continue;
+        const trimmed = line.trim();
+        if (!trimmed.toUpperCase().startsWith(prefix)) continue;
+        const splitIndex = trimmed.indexOf(':');
+        if (splitIndex < 0) continue;
+        results.push(...parseCsvList(trimmed.slice(splitIndex + 1)));
+    }
+
+    return results;
+}
+
+function normalizeDateOnlyList(values: string[]): string[] {
+    return Array.from(
+        new Set(
+            values
+                .map((entry) => parseExdateTokenToDateOnly(entry))
+                .filter(Boolean) as string[]
+        )
+    ).sort((left, right) => left.localeCompare(right));
+}
+
+function buildExceptionDateList(rows: RecurrenceExceptionRow[]): string[] {
+    const collected: string[] = [];
+
+    for (const row of rows) {
+        if (row.mode === 'date') {
+            const normalized = parseExdateTokenToDateOnly(row.date);
+            if (normalized) {
+                collected.push(normalized);
+            }
+            continue;
+        }
+
+        const start = parseExdateTokenToDateOnly(row.rangeStart);
+        const end = parseExdateTokenToDateOnly(row.rangeEnd);
+        if (!start || !end) continue;
+
+        const startDate = parseISO(`${start}T00:00:00`);
+        const endDate = parseISO(`${end}T00:00:00`);
+        if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) continue;
+
+        const rangeStart = startDate.getTime() <= endDate.getTime() ? startDate : endDate;
+        const rangeEnd = startDate.getTime() <= endDate.getTime() ? endDate : startDate;
+        let cursor = rangeStart;
+
+        while (cursor.getTime() <= rangeEnd.getTime()) {
+            collected.push(format(cursor, 'yyyy-MM-dd'));
+            cursor = addDays(cursor, 1);
+        }
+    }
+
+    return normalizeDateOnlyList(collected);
+}
+
+function normalizeStoredRecurrenceExceptionRows(value: unknown): StoredRecurrenceExceptionRow[] {
+    if (!Array.isArray(value)) return [];
+
+    const rows: StoredRecurrenceExceptionRow[] = [];
+    for (const row of value) {
+        if (!row || typeof row !== 'object') continue;
+        const source = row as Record<string, unknown>;
+        const mode = String(source.mode || '').toLowerCase();
+
+        if (mode === 'range') {
+            const start = parseExdateTokenToDateOnly(String(source.rangeStart || source.start || ''));
+            const end = parseExdateTokenToDateOnly(String(source.rangeEnd || source.end || ''));
+            if (!start || !end) continue;
+            const [rangeStart, rangeEnd] = start.localeCompare(end) <= 0 ? [start, end] : [end, start];
+            rows.push({
+                mode: 'range',
+                date: rangeStart,
+                rangeStart,
+                rangeEnd,
+            });
+            continue;
+        }
+
+        const date = parseExdateTokenToDateOnly(String(source.date || source.rangeStart || source.start || ''));
+        if (!date) continue;
+        rows.push({
+            mode: 'date',
+            date,
+            rangeStart: date,
+            rangeEnd: date,
+        });
+    }
+
+    return rows;
+}
+
+function serializeRecurrenceExceptionRows(rows: RecurrenceExceptionRow[]): StoredRecurrenceExceptionRow[] {
+    const serialized: StoredRecurrenceExceptionRow[] = [];
+
+    for (const row of rows) {
+        if (row.mode === 'range') {
+            const start = parseExdateTokenToDateOnly(row.rangeStart);
+            const end = parseExdateTokenToDateOnly(row.rangeEnd);
+            if (!start || !end) continue;
+            const [rangeStart, rangeEnd] = start.localeCompare(end) <= 0 ? [start, end] : [end, start];
+            serialized.push({
+                mode: 'range',
+                date: rangeStart,
+                rangeStart,
+                rangeEnd,
+            });
+            continue;
+        }
+
+        const date = parseExdateTokenToDateOnly(row.date);
+        if (!date) continue;
+        serialized.push({
+            mode: 'date',
+            date,
+            rangeStart: date,
+            rangeEnd: date,
+        });
+    }
+
+    return serialized;
+}
+
 function parseOptionalInt(value: string): number | undefined {
     if (!value.trim()) return undefined;
     const parsed = Number(value);
@@ -877,8 +1041,11 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
     const titleInputRef = useRef<HTMLInputElement>(null);
     const submitLockRef = useRef(false);
     const isMountedRef = useRef(true);
+    const recurrenceExceptionIdRef = useRef(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [recurrenceUi, setRecurrenceUi] = useState<RecurrenceUiState>(() => getDefaultRecurrenceUiState(format(new Date(), 'yyyy-MM-dd')));
+    const [exceptionsEnabled, setExceptionsEnabled] = useState(false);
+    const [recurrenceExceptions, setRecurrenceExceptions] = useState<RecurrenceExceptionRow[]>([]);
     const [selectedFamilyMemberIds, setSelectedFamilyMemberIds] = useState<string[]>([]);
     const memberGridRef = useRef<HTMLDivElement>(null);
     const [memberGridWidth, setMemberGridWidth] = useState(0);
@@ -912,6 +1079,15 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         () => recurrenceSummary(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd')),
         [formData.startDate, recurrenceUi]
     );
+    const expandedExceptionDates = useMemo(
+        () => (exceptionsEnabled ? buildExceptionDateList(recurrenceExceptions) : []),
+        [exceptionsEnabled, recurrenceExceptions]
+    );
+    const exceptionsSummaryText = useMemo(() => {
+        if (!exceptionsEnabled) return 'Off';
+        const count = expandedExceptionDates.length;
+        return count === 0 ? 'On' : `${count} excluded date${count === 1 ? '' : 's'}`;
+    }, [exceptionsEnabled, expandedExceptionDates.length]);
     const repeatEndSummaryText = useMemo(() => {
         if (recurrenceUi.mode === 'never') return 'No end (does not repeat)';
         if (recurrenceUi.repeatEndMode === 'forever') return 'Repeat forever';
@@ -1019,6 +1195,20 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 ? format(addHours(parse(defaultStartTime, 'HH:mm', new Date()), 1), 'HH:mm')
                 : format(parseISO(selectedEvent.endDate), 'HH:mm');
             const alarmDefaults = deriveAlarmDefaults(selectedEvent);
+            const loadedExdateTokens = normalizeDateOnlyList([
+                ...(Array.isArray(selectedEvent.exdates) ? selectedEvent.exdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(selectedEvent.recurrenceLines, 'EXDATE'),
+            ]);
+            const storedExceptionRows = normalizeStoredRecurrenceExceptionRows((selectedEvent as any)?.xProps?.recurrenceExceptionRows);
+            const exceptionRowsToRender =
+                storedExceptionRows.length > 0
+                    ? storedExceptionRows
+                    : loadedExdateTokens.map((dateOnly) => ({
+                          mode: 'date' as const,
+                          date: dateOnly,
+                          rangeStart: dateOnly,
+                          rangeEnd: dateOnly,
+                      }));
 
             setFormData({
                 id: selectedEvent.id,
@@ -1034,7 +1224,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 timeZone: String(selectedEvent.timeZone || getLocalTimeZone()),
                 rrule: String(selectedEvent.rrule || ''),
                 rdatesCsv: Array.isArray(selectedEvent.rdates) ? selectedEvent.rdates.join(', ') : '',
-                exdatesCsv: Array.isArray(selectedEvent.exdates) ? selectedEvent.exdates.join(', ') : '',
+                exdatesCsv: loadedExdateTokens.join(', '),
                 recurrenceId: String(selectedEvent.recurrenceId || ''),
                 recurringEventId: String(selectedEvent.recurringEventId || ''),
                 recurrenceIdRange: String(selectedEvent.recurrenceIdRange || ''),
@@ -1045,6 +1235,17 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 ...alarmDefaults,
             });
             setRecurrenceUi(parseRecurrenceUiStateFromRrule(selectedEvent.rrule || '', startDate));
+            recurrenceExceptionIdRef.current = Math.max(recurrenceExceptionIdRef.current, exceptionRowsToRender.length + 1);
+            setExceptionsEnabled(exceptionRowsToRender.length > 0);
+            setRecurrenceExceptions(
+                exceptionRowsToRender.map((row, index) => ({
+                    rowId: `recurrence-exception-loaded-${index + 1}`,
+                    mode: row.mode,
+                    date: row.date,
+                    rangeStart: row.rangeStart,
+                    rangeEnd: row.rangeEnd,
+                }))
+            );
             setSelectedFamilyMemberIds((selectedEvent.pertainsTo || []).map((member) => member.id));
         } else if (selectedDate) {
             const formattedDate = format(selectedDate, 'yyyy-MM-dd');
@@ -1082,6 +1283,9 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 alarmRepeatUntilAcknowledged: false,
             }));
             setRecurrenceUi(getDefaultRecurrenceUiState(formattedDate));
+            recurrenceExceptionIdRef.current = 1;
+            setExceptionsEnabled(false);
+            setRecurrenceExceptions([]);
             setSelectedFamilyMemberIds([]);
         }
     }, [selectedDate, selectedEvent, defaultStartTime]);
@@ -1131,6 +1335,48 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         });
     };
 
+    const makeDefaultExceptionRow = useCallback((defaultDate: string): RecurrenceExceptionRow => {
+        const normalizedDefault = parseExdateTokenToDateOnly(defaultDate) || format(new Date(), 'yyyy-MM-dd');
+        const nextId = recurrenceExceptionIdRef.current++;
+        return {
+            rowId: `recurrence-exception-${nextId}`,
+            mode: 'date',
+            date: normalizedDefault,
+            rangeStart: normalizedDefault,
+            rangeEnd: normalizedDefault,
+        };
+    }, []);
+
+    const addExceptionRow = useCallback(() => {
+        const fallbackDate = formData.startDate || format(new Date(), 'yyyy-MM-dd');
+        setRecurrenceExceptions((prev) => [...prev, makeDefaultExceptionRow(fallbackDate)]);
+    }, [formData.startDate, makeDefaultExceptionRow]);
+
+    const removeExceptionRow = useCallback(
+        (rowId: string) => {
+            const hasRemainingRows = recurrenceExceptions.some((entry) => entry.rowId !== rowId);
+            setRecurrenceExceptions((prev) => prev.filter((entry) => entry.rowId !== rowId));
+            if (!hasRemainingRows) {
+                setExceptionsEnabled(false);
+            }
+        },
+        [recurrenceExceptions]
+    );
+
+    const toggleExceptionsWidget = useCallback(() => {
+        if (exceptionsEnabled) {
+            setExceptionsEnabled(false);
+            return;
+        }
+
+        setExceptionsEnabled(true);
+        setRecurrenceExceptions((prev) => {
+            if (prev.length > 0) return prev;
+            const fallbackDate = formData.startDate || format(new Date(), 'yyyy-MM-dd');
+            return [makeDefaultExceptionRow(fallbackDate)];
+        });
+    }, [exceptionsEnabled, formData.startDate, makeDefaultExceptionRow]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (submitLockRef.current) return;
@@ -1168,7 +1414,9 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             serializeRecurrenceToRrule(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd'))
         );
         const rdates = parseCsvList(formData.rdatesCsv);
-        const exdates = parseCsvList(formData.exdatesCsv);
+        const exdates = recurrenceUi.mode !== 'never' && exceptionsEnabled ? expandedExceptionDates : [];
+        const storedExceptionRows =
+            recurrenceUi.mode !== 'never' && exceptionsEnabled ? serializeRecurrenceExceptionRows(recurrenceExceptions) : [];
         const recurrenceLines = buildRecurrenceLines(normalizedRrule, rdates, exdates);
         const sequenceBase = typeof selectedEvent?.sequence === 'number' ? selectedEvent.sequence : 0;
         const travelDurationBeforeMinutes = parseOptionalInt(formData.travelDurationBeforeMinutes);
@@ -1203,6 +1451,15 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             month: startDateObj.getMonth() + 1,
             dayOfMonth: startDateObj.getDate(),
         };
+        const baseXProps =
+            selectedEvent?.xProps && typeof selectedEvent.xProps === 'object' && !Array.isArray(selectedEvent.xProps)
+                ? { ...(selectedEvent.xProps as Record<string, unknown>) }
+                : {};
+        if (storedExceptionRows.length > 0) {
+            baseXProps.recurrenceExceptionRows = storedExceptionRows;
+        } else {
+            delete baseXProps.recurrenceExceptionRows;
+        }
 
         const extendedEventPatch = {
             uid: selectedEvent?.uid || eventId,
@@ -1225,6 +1482,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             eventType: String(selectedEvent?.eventType || 'default'),
             visibility: String(selectedEvent?.visibility || 'default'),
             transparency: String(selectedEvent?.transparency || (formData.isAllDay ? 'transparent' : 'opaque')),
+            xProps: baseXProps,
             ...(travelDurationBeforeMinutes != null ? { travelDurationBeforeMinutes } : {}),
             ...(travelDurationAfterMinutes != null ? { travelDurationAfterMinutes } : {}),
         };
@@ -1678,11 +1936,116 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 ) : null}
                 <input type="hidden" name="rrule" value={serializeRecurrenceToRrule(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd'))} />
                 <input type="hidden" name="rdatesCsv" value={formData.rdatesCsv} />
-                <input type="hidden" name="exdatesCsv" value={formData.exdatesCsv} />
+                <input type="hidden" name="exdatesCsv" value={recurrenceUi.mode !== 'never' && exceptionsEnabled ? expandedExceptionDates.join(', ') : ''} />
                 <input type="hidden" name="recurrenceId" value={formData.recurrenceId} />
                 <input type="hidden" name="recurringEventId" value={formData.recurringEventId} />
                 <input type="hidden" name="recurrenceIdRange" value={formData.recurrenceIdRange} />
             </div>
+            {recurrenceUi.mode !== 'never' ? (
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                    <button type="button" onClick={toggleExceptionsWidget} className="flex w-full items-center justify-between gap-3 text-left">
+                        <span className="text-sm font-medium text-slate-900">Exceptions</span>
+                        <span className="text-xs text-muted-foreground">{exceptionsSummaryText}</span>
+                    </button>
+                    {exceptionsEnabled ? (
+                        <div className="space-y-3">
+                            {recurrenceExceptions.map((exception, index) => (
+                                <div key={exception.rowId} className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <Label htmlFor={`exception-mode-${exception.rowId}`}>Exception {index + 1}</Label>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => removeExceptionRow(exception.rowId)}
+                                        >
+                                            Remove
+                                        </Button>
+                                    </div>
+                                    <div>
+                                        <Label htmlFor={`exception-mode-${exception.rowId}`}>Type</Label>
+                                        <select
+                                            id={`exception-mode-${exception.rowId}`}
+                                            value={exception.mode}
+                                            onChange={(event) =>
+                                                setRecurrenceExceptions((prev) =>
+                                                    prev.map((entry) =>
+                                                        entry.rowId === exception.rowId
+                                                            ? {
+                                                                  ...entry,
+                                                                  mode: event.target.value as RecurrenceExceptionMode,
+                                                              }
+                                                            : entry
+                                                    )
+                                                )
+                                            }
+                                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        >
+                                            <option value="date">Single date</option>
+                                            <option value="range">Date range</option>
+                                        </select>
+                                    </div>
+                                    {exception.mode === 'date' ? (
+                                        <div>
+                                            <Label htmlFor={`exception-date-${exception.rowId}`}>Exception Date</Label>
+                                            <Input
+                                                id={`exception-date-${exception.rowId}`}
+                                                type="date"
+                                                value={exception.date}
+                                                onChange={(event) =>
+                                                    setRecurrenceExceptions((prev) =>
+                                                        prev.map((entry) =>
+                                                            entry.rowId === exception.rowId
+                                                                ? { ...entry, date: event.target.value, rangeStart: event.target.value, rangeEnd: event.target.value }
+                                                                : entry
+                                                        )
+                                                    )
+                                                }
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <div>
+                                                <Label htmlFor={`exception-range-start-${exception.rowId}`}>Range Start</Label>
+                                                <Input
+                                                    id={`exception-range-start-${exception.rowId}`}
+                                                    type="date"
+                                                    value={exception.rangeStart}
+                                                    onChange={(event) =>
+                                                        setRecurrenceExceptions((prev) =>
+                                                            prev.map((entry) =>
+                                                                entry.rowId === exception.rowId ? { ...entry, rangeStart: event.target.value } : entry
+                                                            )
+                                                        )
+                                                    }
+                                                />
+                                            </div>
+                                            <div>
+                                                <Label htmlFor={`exception-range-end-${exception.rowId}`}>Range End</Label>
+                                                <Input
+                                                    id={`exception-range-end-${exception.rowId}`}
+                                                    type="date"
+                                                    value={exception.rangeEnd}
+                                                    onChange={(event) =>
+                                                        setRecurrenceExceptions((prev) =>
+                                                            prev.map((entry) =>
+                                                                entry.rowId === exception.rowId ? { ...entry, rangeEnd: event.target.value } : entry
+                                                            )
+                                                        )
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                            <Button type="button" variant="outline" onClick={addExceptionRow}>
+                                Add another exception
+                            </Button>
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
             {recurrenceUi.mode !== 'never' ? (
                 <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                     <div className="flex flex-wrap items-baseline justify-between gap-2">

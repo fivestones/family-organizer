@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -196,6 +196,78 @@ describe('AddEventForm', () => {
         expect(mocks.dbTransact).toHaveBeenCalledTimes(2);
         const [advancedOps] = mocks.dbTransact.mock.calls[1];
         expect(advancedOps[0].data.rrule).toBe('RRULE:FREQ=WEEKLY;INTERVAL=3;BYDAY=SU,TU,TH;COUNT=8');
+    });
+
+    it('builds EXDATE values from single-date and range exceptions', async () => {
+        renderForm();
+        const user = userEvent.setup();
+
+        await user.type(screen.getByLabelText('Title'), 'Recurrence with exceptions');
+        await user.selectOptions(screen.getByLabelText('Repeat'), 'daily');
+        await user.click(screen.getByRole('button', { name: /exceptions/i }));
+
+        await user.selectOptions(screen.getByLabelText('Type'), 'date');
+        fireEvent.change(screen.getByLabelText('Exception Date'), { target: { value: '2026-03-20' } });
+
+        await user.click(screen.getByRole('button', { name: /add another exception/i }));
+        await user.selectOptions(screen.getAllByLabelText('Type')[1], 'range');
+        fireEvent.change(screen.getByLabelText('Range Start'), { target: { value: '2026-03-22' } });
+        fireEvent.change(screen.getByLabelText('Range End'), { target: { value: '2026-03-24' } });
+
+        await user.click(screen.getByRole('button', { name: /add event/i }));
+
+        expect(mocks.dbTransact).toHaveBeenCalledTimes(2);
+        const [advancedOps] = mocks.dbTransact.mock.calls[1];
+        expect(advancedOps[0].data.exdates).toEqual(['2026-03-20', '2026-03-22', '2026-03-23', '2026-03-24']);
+        expect(advancedOps[0].data.recurrenceLines).toEqual(
+            expect.arrayContaining(['RRULE:FREQ=DAILY', 'EXDATE:2026-03-20,2026-03-22,2026-03-23,2026-03-24'])
+        );
+        expect(advancedOps[0].data.xProps?.recurrenceExceptionRows).toEqual([
+            { mode: 'date', date: '2026-03-20', rangeStart: '2026-03-20', rangeEnd: '2026-03-20' },
+            { mode: 'range', date: '2026-03-22', rangeStart: '2026-03-22', rangeEnd: '2026-03-24' },
+        ]);
+    });
+
+    it('restores saved range exceptions as ranges instead of flattened dates', () => {
+        renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-range',
+                title: 'Trip',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=DAILY',
+                exdates: ['2026-03-22', '2026-03-23', '2026-03-24'],
+                xProps: {
+                    recurrenceExceptionRows: [{ mode: 'range', date: '2026-03-22', rangeStart: '2026-03-22', rangeEnd: '2026-03-24' }],
+                },
+            } as any,
+        });
+
+        const typeSelects = screen.getAllByLabelText('Type') as HTMLSelectElement[];
+        expect(typeSelects).toHaveLength(1);
+        expect(typeSelects[0].value).toBe('range');
+        expect((screen.getByLabelText('Range Start') as HTMLInputElement).value).toBe('2026-03-22');
+        expect((screen.getByLabelText('Range End') as HTMLInputElement).value).toBe('2026-03-24');
+        expect(screen.queryByLabelText('Exception Date')).not.toBeInTheDocument();
+    });
+
+    it('turns exceptions off when removing the last exception row', async () => {
+        renderForm();
+        const user = userEvent.setup();
+
+        await user.selectOptions(screen.getByLabelText('Repeat'), 'daily');
+        const exceptionsToggle = screen.getByRole('button', { name: /exceptions/i });
+        await user.click(exceptionsToggle);
+
+        const removeButton = screen.getByRole('button', { name: 'Remove' });
+        expect(removeButton).toBeEnabled();
+        await user.click(removeButton);
+
+        expect(screen.queryByLabelText('Type')).not.toBeInTheDocument();
+        expect(within(exceptionsToggle).getByText('Off')).toBeInTheDocument();
     });
 
     it('sorts custom monthly day summaries in natural order', async () => {

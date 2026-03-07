@@ -67,7 +67,7 @@ const _schema = i.schema({
             recurrenceLines: i.json().optional(),
             recurringEventId: i.string().indexed().optional(),
             rdates: i.json().optional(),
-            rrule: i.string().optional(),
+            rrule: i.string().indexed().optional(),
             sequence: i.number().indexed().optional(),
             startDate: i.string(),
             status: i.string().indexed().optional(),

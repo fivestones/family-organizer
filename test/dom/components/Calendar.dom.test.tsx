@@ -267,4 +267,50 @@ describe('Calendar', () => {
         const eventButtons = within(dayCell).getAllByRole('button');
         expect(eventButtons.map((button) => button.textContent)).toEqual(['Earlier event', 'Later event']);
     });
+
+    it('expands RRULE events onto matching recurrence days', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-recurring',
+                title: 'Family Lunch',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=SU',
+            },
+        ]);
+
+        expect(within(screen.getByTestId('day-cell-2026-03-15')).getByRole('button', { name: 'Family Lunch' })).toBeInTheDocument();
+        expect(within(screen.getByTestId('day-cell-2026-03-22')).getByRole('button', { name: 'Family Lunch' })).toBeInTheDocument();
+        expect(within(screen.getByTestId('day-cell-2026-03-29')).getByRole('button', { name: 'Family Lunch' })).toBeInTheDocument();
+    });
+
+    it('skips EXDATE occurrences when expanding RRULE events', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-recurring',
+                title: 'Family Lunch',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=SU',
+                exdates: ['2026-03-22'],
+            },
+        ]);
+
+        expect(within(screen.getByTestId('day-cell-2026-03-15')).getByRole('button', { name: 'Family Lunch' })).toBeInTheDocument();
+        expect(within(screen.getByTestId('day-cell-2026-03-29')).getByRole('button', { name: 'Family Lunch' })).toBeInTheDocument();
+        expect(within(screen.getByTestId('day-cell-2026-03-22')).queryByRole('button', { name: 'Family Lunch' })).toBeNull();
+    });
+
+    it('includes recurring masters in the Instant query filter', () => {
+        renderCalendarWithItems([]);
+
+        expect(mocks.dbUseQuery).toHaveBeenCalled();
+        const queryArg = mocks.dbUseQuery.mock.calls[0][0];
+        const orConditions = queryArg?.calendarItems?.$?.where?.or;
+
+        expect(Array.isArray(orConditions)).toBe(true);
+        expect(orConditions).toEqual(expect.arrayContaining([expect.objectContaining({ rrule: { $isNull: false } })]));
+    });
 });

@@ -18,6 +18,7 @@ import {
 } from 'date-fns';
 import { tx } from '@instantdb/react';
 import NepaliDate from 'nepali-date-converter';
+import { RRule } from 'rrule';
 import AddEventForm from './AddEvent';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import localFont from 'next/font/local';
@@ -108,6 +109,84 @@ const compareCalendarItemsByStartTime = (left: CalendarItem, right: CalendarItem
     if (endDiff !== 0) return endDiff;
 
     return String(left.title || '').localeCompare(String(right.title || ''));
+};
+
+const normalizeRruleString = (value: string) => String(value || '').trim().replace(/^RRULE:/i, '');
+
+const parseRecurrenceDateToken = (token: string): Date | null => {
+    const trimmed = token.trim();
+    if (!trimmed) return null;
+
+    const compactDate = trimmed.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (compactDate) {
+        const [, year, month, day] = compactDate;
+        const parsed = parseISO(`${year}-${month}-${day}`);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const compactUtcDateTime = trimmed.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+    if (compactUtcDateTime) {
+        const [, year, month, day, hours, minutes, seconds] = compactUtcDateTime;
+        const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hours), Number(minutes), Number(seconds)));
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const compactLocalDateTime = trimmed.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/);
+    if (compactLocalDateTime) {
+        const [, year, month, day, hours, minutes, seconds] = compactLocalDateTime;
+        const parsed = new Date(Number(year), Number(month) - 1, Number(day), Number(hours), Number(minutes), Number(seconds));
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const isoParsed = parseISO(trimmed);
+    if (!Number.isNaN(isoParsed.getTime())) {
+        return isoParsed;
+    }
+
+    const nativeParsed = new Date(trimmed);
+    return Number.isNaN(nativeParsed.getTime()) ? null : nativeParsed;
+};
+
+const splitDateTokens = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+        return value
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean);
+    }
+
+    if (typeof value === 'string') {
+        return value
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+    }
+
+    return [];
+};
+
+const collectRecurrenceLineTokens = (lines: unknown, prefix: 'RDATE' | 'EXDATE'): string[] => {
+    if (!Array.isArray(lines)) return [];
+
+    const tokens: string[] = [];
+    for (const line of lines) {
+        if (typeof line !== 'string') continue;
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (!trimmed.toUpperCase().startsWith(prefix)) continue;
+
+        const separatorIndex = trimmed.indexOf(':');
+        if (separatorIndex < 0) continue;
+
+        const valuePart = trimmed.slice(separatorIndex + 1);
+        tokens.push(
+            ...valuePart
+                .split(',')
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+        );
+    }
+
+    return tokens;
 };
 
 const valuesEqual = (left: unknown, right: unknown) => {
@@ -425,8 +504,9 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     const handleEventClick = (e: React.MouseEvent, calendarEvent: CalendarItem) => {
         e.stopPropagation();
-        setSelectedDate(parseISO(calendarEvent.startDate));
-        setSelectedEvent(calendarEvent);
+        const baseEvent = ((calendarEvent as any).__masterEvent as CalendarItem | undefined) || calendarEvent;
+        setSelectedDate(parseISO(baseEvent.startDate));
+        setSelectedEvent(baseEvent);
         setIsModalOpen(true);
     };
 
@@ -546,6 +626,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
                 const event = sourceData.event as CalendarItem; // Get the event object
                 const destinationDateStr = destData.dateStr as string; // Get the YYYY-MM-DD string
+
+                if ((event as any).__isRecurrenceInstance) {
+                    return;
+                }
 
                 const sourceDate = parseISO(event.isAllDay ? event.startDate : format(parseISO(event.startDate), 'yyyy-MM-dd'));
                 const destinationDate = parseISO(destinationDateStr);
@@ -902,7 +986,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 pertainsTo: {},
                 $: {
                     where: {
-                        or: monthConditions,
+                        or: [...monthConditions, { rrule: { $isNull: false } }],
                     },
                 },
             },
@@ -945,6 +1029,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const byDate = new Map<string, CalendarItem[]>();
         const rangeStartTime = rangeStart.getTime();
         const rangeEndTime = rangeEnd.getTime();
+        const recurrenceOverrideDayKeysByMasterId = new Map<string, Set<string>>();
 
         const pushByDate = (dateKey: string, item: CalendarItem) => {
             const existing = byDate.get(dateKey);
@@ -956,30 +1041,148 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         };
 
         for (const item of calendarItems) {
-            if (item.isAllDay) {
-                const start = parseISO(item.startDate);
-                const exclusiveEnd = parseISO(item.endDate);
-                if (Number.isNaN(start.getTime()) || Number.isNaN(exclusiveEnd.getTime())) {
-                    continue;
-                }
+            const masterId = typeof item.recurringEventId === 'string' ? item.recurringEventId.trim() : '';
+            if (!masterId) continue;
 
-                let cursor = new Date(start);
-                while (cursor.getTime() < exclusiveEnd.getTime()) {
-                    const time = cursor.getTime();
-                    if (time >= rangeStartTime && time <= rangeEndTime) {
-                        pushByDate(format(cursor, 'yyyy-MM-dd'), item);
-                    }
-                    cursor = addDays(cursor, 1);
-                }
+            const recurrenceReference = typeof item.recurrenceId === 'string' && item.recurrenceId.trim() ? item.recurrenceId : item.startDate;
+            const referenceDate = parseRecurrenceDateToken(String(recurrenceReference || '')) || parseISO(String(item.startDate || ''));
+            if (Number.isNaN(referenceDate.getTime())) continue;
+
+            const dayKey = format(referenceDate, 'yyyy-MM-dd');
+            const existing = recurrenceOverrideDayKeysByMasterId.get(masterId);
+            if (existing) {
+                existing.add(dayKey);
             } else {
-                const start = parseISO(item.startDate);
-                if (Number.isNaN(start.getTime())) {
-                    continue;
+                recurrenceOverrideDayKeysByMasterId.set(masterId, new Set([dayKey]));
+            }
+        }
+
+        const expandRecurringItemForRange = (item: CalendarItem): CalendarItem[] => {
+            if (!item.rrule) {
+                return [item];
+            }
+
+            const start = parseISO(item.startDate);
+            const exclusiveEnd = parseISO(item.endDate);
+            if (Number.isNaN(start.getTime()) || Number.isNaN(exclusiveEnd.getTime()) || exclusiveEnd.getTime() <= start.getTime()) {
+                return [item];
+            }
+
+            const normalizedRule = normalizeRruleString(item.rrule);
+            if (!normalizedRule) {
+                return [item];
+            }
+
+            try {
+                const ruleOptions = RRule.parseString(normalizedRule);
+                const recurrenceDtStart = item.isAllDay
+                    ? new Date(
+                          Date.UTC(
+                              start.getFullYear(),
+                              start.getMonth(),
+                              start.getDate(),
+                              start.getHours(),
+                              start.getMinutes(),
+                              start.getSeconds(),
+                              start.getMilliseconds()
+                          )
+                      )
+                    : start;
+                const recurrenceRule = new RRule({
+                    ...ruleOptions,
+                    dtstart: recurrenceDtStart,
+                });
+
+                const durationMs = Math.max(0, exclusiveEnd.getTime() - start.getTime());
+                const allDaySpanDays = item.isAllDay ? Math.max(1, differenceInDays(exclusiveEnd, start)) : 1;
+                const searchStart = item.isAllDay && allDaySpanDays > 1 ? addDays(rangeStart, -(allDaySpanDays - 1)) : rangeStart;
+
+                const generatedStarts = recurrenceRule.between(searchStart, rangeEnd, true);
+                const rdateTokens = [...splitDateTokens(item.rdates), ...collectRecurrenceLineTokens(item.recurrenceLines, 'RDATE')];
+                const rdateStarts = rdateTokens.map((token) => parseRecurrenceDateToken(token)).filter(Boolean) as Date[];
+
+                const exdateTokens = [...splitDateTokens(item.exdates), ...collectRecurrenceLineTokens(item.recurrenceLines, 'EXDATE')];
+                const excludedDayKeys = new Set<string>();
+                const excludedExactTimes = new Set<number>();
+                for (const token of exdateTokens) {
+                    const parsed = parseRecurrenceDateToken(token);
+                    if (!parsed) continue;
+                    excludedDayKeys.add(format(parsed, 'yyyy-MM-dd'));
+                    excludedExactTimes.add(parsed.getTime());
                 }
 
-                const time = start.getTime();
-                if (time >= rangeStartTime && time <= rangeEndTime) {
-                    pushByDate(format(start, 'yyyy-MM-dd'), item);
+                const overrideDayKeys = recurrenceOverrideDayKeysByMasterId.get(item.id);
+                const seenOccurrenceKeys = new Set<string>();
+                const starts = [...generatedStarts, ...rdateStarts].sort((left, right) => left.getTime() - right.getTime());
+
+                const occurrenceItems: CalendarItem[] = [];
+                for (const rawStart of starts) {
+                    if (Number.isNaN(rawStart.getTime())) continue;
+
+                    const occurrenceStart = item.isAllDay ? parseISO(format(rawStart, 'yyyy-MM-dd')) : rawStart;
+                    if (Number.isNaN(occurrenceStart.getTime())) continue;
+
+                    const occurrenceEnd = new Date(occurrenceStart.getTime() + durationMs);
+                    const dayKey = format(occurrenceStart, 'yyyy-MM-dd');
+                    const dedupeKey = item.isAllDay ? dayKey : occurrenceStart.toISOString();
+                    if (seenOccurrenceKeys.has(dedupeKey)) continue;
+                    seenOccurrenceKeys.add(dedupeKey);
+
+                    if (item.isAllDay) {
+                        const overlapsRange = occurrenceEnd.getTime() > rangeStartTime && occurrenceStart.getTime() <= rangeEndTime;
+                        if (!overlapsRange) continue;
+                        if (excludedDayKeys.has(dayKey)) continue;
+                    } else {
+                        const startsInRange = occurrenceStart.getTime() >= rangeStartTime && occurrenceStart.getTime() <= rangeEndTime;
+                        if (!startsInRange) continue;
+                        if (excludedExactTimes.has(occurrenceStart.getTime()) || excludedDayKeys.has(dayKey)) continue;
+                    }
+
+                    if (overrideDayKeys?.has(dayKey)) continue;
+
+                    occurrenceItems.push({
+                        ...item,
+                        startDate: item.isAllDay ? format(occurrenceStart, 'yyyy-MM-dd') : occurrenceStart.toISOString(),
+                        endDate: item.isAllDay ? format(occurrenceEnd, 'yyyy-MM-dd') : occurrenceEnd.toISOString(),
+                        __masterEvent: item,
+                        __isRecurrenceInstance: occurrenceStart.getTime() !== start.getTime(),
+                    });
+                }
+
+                return occurrenceItems;
+            } catch (error) {
+                return [item];
+            }
+        };
+
+        for (const baseItem of calendarItems) {
+            const itemsToRender = expandRecurringItemForRange(baseItem);
+            for (const item of itemsToRender) {
+                if (item.isAllDay) {
+                    const start = parseISO(item.startDate);
+                    const exclusiveEnd = parseISO(item.endDate);
+                    if (Number.isNaN(start.getTime()) || Number.isNaN(exclusiveEnd.getTime())) {
+                        continue;
+                    }
+
+                    let cursor = new Date(start);
+                    while (cursor.getTime() < exclusiveEnd.getTime()) {
+                        const time = cursor.getTime();
+                        if (time >= rangeStartTime && time <= rangeEndTime) {
+                            pushByDate(format(cursor, 'yyyy-MM-dd'), item);
+                        }
+                        cursor = addDays(cursor, 1);
+                    }
+                } else {
+                    const start = parseISO(item.startDate);
+                    if (Number.isNaN(start.getTime())) {
+                        continue;
+                    }
+
+                    const time = start.getTime();
+                    if (time >= rangeStartTime && time <= rangeEndTime) {
+                        pushByDate(format(start, 'yyyy-MM-dd'), item);
+                    }
                 }
             }
         }
@@ -1145,7 +1348,12 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                                             </div>
 
                                             {dayItems.map((item, index) => (
-                                                <DraggableCalendarEvent key={item.id} item={item} index={index} onClick={(e) => handleEventClick(e, item)} />
+                                                <DraggableCalendarEvent
+                                                    key={`${item.id}-${item.startDate}`}
+                                                    item={item}
+                                                    index={index}
+                                                    onClick={(e) => handleEventClick(e, item)}
+                                                />
                                             ))}
                                         </DroppableDayCell>
                                     );
