@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -243,5 +243,28 @@ describe('Calendar', () => {
         });
 
         expect(mocks.dbTransact).not.toHaveBeenCalled();
+    });
+
+    it('lists same-day events in ascending start-time order', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-2',
+                title: 'Later event',
+                startDate: '2026-03-15T14:00:00.000Z',
+                endDate: '2026-03-15T15:00:00.000Z',
+                isAllDay: false,
+            },
+            {
+                id: 'evt-1',
+                title: 'Earlier event',
+                startDate: '2026-03-15T09:00:00.000Z',
+                endDate: '2026-03-15T10:00:00.000Z',
+                isAllDay: false,
+            },
+        ]);
+
+        const dayCell = screen.getByTestId('day-cell-2026-03-15');
+        const eventButtons = within(dayCell).getAllByRole('button');
+        expect(eventButtons.map((button) => button.textContent)).toEqual(['Earlier event', 'Later event']);
     });
 });

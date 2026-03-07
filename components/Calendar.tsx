@@ -90,6 +90,26 @@ const shouldRetryLegacyCalendarMutation = (error: unknown) => {
     return message.includes('permission denied') || message.includes('mutation failed') || message.includes('attrs');
 };
 
+const getCalendarItemStartTime = (item: CalendarItem) => {
+    const parsed = parseISO(item.startDate);
+    return Number.isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
+};
+
+const getCalendarItemEndTime = (item: CalendarItem) => {
+    const parsed = parseISO(item.endDate);
+    return Number.isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
+};
+
+const compareCalendarItemsByStartTime = (left: CalendarItem, right: CalendarItem) => {
+    const startDiff = getCalendarItemStartTime(left) - getCalendarItemStartTime(right);
+    if (startDiff !== 0) return startDiff;
+
+    const endDiff = getCalendarItemEndTime(left) - getCalendarItemEndTime(right);
+    if (endDiff !== 0) return endDiff;
+
+    return String(left.title || '').localeCompare(String(right.title || ''));
+};
+
 const valuesEqual = (left: unknown, right: unknown) => {
     if (left === right) return true;
 
@@ -963,6 +983,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 }
             }
         }
+
+        byDate.forEach((dayItems, dateKey) => {
+            byDate.set(dateKey, [...dayItems].sort(compareCalendarItemsByStartTime));
+        });
 
         return byDate;
     }, [calendarItems, rangeStart, rangeEnd]);
