@@ -69,6 +69,15 @@ interface PendingScrollAdjust {
     anchorOffset?: number | null;
 }
 
+type RecurrenceDragForcedScope = Exclude<RecurrenceEditScope, 'cancel'>;
+
+interface DragRecurrenceIndicatorState {
+    x: number;
+    y: number;
+    label: string;
+    hotkeyLabel: string;
+}
+
 const WEEK_STARTS_ON = 0;
 const WEEKS_PER_LOAD = 8;
 const MONTH_MEMORY_CAP = 240;
@@ -627,6 +636,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const [recurrenceScopeDialogOpen, setRecurrenceScopeDialogOpen] = useState(false);
     const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag'>('drag');
     const [recurrenceScopeDialogMode, setRecurrenceScopeDialogMode] = useState<RecurrenceSeriesScopeMode>('following');
+    const [dragRecurrenceIndicator, setDragRecurrenceIndicator] = useState<DragRecurrenceIndicatorState | null>(null);
     const [dayCellHeight, setDayCellHeight] = useState<number>(() => {
         if (typeof window === 'undefined') {
             return CALENDAR_DAY_HEIGHT_DEFAULT;
@@ -928,6 +938,57 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         return occurrenceReferenceDate.getTime() === masterStartDate.getTime();
     }, []);
 
+    const getForcedRecurrenceScopeFromInput = useCallback(
+        (input: { altKey?: boolean; shiftKey?: boolean } | null | undefined, item: CalendarItem, masterEvent: CalendarItem): RecurrenceDragForcedScope | null => {
+            if (input?.altKey) {
+                return 'single';
+            }
+            if (input?.shiftKey) {
+                return isOriginalSeriesOccurrence(item, masterEvent) ? 'all' : 'following';
+            }
+            return null;
+        },
+        [isOriginalSeriesOccurrence]
+    );
+
+    const syncDragRecurrenceIndicator = useCallback(
+        (
+            input: { altKey?: boolean; shiftKey?: boolean; clientX?: number; clientY?: number } | null | undefined,
+            item: CalendarItem | null | undefined
+        ) => {
+            if (!item) {
+                setDragRecurrenceIndicator(null);
+                return null;
+            }
+
+            const masterEvent = (((item as any).__masterEvent as CalendarItem | undefined) || item) as CalendarItem;
+            const masterRrule = normalizeRruleString(String(masterEvent.rrule || ''));
+            const hasRecurringContext = Boolean(masterRrule || String(item.recurringEventId || '').trim());
+            if (!hasRecurringContext) {
+                setDragRecurrenceIndicator(null);
+                return null;
+            }
+
+            const forcedScope = getForcedRecurrenceScopeFromInput(input, item, masterEvent);
+            if (!forcedScope) {
+                setDragRecurrenceIndicator(null);
+                return null;
+            }
+
+            const indicatorLabel =
+                forcedScope === 'single' ? 'Only this event' : forcedScope === 'all' ? 'All events' : 'This and following events';
+            const hotkeyLabel = forcedScope === 'single' ? 'Alt' : 'Shift';
+            setDragRecurrenceIndicator({
+                x: Number(input?.clientX ?? 0),
+                y: Number(input?.clientY ?? 0),
+                label: indicatorLabel,
+                hotkeyLabel,
+            });
+            return forcedScope;
+        },
+        [getForcedRecurrenceScopeFromInput]
+    );
+
     useEffect(() => {
         return () => {
             if (recurrenceScopeResolverRef.current) {
@@ -1034,8 +1095,25 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     // Code to allow dragging items from one day to another
     useEffect(() => {
         const cleanup = monitorForElements({
+            onDragStart: ({ source, location }) => {
+                if (source.data.type !== 'calendar-event') {
+                    setDragRecurrenceIndicator(null);
+                    return;
+                }
+
+                syncDragRecurrenceIndicator(location.current.input, source.data.event as CalendarItem);
+            },
+            onDrag: ({ source, location }) => {
+                if (source.data.type !== 'calendar-event') {
+                    setDragRecurrenceIndicator(null);
+                    return;
+                }
+
+                syncDragRecurrenceIndicator(location.current.input, source.data.event as CalendarItem);
+            },
             onDrop: (args) => {
                 void (async () => {
+                setDragRecurrenceIndicator(null);
                 const { source, location } = args;
                 const destination = location.current.dropTargets[0];
 
@@ -1116,10 +1194,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     return;
                 }
 
-                const recurrenceScope = await requestRecurrenceScope(
-                    'drag',
-                    isOriginalSeriesOccurrence(event, masterEvent) ? 'all' : 'following'
-                );
+                const forcedRecurrenceScope = getForcedRecurrenceScopeFromInput(location.current.input, event, masterEvent);
+                const recurrenceScope =
+                    forcedRecurrenceScope ??
+                    (await requestRecurrenceScope('drag', isOriginalSeriesOccurrence(event, masterEvent) ? 'all' : 'following'));
                 if (recurrenceScope === 'cancel') {
                     return;
                 }
@@ -1128,6 +1206,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 if (Number.isNaN(sourceStartForRecurrence.getTime())) {
                     return;
                 }
+                const destinationStartForRecurrence = parseISO(String(newStartDate));
                 const recurrenceReferenceToken = event.isAllDay
                     ? format(sourceStartForRecurrence, 'yyyy-MM-dd')
                     : sourceStartForRecurrence.toISOString();
@@ -1251,7 +1330,6 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 }
 
                 if (recurrenceScope === 'all') {
-                    const destinationStartForRecurrence = parseISO(String(newStartDate));
                     if (Number.isNaN(destinationStartForRecurrence.getTime())) {
                         doSimpleMove(masterEvent);
                         return;
@@ -1314,14 +1392,20 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                         return parentId === String(masterEvent.id) && !normalizeRruleString(String(candidate.rrule || ''));
                     });
                     for (const overrideItem of relatedOverrides) {
-                        const shiftedOverrideStart = event.isAllDay
-                            ? format(addDays(parseISO(String(overrideItem.startDate)), daysDifference), 'yyyy-MM-dd')
-                            : addDays(parseISO(String(overrideItem.startDate)), daysDifference).toISOString();
-                        const shiftedOverrideEnd = event.isAllDay
-                            ? format(addDays(parseISO(String(overrideItem.endDate)), daysDifference), 'yyyy-MM-dd')
-                            : addDays(parseISO(String(overrideItem.endDate)), daysDifference).toISOString();
+                        const overrideStartDate = parseISO(String(overrideItem.startDate));
+                        const overrideEndDate = parseISO(String(overrideItem.endDate));
+                        if (Number.isNaN(overrideStartDate.getTime()) || Number.isNaN(overrideEndDate.getTime())) {
+                            continue;
+                        }
+
+                        const shiftedOverrideStart = overrideItem.isAllDay
+                            ? format(addDays(overrideStartDate, daysDifference), 'yyyy-MM-dd')
+                            : addDays(overrideStartDate, daysDifference).toISOString();
+                        const shiftedOverrideEnd = overrideItem.isAllDay
+                            ? format(addDays(overrideEndDate, daysDifference), 'yyyy-MM-dd')
+                            : addDays(overrideEndDate, daysDifference).toISOString();
                         const overrideDayAnchor = parseISO(
-                            event.isAllDay ? `${shiftedOverrideStart}T00:00:00` : shiftedOverrideStart
+                            overrideItem.isAllDay ? `${shiftedOverrideStart}T00:00:00` : shiftedOverrideStart
                         );
                         if (Number.isNaN(overrideDayAnchor.getTime())) {
                             continue;
@@ -1425,6 +1509,25 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
                 const newSeriesId = id();
                 const newSeriesMembers = Array.isArray(masterEvent.pertainsTo) ? masterEvent.pertainsTo : [];
+                const shiftedSplitRrule = shiftRruleForSeriesMove(masterRrule, sourceStartForRecurrence, destinationStartForRecurrence);
+                const shiftedSplitRdates = normalizeRecurrenceTokens(
+                    oldSeriesRdates.onOrAfter.map((token) => shiftRecurrenceTokenByDays(token, daysDifference, event.isAllDay))
+                );
+                const shiftedSplitExdates = normalizeRecurrenceTokens(
+                    oldSeriesExdates.onOrAfter.map((token) => shiftRecurrenceTokenByDays(token, daysDifference, event.isAllDay))
+                );
+                const shiftedSplitExceptionRows = shiftStoredRecurrenceRowsByDays(oldExceptionRowsSplit.onOrAfter, daysDifference);
+                const shiftedSplitRdateRows = shiftStoredRecurrenceRowsByDays(oldRdateRowsSplit.onOrAfter, daysDifference);
+                if (shiftedSplitExceptionRows.length > 0) {
+                    newSeriesXProps.recurrenceExceptionRows = shiftedSplitExceptionRows;
+                } else {
+                    delete newSeriesXProps.recurrenceExceptionRows;
+                }
+                if (shiftedSplitRdateRows.length > 0) {
+                    newSeriesXProps.recurrenceRdateRows = shiftedSplitRdateRows;
+                } else {
+                    delete newSeriesXProps.recurrenceRdateRows;
+                }
                 const newSeriesPayload: Record<string, any> = {
                     ...legacyPayload,
                     title: String(event.title || masterEvent.title || ''),
@@ -1441,10 +1544,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     lastModified: nowIso,
                     location: String(event.location || masterEvent.location || ''),
                     timeZone: String(event.timeZone || masterEvent.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
-                    rrule: masterRrule,
-                    rdates: oldSeriesRdates.onOrAfter,
-                    exdates: oldSeriesExdates.onOrAfter,
-                    recurrenceLines: buildRecurrenceLines(masterRrule, oldSeriesRdates.onOrAfter, oldSeriesExdates.onOrAfter),
+                    rrule: shiftedSplitRrule,
+                    rdates: shiftedSplitRdates,
+                    exdates: shiftedSplitExdates,
+                    recurrenceLines: buildRecurrenceLines(shiftedSplitRrule, shiftedSplitRdates, shiftedSplitExdates),
                     recurrenceId: '',
                     recurringEventId: '',
                     recurrenceIdRange: '',
@@ -1506,7 +1609,34 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     }
                 }
                 for (const override of overridesToMove) {
+                    const overrideStartDate = parseISO(String(override.startDate));
+                    const overrideEndDate = parseISO(String(override.endDate));
+                    const shiftedOverrideStart =
+                        !Number.isNaN(overrideStartDate.getTime()) && !Number.isNaN(overrideEndDate.getTime())
+                            ? override.isAllDay
+                                ? format(addDays(overrideStartDate, daysDifference), 'yyyy-MM-dd')
+                                : addDays(overrideStartDate, daysDifference).toISOString()
+                            : override.startDate;
+                    const shiftedOverrideEnd =
+                        !Number.isNaN(overrideStartDate.getTime()) && !Number.isNaN(overrideEndDate.getTime())
+                            ? override.isAllDay
+                                ? format(addDays(overrideEndDate, daysDifference), 'yyyy-MM-dd')
+                                : addDays(overrideEndDate, daysDifference).toISOString()
+                            : override.endDate;
+                    const shiftedOverrideAnchor = parseISO(
+                        override.isAllDay ? `${shiftedOverrideStart}T00:00:00` : shiftedOverrideStart
+                    );
                     const overridePatch = {
+                        startDate: shiftedOverrideStart,
+                        endDate: shiftedOverrideEnd,
+                        year: Number.isNaN(shiftedOverrideAnchor.getTime()) ? override.year : shiftedOverrideAnchor.getFullYear(),
+                        month: Number.isNaN(shiftedOverrideAnchor.getTime()) ? override.month : shiftedOverrideAnchor.getMonth() + 1,
+                        dayOfMonth: Number.isNaN(shiftedOverrideAnchor.getTime()) ? override.dayOfMonth : shiftedOverrideAnchor.getDate(),
+                        recurrenceId: shiftRecurrenceTokenByDays(
+                            String(override.recurrenceId || override.startDate || ''),
+                            daysDifference,
+                            override.isAllDay
+                        ),
                         recurringEventId: newSeriesId,
                         updatedAt: nowIso,
                         lastModified: nowIso,
@@ -1536,7 +1666,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         });
 
         return cleanup;
-    }, [applyOptimisticCalendarItem, calendarItems, isOriginalSeriesOccurrence, requestRecurrenceScope]);
+    }, [applyOptimisticCalendarItem, calendarItems, getForcedRecurrenceScopeFromInput, isOriginalSeriesOccurrence, requestRecurrenceScope, syncDragRecurrenceIndicator]);
 
     useLayoutEffect(() => {
         const pendingAdjust = pendingTopScrollAdjustRef.current;
@@ -2121,6 +2251,19 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 scopeMode={recurrenceScopeDialogMode}
                 onSelect={resolveRecurrenceScope}
             />
+            {dragRecurrenceIndicator ? (
+                <div
+                    className={styles.dragRecurrenceIndicator}
+                    style={{
+                        left: `${dragRecurrenceIndicator.x}px`,
+                        top: `${dragRecurrenceIndicator.y}px`,
+                    }}
+                    data-testid="drag-recurrence-indicator"
+                >
+                    <span className={styles.dragRecurrenceIndicatorLabel}>{dragRecurrenceIndicator.label}</span>
+                    <span className={styles.dragRecurrenceIndicatorKey}>{dragRecurrenceIndicator.hotkeyLabel}</span>
+                </div>
+            ) : null}
             <div
                 ref={scrollContainerRef}
                 className={styles.calendarScrollContainer}

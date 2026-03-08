@@ -401,6 +401,180 @@ describe('Calendar', () => {
         );
     });
 
+    it('uses the Alt drag hotkey to move only this recurring occurrence and shows a cursor indicator', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-master',
+                title: 'Soccer',
+                startDate: '2026-03-17',
+                endDate: '2026-03-18',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+            },
+        ]);
+
+        const recurringOccurrence = {
+            id: 'evt-master',
+            title: 'Soccer',
+            startDate: '2026-03-24',
+            endDate: '2026-03-25',
+            isAllDay: true,
+            rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+            recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+            __isRecurrenceInstance: true,
+            __masterEvent: {
+                id: 'evt-master',
+                title: 'Soccer',
+                startDate: '2026-03-17',
+                endDate: '2026-03-18',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+            },
+        };
+
+        act(() => {
+            mocks.monitorConfig.onDrag({
+                source: { data: { type: 'calendar-event', event: recurringOccurrence } },
+                location: { current: { input: { altKey: true, clientX: 180, clientY: 220 } } },
+            });
+        });
+
+        expect(screen.getByTestId('drag-recurrence-indicator')).toBeInTheDocument();
+        expect(screen.getByText('Only this event')).toBeInTheDocument();
+        expect(screen.getByText('Alt')).toBeInTheDocument();
+
+        act(() => {
+            mocks.monitorConfig.onDrop({
+                source: { data: { type: 'calendar-event', event: recurringOccurrence } },
+                location: {
+                    current: {
+                        input: { altKey: true, clientX: 180, clientY: 220 },
+                        dropTargets: [{ data: { type: 'calendar-day', dateStr: '2026-03-26' } }],
+                    },
+                },
+            });
+        });
+
+        expect(screen.queryByTestId('recurrence-scope-dialog')).toBeNull();
+        expect(screen.queryByTestId('drag-recurrence-indicator')).toBeNull();
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-master',
+                    op: 'update',
+                    payload: expect.objectContaining({
+                        exdates: expect.arrayContaining(['2026-03-24']),
+                    }),
+                }),
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-generated',
+                    op: 'update',
+                    payload: expect.objectContaining({
+                        recurringEventId: 'evt-master',
+                        recurrenceId: '2026-03-24',
+                        startDate: '2026-03-26',
+                    }),
+                }),
+            ])
+        );
+    });
+
+    it('uses the Shift drag hotkey to move this and following recurring events without opening the scope dialog', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-master',
+                title: 'Soccer',
+                startDate: '2026-03-17',
+                endDate: '2026-03-18',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+            },
+        ]);
+
+        const recurringOccurrence = {
+            id: 'evt-master',
+            title: 'Soccer',
+            startDate: '2026-03-24',
+            endDate: '2026-03-25',
+            isAllDay: true,
+            rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+            recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+            __isRecurrenceInstance: true,
+            __masterEvent: {
+                id: 'evt-master',
+                title: 'Soccer',
+                startDate: '2026-03-17',
+                endDate: '2026-03-18',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+            },
+        };
+
+        act(() => {
+            mocks.monitorConfig.onDrag({
+                source: { data: { type: 'calendar-event', event: recurringOccurrence } },
+                location: { current: { input: { shiftKey: true, clientX: 210, clientY: 240 } } },
+            });
+        });
+
+        expect(screen.getByTestId('drag-recurrence-indicator')).toBeInTheDocument();
+        expect(screen.getByText('This and following events')).toBeInTheDocument();
+        expect(screen.getByText('Shift')).toBeInTheDocument();
+
+        act(() => {
+            mocks.monitorConfig.onDrop({
+                source: { data: { type: 'calendar-event', event: recurringOccurrence } },
+                location: {
+                    current: {
+                        input: { shiftKey: true, clientX: 210, clientY: 240 },
+                        dropTargets: [{ data: { type: 'calendar-day', dateStr: '2026-03-26' } }],
+                    },
+                },
+            });
+        });
+
+        expect(screen.queryByTestId('recurrence-scope-dialog')).toBeNull();
+        expect(screen.queryByTestId('drag-recurrence-indicator')).toBeNull();
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-master',
+                    op: 'update',
+                    payload: expect.objectContaining({
+                        rrule: expect.stringContaining('UNTIL='),
+                    }),
+                }),
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-generated',
+                    op: 'update',
+                    payload: expect.objectContaining({
+                        startDate: '2026-03-26',
+                        endDate: '2026-03-27',
+                        rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TH',
+                    }),
+                }),
+            ])
+        );
+    });
+
     it('can drag one recurring occurrence as a single override when choosing single scope', async () => {
         renderCalendarWithItems([
             {
