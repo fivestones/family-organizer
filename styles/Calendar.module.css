@@ -310,6 +310,37 @@
 }
 
 .event {
+    --calendar-chip-border: #a7f3d0;
+    --calendar-chip-bg: linear-gradient(135deg, #d1fae5, #a7f3d0);
+    --calendar-chip-title: #14532d;
+    --calendar-chip-meta: rgba(20, 83, 45, 0.86);
+    --calendar-chip-audience-border: #86efac;
+    --calendar-chip-audience-text: #166534;
+    --calendar-chip-avatar-border: #34d399;
+    --calendar-chip-avatar-bg: rgba(255, 255, 255, 0.82);
+    --calendar-chip-avatar-text: #065f46;
+    --calendar-chip-count-bg: rgba(6, 95, 70, 0.1);
+    --calendar-chip-count-text: #065f46;
+    --calendar-span-border: #6ee7b7;
+    --calendar-span-bg: linear-gradient(135deg, #ecfdf5, #bbf7d0 55%, #86efac);
+    font-size: 0.67rem;
+    line-height: 1.02;
+}
+
+.chore {
+    --calendar-chip-border: #bfdbfe;
+    --calendar-chip-bg: linear-gradient(135deg, #eff6ff, #dbeafe 60%, #bfdbfe);
+    --calendar-chip-title: #1d4ed8;
+    --calendar-chip-meta: rgba(30, 64, 175, 0.88);
+    --calendar-chip-audience-border: #93c5fd;
+    --calendar-chip-audience-text: #1d4ed8;
+    --calendar-chip-avatar-border: #60a5fa;
+    --calendar-chip-avatar-bg: rgba(255, 255, 255, 0.86);
+    --calendar-chip-avatar-text: #1e3a8a;
+    --calendar-chip-count-bg: rgba(37, 99, 235, 0.12);
+    --calendar-chip-count-text: #1e3a8a;
+    --calendar-span-border: #93c5fd;
+    --calendar-span-bg: linear-gradient(135deg, #eff6ff, #dbeafe 60%, #bfdbfe);
     font-size: 0.67rem;
     line-height: 1.02;
 }
@@ -317,8 +348,8 @@
 .circled {
     border-radius: 6px;
     border-width: 1px;
-    border-color: #a7f3d0;
-    background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+    border-color: var(--calendar-chip-border, #a7f3d0);
+    background: var(--calendar-chip-bg, linear-gradient(135deg, #d1fae5, #a7f3d0));
     width: auto;
     height: auto;
     padding: 1px 5px 2px;
@@ -329,8 +360,15 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
-    cursor: pointer;
     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.calendarItemInteractive {
+    cursor: pointer;
+}
+
+.calendarItemStatic {
+    cursor: default;
 }
 
 .eventTitle {
@@ -339,7 +377,7 @@
     -webkit-line-clamp: 1;
     overflow: hidden;
     text-align: left;
-    color: #14532d;
+    color: var(--calendar-chip-title, #14532d);
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -369,7 +407,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     text-align: left;
-    color: rgba(20, 83, 45, 0.86);
+    color: var(--calendar-chip-meta, rgba(20, 83, 45, 0.86));
     font-size: 0.56rem;
     line-height: 1;
     padding-left: 1px;
@@ -377,9 +415,9 @@
 
 .eventAudienceAll {
     border-radius: 9999px;
-    border: 1px solid #86efac;
+    border: 1px solid var(--calendar-chip-audience-border, #86efac);
     background: rgba(255, 255, 255, 0.72);
-    color: #166534;
+    color: var(--calendar-chip-audience-text, #166534);
     font-size: 0.5rem;
     font-weight: 700;
     letter-spacing: 0.01em;
@@ -390,9 +428,9 @@
     width: 12px;
     height: 12px;
     border-radius: 9999px;
-    border: 1px solid #34d399;
-    background: rgba(255, 255, 255, 0.82);
-    color: #065f46;
+    border: 1px solid var(--calendar-chip-avatar-border, #34d399);
+    background: var(--calendar-chip-avatar-bg, rgba(255, 255, 255, 0.82));
+    color: var(--calendar-chip-avatar-text, #065f46);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -402,8 +440,8 @@
 
 .eventAudienceCount {
     border-radius: 9999px;
-    background: rgba(6, 95, 70, 0.1);
-    color: #065f46;
+    background: var(--calendar-chip-count-bg, rgba(6, 95, 70, 0.1));
+    color: var(--calendar-chip-count-text, #065f46);
     font-size: 0.45rem;
     font-weight: 700;
     padding: 0 4px;
@@ -417,8 +455,8 @@
     height: 16px;
     margin-top: 0;
     padding: 1px 6px 2px;
-    border-color: #6ee7b7;
-    background: linear-gradient(135deg, #ecfdf5, #bbf7d0 55%, #86efac);
+    border-color: var(--calendar-span-border, #6ee7b7);
+    background: var(--calendar-span-bg, linear-gradient(135deg, #ecfdf5, #bbf7d0 55%, #86efac));
     border-radius: 999px;
     box-shadow: none;
     box-sizing: border-box;

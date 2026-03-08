@@ -60,3 +60,5 @@ mobile/.expo/
 dist/
 
 mobile/eas.json
+
+docs/

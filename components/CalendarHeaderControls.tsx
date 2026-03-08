@@ -14,6 +14,7 @@ import {
     CALENDAR_DAY_HEIGHT_MAX,
     CALENDAR_DAY_HEIGHT_MIN,
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
+    CALENDAR_SHOW_CHORES_STORAGE_KEY,
     CALENDAR_STATE_EVENT,
     CALENDAR_VISIBLE_WEEKS_MAX,
     CALENDAR_VISIBLE_WEEKS_MIN,
@@ -35,6 +36,11 @@ interface FamilyMember {
     name?: string | null;
 }
 
+interface ChoreFilterOption {
+    id: string;
+    title?: string | null;
+}
+
 const dispatchCalendarCommand = (detail: CalendarCommandDetail) => {
     window.dispatchEvent(new CustomEvent<CalendarCommandDetail>(CALENDAR_COMMAND_EVENT, { detail }));
 };
@@ -44,11 +50,15 @@ export default function CalendarHeaderControls() {
     const isCalendarRoute = useMemo(() => pathname?.startsWith('/calendar') ?? false, [pathname]);
     const [dayHeight, setDayHeight] = useState(CALENDAR_DAY_HEIGHT_DEFAULT);
     const [visibleWeeks, setVisibleWeeks] = useState(6);
+    const [showChores, setShowChores] = useState(false);
+    const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
+    const [choreFilterConfigured, setChoreFilterConfigured] = useState(false);
     const [everyoneSelected, setEveryoneSelected] = useState(true);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+    const [isChoreFilterExpanded, setIsChoreFilterExpanded] = useState(false);
     const hasInitializedMemberFilterRef = useRef(false);
 
-    const familyMembersQuery = db.useQuery({
+    const filterOptionsQuery = db.useQuery({
         familyMembers: {
             $: {
                 order: {
@@ -56,14 +66,31 @@ export default function CalendarHeaderControls() {
                 },
             },
         },
+        chores: {},
     });
     const familyMembers = useMemo(() => {
-        return (((familyMembersQuery.data?.familyMembers as FamilyMember[]) || []).filter((member) => Boolean(member?.id)));
-    }, [familyMembersQuery.data?.familyMembers]);
+        return ((((filterOptionsQuery.data?.familyMembers as FamilyMember[]) || []).filter((member) => Boolean(member?.id))));
+    }, [filterOptionsQuery.data?.familyMembers]);
     const familyMemberIds = useMemo(() => familyMembers.map((member) => member.id), [familyMembers]);
+    const chores = useMemo(() => {
+        return (((filterOptionsQuery.data?.chores as ChoreFilterOption[]) || [])
+            .filter((chore) => Boolean(chore?.id))
+            .sort((left, right) => {
+                const leftTitle = String(left?.title || '').trim() || 'Untitled chore';
+                const rightTitle = String(right?.title || '').trim() || 'Untitled chore';
+                return leftTitle.localeCompare(rightTitle);
+            }));
+    }, [filterOptionsQuery.data?.chores]);
+    const choreIds = useMemo(() => chores.map((chore) => chore.id), [chores]);
+    const effectiveSelectedChoreIds = useMemo(
+        () => (choreFilterConfigured ? selectedChoreIds : choreIds),
+        [choreFilterConfigured, choreIds, selectedChoreIds]
+    );
 
     useEffect(() => {
         if (!isCalendarRoute) return;
+
+        setShowChores(window.localStorage.getItem(CALENDAR_SHOW_CHORES_STORAGE_KEY) === 'true');
 
         const stored = window.localStorage.getItem(CALENDAR_DAY_HEIGHT_STORAGE_KEY);
         if (!stored) return;
@@ -82,6 +109,19 @@ export default function CalendarHeaderControls() {
             if (!detail) return;
             setDayHeight(clampNumber(Math.round(detail.dayHeight), CALENDAR_DAY_HEIGHT_MIN, CALENDAR_DAY_HEIGHT_MAX));
             setVisibleWeeks(clampNumber(Math.round(detail.visibleWeeks), CALENDAR_VISIBLE_WEEKS_MIN, CALENDAR_VISIBLE_WEEKS_MAX));
+            setShowChores(Boolean(detail.showChores));
+            if (detail.choreFilter) {
+                setChoreFilterConfigured(Boolean(detail.choreFilter.configured));
+                setSelectedChoreIds(
+                    Array.from(
+                        new Set(
+                            (Array.isArray(detail.choreFilter.selectedChoreIds) ? detail.choreFilter.selectedChoreIds : [])
+                                .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+                                .map((value) => value.trim())
+                        )
+                    )
+                );
+            }
             if (detail.memberFilter) {
                 setEveryoneSelected(Boolean(detail.memberFilter.everyoneSelected));
                 setSelectedMemberIds(
@@ -137,6 +177,42 @@ export default function CalendarHeaderControls() {
         }
     }, [everyoneSelected, familyMemberIds, isCalendarRoute, selectedMemberIds]);
 
+    useEffect(() => {
+        if (!showChores) {
+            setIsChoreFilterExpanded(false);
+        }
+    }, [showChores]);
+
+    useEffect(() => {
+        if (!isCalendarRoute) return;
+        if (!showChores) return;
+        if (choreIds.length === 0) return;
+
+        const selectedSet = new Set(selectedChoreIds);
+        const normalizedSelectedIds = choreIds.filter((id) => selectedSet.has(id));
+        const normalizedMatchesState =
+            normalizedSelectedIds.length === selectedChoreIds.length &&
+            normalizedSelectedIds.every((id, index) => id === selectedChoreIds[index]);
+
+        if (!choreFilterConfigured && normalizedSelectedIds.length === 0) {
+            setChoreFilterConfigured(true);
+            setSelectedChoreIds(choreIds);
+            dispatchCalendarCommand({
+                type: 'setChoreFilter',
+                selectedChoreIds: choreIds,
+            });
+            return;
+        }
+
+        if (choreFilterConfigured && !normalizedMatchesState) {
+            setSelectedChoreIds(normalizedSelectedIds);
+            dispatchCalendarCommand({
+                type: 'setChoreFilter',
+                selectedChoreIds: normalizedSelectedIds,
+            });
+        }
+    }, [choreFilterConfigured, choreIds, isCalendarRoute, selectedChoreIds, showChores]);
+
     const applyMemberFilter = (nextEveryoneSelected: boolean, nextMemberIds: string[]) => {
         hasInitializedMemberFilterRef.current = true;
         const allowedIds = new Set(familyMemberIds);
@@ -153,6 +229,24 @@ export default function CalendarHeaderControls() {
             type: 'setMemberFilter',
             everyoneSelected: nextEveryoneSelected,
             selectedMemberIds: dedupedMemberIds,
+        });
+    };
+
+    const applyChoreFilter = (nextChoreIds: string[]) => {
+        const allowedIds = new Set(choreIds);
+        const dedupedChoreIds = Array.from(
+            new Set(
+                nextChoreIds
+                    .map((id) => String(id || '').trim())
+                    .filter((id) => id.length > 0 && allowedIds.has(id))
+            )
+        );
+
+        setChoreFilterConfigured(true);
+        setSelectedChoreIds(dedupedChoreIds);
+        dispatchCalendarCommand({
+            type: 'setChoreFilter',
+            selectedChoreIds: dedupedChoreIds,
         });
     };
 
@@ -184,6 +278,26 @@ export default function CalendarHeaderControls() {
 
         return `Show events that apply to everyone and pertain to ${humanJoin(selectedNames)}`;
     }, [everyoneSelected, familyMemberIds, familyMembers, selectedMemberIds]);
+
+    const choreFilterSummary = useMemo(() => {
+        if (chores.length === 0) {
+            return 'No chores available yet';
+        }
+
+        if (!choreFilterConfigured) {
+            return 'All chores selected';
+        }
+
+        if (selectedChoreIds.length === 0) {
+            return 'No chores selected';
+        }
+
+        if (effectiveSelectedChoreIds.length === choreIds.length) {
+            return 'All chores selected';
+        }
+
+        return `Showing ${effectiveSelectedChoreIds.length} of ${choreIds.length} chores`;
+    }, [choreFilterConfigured, choreIds.length, chores.length, effectiveSelectedChoreIds.length, selectedChoreIds.length]);
 
     if (!isCalendarRoute) {
         return null;
@@ -249,6 +363,27 @@ export default function CalendarHeaderControls() {
                             />
                             <p className="text-xs text-muted-foreground">Approx. days visible: {visibleWeeks * 7}</p>
                         </div>
+
+                        <label
+                            htmlFor="calendar-show-chores-header"
+                            className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2"
+                        >
+                            <Checkbox
+                                id="calendar-show-chores-header"
+                                checked={showChores}
+                                onCheckedChange={(checked) => {
+                                    const next = normalizeChecked(checked);
+                                    setShowChores(next);
+                                    dispatchCalendarCommand({ type: 'setShowChores', showChores: next });
+                                }}
+                            />
+                            <div className="space-y-1">
+                                <span className="block text-sm font-medium">Show chores on calendar</span>
+                                <span className="block text-xs text-muted-foreground">
+                                    Overlay due chores in a separate color and apply the same person filter.
+                                </span>
+                            </div>
+                        </label>
                     </div>
                 </PopoverContent>
             </Popover>
@@ -300,9 +435,9 @@ export default function CalendarHeaderControls() {
                             <span className="text-sm font-medium">Everyone</span>
                         </label>
 
-                        {familyMembersQuery.isLoading ? (
+                        {filterOptionsQuery.isLoading ? (
                             <p className="text-xs text-muted-foreground">Loading family members...</p>
-                        ) : familyMembersQuery.error ? (
+                        ) : filterOptionsQuery.error ? (
                             <p className="text-xs text-destructive">Could not load family members.</p>
                         ) : familyMembers.length === 0 ? (
                             <p className="text-xs text-muted-foreground">No family members available yet.</p>
@@ -329,6 +464,83 @@ export default function CalendarHeaderControls() {
                                 ))}
                             </div>
                         )}
+
+                        {showChores ? (
+                            <div className="grid gap-2 border-t border-slate-200 pt-3">
+                                <button
+                                    type="button"
+                                    className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-left"
+                                    aria-expanded={isChoreFilterExpanded}
+                                    onClick={() => setIsChoreFilterExpanded((previous) => !previous)}
+                                >
+                                    <div className="space-y-1">
+                                        <span className="block text-sm font-medium">Specific chores</span>
+                                        <span className="block text-xs text-muted-foreground">{choreFilterSummary}</span>
+                                    </div>
+                                    <span className="text-xs font-medium text-slate-600">
+                                        {isChoreFilterExpanded ? 'Hide' : 'Show'}
+                                    </span>
+                                </button>
+
+                                {isChoreFilterExpanded ? (
+                                    <div data-testid="calendar-chore-filter-options" className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8"
+                                                onClick={() => applyChoreFilter(choreIds)}
+                                                disabled={choreIds.length === 0}
+                                            >
+                                                Select all
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8"
+                                                onClick={() => applyChoreFilter([])}
+                                                disabled={choreIds.length === 0}
+                                            >
+                                                Select none
+                                            </Button>
+                                        </div>
+
+                                        {filterOptionsQuery.isLoading ? (
+                                            <p className="text-xs text-muted-foreground">Loading chores...</p>
+                                        ) : filterOptionsQuery.error ? (
+                                            <p className="text-xs text-destructive">Could not load chores.</p>
+                                        ) : chores.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground">No chores available yet.</p>
+                                        ) : (
+                                            <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
+                                                {chores.map((chore) => (
+                                                    <label
+                                                        key={chore.id}
+                                                        htmlFor={`calendar-filter-chore-${chore.id}`}
+                                                        className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
+                                                    >
+                                                        <Checkbox
+                                                            id={`calendar-filter-chore-${chore.id}`}
+                                                            checked={effectiveSelectedChoreIds.includes(chore.id)}
+                                                            onCheckedChange={(checked) => {
+                                                                const currentSelection = effectiveSelectedChoreIds;
+                                                                const next = normalizeChecked(checked)
+                                                                    ? [...currentSelection, chore.id]
+                                                                    : currentSelection.filter((id) => id !== chore.id);
+                                                                applyChoreFilter(next);
+                                                            }}
+                                                        />
+                                                        <span className="text-sm">{chore.title || 'Untitled chore'}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
                     </div>
                 </PopoverContent>
             </Popover>

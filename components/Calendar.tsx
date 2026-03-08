@@ -29,12 +29,14 @@ import { DroppableDayCell } from './DroppableDayCell'; // Import new component
 import { DraggableCalendarEvent, CalendarItem } from './DraggableCalendarEvent';
 import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesScopeMode } from './RecurrenceScopeDialog';
 import { db } from '@/lib/db';
+import { getAssignedMembersForChoreOnDate, type Chore } from '@/lib/chore-utils';
 import {
     CALENDAR_COMMAND_EVENT,
     CALENDAR_DAY_HEIGHT_DEFAULT,
     CALENDAR_DAY_HEIGHT_MAX,
     CALENDAR_DAY_HEIGHT_MIN,
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
+    CALENDAR_SHOW_CHORES_STORAGE_KEY,
     CALENDAR_STATE_EVENT,
     CALENDAR_VISIBLE_WEEKS_MAX,
     CALENDAR_VISIBLE_WEEKS_MIN,
@@ -132,6 +134,11 @@ const compareCalendarItemsByStartTime = (left: CalendarItem, right: CalendarItem
     if (endDiff !== 0) return endDiff;
 
     return String(left.title || '').localeCompare(String(right.title || ''));
+};
+
+const getUtcDateFromDateKey = (dateKey: string) => {
+    const parsed = new Date(`${dateKey}T00:00:00.000Z`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
 const toDayStart = (value: Date) => parseISO(`${format(value, 'yyyy-MM-dd')}T00:00:00`);
@@ -721,6 +728,15 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag'>('drag');
     const [recurrenceScopeDialogMode, setRecurrenceScopeDialogMode] = useState<RecurrenceSeriesScopeMode>('following');
     const [dragRecurrenceIndicator, setDragRecurrenceIndicator] = useState<DragRecurrenceIndicatorState | null>(null);
+    const [showChores, setShowChores] = useState<boolean>(() => {
+        if (typeof window === 'undefined') {
+            return false;
+        }
+
+        return window.localStorage.getItem(CALENDAR_SHOW_CHORES_STORAGE_KEY) === 'true';
+    });
+    const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
+    const [choreFilterConfigured, setChoreFilterConfigured] = useState(false);
     const [dayCellHeight, setDayCellHeight] = useState<number>(() => {
         if (typeof window === 'undefined') {
             return CALENDAR_DAY_HEIGHT_DEFAULT;
@@ -2034,16 +2050,26 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     }, [dayCellHeight]);
 
     useEffect(() => {
+        if (typeof window === 'undefined') return;
+        window.localStorage.setItem(CALENDAR_SHOW_CHORES_STORAGE_KEY, showChores ? 'true' : 'false');
+    }, [showChores]);
+
+    useEffect(() => {
         const detail: CalendarStateDetail = {
             dayHeight: dayCellHeight,
             visibleWeeks: visibleWeeksEstimate,
+            showChores,
+            choreFilter: {
+                configured: choreFilterConfigured,
+                selectedChoreIds,
+            },
             memberFilter: {
                 everyoneSelected,
                 selectedMemberIds,
             },
         };
         window.dispatchEvent(new CustomEvent<CalendarStateDetail>(CALENDAR_STATE_EVENT, { detail }));
-    }, [dayCellHeight, everyoneSelected, selectedMemberIds, visibleWeeksEstimate]);
+    }, [choreFilterConfigured, dayCellHeight, everyoneSelected, selectedChoreIds, selectedMemberIds, showChores, visibleWeeksEstimate]);
 
     useEffect(() => {
         const onCalendarCommand = (event: Event) => {
@@ -2057,6 +2083,24 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
             if (detail.type === 'setVisibleWeeks') {
                 applyVisibleWeeks(detail.visibleWeeks);
+                return;
+            }
+
+            if (detail.type === 'setShowChores') {
+                setShowChores(Boolean(detail.showChores));
+                return;
+            }
+
+            if (detail.type === 'setChoreFilter') {
+                const sanitizedChoreIds = Array.from(
+                    new Set(
+                        (Array.isArray(detail.selectedChoreIds) ? detail.selectedChoreIds : [])
+                            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+                            .map((value) => value.trim())
+                    )
+                );
+                setSelectedChoreIds(sanitizedChoreIds);
+                setChoreFilterConfigured(true);
                 return;
             }
 
@@ -2088,6 +2132,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 const stateDetail: CalendarStateDetail = {
                     dayHeight: dayCellHeight,
                     visibleWeeks: visibleWeeksEstimate,
+                    showChores,
+                    choreFilter: {
+                        configured: choreFilterConfigured,
+                        selectedChoreIds,
+                    },
                     memberFilter: {
                         everyoneSelected,
                         selectedMemberIds,
@@ -2103,12 +2152,15 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         };
     }, [
         applyVisibleWeeks,
+        choreFilterConfigured,
         dayCellHeight,
         everyoneSelected,
         handleQuickAddClick,
         handleTodayClick,
+        selectedChoreIds,
         selectedMemberIds,
         setDayHeight,
+        showChores,
         visibleWeeksEstimate,
     ]);
 
@@ -2143,12 +2195,19 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     },
                 },
             },
+            chores: {
+                assignees: {},
+                assignments: {
+                    familyMember: {},
+                },
+            },
         }),
         [monthConditions, recurrenceReferenceMonthConditions]
     );
 
     const queryResult = (db as any).useQuery(query) as any;
     const { isLoading, error, data } = queryResult;
+    const chores = useMemo(() => ((data?.chores as Chore[]) || []), [data?.chores]);
 
     useEffect(() => {
         if (!isLoading && !error && data) {
@@ -2187,6 +2246,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const rangeEndDay = toDayStart(rangeEnd);
         const recurrenceOverrideDayKeysByMasterId = new Map<string, Set<string>>();
         const selectedMemberIdSet = new Set(selectedMemberIds);
+        const selectedChoreIdSet = new Set(selectedChoreIds);
 
         const matchesMemberFilter = (item: CalendarItem) => {
             const pertainsToIds = (Array.isArray(item.pertainsTo) ? item.pertainsTo : [])
@@ -2212,6 +2272,44 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             if (selectedMemberIdSet.size === 0) return false;
             if (isEveryoneEvent) return false;
             return pertainsToIds.some((id) => selectedMemberIdSet.has(id));
+        };
+
+        const matchesChoreMemberFilter = (assignedMembers: Array<{ id: string; name?: string }>) => {
+            const assignedIds = assignedMembers
+                .map((member) => member?.id)
+                .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+                .map((id) => id.trim());
+
+            if (assignedIds.length === 0) {
+                return false;
+            }
+
+            if (!memberFilterConfigured && everyoneSelected && selectedMemberIdSet.size === 0) {
+                return true;
+            }
+
+            if (selectedMemberIdSet.size === 0) {
+                return false;
+            }
+
+            return assignedIds.some((id) => selectedMemberIdSet.has(id));
+        };
+
+        const matchesChoreIdFilter = (choreId: string) => {
+            const normalizedId = String(choreId || '').trim();
+            if (!normalizedId) {
+                return false;
+            }
+
+            if (!choreFilterConfigured && selectedChoreIdSet.size === 0) {
+                return true;
+            }
+
+            if (selectedChoreIdSet.size === 0) {
+                return false;
+            }
+
+            return selectedChoreIdSet.has(normalizedId);
         };
 
         const calendarItemsForView = calendarItems.filter(matchesMemberFilter);
@@ -2412,6 +2510,36 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             }
         }
 
+        if (showChores) {
+            for (const day of days) {
+                const dateKey = format(day, 'yyyy-MM-dd');
+                const utcDay = getUtcDateFromDateKey(dateKey);
+                if (!utcDay) continue;
+
+                for (const chore of chores) {
+                    if (!chore?.id || !chore?.title || !chore?.startDate) continue;
+                    if (!matchesChoreIdFilter(chore.id)) continue;
+
+                    const assignedMembers = getAssignedMembersForChoreOnDate(chore, utcDay);
+                    if (!matchesChoreMemberFilter(assignedMembers)) continue;
+
+                    pushByDate(dateKey, {
+                        id: `chore-${chore.id}-${dateKey}`,
+                        title: chore.title,
+                        description: chore.description || '',
+                        startDate: dateKey,
+                        endDate: format(addDays(day, 1), 'yyyy-MM-dd'),
+                        isAllDay: true,
+                        pertainsTo: assignedMembers,
+                        calendarItemKind: 'chore',
+                        sourceChoreId: chore.id,
+                        isJoint: chore.isJoint ?? false,
+                        isUpForGrabs: chore.isUpForGrabs ?? false,
+                    });
+                }
+            }
+        }
+
         byDate.forEach((dayItems, dateKey) => {
             byDate.set(dateKey, [...dayItems].sort(compareCalendarItemsByStartTime));
         });
@@ -2425,7 +2553,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             dayItemsByDate: byDate,
             weekSpanLanesByWeek: spanLanesByWeek,
         };
-    }, [calendarItems, everyoneSelected, memberFilterConfigured, rangeEnd, rangeStart, selectedMemberIds]);
+    }, [calendarItems, choreFilterConfigured, chores, days, everyoneSelected, memberFilterConfigured, rangeEnd, rangeStart, selectedChoreIds, selectedMemberIds, showChores]);
 
     const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -2673,7 +2801,12 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                                                             key={`${item.id}-${item.startDate}`}
                                                             item={item}
                                                             index={index}
-                                                            onClick={(e) => handleEventClick(e, item)}
+                                                            draggableEnabled={item.calendarItemKind !== 'chore'}
+                                                            onClick={
+                                                                item.calendarItemKind === 'chore'
+                                                                    ? undefined
+                                                                    : (e) => handleEventClick(e, item)
+                                                            }
                                                         />
                                                     ))}
                                                 </div>

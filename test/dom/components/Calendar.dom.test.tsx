@@ -60,7 +60,12 @@ vi.mock('@/components/DroppableDayCell', () => ({
 
 vi.mock('@/components/DraggableCalendarEvent', () => ({
     DraggableCalendarEvent: ({ item, onClick }: any) => (
-        <button type="button" data-testid={`calendar-event-${item.id}`} onClick={(e) => onClick(e)}>
+        <button
+            type="button"
+            data-testid={`calendar-event-${item.id}`}
+            data-calendar-item-kind={item.calendarItemKind || 'event'}
+            onClick={(e) => onClick?.(e)}
+        >
             {item.title}
         </button>
     ),
@@ -131,13 +136,20 @@ vi.mock('@/lib/db', () => ({
 
 import Calendar from '@/components/Calendar';
 
-function renderCalendarWithItems(items: any[], props?: Partial<React.ComponentProps<typeof Calendar>>) {
+function renderCalendarWithData(
+    { calendarItems = [], chores = [] }: { calendarItems?: any[]; chores?: any[] },
+    props?: Partial<React.ComponentProps<typeof Calendar>>
+) {
     mocks.dbUseQuery.mockReturnValue({
         isLoading: false,
         error: null,
-        data: { calendarItems: items },
+        data: { calendarItems, chores },
     });
     render(<Calendar currentDate={new Date(2026, 2, 15)} numWeeks={1} displayBS={false} {...props} />);
+}
+
+function renderCalendarWithItems(items: any[], props?: Partial<React.ComponentProps<typeof Calendar>>) {
+    renderCalendarWithData({ calendarItems: items }, props);
 }
 
 describe('Calendar', () => {
@@ -148,6 +160,7 @@ describe('Calendar', () => {
         mocks.monitorForElements.mockReset();
         mocks.monitorCleanup.mockReset();
         mocks.monitorConfig = null;
+        window.localStorage.clear();
     });
 
     it('opens the add-event modal in create mode when a day cell is clicked', () => {
@@ -337,6 +350,144 @@ describe('Calendar', () => {
 
         expect(within(screen.getByTestId('day-cell-2026-03-23')).getByRole('button', { name: 'Weekly Class' })).toBeInTheDocument();
         expect(within(screen.getByTestId('day-cell-2026-03-24')).getByRole('button', { name: 'Weekly Class' })).toBeInTheDocument();
+    });
+
+    it('keeps chores hidden by default and shows them once the chore overlay is enabled', async () => {
+        renderCalendarWithData({
+            chores: [
+                {
+                    id: 'chore-alex',
+                    title: 'Take out trash',
+                    description: 'Bins to the curb',
+                    startDate: '2026-03-15',
+                    rotationType: 'none',
+                    assignees: [{ id: 'member-alex', name: 'Alex' }],
+                },
+            ],
+        });
+
+        expect(within(screen.getByTestId('day-cell-2026-03-15')).queryByRole('button', { name: 'Take out trash' })).toBeNull();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowChores', showChores: true },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            const choreButton = within(screen.getByTestId('day-cell-2026-03-15')).getByRole('button', { name: 'Take out trash' });
+            expect(choreButton).toHaveAttribute('data-calendar-item-kind', 'chore');
+        });
+    });
+
+    it('applies the member filter to chores and shows joint or up-for-grabs chores when any selected assignee matches', async () => {
+        renderCalendarWithData({
+            chores: [
+                {
+                    id: 'chore-alex-only',
+                    title: 'Alex solo chore',
+                    startDate: '2026-03-15',
+                    rotationType: 'none',
+                    assignees: [{ id: 'member-alex', name: 'Alex' }],
+                },
+                {
+                    id: 'chore-sam-only',
+                    title: 'Sam solo chore',
+                    startDate: '2026-03-15',
+                    rotationType: 'none',
+                    assignees: [{ id: 'member-sam', name: 'Sam' }],
+                },
+                {
+                    id: 'chore-joint',
+                    title: 'Joint kitchen reset',
+                    startDate: '2026-03-15',
+                    rotationType: 'none',
+                    isJoint: true,
+                    assignees: [
+                        { id: 'member-alex', name: 'Alex' },
+                        { id: 'member-sam', name: 'Sam' },
+                    ],
+                },
+                {
+                    id: 'chore-up-for-grabs',
+                    title: 'Feed the dog',
+                    startDate: '2026-03-15',
+                    rotationType: 'none',
+                    isUpForGrabs: true,
+                    assignees: [
+                        { id: 'member-alex', name: 'Alex' },
+                        { id: 'member-sam', name: 'Sam' },
+                    ],
+                },
+            ],
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowChores', showChores: true },
+                })
+            );
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: {
+                        type: 'setMemberFilter',
+                        everyoneSelected: false,
+                        selectedMemberIds: ['member-sam'],
+                    },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            const dayCell = screen.getByTestId('day-cell-2026-03-15');
+            expect(within(dayCell).queryByRole('button', { name: 'Alex solo chore' })).toBeNull();
+            expect(within(dayCell).getByRole('button', { name: 'Sam solo chore' })).toBeInTheDocument();
+            expect(within(dayCell).getByRole('button', { name: 'Joint kitchen reset' })).toBeInTheDocument();
+            expect(within(dayCell).getByRole('button', { name: 'Feed the dog' })).toBeInTheDocument();
+        });
+    });
+
+    it('applies the specific chores filter when chores are shown on the calendar', async () => {
+        renderCalendarWithData({
+            chores: [
+                {
+                    id: 'chore-trash',
+                    title: 'Take out trash',
+                    startDate: '2026-03-15',
+                    rotationType: 'none',
+                    assignees: [{ id: 'member-alex', name: 'Alex' }],
+                },
+                {
+                    id: 'chore-dishes',
+                    title: 'Wash dishes',
+                    startDate: '2026-03-15',
+                    rotationType: 'none',
+                    assignees: [{ id: 'member-alex', name: 'Alex' }],
+                },
+            ],
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowChores', showChores: true },
+                })
+            );
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setChoreFilter', selectedChoreIds: ['chore-dishes'] },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            const dayCell = screen.getByTestId('day-cell-2026-03-15');
+            expect(within(dayCell).queryByRole('button', { name: 'Take out trash' })).toBeNull();
+            expect(within(dayCell).getByRole('button', { name: 'Wash dishes' })).toBeInTheDocument();
+        });
     });
 
     it('after dragging the original recurring event and choosing "all events", moves the whole series', async () => {

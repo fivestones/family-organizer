@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CALENDAR_COMMAND_EVENT } from '@/lib/calendar-controls';
 
 const mocks = vi.hoisted(() => ({
     dbUseQuery: vi.fn(),
@@ -40,6 +41,7 @@ import CalendarHeaderControls from '@/components/CalendarHeaderControls';
 describe('CalendarHeaderControls member filter summary', () => {
     beforeEach(() => {
         mocks.dbUseQuery.mockReset();
+        window.localStorage.clear();
         mocks.dbUseQuery.mockReturnValue({
             isLoading: false,
             error: null,
@@ -47,6 +49,10 @@ describe('CalendarHeaderControls member filter summary', () => {
                 familyMembers: [
                     { id: 'member-alex', name: 'Alex' },
                     { id: 'member-sam', name: 'Sam' },
+                ],
+                chores: [
+                    { id: 'chore-trash', title: 'Take out trash' },
+                    { id: 'chore-dishes', title: 'Wash dishes' },
                 ],
             },
         });
@@ -68,5 +74,92 @@ describe('CalendarHeaderControls member filter summary', () => {
         fireEvent.click(screen.getByLabelText('Everyone'));
         fireEvent.click(screen.getByLabelText('Alex'));
         expect(screen.getByText("Show only events that don't pertain to any individual family members")).toBeInTheDocument();
+    });
+
+    it('offers a default-off show chores toggle in calendar settings', async () => {
+        const receivedCommands: any[] = [];
+        const handleCommand = (event: Event) => {
+            receivedCommands.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+
+        render(<CalendarHeaderControls />);
+
+        const choresToggle = document.getElementById('calendar-show-chores-header') as HTMLInputElement | null;
+        expect(choresToggle).not.toBeNull();
+        expect(choresToggle).not.toBeChecked();
+
+        fireEvent.click(choresToggle);
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setShowChores',
+                        showChores: true,
+                    }),
+                ])
+            );
+        });
+
+        window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+    });
+
+    it('shows a collapsible specific chores filter with select all and select none when chores are visible', async () => {
+        const receivedCommands: any[] = [];
+        const handleCommand = (event: Event) => {
+            receivedCommands.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+        window.localStorage.setItem('calendar.showChores', 'true');
+
+        render(<CalendarHeaderControls />);
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setChoreFilter',
+                        selectedChoreIds: ['chore-trash', 'chore-dishes'],
+                    }),
+                ])
+            );
+        });
+
+        receivedCommands.length = 0;
+
+        fireEvent.click(screen.getByRole('button', { name: /specific chores/i }));
+
+        const options = await screen.findByTestId('calendar-chore-filter-options');
+        expect(within(options).getByText('Take out trash')).toBeInTheDocument();
+        expect(within(options).getByText('Wash dishes')).toBeInTheDocument();
+
+        fireEvent.click(within(options).getByRole('button', { name: 'Select none' }));
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setChoreFilter',
+                        selectedChoreIds: [],
+                    }),
+                ])
+            );
+        });
+
+        receivedCommands.length = 0;
+
+        fireEvent.click(within(options).getByRole('button', { name: 'Select all' }));
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setChoreFilter',
+                        selectedChoreIds: ['chore-trash', 'chore-dishes'],
+                    }),
+                ])
+            );
+        });
+
+        window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
     });
 });

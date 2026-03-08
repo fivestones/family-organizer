@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 export interface Chore {
     id: string;
     title: string;
+    description?: string | null;
     startDate: string; // ISO string date
     rrule?: string | null;
     weight?: number | null;
@@ -18,6 +19,7 @@ export interface Chore {
     }[];
     completions?: ChoreCompletion[]; // Link to completions
     // +++ Up for Grabs fields +++
+    isJoint?: boolean | null;
     isUpForGrabs?: boolean | null;
     rewardType?: 'fixed' | 'weight' | null;
     rewardAmount?: number | null;

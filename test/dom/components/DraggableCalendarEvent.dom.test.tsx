@@ -65,4 +65,20 @@ describe('DraggableCalendarEvent', () => {
         unmount();
         expect(dndMocks.cleanup).toHaveBeenCalledTimes(1);
     });
+
+    it('renders chores with the shared card UI without enabling drag behavior', () => {
+        const item = {
+            id: 'chore-1',
+            title: 'Kitchen reset',
+            startDate: '2026-04-01',
+            endDate: '2026-04-02',
+            isAllDay: true,
+            calendarItemKind: 'chore' as const,
+        };
+
+        render(<DraggableCalendarEvent item={item} index={0} draggableEnabled={false} />);
+
+        expect(dndMocks.draggable).not.toHaveBeenCalled();
+        expect(screen.getByTestId('calendar-event-chore-1')).toHaveAttribute('data-calendar-item-kind', 'chore');
+    });
 });

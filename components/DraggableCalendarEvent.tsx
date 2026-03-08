@@ -19,6 +19,7 @@ export interface CalendarItem {
     isAllDay: boolean;
     description?: string;
     pertainsTo?: EventFamilyMember[];
+    calendarItemKind?: 'event' | 'chore';
     // Allow flexible properties for InstantDB data
     [key: string]: any;
 }
@@ -26,10 +27,11 @@ export interface CalendarItem {
 interface DraggableCalendarEventProps {
     item: CalendarItem;
     index: number;
-    onClick: (e: React.MouseEvent) => void;
+    onClick?: (e: React.MouseEvent) => void;
     layout?: 'cell' | 'span';
     continuesBefore?: boolean;
     continuesAfter?: boolean;
+    draggableEnabled?: boolean;
 }
 
 const getMemberInitials = (name: string | null | undefined) => {
@@ -60,6 +62,7 @@ export const DraggableCalendarEvent = ({
     layout = 'cell',
     continuesBefore = false,
     continuesAfter = false,
+    draggableEnabled = true,
 }: DraggableCalendarEventProps) => {
     const eventRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -67,11 +70,17 @@ export const DraggableCalendarEvent = ({
     const visibleMembers = useMemo(() => members.slice(0, 3), [members]);
     const remainingMemberCount = Math.max(0, members.length - visibleMembers.length);
     const isSpanLayout = layout === 'span';
+    const itemKind = item.calendarItemKind === 'chore' ? 'chore' : 'event';
+    const isInteractive = draggableEnabled || typeof onClick === 'function';
     const descriptionText = useMemo(() => String(item.description || '').replace(/\s+/g, ' ').trim(), [item.description]);
     const showAudienceInline = !isSpanLayout;
     const showDescriptionRow = !isSpanLayout && descriptionText.length > 0;
 
     useEffect(() => {
+        if (!draggableEnabled) {
+            return;
+        }
+
         const element = eventRef.current;
         if (!element) return;
 
@@ -83,17 +92,19 @@ export const DraggableCalendarEvent = ({
         });
 
         return cleanupDraggable;
-    }, [item, index]);
+    }, [draggableEnabled, item, index]);
 
     return (
         <div
             ref={eventRef}
             data-testid={`calendar-event-${item.id}`}
+            data-calendar-item-kind={itemKind}
             style={{ opacity: isDragging ? 0.4 : 1 }} // Style when dragging
             className={cn(
                 styles.calendarItem,
-                styles.event,
+                styles[itemKind],
                 styles.circled,
+                isInteractive ? styles.calendarItemInteractive : styles.calendarItemStatic,
                 isSpanLayout && styles.eventSpan,
                 isSpanLayout && continuesBefore && styles.eventSpanContinuesBefore,
                 isSpanLayout && continuesAfter && styles.eventSpanContinuesAfter
