@@ -6,6 +6,7 @@ import {
     addDays,
     addMonths,
     addWeeks,
+    differenceInCalendarMonths,
     differenceInDays,
     endOfMonth,
     endOfWeek,
@@ -26,7 +27,7 @@ import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/ad
 import { DroppableDayCell } from './DroppableDayCell'; // Import new component
 // Import the component and the interface
 import { DraggableCalendarEvent, CalendarItem } from './DraggableCalendarEvent';
-import { RecurrenceScopeDialog } from './RecurrenceScopeDialog';
+import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesScopeMode } from './RecurrenceScopeDialog';
 import { db } from '@/lib/db';
 import {
     CALENDAR_COMMAND_EVENT,
@@ -113,6 +114,8 @@ const compareCalendarItemsByStartTime = (left: CalendarItem, right: CalendarItem
 };
 
 const normalizeRruleString = (value: string) => String(value || '').trim().replace(/^RRULE:/i, '');
+const RRULE_WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const;
+const RRULE_WEEKDAY_TOKEN_PATTERN = /^([+-]?\d+)?(SU|MO|TU|WE|TH|FR|SA)$/i;
 
 const parseRecurrenceDateToken = (token: string): Date | null => {
     const trimmed = token.trim();
@@ -190,7 +193,6 @@ const collectRecurrenceLineTokens = (lines: unknown, prefix: 'RDATE' | 'EXDATE')
     return tokens;
 };
 
-type RecurrenceEditScope = 'single' | 'following' | 'cancel';
 type RecurrenceExceptionMode = 'date' | 'range';
 
 interface StoredRecurrenceExceptionRow {
@@ -305,6 +307,179 @@ const buildRecurrenceLines = (rrule: string, rdates: string[], exdates: string[]
     if (rdates.length > 0) lines.push(`RDATE:${rdates.join(',')}`);
     if (exdates.length > 0) lines.push(`EXDATE:${exdates.join(',')}`);
     return lines;
+};
+
+const shiftWeekdayCode = (code: string, deltaDays: number) => {
+    const index = RRULE_WEEKDAY_CODES.indexOf(code as (typeof RRULE_WEEKDAY_CODES)[number]);
+    if (index < 0) return code;
+    const normalizedDelta = ((deltaDays % 7) + 7) % 7;
+    return RRULE_WEEKDAY_CODES[(index + normalizedDelta) % RRULE_WEEKDAY_CODES.length];
+};
+
+const getOrdinalWithinMonth = (value: Date, preferLast: boolean) => {
+    if (preferLast) {
+        const nextWeekSameWeekday = addDays(value, 7);
+        if (nextWeekSameWeekday.getMonth() !== value.getMonth()) {
+            return -1;
+        }
+    }
+
+    return Math.ceil(value.getDate() / 7);
+};
+
+const wrapMonthNumber = (value: number) => ((((value - 1) % 12) + 12) % 12) + 1;
+
+const shiftMonthDayValue = (rawValue: number, dayDelta: number, destinationDate: Date) => {
+    if (!Number.isFinite(rawValue)) {
+        return rawValue;
+    }
+    if (rawValue === -1) {
+        return destinationDate.getDate();
+    }
+    return Math.min(31, Math.max(1, Math.trunc(rawValue + dayDelta)));
+};
+
+const shiftRecurrenceTokenByDays = (token: string, dayDelta: number, preferDateOnly: boolean) => {
+    const parsed = parseRecurrenceDateToken(token);
+    if (!parsed || dayDelta === 0) {
+        return token;
+    }
+
+    const shifted = addDays(parsed, dayDelta);
+    if (/^\d{8}$/.test(token.trim())) {
+        return format(shifted, 'yyyyMMdd');
+    }
+    if (/^\d{8}T\d{6}Z$/i.test(token.trim())) {
+        return formatIcsDateTimeUtc(shifted);
+    }
+    if (/^\d{8}T\d{6}$/i.test(token.trim())) {
+        return format(shifted, "yyyyMMdd'T'HHmmss");
+    }
+    if (preferDateOnly || /^\d{4}-\d{2}-\d{2}$/.test(token.trim())) {
+        return format(shifted, 'yyyy-MM-dd');
+    }
+    if (token.includes('T') || token.includes('Z')) {
+        return shifted.toISOString();
+    }
+    return format(shifted, 'yyyy-MM-dd');
+};
+
+const shiftStoredRecurrenceRowsByDays = (rows: StoredRecurrenceExceptionRow[], dayDelta: number) => {
+    if (dayDelta === 0) return rows;
+    return rows.map((row) => ({
+        ...row,
+        date: shiftRecurrenceTokenByDays(row.date, dayDelta, true),
+        rangeStart: shiftRecurrenceTokenByDays(row.rangeStart, dayDelta, true),
+        rangeEnd: shiftRecurrenceTokenByDays(row.rangeEnd, dayDelta, true),
+    }));
+};
+
+const shiftRruleForSeriesMove = (rruleValue: string, sourceStart: Date, destinationStart: Date) => {
+    const normalized = normalizeRruleString(rruleValue);
+    if (!normalized) return '';
+
+    const rawParts = normalized
+        .replace(/^RRULE:/i, '')
+        .split(';')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    if (rawParts.length === 0) {
+        return normalized;
+    }
+
+    const partMap = new Map<string, string>();
+    for (const part of rawParts) {
+        const separatorIndex = part.indexOf('=');
+        if (separatorIndex < 0) continue;
+        const key = part.slice(0, separatorIndex).trim().toUpperCase();
+        const value = part.slice(separatorIndex + 1).trim();
+        if (!key || !value) continue;
+        partMap.set(key, value);
+    }
+
+    const weekdayDelta = destinationStart.getDay() - sourceStart.getDay();
+    const dayOfMonthDelta = destinationStart.getDate() - sourceStart.getDate();
+    const monthDelta = differenceInCalendarMonths(destinationStart, sourceStart);
+    const freq = String(partMap.get('FREQ') || '').toUpperCase();
+    const bydayValue = partMap.get('BYDAY');
+    const bysetposValue = partMap.get('BYSETPOS');
+    const bymonthdayValue = partMap.get('BYMONTHDAY');
+    const bymonthValue = partMap.get('BYMONTH');
+
+    if (bydayValue) {
+        const tokens = bydayValue
+            .split(',')
+            .map((entry) => entry.trim().toUpperCase())
+            .filter(Boolean);
+        const parsedTokens = tokens
+            .map((token) => {
+                const match = token.match(RRULE_WEEKDAY_TOKEN_PATTERN);
+                if (!match) return null;
+                return { ordinal: match[1] || '', weekday: match[2].toUpperCase() };
+            })
+            .filter(Boolean) as Array<{ ordinal: string; weekday: string }>;
+
+        if (parsedTokens.length === tokens.length && tokens.length > 0) {
+            if ((freq === 'MONTHLY' || freq === 'YEARLY') && (bysetposValue || parsedTokens.some((entry) => entry.ordinal))) {
+                const destinationWeekday = RRULE_WEEKDAY_CODES[destinationStart.getDay()];
+                if (bysetposValue) {
+                    const parsedBysetpos = Number(bysetposValue);
+                    const nextOrdinal = getOrdinalWithinMonth(destinationStart, parsedBysetpos === -1);
+                    partMap.set('BYDAY', destinationWeekday);
+                    partMap.set('BYSETPOS', String(nextOrdinal));
+                } else {
+                    const sourceOrdinal = Number(parsedTokens[0]?.ordinal || '1');
+                    const nextOrdinal = getOrdinalWithinMonth(destinationStart, sourceOrdinal === -1);
+                    partMap.set('BYDAY', `${nextOrdinal === -1 ? '-1' : String(nextOrdinal)}${destinationWeekday}`);
+                }
+            } else if (weekdayDelta !== 0) {
+                partMap.set(
+                    'BYDAY',
+                    parsedTokens.map((entry) => `${entry.ordinal}${shiftWeekdayCode(entry.weekday, weekdayDelta)}`).join(',')
+                );
+            }
+        }
+    }
+
+    if (bymonthdayValue && (freq === 'MONTHLY' || freq === 'YEARLY')) {
+        const shiftedMonthDays = bymonthdayValue
+            .split(',')
+            .map((entry) => Number(entry.trim()))
+            .filter((entry) => Number.isFinite(entry))
+            .map((entry) => shiftMonthDayValue(entry, dayOfMonthDelta, destinationStart))
+            .filter((entry, index, all) => all.indexOf(entry) === index)
+            .sort((left, right) => {
+                if (left === -1) return 1;
+                if (right === -1) return -1;
+                return left - right;
+            });
+        if (shiftedMonthDays.length > 0) {
+            partMap.set('BYMONTHDAY', shiftedMonthDays.join(','));
+        }
+    }
+
+    if (bymonthValue && monthDelta !== 0) {
+        const shiftedMonths = bymonthValue
+            .split(',')
+            .map((entry) => Number(entry.trim()))
+            .filter((entry) => Number.isFinite(entry))
+            .map((entry) => wrapMonthNumber(entry + monthDelta))
+            .filter((entry, index, all) => all.indexOf(entry) === index)
+            .sort((left, right) => left - right);
+        if (shiftedMonths.length > 0) {
+            partMap.set('BYMONTH', shiftedMonths.join(','));
+        }
+    }
+
+    const rebuiltParts = rawParts.map((part) => {
+        const separatorIndex = part.indexOf('=');
+        if (separatorIndex < 0) return part;
+        const key = part.slice(0, separatorIndex).trim().toUpperCase();
+        const nextValue = partMap.get(key);
+        return nextValue ? `${key}=${nextValue}` : part;
+    });
+
+    return `RRULE:${rebuiltParts.join(';')}`;
 };
 
 const normalizeStoredRecurrenceExceptionRows = (value: unknown): StoredRecurrenceExceptionRow[] => {
@@ -448,8 +623,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [everyoneSelected, setEveryoneSelected] = useState(true);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+    const [memberFilterConfigured, setMemberFilterConfigured] = useState(false);
     const [recurrenceScopeDialogOpen, setRecurrenceScopeDialogOpen] = useState(false);
     const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag'>('drag');
+    const [recurrenceScopeDialogMode, setRecurrenceScopeDialogMode] = useState<RecurrenceSeriesScopeMode>('following');
     const [dayCellHeight, setDayCellHeight] = useState<number>(() => {
         if (typeof window === 'undefined') {
             return CALENDAR_DAY_HEIGHT_DEFAULT;
@@ -720,10 +897,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         setSelectedEvent(null);
     };
 
-    const requestRecurrenceScope = useCallback((action: 'edit' | 'drag') => {
+    const requestRecurrenceScope = useCallback((action: 'edit' | 'drag', scopeMode: RecurrenceSeriesScopeMode = 'following') => {
         return new Promise<RecurrenceEditScope>((resolve) => {
             recurrenceScopeResolverRef.current = resolve;
             setRecurrenceScopeDialogAction(action);
+            setRecurrenceScopeDialogMode(scopeMode);
             setRecurrenceScopeDialogOpen(true);
         });
     }, []);
@@ -733,6 +911,21 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const resolver = recurrenceScopeResolverRef.current;
         recurrenceScopeResolverRef.current = null;
         resolver?.(scope);
+    }, []);
+
+    const isOriginalSeriesOccurrence = useCallback((item: CalendarItem, masterEvent: CalendarItem) => {
+        const occurrenceReferenceToken =
+            typeof item.recurrenceId === 'string' && item.recurrenceId.trim() ? item.recurrenceId : item.startDate;
+        const occurrenceReferenceDate =
+            parseRecurrenceDateToken(String(occurrenceReferenceToken || '')) || parseRecurrenceDateToken(String(item.startDate || ''));
+        const masterStartDate = parseRecurrenceDateToken(String(masterEvent.startDate || ''));
+        if (!occurrenceReferenceDate || !masterStartDate) return false;
+
+        if (item.isAllDay || masterEvent.isAllDay) {
+            return format(occurrenceReferenceDate, 'yyyy-MM-dd') === format(masterStartDate, 'yyyy-MM-dd');
+        }
+
+        return occurrenceReferenceDate.getTime() === masterStartDate.getTime();
     }, []);
 
     useEffect(() => {
@@ -923,7 +1116,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     return;
                 }
 
-                const recurrenceScope = await requestRecurrenceScope('drag');
+                const recurrenceScope = await requestRecurrenceScope(
+                    'drag',
+                    isOriginalSeriesOccurrence(event, masterEvent) ? 'all' : 'following'
+                );
                 if (recurrenceScope === 'cancel') {
                     return;
                 }
@@ -1048,6 +1244,121 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                             await db.transact(txOps);
                         } catch (error) {
                             console.error('Calendar recurring single move failed:', error);
+                            rollbackAll();
+                        }
+                    })();
+                    return;
+                }
+
+                if (recurrenceScope === 'all') {
+                    const destinationStartForRecurrence = parseISO(String(newStartDate));
+                    if (Number.isNaN(destinationStartForRecurrence.getTime())) {
+                        doSimpleMove(masterEvent);
+                        return;
+                    }
+
+                    const shiftedRrule = shiftRruleForSeriesMove(masterRrule, sourceStartForRecurrence, destinationStartForRecurrence);
+                    const shiftedRdates = normalizeRecurrenceTokens(
+                        baseRdateTokens.map((token) => shiftRecurrenceTokenByDays(token, daysDifference, event.isAllDay))
+                    );
+                    const shiftedExdates = normalizeRecurrenceTokens(
+                        baseExdateTokens.map((token) => shiftRecurrenceTokenByDays(token, daysDifference, event.isAllDay))
+                    );
+                    const masterXProps =
+                        masterEvent.xProps && typeof masterEvent.xProps === 'object' && !Array.isArray(masterEvent.xProps)
+                            ? { ...(masterEvent.xProps as Record<string, unknown>) }
+                            : {};
+                    const shiftedExceptionRows = shiftStoredRecurrenceRowsByDays(
+                        normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceExceptionRows),
+                        daysDifference
+                    );
+                    const shiftedRdateRows = shiftStoredRecurrenceRowsByDays(
+                        normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceRdateRows),
+                        daysDifference
+                    );
+                    if (shiftedExceptionRows.length > 0) {
+                        masterXProps.recurrenceExceptionRows = shiftedExceptionRows;
+                    } else {
+                        delete masterXProps.recurrenceExceptionRows;
+                    }
+                    if (shiftedRdateRows.length > 0) {
+                        masterXProps.recurrenceRdateRows = shiftedRdateRows;
+                    } else {
+                        delete masterXProps.recurrenceRdateRows;
+                    }
+
+                    const nextMasterPatch: Record<string, any> = {
+                        ...legacyPayload,
+                        rrule: shiftedRrule,
+                        rdates: shiftedRdates,
+                        exdates: shiftedExdates,
+                        recurrenceLines: buildRecurrenceLines(shiftedRrule, shiftedRdates, shiftedExdates),
+                        updatedAt: nowIso,
+                        lastModified: nowIso,
+                        dtStamp: nowIso,
+                        sequence: masterSequence + 1,
+                        xProps: masterXProps,
+                    };
+
+                    registerRollback(
+                        applyOptimisticCalendarItem({
+                            ...masterEvent,
+                            ...nextMasterPatch,
+                            id: masterEvent.id,
+                        } as CalendarItem)
+                    );
+
+                    const txOps: any[] = [tx.calendarItems[masterEvent.id].update(nextMasterPatch)];
+                    const relatedOverrides = calendarItems.filter((candidate) => {
+                        const parentId = String(candidate.recurringEventId || '').trim();
+                        return parentId === String(masterEvent.id) && !normalizeRruleString(String(candidate.rrule || ''));
+                    });
+                    for (const overrideItem of relatedOverrides) {
+                        const shiftedOverrideStart = event.isAllDay
+                            ? format(addDays(parseISO(String(overrideItem.startDate)), daysDifference), 'yyyy-MM-dd')
+                            : addDays(parseISO(String(overrideItem.startDate)), daysDifference).toISOString();
+                        const shiftedOverrideEnd = event.isAllDay
+                            ? format(addDays(parseISO(String(overrideItem.endDate)), daysDifference), 'yyyy-MM-dd')
+                            : addDays(parseISO(String(overrideItem.endDate)), daysDifference).toISOString();
+                        const overrideDayAnchor = parseISO(
+                            event.isAllDay ? `${shiftedOverrideStart}T00:00:00` : shiftedOverrideStart
+                        );
+                        if (Number.isNaN(overrideDayAnchor.getTime())) {
+                            continue;
+                        }
+
+                        const nextOverridePatch: Record<string, any> = {
+                            startDate: shiftedOverrideStart,
+                            endDate: shiftedOverrideEnd,
+                            year: overrideDayAnchor.getFullYear(),
+                            month: overrideDayAnchor.getMonth() + 1,
+                            dayOfMonth: overrideDayAnchor.getDate(),
+                            recurrenceId: shiftRecurrenceTokenByDays(
+                                String(overrideItem.recurrenceId || overrideItem.startDate || ''),
+                                daysDifference,
+                                overrideItem.isAllDay
+                            ),
+                            updatedAt: nowIso,
+                            lastModified: nowIso,
+                            dtStamp: nowIso,
+                            sequence: typeof overrideItem.sequence === 'number' ? overrideItem.sequence + 1 : 1,
+                        };
+
+                        registerRollback(
+                            applyOptimisticCalendarItem({
+                                ...overrideItem,
+                                ...nextOverridePatch,
+                                id: overrideItem.id,
+                            } as CalendarItem)
+                        );
+                        txOps.push(tx.calendarItems[overrideItem.id].update(nextOverridePatch));
+                    }
+
+                    void (async () => {
+                        try {
+                            await db.transact(txOps);
+                        } catch (error) {
+                            console.error('Calendar recurring series move failed:', error);
                             rollbackAll();
                         }
                     })();
@@ -1225,7 +1536,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         });
 
         return cleanup;
-    }, [applyOptimisticCalendarItem, calendarItems, requestRecurrenceScope]);
+    }, [applyOptimisticCalendarItem, calendarItems, isOriginalSeriesOccurrence, requestRecurrenceScope]);
 
     useLayoutEffect(() => {
         const pendingAdjust = pendingTopScrollAdjustRef.current;
@@ -1480,6 +1791,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 );
                 setEveryoneSelected(Boolean(detail.everyoneSelected));
                 setSelectedMemberIds(sanitizedMemberIds);
+                setMemberFilterConfigured(true);
                 return;
             }
 
@@ -1595,20 +1907,33 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const selectedMemberIdSet = new Set(selectedMemberIds);
 
         const matchesMemberFilter = (item: CalendarItem) => {
-            if (everyoneSelected) return true;
-            if (selectedMemberIdSet.size === 0) return false;
-
             const pertainsToIds = (Array.isArray(item.pertainsTo) ? item.pertainsTo : [])
                 .map((member) => member?.id)
                 .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
                 .map((id) => id.trim());
+            const isEveryoneEvent = pertainsToIds.length === 0;
 
-            // Empty pertainsTo means the event applies to everyone.
-            if (pertainsToIds.length === 0) return true;
+            if (!memberFilterConfigured && everyoneSelected && selectedMemberIdSet.size === 0) {
+                return true;
+            }
+
+            if (everyoneSelected) {
+                if (selectedMemberIdSet.size === 0) {
+                    return isEveryoneEvent;
+                }
+                if (isEveryoneEvent) {
+                    return true;
+                }
+                return pertainsToIds.some((id) => selectedMemberIdSet.has(id));
+            }
+
+            if (selectedMemberIdSet.size === 0) return false;
+            if (isEveryoneEvent) return false;
             return pertainsToIds.some((id) => selectedMemberIdSet.has(id));
         };
 
         const calendarItemsForView = calendarItems.filter(matchesMemberFilter);
+        const calendarItemsById = new Map(calendarItemsForView.map((item) => [item.id, item] as const));
         if (!everyoneSelected && selectedMemberIdSet.size === 0) {
             return byDate;
         }
@@ -1738,7 +2063,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         };
 
         for (const baseItem of calendarItemsForView) {
-            const itemsToRender = expandRecurringItemForRange(baseItem);
+            const masterId = typeof baseItem.recurringEventId === 'string' ? baseItem.recurringEventId.trim() : '';
+            const masterForOverride = masterId ? calendarItemsById.get(masterId) : undefined;
+            const sourceItem = masterForOverride ? ({ ...baseItem, __masterEvent: masterForOverride } as CalendarItem) : baseItem;
+            const itemsToRender = expandRecurringItemForRange(sourceItem);
             for (const item of itemsToRender) {
                 if (item.isAllDay) {
                     const start = parseISO(item.startDate);
@@ -1774,7 +2102,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         });
 
         return byDate;
-    }, [calendarItems, everyoneSelected, rangeEnd, rangeStart, selectedMemberIds]);
+    }, [calendarItems, everyoneSelected, memberFilterConfigured, rangeEnd, rangeStart, selectedMemberIds]);
 
     const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -1790,6 +2118,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             <RecurrenceScopeDialog
                 open={recurrenceScopeDialogOpen}
                 action={recurrenceScopeDialogAction}
+                scopeMode={recurrenceScopeDialogMode}
                 onSelect={resolveRecurrenceScope}
             />
             <div
@@ -1958,6 +2287,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     <AddEventForm
                         selectedDate={selectedDate}
                         selectedEvent={selectedEvent}
+                        allCalendarItems={calendarItems}
                         onClose={handleCloseModal}
                         onOptimisticUpsert={applyOptimisticCalendarItem}
                     />

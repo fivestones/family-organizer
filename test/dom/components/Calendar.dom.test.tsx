@@ -82,14 +82,14 @@ vi.mock('@/components/AddEvent', () => ({
 }));
 
 vi.mock('@/components/RecurrenceScopeDialog', () => ({
-    RecurrenceScopeDialog: ({ open, onSelect }: any) =>
+    RecurrenceScopeDialog: ({ action, open, onSelect, scopeMode }: any) =>
         open ? (
             <div data-testid="recurrence-scope-dialog">
                 <button type="button" onClick={() => onSelect('single')}>
                     Only this event
                 </button>
-                <button type="button" onClick={() => onSelect('following')}>
-                    This and following events
+                <button type="button" onClick={() => onSelect(action === 'delete' ? 'following' : scopeMode === 'all' ? 'all' : 'following')}>
+                    {action === 'delete' ? 'This and all following events' : scopeMode === 'all' ? 'All events' : 'This and following events'}
                 </button>
                 <button type="button" onClick={() => onSelect('cancel')}>
                     Cancel
@@ -339,7 +339,7 @@ describe('Calendar', () => {
         expect(within(screen.getByTestId('day-cell-2026-03-24')).getByRole('button', { name: 'Weekly Class' })).toBeInTheDocument();
     });
 
-    it('after dragging a recurring master to another weekday, keeps start day and RRULE weekdays visible', async () => {
+    it('after dragging the original recurring event and choosing "all events", moves the whole series', async () => {
         renderCalendarWithItems([
             {
                 id: 'evt-1',
@@ -373,12 +373,32 @@ describe('Calendar', () => {
                 },
             });
         });
-        fireEvent.click(screen.getByRole('button', { name: 'This and following events' }));
+        fireEvent.click(screen.getByRole('button', { name: 'All events' }));
 
         await waitFor(() => {
             expect(within(screen.getByTestId('day-cell-2026-03-19')).getByRole('button', { name: 'Soccer' })).toBeInTheDocument();
-            expect(within(screen.getByTestId('day-cell-2026-03-24')).getByRole('button', { name: 'Soccer' })).toBeInTheDocument();
+            expect(within(screen.getByTestId('day-cell-2026-03-26')).getByRole('button', { name: 'Soccer' })).toBeInTheDocument();
         });
+        expect(within(screen.getByTestId('day-cell-2026-03-24')).queryByRole('button', { name: 'Soccer' })).toBeNull();
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalled();
+        });
+        const allOps = mocks.dbTransact.mock.calls.flatMap((call) => call[0] || []);
+        expect(allOps).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-1',
+                    op: 'update',
+                    payload: expect.objectContaining({
+                        startDate: '2026-03-19',
+                        endDate: '2026-03-20',
+                        rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TH',
+                    }),
+                }),
+            ])
+        );
     });
 
     it('can drag one recurring occurrence as a single override when choosing single scope', async () => {
@@ -501,7 +521,7 @@ describe('Calendar', () => {
             );
         });
 
-        expect(within(dayCell).getByRole('button', { name: 'All Hands' })).toBeInTheDocument();
+        expect(within(dayCell).queryByRole('button', { name: 'All Hands' })).toBeNull();
         expect(within(dayCell).queryByRole('button', { name: 'Alex Event' })).toBeNull();
         expect(within(dayCell).getByRole('button', { name: 'Sam Event' })).toBeInTheDocument();
 
@@ -534,8 +554,8 @@ describe('Calendar', () => {
         });
 
         expect(within(dayCell).getByRole('button', { name: 'All Hands' })).toBeInTheDocument();
-        expect(within(dayCell).getByRole('button', { name: 'Alex Event' })).toBeInTheDocument();
-        expect(within(dayCell).getByRole('button', { name: 'Sam Event' })).toBeInTheDocument();
+        expect(within(dayCell).queryByRole('button', { name: 'Alex Event' })).toBeNull();
+        expect(within(dayCell).queryByRole('button', { name: 'Sam Event' })).toBeNull();
     });
 
     it('includes recurring masters in the Instant query filter', () => {

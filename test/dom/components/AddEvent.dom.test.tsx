@@ -35,6 +35,11 @@ vi.mock('@instantdb/react', () => ({
                             mocks.txOps.push(op);
                             return op;
                         },
+                        delete() {
+                            const op = { entity: 'calendarItems', id: String(key), action: 'delete' };
+                            mocks.txOps.push(op);
+                            return op;
+                        },
                     };
                 },
             }
@@ -71,15 +76,34 @@ vi.mock('@/components/ui/checkbox', () => ({
     ),
 }));
 
+vi.mock('@/components/ui/alert-dialog', () => ({
+    AlertDialog: ({ open, children }: any) => (open ? <div data-testid="alert-dialog">{children}</div> : null),
+    AlertDialogContent: ({ children }: any) => <div>{children}</div>,
+    AlertDialogHeader: ({ children }: any) => <div>{children}</div>,
+    AlertDialogTitle: ({ children }: any) => <h3>{children}</h3>,
+    AlertDialogDescription: ({ children }: any) => <p>{children}</p>,
+    AlertDialogFooter: ({ children }: any) => <div>{children}</div>,
+    AlertDialogCancel: ({ children, onClick, ...props }: any) => (
+        <button type="button" onClick={onClick} {...props}>
+            {children}
+        </button>
+    ),
+    AlertDialogAction: ({ children, onClick, ...props }: any) => (
+        <button type="button" onClick={onClick} {...props}>
+            {children}
+        </button>
+    ),
+}));
+
 vi.mock('@/components/RecurrenceScopeDialog', () => ({
-    RecurrenceScopeDialog: ({ open, onSelect }: any) =>
+    RecurrenceScopeDialog: ({ action, open, onSelect, scopeMode }: any) =>
         open ? (
             <div data-testid="recurrence-scope-dialog">
                 <button type="button" onClick={() => onSelect('single')}>
                     Only this event
                 </button>
-                <button type="button" onClick={() => onSelect('following')}>
-                    This and following events
+                <button type="button" onClick={() => onSelect(action === 'delete' ? 'following' : scopeMode === 'all' ? 'all' : 'following')}>
+                    {action === 'delete' ? 'This and all following events' : scopeMode === 'all' ? 'All events' : 'This and following events'}
                 </button>
                 <button type="button" onClick={() => onSelect('cancel')}>
                     Cancel
@@ -598,6 +622,384 @@ describe('AddEventForm', () => {
                 exdates: ['2026-03-20', '2026-03-21'],
             }),
         });
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('when editing the original recurring event and choosing "all events", updates the master series without splitting', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-master',
+                title: 'Weekly Class',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=SU',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=SU'],
+            } as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: /update event/i }));
+        await user.click(screen.getByRole('button', { name: 'All events' }));
+
+        expect(mocks.dbTransact).toHaveBeenCalled();
+        const allOps = mocks.dbTransact.mock.calls.flatMap((call) => call[0] || []);
+        expect(allOps.some((entry: any) => entry.id === 'evt-new')).toBe(false);
+        expect(allOps.some((entry: any) => entry.id === 'evt-master')).toBe(true);
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('deletes a non-recurring event after confirmation', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-delete',
+                title: 'One-off',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+            } as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: 'Delete Event' }));
+        expect(screen.getByTestId('alert-dialog')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual([expect.objectContaining({ entity: 'calendarItems', id: 'evt-delete', action: 'delete' })]);
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('deleting a recurring event with "Only this event" adds an EXDATE for the occurrence', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-master',
+                title: 'Weekly Class',
+                description: '',
+                startDate: '2026-03-24',
+                endDate: '2026-03-25',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+                __masterEvent: {
+                    id: 'evt-master',
+                    title: 'Weekly Class',
+                    description: '',
+                    startDate: '2026-03-17',
+                    endDate: '2026-03-18',
+                    isAllDay: true,
+                    rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                    exdates: [],
+                    recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+                },
+            } as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: 'Delete Event' }));
+        await user.click(screen.getByRole('button', { name: 'Only this event' }));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-master',
+                    action: 'update',
+                    data: expect.objectContaining({
+                        exdates: ['2026-03-24'],
+                    }),
+                }),
+            ])
+        );
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('deleting a recurring event with "This and all following events" caps the RRULE and deletes future overrides', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-master',
+                title: 'Weekly Class',
+                description: '',
+                startDate: '2026-03-24',
+                endDate: '2026-03-25',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                exdates: ['2026-03-18', '2026-03-31'],
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU', 'EXDATE:2026-03-18,2026-03-31'],
+                __masterEvent: {
+                    id: 'evt-master',
+                    title: 'Weekly Class',
+                    description: '',
+                    startDate: '2026-03-17',
+                    endDate: '2026-03-18',
+                    isAllDay: true,
+                    rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                    exdates: ['2026-03-18', '2026-03-31'],
+                    recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU', 'EXDATE:2026-03-18,2026-03-31'],
+                },
+            } as any,
+            allCalendarItems: [
+                {
+                    id: 'ov-before',
+                    title: 'Weekly Class',
+                    startDate: '2026-03-20',
+                    endDate: '2026-03-21',
+                    isAllDay: true,
+                    recurringEventId: 'evt-master',
+                    recurrenceId: '2026-03-20',
+                },
+                {
+                    id: 'ov-at',
+                    title: 'Weekly Class',
+                    startDate: '2026-03-24',
+                    endDate: '2026-03-25',
+                    isAllDay: true,
+                    recurringEventId: 'evt-master',
+                    recurrenceId: '2026-03-24',
+                },
+                {
+                    id: 'ov-after',
+                    title: 'Weekly Class',
+                    startDate: '2026-03-31',
+                    endDate: '2026-04-01',
+                    isAllDay: true,
+                    recurringEventId: 'evt-master',
+                    recurrenceId: '2026-03-31',
+                },
+            ] as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: 'Delete Event' }));
+        await user.click(screen.getByRole('button', { name: 'This and all following events' }));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        const masterUpdate = ops.find((entry: any) => entry.id === 'evt-master' && entry.action === 'update');
+        expect(masterUpdate).toBeTruthy();
+        expect(masterUpdate.data.rrule).toMatch(/UNTIL=/);
+        expect(masterUpdate.data.exdates).toEqual(['2026-03-18']);
+
+        const deletedIds = ops
+            .filter((entry: any) => entry.action === 'delete')
+            .map((entry: any) => entry.id)
+            .sort();
+        expect(deletedIds).toEqual(['ov-after', 'ov-at']);
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('deleting the first occurrence with "This and all following events" deletes the master series row', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-master',
+                title: 'Weekly Class',
+                description: '',
+                startDate: '2026-03-17',
+                endDate: '2026-03-18',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+                __masterEvent: {
+                    id: 'evt-master',
+                    title: 'Weekly Class',
+                    description: '',
+                    startDate: '2026-03-17',
+                    endDate: '2026-03-18',
+                    isAllDay: true,
+                    rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                    recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=TU'],
+                },
+            } as any,
+            allCalendarItems: [
+                {
+                    id: 'ov-later',
+                    title: 'Weekly Class',
+                    startDate: '2026-03-31',
+                    endDate: '2026-04-01',
+                    isAllDay: true,
+                    recurringEventId: 'evt-master',
+                    recurrenceId: '2026-03-31',
+                },
+            ] as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: 'Delete Event' }));
+        await user.click(screen.getByRole('button', { name: 'This and all following events' }));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ entity: 'calendarItems', id: 'evt-master', action: 'delete' }),
+                expect.objectContaining({ entity: 'calendarItems', id: 'ov-later', action: 'delete' }),
+            ])
+        );
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows parent-series recurrence details when editing a dragged override occurrence', () => {
+        renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'ov-1',
+                title: 'Weekly Class',
+                description: '',
+                startDate: '2026-03-05',
+                endDate: '2026-03-06',
+                isAllDay: true,
+                rrule: '',
+                recurrenceId: '2026-03-04',
+                recurringEventId: 'evt-master',
+                __masterEvent: {
+                    id: 'evt-master',
+                    title: 'Weekly Class',
+                    description: '',
+                    startDate: '2026-03-04',
+                    endDate: '2026-03-05',
+                    isAllDay: true,
+                    rrule: 'RRULE:FREQ=WEEKLY;BYDAY=WE',
+                    recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=WE'],
+                },
+            } as any,
+        });
+
+        expect(screen.getByLabelText('Repeat')).toHaveValue('weekly');
+        expect(screen.getByText('Every week on Wednesday')).toBeInTheDocument();
+        expect(screen.queryByDisplayValue('never')).not.toBeInTheDocument();
+    });
+
+    it('deleting a dragged override with "Only this event" removes the override row', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'ov-1',
+                title: 'Weekly Class',
+                description: '',
+                startDate: '2026-03-05',
+                endDate: '2026-03-06',
+                isAllDay: true,
+                rrule: '',
+                recurrenceId: '2026-03-04',
+                recurringEventId: 'evt-master',
+                __masterEvent: {
+                    id: 'evt-master',
+                    title: 'Weekly Class',
+                    description: '',
+                    startDate: '2026-03-04',
+                    endDate: '2026-03-05',
+                    isAllDay: true,
+                    rrule: 'RRULE:FREQ=WEEKLY;BYDAY=WE',
+                    exdates: ['2026-03-04'],
+                    recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=WE', 'EXDATE:2026-03-04'],
+                },
+            } as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: 'Delete Event' }));
+        await user.click(screen.getByRole('button', { name: 'Only this event' }));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'calendarItems',
+                    id: 'evt-master',
+                    action: 'update',
+                    data: expect.objectContaining({
+                        exdates: ['2026-03-04'],
+                    }),
+                }),
+                expect.objectContaining({ entity: 'calendarItems', id: 'ov-1', action: 'delete' }),
+            ])
+        );
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('deleting a dragged first override with "This and all following events" deletes the override and the master series', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'ov-1',
+                title: 'Weekly Class',
+                description: '',
+                startDate: '2026-03-05',
+                endDate: '2026-03-06',
+                isAllDay: true,
+                rrule: '',
+                recurrenceId: '2026-03-04',
+                recurringEventId: 'evt-master',
+                __masterEvent: {
+                    id: 'evt-master',
+                    title: 'Weekly Class',
+                    description: '',
+                    startDate: '2026-03-04',
+                    endDate: '2026-03-05',
+                    isAllDay: true,
+                    rrule: 'RRULE:FREQ=WEEKLY;BYDAY=WE',
+                    exdates: ['2026-03-04'],
+                    recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=WE', 'EXDATE:2026-03-04'],
+                },
+            } as any,
+            allCalendarItems: [
+                {
+                    id: 'ov-1',
+                    title: 'Weekly Class',
+                    startDate: '2026-03-05',
+                    endDate: '2026-03-06',
+                    isAllDay: true,
+                    recurrenceId: '2026-03-04',
+                    recurringEventId: 'evt-master',
+                },
+                {
+                    id: 'ov-later',
+                    title: 'Weekly Class',
+                    startDate: '2026-03-19',
+                    endDate: '2026-03-20',
+                    isAllDay: true,
+                    recurrenceId: '2026-03-18',
+                    recurringEventId: 'evt-master',
+                },
+            ] as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: 'Delete Event' }));
+        await user.click(screen.getByRole('button', { name: 'This and all following events' }));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ entity: 'calendarItems', id: 'evt-master', action: 'delete' }),
+                expect.objectContaining({ entity: 'calendarItems', id: 'ov-1', action: 'delete' }),
+                expect.objectContaining({ entity: 'calendarItems', id: 'ov-later', action: 'delete' }),
+            ])
+        );
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 });

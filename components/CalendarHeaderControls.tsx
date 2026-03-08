@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Filter, Plus, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,12 @@ import {
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const normalizeChecked = (value: boolean | 'indeterminate') => value === true;
+const humanJoin = (items: string[]) => {
+    if (items.length === 0) return '';
+    if (items.length === 1) return items[0];
+    if (items.length === 2) return `${items[0]} and ${items[1]}`;
+    return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+};
 
 interface FamilyMember {
     id: string;
@@ -40,6 +46,7 @@ export default function CalendarHeaderControls() {
     const [visibleWeeks, setVisibleWeeks] = useState(6);
     const [everyoneSelected, setEveryoneSelected] = useState(true);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+    const hasInitializedMemberFilterRef = useRef(false);
 
     const familyMembersQuery = db.useQuery({
         familyMembers: {
@@ -101,23 +108,45 @@ export default function CalendarHeaderControls() {
         if (!isCalendarRoute) return;
         if (familyMemberIds.length === 0) return;
 
-        setSelectedMemberIds((previousIds) => {
-            const previousSet = new Set(previousIds);
-            const normalizedExisting = familyMemberIds.filter((id) => previousSet.has(id));
+        const selectedSet = new Set(selectedMemberIds);
+        const normalizedSelectedIds = familyMemberIds.filter((id) => selectedSet.has(id));
+        const normalizedMatchesState =
+            normalizedSelectedIds.length === selectedMemberIds.length &&
+            normalizedSelectedIds.every((id, index) => id === selectedMemberIds[index]);
 
-            if (normalizedExisting.length > 0 || !everyoneSelected) {
-                return normalizedExisting.length === previousIds.length &&
-                    normalizedExisting.every((id, index) => id === previousIds[index])
-                    ? previousIds
-                    : normalizedExisting;
-            }
+        if (!hasInitializedMemberFilterRef.current && everyoneSelected && normalizedSelectedIds.length === 0) {
+            hasInitializedMemberFilterRef.current = true;
+            setSelectedMemberIds(familyMemberIds);
+            dispatchCalendarCommand({
+                type: 'setMemberFilter',
+                everyoneSelected: true,
+                selectedMemberIds: familyMemberIds,
+            });
+            return;
+        }
 
-            return familyMemberIds;
-        });
-    }, [everyoneSelected, familyMemberIds, isCalendarRoute]);
+        hasInitializedMemberFilterRef.current = true;
+
+        if (!normalizedMatchesState) {
+            setSelectedMemberIds(normalizedSelectedIds);
+            dispatchCalendarCommand({
+                type: 'setMemberFilter',
+                everyoneSelected,
+                selectedMemberIds: normalizedSelectedIds,
+            });
+        }
+    }, [everyoneSelected, familyMemberIds, isCalendarRoute, selectedMemberIds]);
 
     const applyMemberFilter = (nextEveryoneSelected: boolean, nextMemberIds: string[]) => {
-        const dedupedMemberIds = Array.from(new Set(nextMemberIds));
+        hasInitializedMemberFilterRef.current = true;
+        const allowedIds = new Set(familyMemberIds);
+        const dedupedMemberIds = Array.from(
+            new Set(
+                nextMemberIds
+                    .map((id) => String(id || '').trim())
+                    .filter((id) => id.length > 0 && allowedIds.has(id))
+            )
+        );
         setEveryoneSelected(nextEveryoneSelected);
         setSelectedMemberIds(dedupedMemberIds);
         dispatchCalendarCommand({
@@ -126,6 +155,35 @@ export default function CalendarHeaderControls() {
             selectedMemberIds: dedupedMemberIds,
         });
     };
+
+    const memberFilterSummary = useMemo(() => {
+        const selectedIdSet = new Set(selectedMemberIds);
+        const selectedNames = familyMembers
+            .filter((member) => selectedIdSet.has(member.id))
+            .map((member) => {
+                const normalizedName = String(member.name || '').trim();
+                return normalizedName || 'Unnamed member';
+            });
+        const allMembersSelected =
+            familyMemberIds.length === 0 || familyMemberIds.every((memberId) => selectedIdSet.has(memberId));
+
+        if (everyoneSelected && allMembersSelected) {
+            return 'Show all events';
+        }
+
+        if (!everyoneSelected) {
+            if (selectedNames.length === 0) {
+                return 'Show no events';
+            }
+            return `Show events pertaining to ${humanJoin(selectedNames)}`;
+        }
+
+        if (selectedNames.length === 0) {
+            return "Show only events that don't pertain to any individual family members";
+        }
+
+        return `Show events that apply to everyone and pertain to ${humanJoin(selectedNames)}`;
+    }, [everyoneSelected, familyMemberIds, familyMembers, selectedMemberIds]);
 
     if (!isCalendarRoute) {
         return null;
@@ -206,9 +264,7 @@ export default function CalendarHeaderControls() {
                     <div className="grid gap-4">
                         <div className="space-y-1">
                             <h4 className="text-sm font-semibold leading-none">Member Filter</h4>
-                            <p className="text-xs text-muted-foreground">
-                                Turn off Everyone to filter calendar events by selected family members.
-                            </p>
+                            <p className="text-xs text-muted-foreground">{memberFilterSummary}</p>
                         </div>
 
                         <div className="flex items-center gap-2">

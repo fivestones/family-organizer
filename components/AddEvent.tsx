@@ -8,8 +8,18 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { format, addHours, addDays, parse, parseISO } from 'date-fns';
-import { RecurrenceScopeDialog } from '@/components/RecurrenceScopeDialog';
+import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesScopeMode } from '@/components/RecurrenceScopeDialog';
 import { db } from '@/lib/db';
 
 interface FamilyMember {
@@ -65,6 +75,7 @@ interface CalendarAlarm {
 interface AddEventFormProps {
     selectedDate: Date | null;
     selectedEvent: CalendarItem | null;
+    allCalendarItems?: CalendarItem[];
     onClose: () => void;
     defaultStartTime?: string;
     onOptimisticUpsert?: (item: CalendarItem) => (() => void) | void;
@@ -117,8 +128,6 @@ type MonthPatternMode = 'days' | 'week';
 type RepeatEndMode = 'forever' | 'until' | 'count';
 type WeekdayToken = 'SU' | 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'DAY' | 'WEEKDAY' | 'WEEKEND';
 type RecurrenceExceptionMode = 'date' | 'range';
-type RecurrenceEditScope = 'single' | 'following' | 'cancel';
-
 interface RecurrenceExceptionRow {
     rowId: string;
     mode: RecurrenceExceptionMode;
@@ -699,11 +708,22 @@ function serializeRecurrenceToRrule(state: RecurrenceUiState, startDateValue: st
 function recurrenceSummary(state: RecurrenceUiState, startDateValue: string): string {
     if (state.mode === 'never') return 'Never';
     if (state.mode === 'daily') return 'Every day';
-    if (state.mode === 'weekly') return 'Every week';
-    if (state.mode === 'biweekly') return 'Every 2 weeks';
     if (state.mode === 'monthly') return 'Every month';
     if (state.mode === 'yearly') return 'Every year';
     if (state.mode === 'rrule') return state.unsupportedRrule ? 'Custom RRULE string (advanced)' : 'Custom RRULE string';
+
+    if (state.mode === 'weekly' || state.mode === 'biweekly') {
+        const base = state.mode === 'weekly' ? 'Every week' : 'Every 2 weeks';
+        const selectedDays = sortWeekdayCodes(state.customWeekDays.length > 0 ? state.customWeekDays : [weekdayCodeFromDate(startDateValue)]);
+        if (shouldUseWeekdaysLabel(selectedDays)) {
+            return `${base} on weekdays`;
+        }
+        if (shouldUseWeekendsLabel(selectedDays)) {
+            return `${base} on weekends`;
+        }
+        const labels = selectedDays.map((entry) => weekdayTokenLabel(entry as WeekdayToken));
+        return `${base} on ${humanJoin(labels)}`;
+    }
 
     const interval = clampRecurrenceNumber(state.customInterval, 1, 1000);
     const base = interval === 1 ? `Every ${singularOrPlural(state.customUnit, 1)}` : `Every ${interval} ${singularOrPlural(state.customUnit, interval)}`;
@@ -1163,7 +1183,14 @@ function deriveAlarmDefaults(selectedEvent: CalendarItem | null) {
     };
 }
 
-const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime = '10:00', onOptimisticUpsert }: AddEventFormProps) => {
+const AddEventForm = ({
+    selectedDate,
+    selectedEvent,
+    allCalendarItems = [],
+    onClose,
+    defaultStartTime = '10:00',
+    onOptimisticUpsert,
+}: AddEventFormProps) => {
     const [formData, setFormData] = useState<EventFormData>({
         id: '',
         title: '',
@@ -1207,7 +1234,9 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
     const [recurrenceRdates, setRecurrenceRdates] = useState<RecurrenceExceptionRow[]>([]);
     const [selectedFamilyMemberIds, setSelectedFamilyMemberIds] = useState<string[]>([]);
     const [recurrenceScopeDialogOpen, setRecurrenceScopeDialogOpen] = useState(false);
-    const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag'>('edit');
+    const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag' | 'delete'>('edit');
+    const [recurrenceScopeDialogMode, setRecurrenceScopeDialogMode] = useState<RecurrenceSeriesScopeMode>('following');
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
     const memberGridRef = useRef<HTMLDivElement>(null);
     const [memberGridWidth, setMemberGridWidth] = useState(0);
     const familyMembersQuery = db.useQuery({
@@ -1220,6 +1249,16 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         },
     });
     const familyMembers = ((familyMembersQuery.data?.familyMembers as FamilyMember[]) || []).filter((member) => Boolean(member?.id));
+    const selectedMasterEvent = (((selectedEvent as any)?.__masterEvent as CalendarItem | undefined) || selectedEvent) ?? null;
+    const selectedMasterRrule = normalizeRrule(String(selectedMasterEvent?.rrule || ''));
+    const isSelectedRecurringOverride = Boolean(
+        selectedEvent &&
+            selectedMasterEvent &&
+            selectedEvent.id !== selectedMasterEvent.id &&
+            String(selectedEvent.recurringEventId || '').trim() === String(selectedMasterEvent.id || '').trim() &&
+            !normalizeRrule(String(selectedEvent.rrule || '')) &&
+            selectedMasterRrule
+    );
 
     const selectedFamilyMembersById = useMemo(() => {
         const byId = new Map<string, FamilyMember>();
@@ -1272,19 +1311,38 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             : `Ends on ${parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
     }, [recurrenceUi]);
 
-    const requestRecurrenceScope = useCallback((action: 'edit' | 'drag') => {
+    const requestRecurrenceScope = useCallback(
+        (action: 'edit' | 'drag' | 'delete', scopeMode: RecurrenceSeriesScopeMode = 'following') => {
         return new Promise<RecurrenceEditScope>((resolve) => {
             recurrenceScopeResolverRef.current = resolve;
             setRecurrenceScopeDialogAction(action);
+            setRecurrenceScopeDialogMode(scopeMode);
             setRecurrenceScopeDialogOpen(true);
         });
-    }, []);
+        },
+        []
+    );
 
     const resolveRecurrenceScope = useCallback((scope: RecurrenceEditScope) => {
         setRecurrenceScopeDialogOpen(false);
         const resolver = recurrenceScopeResolverRef.current;
         recurrenceScopeResolverRef.current = null;
         resolver?.(scope);
+    }, []);
+
+    const isOriginalSeriesOccurrence = useCallback((item: CalendarItem, masterEvent: CalendarItem) => {
+        const occurrenceReferenceToken =
+            typeof item.recurrenceId === 'string' && item.recurrenceId.trim() ? item.recurrenceId : item.startDate;
+        const occurrenceReferenceDate =
+            parseRecurrenceDateToken(String(occurrenceReferenceToken || '')) || parseRecurrenceDateToken(String(item.startDate || ''));
+        const masterStartDate = parseRecurrenceDateToken(String(masterEvent.startDate || ''));
+        if (!occurrenceReferenceDate || !masterStartDate) return false;
+
+        if (item.isAllDay || masterEvent.isAllDay) {
+            return format(occurrenceReferenceDate, 'yyyy-MM-dd') === format(masterStartDate, 'yyyy-MM-dd');
+        }
+
+        return occurrenceReferenceDate.getTime() === masterStartDate.getTime();
     }, []);
 
     useEffect(() => {
@@ -1371,6 +1429,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
 
     useEffect(() => {
         if (selectedEvent) {
+            const recurrenceSourceEvent = isSelectedRecurringOverride && selectedMasterEvent ? selectedMasterEvent : selectedEvent;
             const startDate = selectedEvent.isAllDay ? selectedEvent.startDate : format(parseISO(selectedEvent.startDate), 'yyyy-MM-dd');
             const exclusiveEndDate = selectedEvent.isAllDay ? parseISO(selectedEvent.endDate) : null;
             const endDate =
@@ -1385,14 +1444,14 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 : format(parseISO(selectedEvent.endDate), 'HH:mm');
             const alarmDefaults = deriveAlarmDefaults(selectedEvent);
             const loadedExdateTokens = normalizeDateOnlyList([
-                ...(Array.isArray(selectedEvent.exdates) ? selectedEvent.exdates.map((entry) => String(entry)) : []),
-                ...collectRecurrenceLineTokens(selectedEvent.recurrenceLines, 'EXDATE'),
+                ...(Array.isArray(recurrenceSourceEvent.exdates) ? recurrenceSourceEvent.exdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(recurrenceSourceEvent.recurrenceLines, 'EXDATE'),
             ]);
             const loadedRdateTokens = normalizeDateOnlyList([
-                ...(Array.isArray(selectedEvent.rdates) ? selectedEvent.rdates.map((entry) => String(entry)) : []),
-                ...collectRecurrenceLineTokens(selectedEvent.recurrenceLines, 'RDATE'),
+                ...(Array.isArray(recurrenceSourceEvent.rdates) ? recurrenceSourceEvent.rdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(recurrenceSourceEvent.recurrenceLines, 'RDATE'),
             ]);
-            const storedExceptionRows = normalizeStoredRecurrenceExceptionRows((selectedEvent as any)?.xProps?.recurrenceExceptionRows);
+            const storedExceptionRows = normalizeStoredRecurrenceExceptionRows((recurrenceSourceEvent as any)?.xProps?.recurrenceExceptionRows);
             const exceptionRowsToRender =
                 storedExceptionRows.length > 0
                     ? storedExceptionRows
@@ -1402,7 +1461,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                           rangeStart: dateOnly,
                           rangeEnd: dateOnly,
                       }));
-            const storedRdateRows = normalizeStoredRecurrenceExceptionRows((selectedEvent as any)?.xProps?.recurrenceRdateRows);
+            const storedRdateRows = normalizeStoredRecurrenceExceptionRows((recurrenceSourceEvent as any)?.xProps?.recurrenceRdateRows);
             const rdateRowsToRender =
                 storedRdateRows.length > 0
                     ? storedRdateRows
@@ -1425,8 +1484,8 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                 status: String(selectedEvent.status || DEFAULT_EVENT_STATUS),
                 location: String(selectedEvent.location || ''),
                 timeZone: String(selectedEvent.timeZone || getLocalTimeZone()),
-                rrule: String(selectedEvent.rrule || ''),
-                rdatesCsv: Array.isArray(selectedEvent.rdates) ? selectedEvent.rdates.join(', ') : '',
+                rrule: String(recurrenceSourceEvent.rrule || ''),
+                rdatesCsv: Array.isArray(recurrenceSourceEvent.rdates) ? recurrenceSourceEvent.rdates.join(', ') : '',
                 exdatesCsv: loadedExdateTokens.join(', '),
                 recurrenceId: String(selectedEvent.recurrenceId || ''),
                 recurringEventId: String(selectedEvent.recurringEventId || ''),
@@ -1437,7 +1496,10 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                     typeof selectedEvent.travelDurationAfterMinutes === 'number' ? String(selectedEvent.travelDurationAfterMinutes) : '',
                 ...alarmDefaults,
             });
-            setRecurrenceUi(parseRecurrenceUiStateFromRrule(selectedEvent.rrule || '', startDate));
+            const recurrenceSourceStartDate = recurrenceSourceEvent.isAllDay
+                ? recurrenceSourceEvent.startDate
+                : format(parseISO(recurrenceSourceEvent.startDate), 'yyyy-MM-dd');
+            setRecurrenceUi(parseRecurrenceUiStateFromRrule(recurrenceSourceEvent.rrule || '', recurrenceSourceStartDate));
             recurrenceExceptionIdRef.current = Math.max(recurrenceExceptionIdRef.current, exceptionRowsToRender.length + 1);
             recurrenceRdateIdRef.current = Math.max(recurrenceRdateIdRef.current, rdateRowsToRender.length + 1);
             setExceptionsEnabled(exceptionRowsToRender.length > 0);
@@ -1505,7 +1567,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             setRecurrenceRdates([]);
             setSelectedFamilyMemberIds([]);
         }
-    }, [selectedDate, selectedEvent, defaultStartTime]);
+    }, [defaultStartTime, isSelectedRecurringOverride, selectedDate, selectedEvent, selectedMasterEvent]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -1636,6 +1698,228 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         });
     }, [exceptionsEnabled, formData.startDate, makeDefaultExceptionRow]);
 
+    const handleDeleteByScope = useCallback(
+        async (scope: RecurrenceEditScope) => {
+            if (!selectedEvent) return;
+
+            if (submitLockRef.current) return;
+            submitLockRef.current = true;
+            setIsSubmitting(true);
+            const abortDelete = () => {
+                submitLockRef.current = false;
+                if (isMountedRef.current) {
+                    setIsSubmitting(false);
+                }
+            };
+
+            const nowIso = new Date().toISOString();
+            const masterEvent = (((selectedEvent as any).__masterEvent as CalendarItem | undefined) || selectedEvent) as CalendarItem;
+            const masterRrule = normalizeRrule(String(masterEvent?.rrule || ''));
+            const masterId = String(masterEvent?.id || selectedEvent.id);
+            const hasRecurringContext = Boolean(masterRrule || String(selectedEvent.recurringEventId || '').trim());
+
+            if (!hasRecurringContext) {
+                try {
+                    await db.transact([tx.calendarItems[selectedEvent.id].delete()]);
+                    onClose();
+                } catch (error) {
+                    console.error('Unable to delete event:', error);
+                    window.alert('Unable to delete event. Please try again.');
+                    abortDelete();
+                    return;
+                }
+
+                submitLockRef.current = false;
+                return;
+            }
+
+            const referenceTokenRaw = String((selectedEvent as any).recurrenceId || selectedEvent.startDate || '').trim();
+            const referenceDate = parseRecurrenceDateToken(referenceTokenRaw) || parseRecurrenceDateToken(String(selectedEvent.startDate || ''));
+            if (!referenceDate) {
+                window.alert('Unable to identify the recurrence instance for deletion.');
+                abortDelete();
+                return;
+            }
+            const referenceToken = selectedEvent.isAllDay ? format(referenceDate, 'yyyy-MM-dd') : referenceDate.toISOString();
+            const boundaryDateOnly = format(referenceDate, 'yyyy-MM-dd');
+
+            if (!masterRrule) {
+                if (scope !== 'single') {
+                    window.alert('Unable to delete following events because the recurrence series was not found.');
+                    abortDelete();
+                    return;
+                }
+                try {
+                    await db.transact([tx.calendarItems[selectedEvent.id].delete()]);
+                    onClose();
+                } catch (error) {
+                    console.error('Unable to delete recurrence override:', error);
+                    window.alert('Unable to delete event. Please try again.');
+                    abortDelete();
+                    return;
+                }
+                submitLockRef.current = false;
+                return;
+            }
+
+            const masterExdates = normalizeRecurrenceTokens([
+                ...(Array.isArray(masterEvent.exdates) ? masterEvent.exdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(masterEvent.recurrenceLines, 'EXDATE'),
+            ]);
+            const masterRdates = normalizeRecurrenceTokens([
+                ...(Array.isArray(masterEvent.rdates) ? masterEvent.rdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(masterEvent.recurrenceLines, 'RDATE'),
+            ]);
+            const masterSequence = typeof masterEvent.sequence === 'number' ? masterEvent.sequence : 0;
+            const masterXProps =
+                masterEvent.xProps && typeof masterEvent.xProps === 'object' && !Array.isArray(masterEvent.xProps)
+                    ? { ...(masterEvent.xProps as Record<string, unknown>) }
+                    : {};
+
+            const txOps: any[] = [];
+            const selectedIsOverride =
+                selectedEvent.id !== masterId && String(selectedEvent.recurringEventId || '').trim() === masterId && !normalizeRrule(String(selectedEvent.rrule || ''));
+
+            if (scope === 'single') {
+                const nextExdates = normalizeRecurrenceTokens([...masterExdates, referenceToken]);
+                const nextExceptionRows = normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceExceptionRows);
+                if (
+                    !nextExceptionRows.some((row) =>
+                        row.mode === 'date'
+                            ? row.date === boundaryDateOnly
+                            : row.rangeStart.localeCompare(boundaryDateOnly) <= 0 && row.rangeEnd.localeCompare(boundaryDateOnly) >= 0
+                    )
+                ) {
+                    nextExceptionRows.push({
+                        mode: 'date',
+                        date: boundaryDateOnly,
+                        rangeStart: boundaryDateOnly,
+                        rangeEnd: boundaryDateOnly,
+                    });
+                }
+                const nextMasterPatch = {
+                    exdates: nextExdates,
+                    recurrenceLines: buildRecurrenceLines(masterRrule, masterRdates, nextExdates),
+                    updatedAt: nowIso,
+                    dtStamp: nowIso,
+                    lastModified: nowIso,
+                    sequence: masterSequence + 1,
+                    xProps: {
+                        ...masterXProps,
+                        recurrenceExceptionRows: nextExceptionRows,
+                    },
+                };
+                txOps.push(tx.calendarItems[masterId].update(nextMasterPatch));
+                if (selectedIsOverride) {
+                    txOps.push(tx.calendarItems[selectedEvent.id].delete());
+                }
+            } else {
+                const boundaryTime = selectedEvent.isAllDay
+                    ? parseISO(`${boundaryDateOnly}T00:00:00`).getTime()
+                    : referenceDate.getTime();
+                const masterStartReferenceDate = parseRecurrenceDateToken(String(masterEvent.startDate || ''));
+                const masterStartTime = masterStartReferenceDate
+                    ? selectedEvent.isAllDay
+                        ? parseISO(`${format(masterStartReferenceDate, 'yyyy-MM-dd')}T00:00:00`).getTime()
+                        : masterStartReferenceDate.getTime()
+                    : Number.NaN;
+                const deletingFromFirstOccurrence = Number.isFinite(masterStartTime) && boundaryTime <= masterStartTime;
+
+                if (deletingFromFirstOccurrence) {
+                    txOps.push(tx.calendarItems[masterId].delete());
+                } else {
+                    const cappedMasterRrule = capRruleBeforeOccurrence(masterRrule, referenceDate, selectedEvent.isAllDay);
+                    const splitExdates = partitionRecurrenceTokensByBoundary(masterExdates, referenceDate, selectedEvent.isAllDay);
+                    const splitRdates = partitionRecurrenceTokensByBoundary(masterRdates, referenceDate, selectedEvent.isAllDay);
+                    const splitExceptionRows = splitRecurrenceRowsAtBoundary(
+                        normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceExceptionRows),
+                        boundaryDateOnly
+                    );
+                    const splitRdateRows = splitRecurrenceRowsAtBoundary(
+                        normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceRdateRows),
+                        boundaryDateOnly
+                    );
+                    const patchedMasterXProps = { ...masterXProps };
+                    if (splitExceptionRows.before.length > 0) {
+                        patchedMasterXProps.recurrenceExceptionRows = splitExceptionRows.before;
+                    } else {
+                        delete patchedMasterXProps.recurrenceExceptionRows;
+                    }
+                    if (splitRdateRows.before.length > 0) {
+                        patchedMasterXProps.recurrenceRdateRows = splitRdateRows.before;
+                    } else {
+                        delete patchedMasterXProps.recurrenceRdateRows;
+                    }
+
+                    txOps.push(
+                        tx.calendarItems[masterId].update({
+                            rrule: cappedMasterRrule,
+                            rdates: splitRdates.before,
+                            exdates: splitExdates.before,
+                            recurrenceLines: buildRecurrenceLines(cappedMasterRrule, splitRdates.before, splitExdates.before),
+                            updatedAt: nowIso,
+                            dtStamp: nowIso,
+                            lastModified: nowIso,
+                            sequence: masterSequence + 1,
+                            xProps: patchedMasterXProps,
+                        })
+                    );
+                }
+
+                const overridesToDelete = allCalendarItems.filter((candidate) => {
+                    const parentId = String(candidate.recurringEventId || '').trim();
+                    if (!parentId || parentId !== masterId) return false;
+                    const recurrenceRefToken =
+                        typeof candidate.recurrenceId === 'string' && candidate.recurrenceId.trim()
+                            ? candidate.recurrenceId
+                            : candidate.startDate;
+                    const recurrenceRefDate = parseRecurrenceDateToken(String(recurrenceRefToken || ''));
+                    if (!recurrenceRefDate) return false;
+                    const recurrenceTime = candidate.isAllDay
+                        ? parseISO(`${format(recurrenceRefDate, 'yyyy-MM-dd')}T00:00:00`).getTime()
+                        : recurrenceRefDate.getTime();
+                    return recurrenceTime >= boundaryTime;
+                });
+                const overrideIds = new Set(overridesToDelete.map((item) => item.id));
+                if (selectedIsOverride) {
+                    overrideIds.add(selectedEvent.id);
+                }
+                for (const overrideId of Array.from(overrideIds)) {
+                    txOps.push(tx.calendarItems[overrideId].delete());
+                }
+            }
+
+            try {
+                await db.transact(txOps);
+                onClose();
+            } catch (error) {
+                console.error('Unable to delete recurring event:', error);
+                window.alert('Unable to delete event. Please try again.');
+                abortDelete();
+                return;
+            }
+
+            submitLockRef.current = false;
+        },
+        [allCalendarItems, onClose, selectedEvent]
+    );
+
+    const handleDeleteClick = useCallback(async () => {
+        if (!selectedEvent || isSubmitting) return;
+        const masterEvent = (((selectedEvent as any).__masterEvent as CalendarItem | undefined) || selectedEvent) as CalendarItem;
+        const masterRrule = normalizeRrule(String(masterEvent?.rrule || ''));
+        const isRecurringContext = Boolean(masterRrule || String(selectedEvent.recurringEventId || '').trim());
+
+        if (!isRecurringContext) {
+            setDeleteConfirmOpen(true);
+            return;
+        }
+
+        const scope = await requestRecurrenceScope('delete');
+        if (scope === 'cancel') return;
+        await handleDeleteByScope(scope);
+    }, [handleDeleteByScope, isSubmitting, requestRecurrenceScope, selectedEvent]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (submitLockRef.current) return;
@@ -1668,6 +1952,13 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
 
         const eventId = formData.id || id();
         const nowIso = new Date().toISOString();
+        const masterEvent = selectedMasterEvent;
+        const masterRrule = selectedMasterRrule;
+        const isOverrideEdit = Boolean(
+            selectedEvent &&
+                !normalizeRrule(String(selectedEvent.rrule || '')) &&
+                String(selectedEvent.recurringEventId || '').trim()
+        );
         const normalizedStatus = formData.status.trim().toLowerCase() || DEFAULT_EVENT_STATUS;
         const normalizedRrule = normalizeRrule(
             serializeRecurrenceToRrule(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd'))
@@ -1726,6 +2017,9 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
         } else {
             delete baseXProps.recurrenceRdateRows;
         }
+        const overrideBaseXProps = { ...baseXProps };
+        delete overrideBaseXProps.recurrenceExceptionRows;
+        delete overrideBaseXProps.recurrenceRdateRows;
 
         const extendedEventPatch = {
             uid: selectedEvent?.uid || eventId,
@@ -1737,10 +2031,10 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             lastModified: nowIso,
             location: formData.location.trim(),
             timeZone: formData.timeZone.trim() || getLocalTimeZone(),
-            rrule: normalizedRrule,
-            rdates,
-            exdates,
-            recurrenceLines,
+            rrule: isOverrideEdit ? '' : normalizedRrule,
+            rdates: isOverrideEdit ? [] : rdates,
+            exdates: isOverrideEdit ? [] : exdates,
+            recurrenceLines: isOverrideEdit ? [] : recurrenceLines,
             recurrenceId: formData.recurrenceId.trim(),
             recurringEventId: formData.recurringEventId.trim(),
             recurrenceIdRange: formData.recurrenceIdRange.trim(),
@@ -1748,7 +2042,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             eventType: String(selectedEvent?.eventType || 'default'),
             visibility: String(selectedEvent?.visibility || 'default'),
             transparency: String(selectedEvent?.transparency || (formData.isAllDay ? 'transparent' : 'opaque')),
-            xProps: baseXProps,
+            xProps: isOverrideEdit ? overrideBaseXProps : baseXProps,
             ...(travelDurationBeforeMinutes != null ? { travelDurationBeforeMinutes } : {}),
             ...(travelDurationAfterMinutes != null ? { travelDurationAfterMinutes } : {}),
         };
@@ -1756,14 +2050,6 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             ...legacyEventData,
             ...extendedEventPatch,
         };
-
-        const masterEvent = (((selectedEvent as any)?.__masterEvent as CalendarItem | undefined) || selectedEvent) ?? null;
-        const masterRrule = normalizeRrule(String(masterEvent?.rrule || ''));
-        const isOverrideEdit = Boolean(
-            selectedEvent &&
-                !normalizeRrule(String(selectedEvent.rrule || '')) &&
-                String(selectedEvent.recurringEventId || '').trim()
-        );
         const isRecurringSeriesEdit = Boolean(formData.id && selectedEvent && masterEvent && masterRrule && !isOverrideEdit);
         const recurrenceReferenceTokenRaw =
             String((selectedEvent as any)?.recurrenceId || '').trim() || String(selectedEvent?.startDate || '').trim();
@@ -1772,7 +2058,10 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
 
         let recurrenceScope: RecurrenceEditScope = 'following';
         if (isRecurringSeriesEdit) {
-            recurrenceScope = await requestRecurrenceScope('edit');
+            recurrenceScope = await requestRecurrenceScope(
+                'edit',
+                selectedEvent && masterEvent && isOriginalSeriesOccurrence(selectedEvent, masterEvent) ? 'all' : 'following'
+            );
             if (recurrenceScope === 'cancel') {
                 abortSubmit();
                 return;
@@ -2078,6 +2367,7 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
             <RecurrenceScopeDialog
                 open={recurrenceScopeDialogOpen}
                 action={recurrenceScopeDialogAction}
+                scopeMode={recurrenceScopeDialogMode}
                 onSelect={resolveRecurrenceScope}
             />
             <div>
@@ -2939,9 +3229,9 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                     </div>
                 )}
 
-                <div className="flex flex-wrap gap-2">
-                    {selectedFamilyMemberIds.length === 0 ? (
-                        <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900">
+            <div className="flex flex-wrap gap-2">
+                {selectedFamilyMemberIds.length === 0 ? (
+                    <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900">
                             Everyone
                         </span>
                     ) : (
@@ -2953,14 +3243,44 @@ const AddEventForm = ({ selectedDate, selectedEvent, onClose, defaultStartTime =
                     )}
                 </div>
             </div>
-            <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-                    Cancel
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? 'Saving...' : formData.id ? 'Update' : 'Add'} Event
-                </Button>
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    {selectedEvent ? (
+                        <Button type="button" variant="destructive" onClick={() => void handleDeleteClick()} disabled={isSubmitting}>
+                            Delete Event
+                        </Button>
+                    ) : null}
+                </div>
+                <div className="flex justify-end space-x-2">
+                    <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+                        Cancel
+                    </Button>
+                    <Button type="submit" disabled={isSubmitting}>
+                        {isSubmitting ? 'Saving...' : formData.id ? 'Update' : 'Add'} Event
+                    </Button>
+                </div>
             </div>
+            <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Event?</AlertDialogTitle>
+                        <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => {
+                                setDeleteConfirmOpen(false);
+                                void handleDeleteByScope('single');
+                            }}
+                            disabled={isSubmitting}
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </form>
     );
 };
