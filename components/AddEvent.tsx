@@ -1044,7 +1044,7 @@ function capRruleBeforeOccurrence(rruleValue: string, occurrenceStart: Date, isA
     if (withoutEndParts.length === 0) return normalized;
 
     const untilDate = isAllDay ? addDays(new Date(occurrenceStart), -1) : new Date(occurrenceStart.getTime() - 1000);
-    const untilToken = isAllDay ? `${format(untilDate, 'yyyyMMdd')}T235959Z` : formatIcsDateTimeUtc(untilDate);
+    const untilToken = isAllDay ? format(untilDate, 'yyyyMMdd') : formatIcsDateTimeUtc(untilDate);
     return `RRULE:${[...withoutEndParts, `UNTIL=${untilToken}`].join(';')}`;
 }
 
@@ -1779,6 +1779,37 @@ const AddEventForm = ({
             const txOps: any[] = [];
             const selectedIsOverride =
                 selectedEvent.id !== masterId && String(selectedEvent.recurringEventId || '').trim() === masterId && !normalizeRrule(String(selectedEvent.rrule || ''));
+            const collectRelatedOverrideIds = (boundaryTime?: number) => {
+                const overrideIds = new Set<string>();
+                for (const candidate of allCalendarItems) {
+                    const parentId = String(candidate.recurringEventId || '').trim();
+                    if (!parentId || parentId !== masterId) continue;
+
+                    if (boundaryTime == null) {
+                        overrideIds.add(candidate.id);
+                        continue;
+                    }
+
+                    const recurrenceRefToken =
+                        typeof candidate.recurrenceId === 'string' && candidate.recurrenceId.trim()
+                            ? candidate.recurrenceId
+                            : candidate.startDate;
+                    const recurrenceRefDate = parseRecurrenceDateToken(String(recurrenceRefToken || ''));
+                    if (!recurrenceRefDate) continue;
+                    const recurrenceTime = candidate.isAllDay
+                        ? parseISO(`${format(recurrenceRefDate, 'yyyy-MM-dd')}T00:00:00`).getTime()
+                        : recurrenceRefDate.getTime();
+                    if (recurrenceTime >= boundaryTime) {
+                        overrideIds.add(candidate.id);
+                    }
+                }
+
+                if (selectedIsOverride) {
+                    overrideIds.add(selectedEvent.id);
+                }
+
+                return overrideIds;
+            };
 
             if (scope === 'single') {
                 const nextExdates = normalizeRecurrenceTokens([...masterExdates, referenceToken]);
@@ -1812,6 +1843,12 @@ const AddEventForm = ({
                 txOps.push(tx.calendarItems[masterId].update(nextMasterPatch));
                 if (selectedIsOverride) {
                     txOps.push(tx.calendarItems[selectedEvent.id].delete());
+                }
+            } else if (scope === 'all') {
+                txOps.push(tx.calendarItems[masterId].delete());
+
+                for (const overrideId of Array.from(collectRelatedOverrideIds())) {
+                    txOps.push(tx.calendarItems[overrideId].delete());
                 }
             } else {
                 const boundaryTime = selectedEvent.isAllDay
@@ -1866,24 +1903,7 @@ const AddEventForm = ({
                     );
                 }
 
-                const overridesToDelete = allCalendarItems.filter((candidate) => {
-                    const parentId = String(candidate.recurringEventId || '').trim();
-                    if (!parentId || parentId !== masterId) return false;
-                    const recurrenceRefToken =
-                        typeof candidate.recurrenceId === 'string' && candidate.recurrenceId.trim()
-                            ? candidate.recurrenceId
-                            : candidate.startDate;
-                    const recurrenceRefDate = parseRecurrenceDateToken(String(recurrenceRefToken || ''));
-                    if (!recurrenceRefDate) return false;
-                    const recurrenceTime = candidate.isAllDay
-                        ? parseISO(`${format(recurrenceRefDate, 'yyyy-MM-dd')}T00:00:00`).getTime()
-                        : recurrenceRefDate.getTime();
-                    return recurrenceTime >= boundaryTime;
-                });
-                const overrideIds = new Set(overridesToDelete.map((item) => item.id));
-                if (selectedIsOverride) {
-                    overrideIds.add(selectedEvent.id);
-                }
+                const overrideIds = deletingFromFirstOccurrence ? collectRelatedOverrideIds() : collectRelatedOverrideIds(boundaryTime);
                 for (const overrideId of Array.from(overrideIds)) {
                     txOps.push(tx.calendarItems[overrideId].delete());
                 }
@@ -1915,10 +1935,13 @@ const AddEventForm = ({
             return;
         }
 
-        const scope = await requestRecurrenceScope('delete');
+        const scope = await requestRecurrenceScope(
+            'delete',
+            selectedEvent && masterEvent && isOriginalSeriesOccurrence(selectedEvent, masterEvent) ? 'all' : 'following'
+        );
         if (scope === 'cancel') return;
         await handleDeleteByScope(scope);
-    }, [handleDeleteByScope, isSubmitting, requestRecurrenceScope, selectedEvent]);
+    }, [handleDeleteByScope, isOriginalSeriesOccurrence, isSubmitting, requestRecurrenceScope, selectedEvent]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -2020,6 +2043,13 @@ const AddEventForm = ({
         const overrideBaseXProps = { ...baseXProps };
         delete overrideBaseXProps.recurrenceExceptionRows;
         delete overrideBaseXProps.recurrenceRdateRows;
+        const preservedRecurrenceId = isOverrideEdit ? String(selectedEvent?.recurrenceId || '').trim() : formData.recurrenceId.trim();
+        const preservedRecurringEventId = isOverrideEdit
+            ? String(selectedEvent?.recurringEventId || '').trim()
+            : formData.recurringEventId.trim();
+        const preservedRecurrenceIdRange = isOverrideEdit
+            ? String(selectedEvent?.recurrenceIdRange || '').trim()
+            : formData.recurrenceIdRange.trim();
 
         const extendedEventPatch = {
             uid: selectedEvent?.uid || eventId,
@@ -2035,9 +2065,9 @@ const AddEventForm = ({
             rdates: isOverrideEdit ? [] : rdates,
             exdates: isOverrideEdit ? [] : exdates,
             recurrenceLines: isOverrideEdit ? [] : recurrenceLines,
-            recurrenceId: formData.recurrenceId.trim(),
-            recurringEventId: formData.recurringEventId.trim(),
-            recurrenceIdRange: formData.recurrenceIdRange.trim(),
+            recurrenceId: preservedRecurrenceId,
+            recurringEventId: preservedRecurringEventId,
+            recurrenceIdRange: preservedRecurrenceIdRange,
             alarms: alarmDefinitions,
             eventType: String(selectedEvent?.eventType || 'default'),
             visibility: String(selectedEvent?.visibility || 'default'),

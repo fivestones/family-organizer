@@ -3,6 +3,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { cn } from '../lib/utils';
 import styles from '../styles/Calendar.module.css'; // Import your calendar styles
 
 interface EventFamilyMember {
@@ -26,6 +27,9 @@ interface DraggableCalendarEventProps {
     item: CalendarItem;
     index: number;
     onClick: (e: React.MouseEvent) => void;
+    layout?: 'cell' | 'span';
+    continuesBefore?: boolean;
+    continuesAfter?: boolean;
 }
 
 const getMemberInitials = (name: string | null | undefined) => {
@@ -49,12 +53,20 @@ const getMemberInitials = (name: string | null | undefined) => {
     return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
 };
 
-export const DraggableCalendarEvent = ({ item, index, onClick }: DraggableCalendarEventProps) => {
+export const DraggableCalendarEvent = ({
+    item,
+    index,
+    onClick,
+    layout = 'cell',
+    continuesBefore = false,
+    continuesAfter = false,
+}: DraggableCalendarEventProps) => {
     const eventRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
     const members = item.pertainsTo || [];
     const visibleMembers = useMemo(() => members.slice(0, 3), [members]);
     const remainingMemberCount = Math.max(0, members.length - visibleMembers.length);
+    const isSpanLayout = layout === 'span';
 
     useEffect(() => {
         const element = eventRef.current;
@@ -75,11 +87,18 @@ export const DraggableCalendarEvent = ({ item, index, onClick }: DraggableCalend
             ref={eventRef}
             data-testid={`calendar-event-${item.id}`}
             style={{ opacity: isDragging ? 0.4 : 1 }} // Style when dragging
-            className={`${styles.calendarItem} ${styles.event} ${styles.circled}`}
+            className={cn(
+                styles.calendarItem,
+                styles.event,
+                styles.circled,
+                isSpanLayout && styles.eventSpan,
+                isSpanLayout && continuesBefore && styles.eventSpanContinuesBefore,
+                isSpanLayout && continuesAfter && styles.eventSpanContinuesAfter
+            )}
             onClick={onClick}
         >
-            <div className={styles.eventTitle}>{item.title}</div>
-            <div className={styles.eventAudienceRow}>
+            <div className={cn(styles.eventTitle, isSpanLayout && styles.eventTitleSpan)}>{item.title}</div>
+            <div className={cn(styles.eventAudienceRow, isSpanLayout && styles.eventAudienceRowSpan)}>
                 {members.length === 0 ? (
                     <span className={styles.eventAudienceAll}>All</span>
                 ) : (

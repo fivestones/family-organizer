@@ -16,7 +16,7 @@ interface RecurrenceScopeDialogProps {
 
 export function RecurrenceScopeDialog({ open, action, scopeMode = 'following', onSelect }: RecurrenceScopeDialogProps) {
     const title = action === 'drag' ? 'Move Repeating Event' : action === 'delete' ? 'Delete Repeating Event' : 'Edit Repeating Event';
-    const secondScope = action === 'delete' ? 'following' : scopeMode;
+    const secondScope = scopeMode;
     const description = (() => {
         if (action === 'drag') {
             return scopeMode === 'all'
@@ -24,14 +24,22 @@ export function RecurrenceScopeDialog({ open, action, scopeMode = 'following', o
                 : 'Choose whether this move applies only to this occurrence, or to this and all following occurrences.';
         }
         if (action === 'delete') {
-            return 'Choose whether this deletion applies only to this occurrence, or to this and all following occurrences.';
+            return scopeMode === 'all'
+                ? 'Choose whether this deletion applies only to this occurrence, or to all events in the series.'
+                : 'Choose whether this deletion applies only to this occurrence, or to this and all following occurrences.';
         }
         return scopeMode === 'all'
             ? 'Choose whether your changes apply only to this occurrence, or to all events in the series.'
             : 'Choose whether your changes apply only to this occurrence, or to this and all following occurrences.';
     })();
-    const followingLabel =
-        action === 'delete' ? 'This and all following events' : scopeMode === 'all' ? 'All events' : 'This and following events';
+    const secondaryLabel =
+        action === 'delete'
+            ? scopeMode === 'all'
+                ? 'All events'
+                : 'This and all following events'
+            : scopeMode === 'all'
+              ? 'All events'
+              : 'This and following events';
 
     return (
         <Dialog
@@ -55,7 +63,7 @@ export function RecurrenceScopeDialog({ open, action, scopeMode = 'following', o
                         Only this event
                     </Button>
                     <Button type="button" onClick={() => onSelect(secondScope)}>
-                        {followingLabel}
+                        {secondaryLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>

@@ -78,6 +78,15 @@ interface DragRecurrenceIndicatorState {
     hotkeyLabel: string;
 }
 
+interface CalendarWeekSpanSegment {
+    segmentKey: string;
+    item: CalendarItem;
+    startCol: number;
+    endCol: number;
+    continuesBefore: boolean;
+    continuesAfter: boolean;
+}
+
 const WEEK_STARTS_ON = 0;
 const WEEKS_PER_LOAD = 8;
 const MONTH_MEMORY_CAP = 240;
@@ -120,6 +129,42 @@ const compareCalendarItemsByStartTime = (left: CalendarItem, right: CalendarItem
     if (endDiff !== 0) return endDiff;
 
     return String(left.title || '').localeCompare(String(right.title || ''));
+};
+
+const toDayStart = (value: Date) => parseISO(`${format(value, 'yyyy-MM-dd')}T00:00:00`);
+
+const getInclusiveEndDayStart = (exclusiveEnd: Date) => {
+    const inclusiveEnd = new Date(exclusiveEnd.getTime() - 1);
+    return toDayStart(inclusiveEnd);
+};
+
+const assignWeekSpanLanes = (segments: CalendarWeekSpanSegment[]) => {
+    const sortedSegments = [...segments].sort((left, right) => {
+        const startDiff = left.startCol - right.startCol;
+        if (startDiff !== 0) return startDiff;
+
+        const widthDiff = right.endCol - left.endCol;
+        if (widthDiff !== 0) return widthDiff;
+
+        return compareCalendarItemsByStartTime(left.item, right.item);
+    });
+
+    const laneEndColumns: number[] = [];
+    const lanes: CalendarWeekSpanSegment[][] = [];
+    for (const segment of sortedSegments) {
+        let laneIndex = 0;
+        while (laneIndex < laneEndColumns.length && laneEndColumns[laneIndex] >= segment.startCol) {
+            laneIndex += 1;
+        }
+
+        laneEndColumns[laneIndex] = segment.endCol;
+        if (!lanes[laneIndex]) {
+            lanes[laneIndex] = [];
+        }
+        lanes[laneIndex].push(segment);
+    }
+
+    return lanes;
 };
 
 const normalizeRruleString = (value: string) => String(value || '').trim().replace(/^RRULE:/i, '');
@@ -263,9 +308,7 @@ const capRruleBeforeOccurrence = (rruleValue: string, occurrenceStart: Date, isA
     if (withoutEndParts.length === 0) return normalized;
 
     const untilDate = isAllDay ? addDays(new Date(occurrenceStart), -1) : new Date(occurrenceStart.getTime() - 1000);
-    const untilToken = isAllDay
-        ? `${format(untilDate, 'yyyyMMdd')}T235959Z`
-        : formatIcsDateTimeUtc(untilDate);
+    const untilToken = isAllDay ? format(untilDate, 'yyyyMMdd') : formatIcsDateTimeUtc(untilDate);
 
     return `RRULE:${[...withoutEndParts, `UNTIL=${untilToken}`].join(';')}`;
 };
@@ -573,6 +616,15 @@ const splitRecurrenceRowsAtBoundary = (rows: StoredRecurrenceExceptionRow[], bou
     return { before, onOrAfter };
 };
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+    if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+};
+
 const valuesEqual = (left: unknown, right: unknown) => {
     if (left === right) return true;
 
@@ -580,12 +632,26 @@ const valuesEqual = (left: unknown, right: unknown) => {
         return left == null && right == null;
     }
 
-    if (typeof left === 'object' || typeof right === 'object') {
-        try {
-            return JSON.stringify(left) === JSON.stringify(right);
-        } catch {
+    if (Array.isArray(left) || Array.isArray(right)) {
+        if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
             return false;
         }
+
+        const leftAreIdObjects = left.every((entry) => isPlainObject(entry) && typeof entry.id === 'string');
+        const rightAreIdObjects = right.every((entry) => isPlainObject(entry) && typeof entry.id === 'string');
+        if (leftAreIdObjects && rightAreIdObjects) {
+            const leftById = new Map(left.map((entry) => [String((entry as { id: string }).id), entry] as const));
+            return right.every((entry) => {
+                const match = leftById.get(String((entry as { id: string }).id));
+                return match !== undefined && valuesEqual(match, entry);
+            });
+        }
+
+        return right.every((entry, index) => valuesEqual(left[index], entry));
+    }
+
+    if (isPlainObject(left) && isPlainObject(right)) {
+        return Object.entries(right).every(([key, value]) => valuesEqual(left[key], value));
     }
 
     return false;
@@ -614,6 +680,21 @@ const optimisticItemSatisfiedByServer = (
     optimisticItem: Partial<CalendarItem> & { id: string }
 ) => {
     if (!serverItem) return false;
+
+    const optimisticTimestamp =
+        [optimisticItem.updatedAt, optimisticItem.lastModified, optimisticItem.dtStamp]
+            .map((value) => (typeof value === 'string' ? value.trim() : ''))
+            .find(Boolean) || '';
+    if (optimisticTimestamp) {
+        const serverTimestamps = new Set(
+            [serverItem.updatedAt, serverItem.lastModified, serverItem.dtStamp]
+                .map((value) => (typeof value === 'string' ? value.trim() : ''))
+                .filter(Boolean)
+        );
+        if (serverTimestamps.has(optimisticTimestamp)) {
+            return true;
+        }
+    }
 
     return Object.entries(optimisticItem).every(([key, value]) => {
         if (key === 'id') return true;
@@ -804,6 +885,25 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             year,
             month: { in: months },
         }));
+    }, [rangeStart, rangeEnd]);
+    const recurrenceReferenceMonthConditions = useMemo(() => {
+        const bufferedStart = startOfMonth(addMonths(rangeStart, -1));
+        const bufferedEnd = endOfMonth(addMonths(rangeEnd, 1));
+        const conditions: Array<{ recurrenceId: { $like: string } }> = [];
+        const seenPatterns = new Set<string>();
+        let monthCursor = new Date(bufferedStart);
+
+        while (monthCursor.getTime() <= bufferedEnd.getTime()) {
+            const patterns = [`${format(monthCursor, 'yyyy-MM')}%`, `${format(monthCursor, 'yyyyMM')}%`];
+            for (const pattern of patterns) {
+                if (seenPatterns.has(pattern)) continue;
+                seenPatterns.add(pattern);
+                conditions.push({ recurrenceId: { $like: pattern } });
+            }
+            monthCursor = addMonths(monthCursor, 1);
+        }
+
+        return conditions;
     }, [rangeStart, rangeEnd]);
 
     const capRangeByMemory = useCallback((start: Date, end: Date, direction: 'up' | 'down') => {
@@ -2036,12 +2136,12 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 pertainsTo: {},
                 $: {
                     where: {
-                        or: [...monthConditions, { rrule: { $isNull: false } }],
+                        or: [...monthConditions, { rrule: { $isNull: false } }, ...recurrenceReferenceMonthConditions],
                     },
                 },
             },
         }),
-        [monthConditions]
+        [monthConditions, recurrenceReferenceMonthConditions]
     );
 
     const queryResult = (db as any).useQuery(query) as any;
@@ -2075,10 +2175,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         });
     }, [data, isLoading, error]);
 
-    const dayItemsByDate = useMemo(() => {
+    const { dayItemsByDate, weekSpanLanesByWeek } = useMemo(() => {
         const byDate = new Map<string, CalendarItem[]>();
+        const weekSpanSegmentsByWeek = new Map<string, CalendarWeekSpanSegment[]>();
         const rangeStartTime = rangeStart.getTime();
         const rangeEndTime = rangeEnd.getTime();
+        const rangeStartDay = toDayStart(rangeStart);
+        const rangeEndDay = toDayStart(rangeEnd);
         const recurrenceOverrideDayKeysByMasterId = new Map<string, Set<string>>();
         const selectedMemberIdSet = new Set(selectedMemberIds);
 
@@ -2109,9 +2212,12 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         };
 
         const calendarItemsForView = calendarItems.filter(matchesMemberFilter);
-        const calendarItemsById = new Map(calendarItemsForView.map((item) => [item.id, item] as const));
+        const calendarItemsById = new Map(calendarItems.map((item) => [item.id, item] as const));
         if (!everyoneSelected && selectedMemberIdSet.size === 0) {
-            return byDate;
+            return {
+                dayItemsByDate: byDate,
+                weekSpanLanesByWeek: new Map<string, CalendarWeekSpanSegment[][]>(),
+            };
         }
 
         const pushByDate = (dateKey: string, item: CalendarItem) => {
@@ -2123,13 +2229,24 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             }
         };
 
+        const pushWeekSpanSegment = (weekKey: string, segment: CalendarWeekSpanSegment) => {
+            const existing = weekSpanSegmentsByWeek.get(weekKey);
+            if (existing) {
+                existing.push(segment);
+            } else {
+                weekSpanSegmentsByWeek.set(weekKey, [segment]);
+            }
+        };
+
         for (const item of calendarItemsForView) {
             const masterId = typeof item.recurringEventId === 'string' ? item.recurringEventId.trim() : '';
             if (!masterId) continue;
+            if (normalizeRruleString(String(item.rrule || ''))) continue;
 
-            const recurrenceReference = typeof item.recurrenceId === 'string' && item.recurrenceId.trim() ? item.recurrenceId : item.startDate;
-            const referenceDate = parseRecurrenceDateToken(String(recurrenceReference || '')) || parseISO(String(item.startDate || ''));
-            if (Number.isNaN(referenceDate.getTime())) continue;
+            const recurrenceReference = typeof item.recurrenceId === 'string' ? item.recurrenceId.trim() : '';
+            if (!recurrenceReference) continue;
+            const referenceDate = parseRecurrenceDateToken(recurrenceReference);
+            if (!referenceDate || Number.isNaN(referenceDate.getTime())) continue;
 
             const dayKey = format(referenceDate, 'yyyy-MM-dd');
             const existing = recurrenceOverrideDayKeysByMasterId.get(masterId);
@@ -2196,15 +2313,20 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
                 const overrideDayKeys = recurrenceOverrideDayKeysByMasterId.get(item.id);
                 const seenOccurrenceKeys = new Set<string>();
-                const starts = [start, ...generatedStarts, ...rdateStarts].sort((left, right) => left.getTime() - right.getTime());
+                const uniqueStartsByKey = new Map<string, Date>();
+                for (const rawStart of [start, ...generatedStarts, ...rdateStarts]) {
+                    if (Number.isNaN(rawStart.getTime())) continue;
+                    const normalizedStart = item.isAllDay ? parseISO(format(rawStart, 'yyyy-MM-dd')) : rawStart;
+                    if (Number.isNaN(normalizedStart.getTime())) continue;
+                    const startKey = item.isAllDay ? format(normalizedStart, 'yyyy-MM-dd') : normalizedStart.toISOString();
+                    if (!uniqueStartsByKey.has(startKey)) {
+                        uniqueStartsByKey.set(startKey, normalizedStart);
+                    }
+                }
+                const starts = Array.from(uniqueStartsByKey.values()).sort((left, right) => left.getTime() - right.getTime());
 
                 const occurrenceItems: CalendarItem[] = [];
-                for (const rawStart of starts) {
-                    if (Number.isNaN(rawStart.getTime())) continue;
-
-                    const occurrenceStart = item.isAllDay ? parseISO(format(rawStart, 'yyyy-MM-dd')) : rawStart;
-                    if (Number.isNaN(occurrenceStart.getTime())) continue;
-
+                for (const occurrenceStart of starts) {
                     const occurrenceEnd = new Date(occurrenceStart.getTime() + durationMs);
                     const dayKey = format(occurrenceStart, 'yyyy-MM-dd');
                     const dedupeKey = item.isAllDay ? dayKey : occurrenceStart.toISOString();
@@ -2244,31 +2366,45 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             const sourceItem = masterForOverride ? ({ ...baseItem, __masterEvent: masterForOverride } as CalendarItem) : baseItem;
             const itemsToRender = expandRecurringItemForRange(sourceItem);
             for (const item of itemsToRender) {
-                if (item.isAllDay) {
-                    const start = parseISO(item.startDate);
-                    const exclusiveEnd = parseISO(item.endDate);
-                    if (Number.isNaN(start.getTime()) || Number.isNaN(exclusiveEnd.getTime())) {
+                const start = parseISO(item.startDate);
+                const exclusiveEnd = parseISO(item.endDate);
+                if (Number.isNaN(start.getTime()) || Number.isNaN(exclusiveEnd.getTime())) {
+                    continue;
+                }
+
+                const startDay = toDayStart(start);
+                const endDay = getInclusiveEndDayStart(exclusiveEnd);
+                const isMultiDay = endDay.getTime() > startDay.getTime();
+
+                if (isMultiDay) {
+                    const visibleStartDay = startDay.getTime() < rangeStartDay.getTime() ? rangeStartDay : startDay;
+                    const visibleEndDay = endDay.getTime() > rangeEndDay.getTime() ? rangeEndDay : endDay;
+                    if (visibleEndDay.getTime() < visibleStartDay.getTime()) {
                         continue;
                     }
 
-                    let cursor = new Date(start);
-                    while (cursor.getTime() < exclusiveEnd.getTime()) {
-                        const time = cursor.getTime();
-                        if (time >= rangeStartTime && time <= rangeEndTime) {
-                            pushByDate(format(cursor, 'yyyy-MM-dd'), item);
-                        }
-                        cursor = addDays(cursor, 1);
+                    let segmentStartDay = visibleStartDay;
+                    while (segmentStartDay.getTime() <= visibleEndDay.getTime()) {
+                        const weekStart = startOfWeek(segmentStartDay, { weekStartsOn: WEEK_STARTS_ON });
+                        const weekEnd = addDays(weekStart, 6);
+                        const segmentEndDay = visibleEndDay.getTime() < weekEnd.getTime() ? visibleEndDay : weekEnd;
+                        const weekKey = format(weekStart, 'yyyy-MM-dd');
+                        pushWeekSpanSegment(weekKey, {
+                            segmentKey: `${item.id}-${format(segmentStartDay, 'yyyy-MM-dd')}-${format(segmentEndDay, 'yyyy-MM-dd')}`,
+                            item,
+                            startCol: differenceInDays(segmentStartDay, weekStart),
+                            endCol: differenceInDays(segmentEndDay, weekStart),
+                            continuesBefore: segmentStartDay.getTime() > startDay.getTime(),
+                            continuesAfter: segmentEndDay.getTime() < endDay.getTime(),
+                        });
+                        segmentStartDay = addDays(segmentEndDay, 1);
                     }
-                } else {
-                    const start = parseISO(item.startDate);
-                    if (Number.isNaN(start.getTime())) {
-                        continue;
-                    }
+                    continue;
+                }
 
-                    const time = start.getTime();
-                    if (time >= rangeStartTime && time <= rangeEndTime) {
-                        pushByDate(format(start, 'yyyy-MM-dd'), item);
-                    }
+                const time = start.getTime();
+                if (time >= rangeStartTime && time <= rangeEndTime) {
+                    pushByDate(format(start, 'yyyy-MM-dd'), item);
                 }
             }
         }
@@ -2277,7 +2413,15 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             byDate.set(dateKey, [...dayItems].sort(compareCalendarItemsByStartTime));
         });
 
-        return byDate;
+        const spanLanesByWeek = new Map<string, CalendarWeekSpanSegment[][]>();
+        for (const [weekKey, segments] of Array.from(weekSpanSegmentsByWeek.entries())) {
+            spanLanesByWeek.set(weekKey, assignWeekSpanLanes(segments));
+        }
+
+        return {
+            dayItemsByDate: byDate,
+            weekSpanLanesByWeek: spanLanesByWeek,
+        };
     }, [calendarItems, everyoneSelected, memberFilterConfigured, rangeEnd, rangeStart, selectedMemberIds]);
 
     const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -2358,9 +2502,14 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                         </tr>
                     </thead>
                     <tbody>
-                        {weeks.map((week, weekIndex) => (
-                            <tr key={format(week[0], 'yyyy-MM-dd')}>
-                                {week.map((day, dayIndex) => {
+                        {weeks.map((week, weekIndex) => {
+                            const weekKey = format(week[0], 'yyyy-MM-dd');
+                            const weekSpanLanes = weekSpanLanesByWeek.get(weekKey) || [];
+
+                            return (
+                                <React.Fragment key={weekKey}>
+                                    <tr>
+                                        {week.map((day, dayIndex) => {
                                     // @ts-ignore
                                     const nepaliDate = new NepaliDate(day);
                                     const currentMonth = format(day, 'MMMM');
@@ -2463,8 +2612,60 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                                         </DroppableDayCell>
                                     );
                                 })}
-                            </tr>
-                        ))}
+                                    </tr>
+                                    {weekSpanLanes.map((lane, laneIndex) => {
+                                        const cells: React.ReactNode[] = [];
+                                        let cursorCol = 0;
+
+                                        for (const segment of lane) {
+                                            if (segment.startCol > cursorCol) {
+                                                cells.push(
+                                                    <td
+                                                        key={`${segment.segmentKey}-spacer-${cursorCol}`}
+                                                        colSpan={segment.startCol - cursorCol}
+                                                        className={styles.multiDaySpacerCell}
+                                                    />
+                                                );
+                                            }
+
+                                            cells.push(
+                                                <td
+                                                    key={segment.segmentKey}
+                                                    colSpan={segment.endCol - segment.startCol + 1}
+                                                    className={styles.multiDaySpanCell}
+                                                >
+                                                    <DraggableCalendarEvent
+                                                        item={segment.item}
+                                                        index={laneIndex}
+                                                        layout="span"
+                                                        continuesBefore={segment.continuesBefore}
+                                                        continuesAfter={segment.continuesAfter}
+                                                        onClick={(e) => handleEventClick(e, segment.item)}
+                                                    />
+                                                </td>
+                                            );
+                                            cursorCol = segment.endCol + 1;
+                                        }
+
+                                        if (cursorCol < 7) {
+                                            cells.push(
+                                                <td
+                                                    key={`${weekKey}-lane-${laneIndex}-tail`}
+                                                    colSpan={7 - cursorCol}
+                                                    className={styles.multiDaySpacerCell}
+                                                />
+                                            );
+                                        }
+
+                                        return (
+                                            <tr key={`${weekKey}-multi-day-lane-${laneIndex}`} className={styles.multiDayLaneRow}>
+                                                {cells}
+                                            </tr>
+                                        );
+                                    })}
+                                </React.Fragment>
+                            );
+                        })}
 
                     </tbody>
                 </table>
