@@ -1240,6 +1240,36 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 };
 
                 if (recurrenceScope === 'single') {
+                    // If the event is already an exception override, just move it in place.
+                    // The master's exdates already exclude the original occurrence.
+                    if (String(event.recurringEventId || '').trim()) {
+                        const overridePatch: Record<string, any> = {
+                            ...legacyPayload,
+                            updatedAt: nowIso,
+                            lastModified: nowIso,
+                            dtStamp: nowIso,
+                            sequence: typeof event.sequence === 'number' ? event.sequence + 1 : 1,
+                        };
+
+                        registerRollback(
+                            applyOptimisticCalendarItem({
+                                ...event,
+                                ...overridePatch,
+                                id: event.id,
+                            } as CalendarItem)
+                        );
+
+                        void (async () => {
+                            try {
+                                await db.transact([tx.calendarItems[event.id].update(overridePatch)]);
+                            } catch (error) {
+                                console.error('Calendar recurring override move failed:', error);
+                                rollbackAll();
+                            }
+                        })();
+                        return;
+                    }
+
                     const nextMasterExdates = normalizeRecurrenceTokens([...baseExdateTokens, recurrenceReferenceToken]);
                     const nextMasterPatch: Record<string, any> = {
                         exdates: nextMasterExdates,
@@ -1365,8 +1395,24 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                         delete masterXProps.recurrenceRdateRows;
                     }
 
+                    // Compute master's shifted dates from master's own position
+                    // (not the dragged event's, which may be an override on a different date).
+                    const masterStartParsed = parseISO(masterEvent.startDate);
+                    const masterEndParsed = parseISO(masterEvent.endDate);
+                    const masterShiftedStart = masterEvent.isAllDay
+                        ? format(addDays(masterStartParsed, daysDifference), 'yyyy-MM-dd')
+                        : addDays(masterStartParsed, daysDifference).toISOString();
+                    const masterShiftedEnd = masterEvent.isAllDay
+                        ? format(addDays(masterEndParsed, daysDifference), 'yyyy-MM-dd')
+                        : addDays(masterEndParsed, daysDifference).toISOString();
+                    const masterShiftedAnchor = addDays(masterStartParsed, daysDifference);
+
                     const nextMasterPatch: Record<string, any> = {
-                        ...legacyPayload,
+                        startDate: masterShiftedStart,
+                        endDate: masterShiftedEnd,
+                        year: masterShiftedAnchor.getFullYear(),
+                        month: masterShiftedAnchor.getMonth() + 1,
+                        dayOfMonth: masterShiftedAnchor.getDate(),
                         rrule: shiftedRrule,
                         rdates: shiftedRdates,
                         exdates: shiftedExdates,
