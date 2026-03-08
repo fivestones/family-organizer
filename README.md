@@ -6,24 +6,29 @@ Hey! This is the code for our family's organizer. I'm building this to help us (
 
 Here's a rundown of what the Thomas Family Organizer offers so far:
 
+-   **Dashboard / Daily Overview:**
+
+    -   See upcoming events, chores due, task-series progress, and each person's current balance at a glance.
+    -   There is a web dashboard and a native iPhone dashboard.
+
 -   **Calendar:**
 
     -   Add, remove, and view calendar items easily.
-    -   Includes a multi-month view for better planning.
-    -   Supports both Gregorian and Bikram Samvat calendars, and you can choose to show either or both.
-    -   Needs work:
-        -   Planning to have other views, lazy loading with scrolling to other weeks/months/years, week view, full year view, better controls to turn on/off Gregorian and Bikram Samvat, maybe syncing with google or apple calendars.
+    -   Handles both all-day and timed events.
+    -   Supports recurring events, especially on the web app where the recurrence editing is more complete.
+    -   Calendar items can be for the whole family or assigned to one or more specific people.
+    -   Supports both Gregorian and Bikram Samvat calendars, and shows both together nicely.
 
 -   **Chore Assignment and Tracking:**
 
     -   Clearly see all chores with avatars showing who is assigned.
-    -   View chores due directly in the calendar.
+    -   View chore schedules in a calendar-style preview, and see due chores on the dashboards.
     -   Assign chores to multiple people, with an option to have it automatically alternate between them.
     -   Set up auto-repeating chores with simple or complex recurrence patterns using rrule.
     -   The detailed create/edit chore form includes a working assignment preview.
     -   **"Up for Grabs" Chores:**
         -   Chores can be part of the normal allowance (required for 100% allowance) OR be "up for grabs" with a specific monetary amount or weight attached.
-        -   Completed up-for-grabs chores will automatically deposit the specified amount/value into the family member's allowance. This applies to chores with either a direct amount or a weight (allowing for earning more than 100% of assigned chore weight).
+        -   Completed up-for-grabs chores feed into allowance distribution, either as a direct amount or as extra weight/value (allowing for earning more than 100% of assigned chore weight).
 
 -   **Task Series (Advanced Chores / Homeschooling Module):**
 
@@ -37,6 +42,7 @@ Here's a rundown of what the Thomas Family Organizer offers so far:
     -   Ability to see the whole string of upcoming dependent chores/assignments (and maybe those already completed).
     -   Assignments for a school subject could function like a playlist. On any given day of the Chore where the task series is active, it will show the next task that hasn't been done. If a task isn't done on a day it is scheduled, it will show up the next time that Chore appears.
     -   Attach files and notes to individual tasks, see the notes and view images/text files/pdfs from where the task is shown as due
+    -   There is also a native iPhone view for seeing task-series progress and status
 
 -   **Time travelling**
 
@@ -52,28 +58,39 @@ Here's a rundown of what the Thomas Family Organizer offers so far:
     -   **Smart Totals & Currency Conversion:**
         -   See the total current allowance for each person displayed next to their name in the family members list.
         -   View your total balance converted into a single chosen monetary currency (e.g., if you have USD, Euros, and Stars, it can show your total in USD and your total in Stars).
+        -   The last chosen display currency now sticks for each family member.
     -   **Savings Goals:** Envelopes can have a designated savings goal amount.
     -   **Flexible Deposits:**
-        -   Allows setting a default envelope for deposits. (The previous bug that sometimes created a new default envelope is fixed.)
+        -   Allows setting a default envelope for deposits.
+        -   New family members added on the web get a default "Savings" envelope automatically.
     -   **Chore-Based Allowance Calculation:**
         -   Assign a numerical weight (any real number) to chores.
         -   Allowance payouts can be based on the total weighted value of chores marked "done" during a specific period.
         -   The system calculates the total weight of all assigned chores for the week and the total weight of completed chores to find a weighted completion percentage. (Bugs related to incorrect counting of all chores or issues with unchecking/rechecking have been resolved.)
         -   If a chore is unchecked after being marked done, it correctly no longer counts towards the allowance.
         -   View current stats for chores completed and the allowance due.
-        -   Automatically (or with a click) deposit the calculated percentage of a family member's weekly allowance into their default envelope.
+        -   Deposit the calculated percentage of a family member's weekly allowance into their default envelope. (The full allowance distribution workflow is strongest on the web right now.)
 
 -   **Role-based User Access**
 
     -   Family members are users. Set PINs for each family members. Can set role (Parent or Child) for each user.
     -   Log in and log out, switch user
-    -   Parents can do anything, children can only manage their own finances. Children can mark Chores or Tasks as done for someone else but the system keeps track of who marked it
+    -   Parents can do anything. Children can manage the parts meant for them, especially their own chores, tasks, and some of their own finances. Children can mark Chores or Tasks as done for someone else but the system keeps track of who marked it
+    -   Parent mode can time out automatically on shared devices
     -   When not logged in, limited to viewing but can't make changes.
+
+-   **Family Setup & Files:**
+
+    -   Add and edit family members, set roles, and reorder the family list.
+    -   Upload profile photos and a shared family photo.
+    -   Upload and open files, and attach them to tasks (including images/text files/pdfs).
 
 -   **Tech & Sync:**
     -   **Instant Sync:** Changes are reflected immediately across all connected clients.
     -   **Local-First Architecture:** Your data primarily lives on your device/server.
-    -   **Offline Capable & Fast:** Designed to work even without an internet connection and be responsive. (Ok, this isn't done yet, but it shouldn't be too hard to make happen, given that it uses InstantDB which is designed for this kind of stuff.)
+    -   Already has a web app and a native iPhone app.
+    -   The web app can be installed like a PWA.
+    -   There is some offline support already, but I still wouldn't call full offline use "done" yet.
     -   Uses `instantdb.com` in the background for its powerful syncing capabilities.
 
 ## What I'm Tinkering With Now (Current To-Do & Bugs)
@@ -82,8 +99,7 @@ This is the stuff I'm actively working on or plan to tackle very soon:
 
 -   **Allowance System Enhancements:**
     -   Set up sophisticated rules for deposits (e.g., first $2 into envelope A, then of the remainder: 20% into envelope B and 80% into envelope C).
-    -   Make the last chosen display currency for totals stick for the next session (on a per-family-member basis).
-    -   Automatically create a default "Savings" envelope when a new family member is added.
+    -   Continue bringing the iPhone finance experience closer to the fuller web workflow, especially around allowance distribution.
 -   **Transaction Viewing Improvements:**
     -   Add a graph next to the transaction list. This graph should somehow incorporate savings goal amounts for envelopes (maybe different colors for each envelope, with the total in its own color, showing progress towards goals).
     -   Include a running total in the transaction list, either per currency or as a combined total in a chosen currency.
@@ -97,9 +113,11 @@ This is the stuff I'm actively working on or plan to tackle very soon:
     -   Ability to set end dates for chores.
     -   Implement pausing and restarting chores, potentially with an option to schedule these pauses/restarts.
     -   Refine chore deletion processes.
+-   **Calendar Improvements:**
+    -   More views, lazy loading with scrolling to other weeks/months/years, week view, full year view, better controls to turn on/off Gregorian and Bikram Samvat, maybe syncing with google or apple calendars.
 -   **User Experience & General Polish:**
     -   Figure out the best way to handle future periods that are simulated and then marked as done. Should deposits also be marked as simulated? Or maybe simplify/hide the simulated date option.
-    -   Kid's passcode needed to activate transfers out; parent passcode needed to activate parent mode (full transfer/deposit rights).
+    -   Kid's passcode needed to activate transfers out; parent passcode already activates parent mode (full transfer/deposit rights).
     -   Integrate the `familyMemberDetail` page more smoothly into the main interface, perhaps as a pop-up or section accessible from a family member's chore list.
 -   **Allowance Adjustments:**
 
@@ -127,10 +145,9 @@ This is where I'd love to take the project eventually. No promises, but these ar
 
 -   **Even Better Calendar:**
 
-    -   Individual calendars for multiple people.
+    -   Cleaner individual calendar views for multiple people.
     -   More views: Day, 3-4 day, weekly, agenda, and full year views.
     -   Custom metadata for events: circle or highlight events, mark an event as "major" (to show only major events on yearly/other views).
-    -   Events assignable to a person or multiple people.
     -   Flexible event timings: all-day, specific time, no particular time (shows differently from all-day), or broader time periods (Early morning, Morning, Mid-day, Afternoon, Evening, Night, Middle of the night).
 
 -   **To-Do Lists:**
@@ -165,10 +182,9 @@ This is where I'd love to take the project eventually. No promises, but these ar
 
 -   **Broader Platform Support:**
 
-    -   Convert into a Progressive Web App (PWA) for full offline use on any device.
-    -   Eventually, convert into React Native for a native iOS app (and maybe Android?).
+    -   Make the Progressive Web App (PWA) much better for full offline use on any device.
+    -   Keep rounding out the native iOS app, and maybe Android too.
     -   Two-way sync with Google Calendar, Apple Calendar, or CalDAV servers.
-    -   Ensure the interface is touch-screen capable.
 
 -   **"Maybe Someday" Ideas:**
     -   Simple messaging between family members within the app.

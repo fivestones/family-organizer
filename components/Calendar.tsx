@@ -2667,7 +2667,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                                             ) : null}
 
                                             {dayItems.length > 0 ? (
-                                                <div className={styles.dayEventStack}>
+                                                <div className={`${styles.dayEventStack}${dayReservedHeight <= 0 ? ` ${styles.dayEventStackWithTopGap}` : ''}`}>
                                                     {dayItems.map((item, index) => (
                                                         <DraggableCalendarEvent
                                                             key={`${item.id}-${item.startDate}`}
