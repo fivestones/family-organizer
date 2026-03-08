@@ -96,6 +96,9 @@ const EDGE_TRIGGER_PX = 220;
 const EDGE_LOAD_COOLDOWN_MS = 220;
 const MONTH_BOX_HORIZONTAL_PADDING = 16;
 const MONTH_BOX_VERTICAL_PADDING = 10;
+const WEEK_SPAN_TOP_OFFSET_PX = 23;
+const WEEK_SPAN_LANE_HEIGHT_PX = 16;
+const WEEK_SPAN_LANE_GAP_PX = 2;
 
 const nepaliMonthsCommonRoman = ['Baisakh', 'Jeth', 'Asar', 'Saun', 'Bhadau', 'Asoj', 'Kattik', 'Mangsir', 'Poush', 'Magh', 'Phagun', 'Chait'];
 const nepaliMonthsCommonDevanagari = ['वैशाख', 'जेठ', 'असार', 'साउन', 'भदौ', 'असोज', 'कात्तिक', 'मंसिर', 'पुष', 'माघ', 'फागुन', 'चैत'];
@@ -2505,6 +2508,27 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                         {weeks.map((week, weekIndex) => {
                             const weekKey = format(week[0], 'yyyy-MM-dd');
                             const weekSpanLanes = weekSpanLanesByWeek.get(weekKey) || [];
+                            const weekSpanLaneDepthByCol = Array.from({ length: 7 }, () => 0);
+                            for (let laneIndex = 0; laneIndex < weekSpanLanes.length; laneIndex += 1) {
+                                const lane = weekSpanLanes[laneIndex];
+                                for (const segment of lane) {
+                                    for (let col = segment.startCol; col <= segment.endCol; col += 1) {
+                                        weekSpanLaneDepthByCol[col] = Math.max(weekSpanLaneDepthByCol[col], laneIndex + 1);
+                                    }
+                                }
+                            }
+                            const weekSpanReservedHeightsByCol = weekSpanLaneDepthByCol.map((laneDepth) =>
+                                laneDepth > 0
+                                    ? laneDepth * WEEK_SPAN_LANE_HEIGHT_PX + (laneDepth - 1) * WEEK_SPAN_LANE_GAP_PX
+                                    : 0
+                            );
+                            const weekSpanReservedHeight = Math.max(0, ...weekSpanReservedHeightsByCol);
+                            const weekCellStyle =
+                                weekSpanReservedHeight > 0
+                                    ? ({
+                                          height: `calc(var(--calendar-day-cell-height, 120px) + ${weekSpanReservedHeight}px)`,
+                                      } as React.CSSProperties)
+                                    : undefined;
 
                             return (
                                 <React.Fragment key={weekKey}>
@@ -2525,9 +2549,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                                     const year = format(day, 'yyyy');
                                     const nepaliYear = nepaliDate.format('YYYY');
                                 shouldDisplayBothYears = false;
-                                const dateStr = format(day, 'yyyy-MM-dd');
+                                    const dateStr = format(day, 'yyyy-MM-dd');
+                                    const dayReservedHeight = weekSpanReservedHeightsByCol[dayIndex] || 0;
 
-                                const isFirstDayOfNepaliMonth = nepaliDate.getDate() === 1;
+                                    const isFirstDayOfNepaliMonth = nepaliDate.getDate() === 1;
                                 const isFirstWeekOfNepaliMonthButNotFirstDay =
                                     nepaliDate.getDate() === 2 ||
                                     nepaliDate.getDate() === 3 ||
@@ -2573,6 +2598,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                                             day={day}
                                             dateStr={dateStr}
                                             onClick={handleDayClick}
+                                            style={weekCellStyle}
                                             className={`${styles.dayCell} ${isFirstDayOfYear ? styles.firstDayOfYear : ''} ${
                                                 isFirstDayOfMonth ? styles.firstDayOfMonth : ''
                                             } ${isFirstWeekOfMonthButNotFirstDay ? styles.firstWeekOfMonth : ''} ${
@@ -2581,6 +2607,38 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                                                 displayBS && isFirstWeekOfNepaliMonthButNotFirstDay ? styles.firstWeekOfNepaliMonth : ''
                                             }`}
                                         >
+                                            {dayIndex === 0 && weekSpanLanes.length > 0 ? (
+                                                <div
+                                                    className={styles.weekSpanOverlay}
+                                                    style={{
+                                                        top: `${WEEK_SPAN_TOP_OFFSET_PX}px`,
+                                                        minHeight: `${weekSpanReservedHeight}px`,
+                                                    }}
+                                                >
+                                                    {weekSpanLanes.map((lane, laneIndex) => (
+                                                        <div key={`${weekKey}-overlay-lane-${laneIndex}`} className={styles.weekSpanOverlayLane}>
+                                                            {lane.map((segment) => (
+                                                                <div
+                                                                    key={segment.segmentKey}
+                                                                    className={styles.weekSpanOverlaySegment}
+                                                                    style={{
+                                                                        gridColumn: `${segment.startCol + 1} / ${segment.endCol + 2}`,
+                                                                    }}
+                                                                >
+                                                                    <DraggableCalendarEvent
+                                                                        item={segment.item}
+                                                                        index={laneIndex}
+                                                                        layout="span"
+                                                                        continuesBefore={segment.continuesBefore}
+                                                                        continuesAfter={segment.continuesAfter}
+                                                                        onClick={(e) => handleEventClick(e, segment.item)}
+                                                                    />
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : null}
                                             {shouldDisplayYear && <div className={styles.yearNumber}>{year}</div>}
                                             {shouldDisplayNepaliYear && <div className={styles.nepaliYearNumber}>{nepaliYear}</div>}
                                             {shouldDisplayBothYears && (
@@ -2600,69 +2658,30 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                                             <div className={styles.dayNumber} data-calendar-date={dateStr}>
                                                 {format(day, 'd')} {displayBS ? ' / ' + nepaliDate.format('D', 'np') : ''}
                                             </div>
-
-                                            {dayItems.map((item, index) => (
-                                                <DraggableCalendarEvent
-                                                    key={`${item.id}-${item.startDate}`}
-                                                    item={item}
-                                                    index={index}
-                                                    onClick={(e) => handleEventClick(e, item)}
+                                            {dayReservedHeight > 0 ? (
+                                                <div
+                                                    className={styles.multiDayLaneSpacer}
+                                                    style={{ height: `${dayReservedHeight}px` }}
+                                                    aria-hidden="true"
                                                 />
-                                            ))}
+                                            ) : null}
+
+                                            {dayItems.length > 0 ? (
+                                                <div className={styles.dayEventStack}>
+                                                    {dayItems.map((item, index) => (
+                                                        <DraggableCalendarEvent
+                                                            key={`${item.id}-${item.startDate}`}
+                                                            item={item}
+                                                            index={index}
+                                                            onClick={(e) => handleEventClick(e, item)}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            ) : null}
                                         </DroppableDayCell>
                                     );
                                 })}
                                     </tr>
-                                    {weekSpanLanes.map((lane, laneIndex) => {
-                                        const cells: React.ReactNode[] = [];
-                                        let cursorCol = 0;
-
-                                        for (const segment of lane) {
-                                            if (segment.startCol > cursorCol) {
-                                                cells.push(
-                                                    <td
-                                                        key={`${segment.segmentKey}-spacer-${cursorCol}`}
-                                                        colSpan={segment.startCol - cursorCol}
-                                                        className={styles.multiDaySpacerCell}
-                                                    />
-                                                );
-                                            }
-
-                                            cells.push(
-                                                <td
-                                                    key={segment.segmentKey}
-                                                    colSpan={segment.endCol - segment.startCol + 1}
-                                                    className={styles.multiDaySpanCell}
-                                                >
-                                                    <DraggableCalendarEvent
-                                                        item={segment.item}
-                                                        index={laneIndex}
-                                                        layout="span"
-                                                        continuesBefore={segment.continuesBefore}
-                                                        continuesAfter={segment.continuesAfter}
-                                                        onClick={(e) => handleEventClick(e, segment.item)}
-                                                    />
-                                                </td>
-                                            );
-                                            cursorCol = segment.endCol + 1;
-                                        }
-
-                                        if (cursorCol < 7) {
-                                            cells.push(
-                                                <td
-                                                    key={`${weekKey}-lane-${laneIndex}-tail`}
-                                                    colSpan={7 - cursorCol}
-                                                    className={styles.multiDaySpacerCell}
-                                                />
-                                            );
-                                        }
-
-                                        return (
-                                            <tr key={`${weekKey}-multi-day-lane-${laneIndex}`} className={styles.multiDayLaneRow}>
-                                                {cells}
-                                            </tr>
-                                        );
-                                    })}
                                 </React.Fragment>
                             );
                         })}

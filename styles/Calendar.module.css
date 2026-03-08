@@ -189,6 +189,7 @@
     position: relative; /* Positioning context for month name */
     height: var(--calendar-day-cell-height, 120px);
     vertical-align: top; /* Align text to the top */
+    overflow: visible;
 }
 .dragOverCell {
     background-color: #e0f2fe; /* light-blue-100 */
@@ -271,65 +272,104 @@
     right: 5px; /* Right-justified within the cell */
 }
 
+.weekSpanOverlay {
+    position: absolute;
+    left: -1px;
+    width: calc(700% + 6px);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 14;
+    pointer-events: none;
+}
+
+.weekSpanOverlayLane {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    align-items: start;
+}
+
+.weekSpanOverlaySegment {
+    min-width: 0;
+    padding: 0 1px;
+    pointer-events: auto;
+}
+
+.multiDayLaneSpacer {
+    width: 100%;
+}
+
+.dayEventStack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 2px;
+}
+
 .event {
-    margin-top: 3px;
-    font-size: 0.76rem;
-    line-height: 1.1;
+    font-size: 0.67rem;
+    line-height: 1.02;
 }
 
 .circled {
-    border-radius: 9px;
+    border-radius: 6px;
     border-width: 1px;
     border-color: #a7f3d0;
     background: linear-gradient(135deg, #d1fae5, #a7f3d0);
     width: auto;
     height: auto;
-    padding: 3px 6px 4px;
+    padding: 1px 5px 2px;
     border-style: solid;
 }
 
 .calendarItem {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 1px;
     cursor: pointer;
-    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06);
-}
-
-.multiDayLaneRow td {
-    background-color: #fff;
-}
-
-.multiDaySpacerCell {
-    padding: 0;
-    height: 0;
-    border-left: 0.5px solid #000;
-    border-right: 0.5px solid #000;
-    border-bottom: 0.5px solid #000;
-}
-
-.multiDaySpanCell {
-    padding: 1px 2px 3px;
-    border-left: 0.5px solid #000;
-    border-right: 0.5px solid #000;
-    border-bottom: 0.5px solid #000;
-    vertical-align: middle;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
 }
 
 .eventTitle {
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
     overflow: hidden;
     text-align: left;
     color: #14532d;
     font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.eventHeaderRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.eventHeaderRowSpan {
+    gap: 0;
 }
 
 .eventAudienceRow {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.eventMetaText {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    color: rgba(20, 83, 45, 0.86);
+    font-size: 0.56rem;
+    line-height: 1;
+    padding-left: 1px;
 }
 
 .eventAudienceAll {
@@ -337,15 +377,15 @@
     border: 1px solid #86efac;
     background: rgba(255, 255, 255, 0.72);
     color: #166534;
-    font-size: 0.62rem;
+    font-size: 0.5rem;
     font-weight: 700;
     letter-spacing: 0.01em;
-    padding: 1px 5px;
+    padding: 0 4px;
 }
 
 .eventAudienceAvatar {
-    width: 18px;
-    height: 18px;
+    width: 12px;
+    height: 12px;
     border-radius: 9999px;
     border: 1px solid #34d399;
     background: rgba(255, 255, 255, 0.82);
@@ -353,7 +393,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.56rem;
+    font-size: 0.38rem;
     font-weight: 700;
 }
 
@@ -361,20 +401,24 @@
     border-radius: 9999px;
     background: rgba(6, 95, 70, 0.1);
     color: #065f46;
-    font-size: 0.56rem;
+    font-size: 0.45rem;
     font-weight: 700;
-    padding: 1px 5px;
+    padding: 0 4px;
 }
 
 .eventSpan {
     flex-direction: row;
     align-items: center;
-    gap: 8px;
-    min-height: 28px;
+    gap: 6px;
+    min-height: 16px;
+    height: 16px;
     margin-top: 0;
-    padding: 4px 8px 5px;
+    padding: 1px 6px 2px;
     border-color: #6ee7b7;
     background: linear-gradient(135deg, #ecfdf5, #bbf7d0 55%, #86efac);
+    border-radius: 999px;
+    box-shadow: none;
+    box-sizing: border-box;
 }
 
 .eventSpanContinuesBefore {
@@ -393,6 +437,7 @@
     text-overflow: ellipsis;
     flex: 1;
     min-width: 0;
+    font-size: 0.72rem;
 }
 
 .eventAudienceRowSpan {

@@ -67,6 +67,9 @@ export const DraggableCalendarEvent = ({
     const visibleMembers = useMemo(() => members.slice(0, 3), [members]);
     const remainingMemberCount = Math.max(0, members.length - visibleMembers.length);
     const isSpanLayout = layout === 'span';
+    const descriptionText = useMemo(() => String(item.description || '').replace(/\s+/g, ' ').trim(), [item.description]);
+    const showAudienceInline = !isSpanLayout;
+    const showDescriptionRow = !isSpanLayout && descriptionText.length > 0;
 
     useEffect(() => {
         const element = eventRef.current;
@@ -97,25 +100,30 @@ export const DraggableCalendarEvent = ({
             )}
             onClick={onClick}
         >
-            <div className={cn(styles.eventTitle, isSpanLayout && styles.eventTitleSpan)}>{item.title}</div>
-            <div className={cn(styles.eventAudienceRow, isSpanLayout && styles.eventAudienceRowSpan)}>
-                {members.length === 0 ? (
-                    <span className={styles.eventAudienceAll}>All</span>
-                ) : (
-                    <>
-                        {visibleMembers.map((member) => (
-                            <span
-                                key={member.id}
-                                title={member.name || 'Unknown member'}
-                                className={styles.eventAudienceAvatar}
-                            >
-                                {getMemberInitials(member.name)}
-                            </span>
-                        ))}
-                        {remainingMemberCount > 0 && <span className={styles.eventAudienceCount}>+{remainingMemberCount}</span>}
-                    </>
-                )}
+            <div className={cn(styles.eventHeaderRow, isSpanLayout && styles.eventHeaderRowSpan)}>
+                {showAudienceInline ? (
+                    <div className={cn(styles.eventAudienceRow, isSpanLayout && styles.eventAudienceRowSpan)}>
+                        {members.length === 0 ? (
+                            <span className={styles.eventAudienceAll}>All</span>
+                        ) : (
+                            <>
+                                {visibleMembers.map((member) => (
+                                    <span
+                                        key={member.id}
+                                        title={member.name || 'Unknown member'}
+                                        className={styles.eventAudienceAvatar}
+                                    >
+                                        {getMemberInitials(member.name)}
+                                    </span>
+                                ))}
+                                {remainingMemberCount > 0 && <span className={styles.eventAudienceCount}>+{remainingMemberCount}</span>}
+                            </>
+                        )}
+                    </div>
+                ) : null}
+                <div className={cn(styles.eventTitle, isSpanLayout && styles.eventTitleSpan)}>{item.title}</div>
             </div>
+            {showDescriptionRow ? <div className={styles.eventMetaText}>{descriptionText}</div> : null}
         </div>
     );
 };
