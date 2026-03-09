@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { cn } from '../lib/utils';
+import { CALENDAR_YEAR_FONT_SCALE_MAX, CALENDAR_YEAR_FONT_SCALE_MIN } from '../lib/calendar-controls';
 import styles from '../styles/Calendar.module.css'; // Import your calendar styles
 
 interface EventFamilyMember {
@@ -77,7 +78,9 @@ export const DraggableCalendarEvent = ({
     const remainingMemberCount = Math.max(0, members.length - visibleMembers.length);
     const isSpanLayout = layout === 'span';
     const isYearLayout = layout === 'year';
-    const effectiveScale = Number.isFinite(scale) ? Math.max(0.6, scale) : 1;
+    const effectiveScale = Number.isFinite(scale)
+        ? Math.min(CALENDAR_YEAR_FONT_SCALE_MAX, Math.max(CALENDAR_YEAR_FONT_SCALE_MIN, scale))
+        : 1;
     const itemKind = item.calendarItemKind === 'chore' ? 'chore' : 'event';
     const isInteractive = draggableEnabled || typeof onClick === 'function';
     const descriptionText = useMemo(() => String(item.description || '').replace(/\s+/g, ' ').trim(), [item.description]);

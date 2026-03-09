@@ -201,8 +201,8 @@ describe('CalendarHeaderControls member filter summary', () => {
         });
 
         const fontScaleSlider = screen.getByLabelText('Event Font Size') as HTMLInputElement;
-        expect(fontScaleSlider).toHaveAttribute('min', '0.72');
-        expect(fontScaleSlider).toHaveAttribute('max', '1');
+        expect(fontScaleSlider).toHaveAttribute('min', '0.08');
+        expect(fontScaleSlider).toHaveAttribute('max', '2');
 
         fireEvent.click(screen.getByRole('button', { name: 'Shift left' }));
         fireEvent.click(screen.getByRole('button', { name: 'Shift right' }));

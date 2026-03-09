@@ -11,7 +11,12 @@ import CalendarWeekSpanOverlay, {
 import { DraggableCalendarEvent, type CalendarItem } from '@/components/DraggableCalendarEvent';
 import styles from '@/styles/Calendar.module.css';
 import { formatCommonBsMonthLabel, toDevanagariDigits } from '@/lib/calendar-display';
-import { type CalendarYearMonthBasis } from '@/lib/calendar-controls';
+import {
+    CALENDAR_YEAR_FONT_SCALE_MAX,
+    CALENDAR_YEAR_FONT_SCALE_MIN,
+    getCalendarYearEventSizing,
+    type CalendarYearMonthBasis,
+} from '@/lib/calendar-controls';
 import {
     calculateYearMonthCardHeight,
     type YearCalendarMonthDescriptor,
@@ -22,7 +27,6 @@ const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const YEAR_DAY_BASE_TOP_CHROME_PX = 12;
 const YEAR_DAY_TRANSITION_MONTH_BONUS_PX = 8;
 const YEAR_DAY_TRANSITION_YEAR_BONUS_PX = 6;
-const YEAR_MORE_ROW_PX = 11;
 const YEAR_EVENT_ROW_GAP_PX = 1;
 const YEAR_SHIFT_ANIMATION_MS = 230;
 const YEAR_SHIFT_ANIMATION_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
@@ -58,8 +62,6 @@ interface YearMonthRowModel {
     shiftLeftHeight: number;
     shiftRightHeight: number;
 }
-
-const getScaledPx = (basePx: number, scale: number, minimumPx: number) => Math.max(minimumPx, Math.round(basePx * scale));
 
 const getVisibleEventSlots = ({
     dayCellHeight,
@@ -223,12 +225,16 @@ export default function YearCalendarView({
     onDayClick,
     onEventClick,
 }: YearCalendarViewProps) {
-    const effectiveEventFontScale = Math.max(0.6, Math.min(1, chipScale * fontScale));
+    const effectiveEventFontScale = Math.max(
+        CALENDAR_YEAR_FONT_SCALE_MIN,
+        Math.min(CALENDAR_YEAR_FONT_SCALE_MAX, chipScale * fontScale)
+    );
+    const eventSizing = useMemo(() => getCalendarYearEventSizing(effectiveEventFontScale), [effectiveEventFontScale]);
     const eventGapPx = YEAR_EVENT_ROW_GAP_PX;
-    const singleDayChipHeightPx = Math.max(11, Math.round(8 + effectiveEventFontScale * 6));
+    const singleDayChipHeightPx = eventSizing.chipHeightPx;
     const spanLaneHeightPx = singleDayChipHeightPx;
     const spanLaneGapPx = eventGapPx;
-    const moreRowPx = Math.max(8, getScaledPx(YEAR_MORE_ROW_PX - 2, effectiveEventFontScale, 8));
+    const moreRowPx = eventSizing.moreRowPx;
     const spanTopOffsetPx = YEAR_DAY_BASE_TOP_CHROME_PX;
     const stageRef = useRef<HTMLDivElement>(null);
     const animationPrepFrameRef = useRef<number | null>(null);
@@ -251,11 +257,14 @@ export default function YearCalendarView({
                 '--calendar-year-event-font-scale': effectiveEventFontScale.toString(),
                 '--calendar-year-single-event-height': `${singleDayChipHeightPx}px`,
                 '--calendar-year-span-event-height': `${spanLaneHeightPx}px`,
+                '--calendar-year-event-inline-padding': `${eventSizing.inlinePaddingPx}px`,
+                '--calendar-year-event-radius': `${eventSizing.borderRadiusPx}px`,
+                '--calendar-year-event-border-width': `${eventSizing.borderWidthPx}px`,
                 '--calendar-year-row-gap': `${YEAR_MONTH_ROW_GAP_PX}px`,
                 '--calendar-year-slot-width': slotWidthCss,
                 '--calendar-year-step': `calc(var(--calendar-year-slot-width) + ${YEAR_MONTH_ROW_GAP_PX}px)`,
             } as React.CSSProperties),
-        [columns, dayCellHeight, effectiveEventFontScale, eventGapPx, singleDayChipHeightPx, slotWidthCss, spanLaneHeightPx]
+        [columns, dayCellHeight, effectiveEventFontScale, eventGapPx, eventSizing, singleDayChipHeightPx, slotWidthCss, spanLaneHeightPx]
     );
 
     const yearRows = useMemo(

@@ -11,6 +11,11 @@ import CalendarWeekSpanOverlay, {
 import { DraggableCalendarEvent, type CalendarItem } from '@/components/DraggableCalendarEvent';
 import styles from '@/styles/Calendar.module.css';
 import { NEPALI_MONTHS_COMMON_DEVANAGARI, NEPALI_MONTHS_COMMON_ROMAN, toDevanagariDigits } from '@/lib/calendar-display';
+import {
+    CALENDAR_YEAR_FONT_SCALE_MAX,
+    CALENDAR_YEAR_FONT_SCALE_MIN,
+    getCalendarYearEventSizing,
+} from '@/lib/calendar-controls';
 
 const HEADER_ANIMATION_MS = 260;
 const MINI_EVENT_GAP_PX = 1;
@@ -174,9 +179,10 @@ export default function MiniInfiniteCalendarView({
 
     const effectiveEventScale = useMemo(() => {
         const compactScale = clampNumber(dayCellHeight / 42, 0.68, 1);
-        return clampNumber(compactScale * eventFontScale, 0.6, 1);
+        return clampNumber(compactScale * eventFontScale, CALENDAR_YEAR_FONT_SCALE_MIN, CALENDAR_YEAR_FONT_SCALE_MAX);
     }, [dayCellHeight, eventFontScale]);
-    const eventRowPx = useMemo(() => Math.max(11, Math.round(8 + effectiveEventScale * 6)), [effectiveEventScale]);
+    const eventSizing = useMemo(() => getCalendarYearEventSizing(effectiveEventScale), [effectiveEventScale]);
+    const eventRowPx = eventSizing.chipHeightPx;
     const spanLaneHeightPx = eventRowPx;
     const spanLaneGapPx = MINI_EVENT_GAP_PX;
 
@@ -325,6 +331,9 @@ export default function MiniInfiniteCalendarView({
                         '--calendar-year-event-font-scale': String(effectiveEventScale),
                         '--calendar-year-single-event-height': `${eventRowPx}px`,
                         '--calendar-year-span-event-height': `${spanLaneHeightPx}px`,
+                        '--calendar-year-event-inline-padding': `${eventSizing.inlinePaddingPx}px`,
+                        '--calendar-year-event-radius': `${eventSizing.borderRadiusPx}px`,
+                        '--calendar-year-event-border-width': `${eventSizing.borderWidthPx}px`,
                     } as React.CSSProperties
                 }
             >

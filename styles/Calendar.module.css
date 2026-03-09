@@ -596,7 +596,9 @@
     align-self: flex-start;
     min-height: var(--calendar-year-single-event-height, 14px);
     height: var(--calendar-year-single-event-height, 14px);
-    padding: 0 4px;
+    padding: 0 var(--calendar-year-event-inline-padding, 4px);
+    border-width: var(--calendar-year-event-border-width, 1px);
+    border-radius: var(--calendar-year-event-radius, 6px);
     justify-content: center;
     box-sizing: border-box;
     overflow: hidden;
@@ -710,10 +712,11 @@
     gap: 0;
     min-height: var(--calendar-year-span-event-height, 16px);
     height: var(--calendar-year-span-event-height, 16px);
-    padding: 0 4px;
+    padding: 0 var(--calendar-year-event-inline-padding, 4px);
+    border-width: var(--calendar-year-event-border-width, 1px);
     border-color: var(--calendar-chip-border, #a7f3d0);
     background: var(--calendar-chip-bg, linear-gradient(135deg, #d1fae5, #a7f3d0));
-    border-radius: 6px;
+    border-radius: var(--calendar-year-event-radius, 6px);
     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
 }
 
@@ -723,7 +726,7 @@
 
 .yearCalendarGrid .eventSpanContinuesBefore,
 .yearCalendarGrid .eventSpanContinuesAfter {
-    border-radius: 6px;
+    border-radius: var(--calendar-year-event-radius, 6px);
 }
 
 .eventSpanContinuesBefore {
