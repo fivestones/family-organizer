@@ -580,6 +580,14 @@
     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
 }
 
+.calendarItemPlain {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+    border-radius: 0;
+}
+
 .calendarItemInteractive {
     cursor: pointer;
 }
@@ -602,6 +610,14 @@
     justify-content: center;
     box-sizing: border-box;
     overflow: hidden;
+}
+
+.calendarItemYear.calendarItemPlain {
+    border-width: 0;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
 }
 
 .calendarItemScaled {
@@ -679,8 +695,8 @@
     height: 12px;
     border-radius: 9999px;
     border: 1px solid var(--calendar-member-indicator-color, var(--calendar-chip-avatar-border, #34d399));
-    background: var(--calendar-member-indicator-soft, var(--calendar-chip-avatar-bg, rgba(255, 255, 255, 0.82)));
-    color: var(--calendar-member-indicator-text, var(--calendar-chip-avatar-text, #065f46));
+    background: var(--calendar-member-indicator-contrast-surface, #fff);
+    color: var(--calendar-member-indicator-color, var(--calendar-chip-avatar-text, #065f46));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -709,6 +725,16 @@
         inset 0 0 0 1px rgba(255, 255, 255, 0.56),
         0 0 0 1px rgba(15, 23, 42, 0.14);
     flex-shrink: 0;
+}
+
+.eventPlain {
+    --calendar-chip-title: #0f172a;
+    --calendar-chip-meta: rgba(51, 65, 85, 0.9);
+}
+
+.chorePlain {
+    --calendar-chip-title: #1d4ed8;
+    --calendar-chip-meta: rgba(29, 78, 216, 0.82);
 }
 
 .eventSpan {

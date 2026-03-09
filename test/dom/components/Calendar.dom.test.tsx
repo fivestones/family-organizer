@@ -65,18 +65,23 @@ vi.mock('@/components/DroppableDayCell', () => ({
 }));
 
 vi.mock('@/components/DraggableCalendarEvent', () => ({
-    DraggableCalendarEvent: ({ item, onClick, memberIndicatorStyle }: any) => (
-        <button
-            type="button"
-            data-testid={`calendar-event-${item.id}`}
-            data-calendar-item-kind={item.calendarItemKind || 'event'}
-            data-member-colors={(item.pertainsTo || []).map((member: any) => member?.color || '').join(',')}
-            data-member-indicator-style={memberIndicatorStyle || 'badge'}
-            onClick={(e) => onClick?.(e)}
-        >
-            {item.title}
-        </button>
-    ),
+    DraggableCalendarEvent: ({ item, onClick, memberIndicatorStyle, layout }: any) => {
+        const usesChipChrome = (item.calendarItemKind || 'event') === 'event' && (item.isAllDay || layout === 'span');
+
+        return (
+            <button
+                type="button"
+                data-testid={`calendar-event-${item.id}`}
+                data-calendar-item-kind={item.calendarItemKind || 'event'}
+                data-calendar-chip-surface={usesChipChrome ? 'chip' : 'plain'}
+                data-member-colors={(item.pertainsTo || []).map((member: any) => member?.color || '').join(',')}
+                data-member-indicator-style={memberIndicatorStyle || 'badge'}
+                onClick={(e) => onClick?.(e)}
+            >
+                {item.title}
+            </button>
+        );
+    },
 }));
 
 vi.mock('@/components/AddEvent', () => ({
@@ -239,6 +244,7 @@ describe('Calendar', () => {
         expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-member-colors', '#3B82F6');
         expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-member-indicator-style', 'badge');
         expect(screen.getByTestId('calendar-event-chore-chore-1-2026-03-15')).toHaveAttribute('data-member-colors', '#EF4444');
+        expect(screen.getByTestId('calendar-event-chore-chore-1-2026-03-15')).toHaveAttribute('data-calendar-chip-surface', 'plain');
     });
 
     it('positions today on the top visible row when the calendar first renders', async () => {

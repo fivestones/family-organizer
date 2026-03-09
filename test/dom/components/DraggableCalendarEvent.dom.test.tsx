@@ -80,6 +80,7 @@ describe('DraggableCalendarEvent', () => {
 
         expect(dndMocks.draggable).not.toHaveBeenCalled();
         expect(screen.getByTestId('calendar-event-chore-1')).toHaveAttribute('data-calendar-item-kind', 'chore');
+        expect(screen.getByTestId('calendar-event-chore-1')).toHaveAttribute('data-calendar-chip-surface', 'plain');
     });
 
     it('shows colored initials badges in roomy layouts', () => {
@@ -107,6 +108,11 @@ describe('DraggableCalendarEvent', () => {
         expect(badges).toHaveLength(2);
         expect(eventNode).toHaveTextContent('JB');
         expect(eventNode).toHaveTextContent('AB');
+        expect(eventNode).toHaveAttribute('data-calendar-chip-surface', 'chip');
+        expect((badges[0] as HTMLElement).style.getPropertyValue('--calendar-member-indicator-color')).toBe('#3B82F6');
+        expect((badges[0] as HTMLElement).style.getPropertyValue('--calendar-member-indicator-contrast-surface')).toBe('#FFFFFF');
+        expect((badges[1] as HTMLElement).style.getPropertyValue('--calendar-member-indicator-color')).toBe('#EF4444');
+        expect((badges[1] as HTMLElement).style.getPropertyValue('--calendar-member-indicator-contrast-surface')).toBe('#FFFFFF');
     });
 
     it('shows compact color dots without initials in compact layouts', () => {
@@ -136,5 +142,29 @@ describe('DraggableCalendarEvent', () => {
         expect(dots).toHaveLength(2);
         expect(eventNode).not.toHaveTextContent('JB');
         expect(eventNode).not.toHaveTextContent('AB');
+    });
+
+    it('uses a plain surface for timed events while keeping the member badge', () => {
+        render(
+            <DraggableCalendarEvent
+                item={{
+                    id: 'evt-4',
+                    title: 'Math tutoring',
+                    startDate: '2026-04-01T15:00:00.000Z',
+                    endDate: '2026-04-01T16:00:00.000Z',
+                    isAllDay: false,
+                    pertainsTo: [{ id: 'member-1', name: 'Sunny Kid', color: '#FDE68A' }],
+                }}
+                index={0}
+                draggableEnabled={false}
+            />
+        );
+
+        const eventNode = screen.getByTestId('calendar-event-evt-4');
+        const badge = eventNode.querySelector('[data-calendar-member-indicator="badge"]') as HTMLElement | null;
+
+        expect(eventNode).toHaveAttribute('data-calendar-chip-surface', 'plain');
+        expect(badge).not.toBeNull();
+        expect(badge?.style.getPropertyValue('--calendar-member-indicator-contrast-surface')).toBe('#000000');
     });
 });

@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { cn } from '../lib/utils';
 import { CALENDAR_YEAR_FONT_SCALE_MAX, CALENDAR_YEAR_FONT_SCALE_MIN } from '../lib/calendar-controls';
-import { buildMemberColorMap, getReadableTextColor, hexToRgbaString } from '../lib/family-member-colors';
+import { buildMemberColorMap, getReadableTextColor } from '../lib/family-member-colors';
 import styles from '../styles/Calendar.module.css'; // Import your calendar styles
 
 interface EventFamilyMember {
@@ -19,8 +19,7 @@ interface EventMemberIndicator {
     name: string | null;
     initials: string;
     color: string;
-    textColor: string;
-    tintColor: string;
+    contrastSurface: string;
 }
 
 export interface CalendarItem {
@@ -93,6 +92,7 @@ export const DraggableCalendarEvent = ({
         ? Math.min(CALENDAR_YEAR_FONT_SCALE_MAX, Math.max(CALENDAR_YEAR_FONT_SCALE_MIN, scale))
         : 1;
     const itemKind = item.calendarItemKind === 'chore' ? 'chore' : 'event';
+    const usesChipChrome = itemKind === 'event' && (item.isAllDay || isSpanLayout);
     const isInteractive = draggableEnabled || typeof onClick === 'function';
     const descriptionText = useMemo(() => String(item.description || '').replace(/\s+/g, ' ').trim(), [item.description]);
     const showDescriptionRow = !isSpanLayout && !isYearLayout && descriptionText.length > 0;
@@ -116,8 +116,7 @@ export const DraggableCalendarEvent = ({
                     name: member.name || null,
                     initials: getMemberInitials(member.name),
                     color,
-                    textColor: getReadableTextColor(color),
-                    tintColor: hexToRgbaString(color, 0.16),
+                    contrastSurface: getReadableTextColor(color) === '#0F172A' ? '#000000' : '#FFFFFF',
                 };
             })
             .filter((member): member is EventMemberIndicator => Boolean(member));
@@ -147,6 +146,7 @@ export const DraggableCalendarEvent = ({
             ref={eventRef}
             data-testid={testId === null ? undefined : (testId ?? `calendar-event-${item.id}`)}
             data-calendar-item-kind={itemKind}
+            data-calendar-chip-surface={usesChipChrome ? 'chip' : 'plain'}
             style={
                 {
                     opacity: isDragging ? 0.4 : 1,
@@ -156,7 +156,9 @@ export const DraggableCalendarEvent = ({
             className={cn(
                 styles.calendarItem,
                 styles[itemKind],
-                styles.circled,
+                usesChipChrome ? styles.circled : styles.calendarItemPlain,
+                !usesChipChrome && itemKind === 'event' && styles.eventPlain,
+                !usesChipChrome && itemKind === 'chore' && styles.chorePlain,
                 isInteractive ? styles.calendarItemInteractive : styles.calendarItemStatic,
                 effectiveScale !== 1 && styles.calendarItemScaled,
                 isYearLayout && styles.calendarItemYear,
@@ -186,8 +188,7 @@ export const DraggableCalendarEvent = ({
                                 style={
                                     {
                                         '--calendar-member-indicator-color': member.color,
-                                        '--calendar-member-indicator-soft': member.tintColor,
-                                        '--calendar-member-indicator-text': member.textColor,
+                                        '--calendar-member-indicator-contrast-surface': member.contrastSurface,
                                     } as React.CSSProperties
                                 }
                             >
