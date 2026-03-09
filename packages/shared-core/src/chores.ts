@@ -1,5 +1,5 @@
-import { RRule } from 'rrule';
-import { createRRuleWithStartDate, toUTCDate } from './date';
+import { RRule, RRuleSet } from 'rrule';
+import { toUTCDate } from './date';
 
 export interface SharedChoreAssignee {
   id: string;
@@ -29,6 +29,7 @@ export interface SharedChoreLike {
   description?: string | null;
   startDate: string | Date;
   rrule?: string | null;
+  exdates?: string[] | null;
   weight?: number | null;
   rewardType?: 'fixed' | 'weight' | string | null;
   rotationType?: 'none' | 'daily' | 'weekly' | 'monthly' | string | null;
@@ -57,38 +58,122 @@ function isSameUtcDay(date1: Date, date2: Date): boolean {
   );
 }
 
+function normalizeDateOnlyList(values: string[]): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+    )
+  ).sort();
+}
+
+function parseExdateTokenToDateOnly(value: string): string | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^\d{8}$/.test(trimmed)) {
+    return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`;
+}
+
+function normalizeChoreExdates(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return normalizeDateOnlyList(
+    value
+      .map((entry) => parseExdateTokenToDateOnly(String(entry || '')))
+      .filter(Boolean) as string[]
+  );
+}
+
+function createOccurrenceSet(chore: Pick<SharedChoreLike, 'rrule' | 'startDate' | 'exdates'>): RRuleSet | null {
+  const normalizedRrule = String(chore.rrule || '').replace(/^RRULE:/i, '').trim();
+  if (!normalizedRrule) return null;
+
+  try {
+    const dtstart = toUTCDate(chore.startDate);
+    const ruleOptions = RRule.parseString(normalizedRrule);
+    const set = new RRuleSet();
+    set.rrule(
+      new RRule({
+        ...ruleOptions,
+        dtstart,
+      }) as any
+    );
+
+    for (const exdate of normalizeChoreExdates(chore.exdates)) {
+      set.exdate(new Date(`${exdate}T00:00:00Z`));
+    }
+
+    return set;
+  } catch {
+    return null;
+  }
+}
+
+function getChoreOccurrencesInRange(chore: SharedChoreLike, start: Date, end: Date): Date[] {
+  const utcStart = toUTCDate(start);
+  const utcEnd = toUTCDate(end);
+  if (utcEnd.getTime() < utcStart.getTime()) return [];
+
+  const occurrenceSet = createOccurrenceSet(chore);
+  if (!occurrenceSet) {
+    if (String(chore.rrule || '').trim()) return [];
+    const choreDate = toUTCDate(chore.startDate);
+    const time = choreDate.getTime();
+    return time >= utcStart.getTime() && time <= utcEnd.getTime() ? [choreDate] : [];
+  }
+
+  return occurrenceSet.between(utcStart, utcEnd, true).map((entry) => toUTCDate(entry));
+}
+
 function getRotationIndex(
-  startDate: Date,
+  chore: SharedChoreLike,
   occurrenceDate: Date,
-  rotationType: string | null | undefined,
-  rrule?: RRule | null
+  rotationType: string | null | undefined
 ): number {
   if (!rotationType || rotationType === 'none') return 0;
 
-  const utcStartDate = toUTCDate(startDate);
+  const utcStartDate = toUTCDate(chore.startDate);
   const utcOccurrenceDate = toUTCDate(occurrenceDate);
+  const actualOccurrences = getChoreOccurrencesInRange(chore, utcStartDate, utcOccurrenceDate);
+
+  if (actualOccurrences.length === 0) {
+    return 0;
+  }
 
   switch (rotationType) {
     case 'daily': {
-      const oneDay = 24 * 60 * 60 * 1000;
-      return Math.max(0, Math.floor((utcOccurrenceDate.getTime() - utcStartDate.getTime()) / oneDay));
+      return Math.max(0, actualOccurrences.length - 1);
     }
     case 'weekly': {
-      const oneWeek = 7 * 24 * 60 * 60 * 1000;
-      return Math.max(0, Math.floor((utcOccurrenceDate.getTime() - utcStartDate.getTime()) / oneWeek));
+      const weekBuckets = new Set(
+        actualOccurrences.map((entry) => {
+          const diffDays = Math.floor((entry.getTime() - utcStartDate.getTime()) / 86400000);
+          return Math.floor(diffDays / 7);
+        })
+      );
+      return Math.max(0, weekBuckets.size - 1);
     }
     case 'monthly': {
-      return Math.max(
-        0,
-        (utcOccurrenceDate.getUTCFullYear() - utcStartDate.getUTCFullYear()) * 12 +
-          (utcOccurrenceDate.getUTCMonth() - utcStartDate.getUTCMonth())
+      const monthBuckets = new Set(
+        actualOccurrences.map(
+          (entry) =>
+            (entry.getUTCFullYear() - utcStartDate.getUTCFullYear()) * 12 +
+            (entry.getUTCMonth() - utcStartDate.getUTCMonth())
+        )
       );
+      return Math.max(0, monthBuckets.size - 1);
     }
     default: {
-      if (rrule) {
-        const allOccurrences = rrule.between(utcStartDate, utcOccurrenceDate, true);
-        return Math.max(0, allOccurrences.length - 1);
-      }
       return 0;
     }
   }
@@ -107,18 +192,11 @@ export function getAssignedMembersForChoreOnDate(chore: SharedChoreLike, date: D
   const utcDate = toUTCDate(date);
   const choreStartDate = toUTCDate(chore.startDate);
 
-  if (!chore.rrule) {
+  if (!String(chore.rrule || '').trim()) {
     return isSameUtcDay(choreStartDate, utcDate) ? [...(chore.assignees || [])] : [];
   }
 
-  const rrule = createRRuleWithStartDate(chore.rrule, choreStartDate);
-  if (!rrule) return [];
-
-  const dayStart = new Date(utcDate);
-  const dayEnd = new Date(Date.UTC(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate() + 1));
-  dayEnd.setUTCMilliseconds(dayEnd.getUTCMilliseconds() - 1);
-
-  const occurrencesOnDate = rrule.between(dayStart, dayEnd, true);
+  const occurrencesOnDate = getChoreOccurrencesInRange(chore, utcDate, utcDate);
   if (occurrencesOnDate.length === 0) return [];
 
   const usesRotation =
@@ -135,7 +213,7 @@ export function getAssignedMembersForChoreOnDate(chore: SharedChoreLike, date: D
   const sortedAssignments = [...(chore.assignments || [])].sort((a, b) => (a.order || 0) - (b.order || 0));
   if (sortedAssignments.length === 0) return [];
 
-  const rotationIndex = getRotationIndex(choreStartDate, utcDate, chore.rotationType, rrule);
+  const rotationIndex = getRotationIndex(chore, utcDate, chore.rotationType);
   const assignmentIndex = rotationIndex % sortedAssignments.length;
   const assigned = normalizeFamilyMember(sortedAssignments[assignmentIndex]?.familyMember);
   return assigned ? [assigned] : [];

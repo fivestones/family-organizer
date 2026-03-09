@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea'; // Added back as it's used
@@ -17,11 +17,13 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 // import { init } from '@instantdb/react';
 // +++ Import CurrencySelector +++
 import CurrencySelector from '@/components/CurrencySelector';
-import RecurrenceRuleForm from './RecurrenceRuleForm';
+import ChoreRecurrenceFields from './ChoreRecurrenceFields';
+import ChoreScheduleActions from './ChoreScheduleActions';
 import ChoreCalendarView from './ChoreCalendarView';
-import { RRule, Frequency, rrulestr } from 'rrule';
 import { toUTCDate } from '@/lib/chore-utils';
-import { cn } from '@/lib/utils';
+import type { ChorePauseState, ChoreSchedulePatch } from '@/lib/chore-schedule';
+import { getChorePauseStatus } from '@/lib/chore-schedule';
+import { getDefaultRecurrenceUiState, normalizeRrule, parseRecurrenceUiStateFromRrule, serializeRecurrenceToRrule, type RecurrenceUiState } from '@/lib/recurrence';
 // here gemini wants to initialize the db for fetching units, but I'm not sure if we should do this. Should we instead be fetching the units elsewhere and sending them to DetailedChoreForm as a prop? I'm not sure.
 // Interface for the data structure passed to onSave
 // Ensure it includes the new 'weight' field
@@ -31,6 +33,8 @@ interface ChoreSaveData {
     description?: string;
     startDate: string; // ISO String
     rrule: string | null;
+    exdates?: string[] | null;
+    pauseState?: ChorePauseState | null;
     rotationType: 'none' | 'daily' | 'weekly' | 'monthly';
     assignments: { order: number; familyMember: any }[] | null; // Adjust 'any' if FamilyMember type is available here
     weight?: number | null;
@@ -45,6 +49,7 @@ interface ChoreSaveData {
 interface DetailedChoreFormProps {
     familyMembers: any[];
     onSave: (data: Partial<ChoreSaveData>) => void;
+    onScheduleAction?: (patch: ChoreSchedulePatch) => Promise<void> | void;
     initialChore?: any | null;
     initialDate: Date;
     db: any; // InstantDB instance passed down
@@ -56,6 +61,7 @@ function DetailedChoreForm({
     // New signature using props interface
     familyMembers,
     onSave,
+    onScheduleAction,
     initialChore = null,
     initialDate,
     db,
@@ -75,108 +81,48 @@ function DetailedChoreForm({
     const [rewardType, setRewardType] = useState<'fixed' | 'weight'>('weight'); // Default to weight-based
     const [rewardAmount, setRewardAmount] = useState<string>('');
     const [rewardCurrency, setRewardCurrency] = useState<string>('');
-    // --- Remove state for inline selector ---
-    // const [rewardCurrencyPopoverOpen, setRewardCurrencyPopoverOpen] = useState(false);
-    // const [rewardCurrencySearch, setRewardCurrencySearch] = useState('');
-    // const rewardItemSelectedRef = useRef(false);
-    // const [isDefineUnitModalOpen, setIsDefineUnitModalOpen] = useState(false);
-
-    // Initialize recurrenceOptions and initialRecurrenceOptions
-    const [recurrenceOptions, setRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(null);
-
-    const [initialRecurrenceOptions] = useState<({ freq: Frequency } & Partial<Omit<RRule.Options, 'freq'>>) | null>(() => {
-        if (initialChore) {
-            if (initialChore.rrule) {
-                // Parse the existing rrule
-                try {
-                    const options = RRule.parseString(initialChore.rrule);
-                    const rrule = new RRule(options);
-                    return rrule.options;
-                } catch (error) {
-                    console.error('Error parsing RRule:', error);
-                    return null;
-                }
-            } else {
-                return null; // Chore is set to "once"
-            }
-        } else {
-            // Creating a new chore; default to daily recurrence
-            return { freq: Frequency.DAILY, interval: 1 };
-        }
-    });
+    const [recurrenceUi, setRecurrenceUi] = useState<RecurrenceUiState>(() => ({
+        ...getDefaultRecurrenceUiState(
+            initialDate instanceof Date && !Number.isNaN(initialDate.getTime()) ? initialDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+        ),
+        mode: 'daily',
+    }));
 
     useEffect(() => {
         if (initialChore) {
-            console.log('DEBUG: Opening Edit Modal for:', initialChore.title);
             setTitle(initialChore.title);
             setDescription(initialChore.description || '');
             setStartDate(toUTCDate(new Date(initialChore.startDate)));
-            // +++ Set initial weight +++
             setWeight(initialChore.weight !== null && initialChore.weight !== undefined ? String(initialChore.weight) : '');
-            // +++ Set initial up-for-grabs state +++
             setIsUpForGrabs(initialChore.isUpForGrabs ?? false);
-            // +++ Set initial joint state +++
             setIsJoint(initialChore.isJoint ?? false);
-            setRewardType(initialChore.rewardType === 'fixed' ? 'fixed' : 'weight'); // Default to weight if not set
+            setRewardType(initialChore.rewardType === 'fixed' ? 'fixed' : 'weight');
             setRewardAmount(initialChore.rewardAmount !== null && initialChore.rewardAmount !== undefined ? String(initialChore.rewardAmount) : '');
             setRewardCurrency(initialChore.rewardCurrency || '');
-
-            // Set the initial recurrence options
-            if (initialChore.rrule) {
-                try {
-                    const options = RRule.parseString(initialChore.rrule);
-                    // Make sure options includes freq before creating RRule
-                    if (options.freq !== undefined) {
-                        const rrule = new RRule(options);
-                        // Filter out default time values if they were not explicitly provided
-                        if (!('byhour' in options)) rrule.options.byhour = null;
-                        if (!('byminute' in options)) rrule.options.byminute = null;
-                        if (!('bysecond' in options)) rrule.options.bysecond = null;
-                        if (!('wkst' in options)) rrule.options.wkst = null;
-                        // if (!('byweekday' in options)) rrule.options.byweekday = null;
-
-                        setRecurrenceOptions(rrule.options);
-                    } else {
-                        console.error('Parsed RRule options missing frequency:', options);
-                        setRecurrenceOptions(null); // Fallback if freq is missing
-                    }
-                } catch (error) {
-                    console.error('Error parsing RRule:', error);
-                    setRecurrenceOptions(null);
-                }
-            } else {
-                setRecurrenceOptions(null);
-            }
+            const startDateValue = toUTCDate(new Date(initialChore.startDate)).toISOString().slice(0, 10);
+            setRecurrenceUi(
+                initialChore.rrule
+                    ? parseRecurrenceUiStateFromRrule(initialChore.rrule, startDateValue)
+                    : { ...getDefaultRecurrenceUiState(startDateValue), mode: 'never' }
+            );
 
             const isRotatingChore = initialChore.rotationType !== 'none';
             setUseRotation(isRotatingChore);
             setRotationType(initialChore.rotationType);
 
             if (isRotatingChore && initialChore.assignments) {
-                // +++ DEBUG: Log raw assignments +++
-                console.log('DEBUG: Initial Assignments Raw:', JSON.stringify(initialChore.assignments, null, 2));
-
                 const sortedAssignments = [...initialChore.assignments].sort((a: any, b: any) => {
                     const orderA = a.order ?? 0;
                     const orderB = b.order ?? 0;
                     return orderA - orderB;
                 });
 
-                // +++ DEBUG: Log sorted assignments +++
-                console.log(
-                    'DEBUG: Sorted Assignments:',
-                    sortedAssignments.map((a: any) => `id=${a.id}, order=${a.order}, member=${a.familyMember?.id}`)
-                );
-
                 const rotationIds = sortedAssignments
                     .map((assignment: any) => {
-                        // Handle potential array vs object structure for familyMember
                         const fm = Array.isArray(assignment.familyMember) ? assignment.familyMember[0] : assignment.familyMember;
                         return fm?.id;
                     })
                     .filter((id: any) => !!id);
-
-                console.log('DEBUG: Final Rotation IDs:', rotationIds);
 
                 setRotationOrder(rotationIds);
                 const assigneeIds = initialChore.assignees.map((a: any) => a.id);
@@ -184,24 +130,20 @@ function DetailedChoreForm({
             } else if (!isRotatingChore && initialChore.assignees) {
                 const assigneeIds = initialChore.assignees.map((a: any) => a.id);
                 setAssignees(assigneeIds);
-                // Ensure rotationOrder is empty if not using rotation
                 setRotationOrder([]);
             } else {
-                // Reset if neither case applies
                 setAssignees([]);
                 setRotationOrder([]);
             }
         } else {
-            // For new chores, set the default recurrence options
-            setRecurrenceOptions(initialRecurrenceOptions);
-            // Reset other fields for a new chore form
-            // Not sure if the below setX() functions are needed or if it might mess things up
-            // TODO
             setTitle('');
             setDescription('');
             setStartDate(toUTCDate(initialDate || new Date()));
-            setWeight('0'); // Reset to '0' instead of ''
-            // +++ NEW: Reset up-for-grabs fields +++
+            setRecurrenceUi({
+                ...getDefaultRecurrenceUiState(toUTCDate(initialDate || new Date()).toISOString().slice(0, 10)),
+                mode: 'daily',
+            });
+            setWeight('0');
             setIsUpForGrabs(false);
             setIsJoint(false);
             setRewardType('weight');
@@ -212,7 +154,7 @@ function DetailedChoreForm({
             setRotationType('none');
             setRotationOrder([]);
         }
-    }, [initialChore, initialDate, initialRecurrenceOptions]);
+    }, [initialChore, initialDate]);
 
     useEffect(() => {
         // +++ Condition added: Only apply rotation logic if NOT Up for Grabs +++
@@ -267,34 +209,15 @@ function DetailedChoreForm({
     };
 
     const handleSave = () => {
-        let finalRrule = null;
-        if (recurrenceOptions) {
-            try {
-                // Remove dtstart before generating string if it exists, RRule adds it automatically based on context
-                const optionsForString = { ...recurrenceOptions };
-                if ('dtstart' in optionsForString) {
-                    delete optionsForString.dtstart;
-                }
-                // Also remove internal properties that might cause issues if they slipped in
-                delete (optionsForString as any)._dtstart; // Example if internal properties exist
-
-                // Ensure freq is present
-                if (optionsForString.freq === undefined) {
-                    throw new Error('Frequency (freq) is required to generate RRULE string.');
-                }
-
-                const rrule = new RRule(optionsForString);
-                finalRrule = rrule.toString();
-                if (!finalRrule.startsWith('RRULE:')) {
-                    console.log('needed to add the RRULE: prefix even after doing rrule.toString()');
-                    finalRrule = 'RRULE:' + finalRrule;
-                }
-            } catch (error: any) {
-                console.error('Error creating RRule:', error);
-                // Handle the error, perhaps by showing a message to the user
-                alert(`Error saving recurrence rule: ${error.message}`);
-                return; // Prevent saving if recurrence is invalid
-            }
+        const startDateValue = startDate.toISOString().slice(0, 10);
+        const finalRrule = normalizeRrule(serializeRecurrenceToRrule(recurrenceUi, startDateValue)) || null;
+        if (recurrenceUi.mode !== 'never' && !finalRrule) {
+            alert('Please configure a valid repeat pattern before saving.');
+            return;
+        }
+        if (recurrenceUi.repeatEndMode === 'until' && recurrenceUi.mode !== 'never' && !recurrenceUi.repeatEndUntil) {
+            alert('Choose an end date for the repeat pattern, or switch it back to repeat forever.');
+            return;
         }
 
         // +++ NEW: Validate and parse reward fields based on type +++
@@ -333,6 +256,8 @@ function DetailedChoreForm({
             description,
             startDate: startDate.toISOString(),
             rrule: finalRrule,
+            exdates: initialChore?.exdates ?? [],
+            pauseState: initialChore?.pauseState ?? null,
             // +++ Adjust rotation/assignment based on isUpForGrabs +++
             rotationType: useRotation && !isUpForGrabs ? rotationType : 'none',
             assignments:
@@ -371,29 +296,9 @@ function DetailedChoreForm({
         title,
         description,
         startDate: startDate.toISOString(),
-        rrule: (() => {
-            if (!recurrenceOptions) return null;
-            try {
-                // Remove dtstart before generating string if it exists
-                const optionsForPreview = { ...recurrenceOptions };
-                if ('dtstart' in optionsForPreview) {
-                    delete optionsForPreview.dtstart;
-                }
-                delete (optionsForPreview as any)._dtstart;
-
-                // Ensure freq is present
-                if (optionsForPreview.freq === undefined) return null;
-
-                const rrule = new RRule({
-                    ...optionsForPreview,
-                    dtstart: startDate, // Add start date specifically for preview calculation
-                });
-                return rrule.toString();
-            } catch (error) {
-                console.error('Error creating RRule for preview:', error);
-                return null; // Return null if rule is invalid for preview
-            }
-        })(),
+        rrule: normalizeRrule(serializeRecurrenceToRrule(recurrenceUi, startDate.toISOString().slice(0, 10))) || null,
+        exdates: initialChore?.exdates || [],
+        pauseState: initialChore?.pauseState || null,
         // +++ Adjust preview assignees/assignments based on isUpForGrabs +++
         rotationType: useRotation && !isUpForGrabs ? rotationType : 'none', // Set rotationType correctly for preview
         assignments:
@@ -425,6 +330,9 @@ function DetailedChoreForm({
     const showPreview = !!(
         ((assignees.length > 0 || (useRotation && rotationOrder.length > 0)) && choreForPreview.rrule) // Only show if recurrence is set
     );
+    const startDateValue = startDate instanceof Date && !Number.isNaN(startDate.getTime()) ? startDate.toISOString().slice(0, 10) : '';
+    const activePauseStatus = initialChore ? getChorePauseStatus(initialChore) : { kind: 'none' as const, pauseState: null };
+    const recurrenceEditingDisabled = activePauseStatus.kind === 'scheduled' || activePauseStatus.kind === 'paused' || activePauseStatus.kind === 'ended';
 
     return (
         <div className="space-y-4 w-full max-w-md mx-auto">
@@ -555,34 +463,37 @@ function DetailedChoreForm({
                 <Input
                     id="startDate"
                     type="date"
-                    // Ensure value is in 'yyyy-MM-dd' format for the input
-                    value={startDate instanceof Date && !isNaN(startDate.getTime()) ? startDate.toISOString().split('T')[0] : ''}
+                    value={startDateValue}
+                    disabled={recurrenceEditingDisabled}
                     onChange={(e) => {
-                        // Parse the date input, ensuring it's treated as UTC
-                        const dateValue = e.target.value; // yyyy-MM-dd string
+                        const dateValue = e.target.value;
                         if (dateValue) {
                             const [year, month, day] = dateValue.split('-').map(Number);
-                            // Create Date object using UTC values
                             setStartDate(new Date(Date.UTC(year, month - 1, day)));
                         }
                     }}
                     required
                 />
+                {recurrenceEditingDisabled ? (
+                    <p className="text-xs text-muted-foreground">Start date is locked while a pause or end is currently scheduled.</p>
+                ) : null}
             </div>
 
-            {/* Recurrence Rule Form */}
-            <div className="space-y-2">
-                <Label>Frequency</Label>
-                <RecurrenceRuleForm
-                    // Key prop forces re-initialization if initialOptions change significantly
-                    // This helps when switching between editing different chores.
-                    key={initialChore?.id || 'new-chore'}
-                    onSave={(options) => {
-                        setRecurrenceOptions(options); // Update state when recurrence changes
+            <ChoreRecurrenceFields
+                startDateValue={startDateValue}
+                recurrenceUi={recurrenceUi}
+                setRecurrenceUi={setRecurrenceUi}
+                disableEditing={recurrenceEditingDisabled}
+            />
+
+            {initialChore && onScheduleAction ? (
+                <ChoreScheduleActions
+                    chore={initialChore}
+                    onApplySchedulePatch={async (patch) => {
+                        await onScheduleAction(patch);
                     }}
-                    initialOptions={initialRecurrenceOptions} // Pass initial options for editing
                 />
-            </div>
+            ) : null}
 
             {/* Family Members Selection */}
             <div className="space-y-2">

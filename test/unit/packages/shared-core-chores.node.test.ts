@@ -51,6 +51,18 @@ describe('shared-core chores helpers', () => {
         expect(assigned.map((m) => m.id).sort()).toEqual(['kid-a', 'kid-b']);
     });
 
+    it('skips exdates without advancing rotation order', () => {
+        const chore = makeRotatingChore({
+            exdates: ['2026-03-02'],
+        });
+
+        const skippedDay = getAssignedMembersForChoreOnDate(chore, new Date('2026-03-02T12:00:00Z'));
+        const resumedDay = getAssignedMembersForChoreOnDate(chore, new Date('2026-03-03T12:00:00Z'));
+
+        expect(skippedDay).toEqual([]);
+        expect(resumedDay.map((m) => m.id)).toEqual(['kid-b']);
+    });
+
     it('handles one-time chores without RRULE on exact UTC day only', () => {
         const chore: SharedChoreLike = {
             id: 'one-time',

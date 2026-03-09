@@ -101,6 +101,20 @@ describe('task-scheduler date logic', () => {
         expect(result).toEqual([]);
     });
 
+    it('skips projected task blocks on exdate-suppressed chore dates', () => {
+        const tasks: Task[] = [
+            makeTask({ id: 'a', text: 'Block A', order: 1 }),
+            makeTask({ id: 'break', text: 'Break', order: 2, isDayBreak: true }),
+            makeTask({ id: 'b', text: 'Block B', order: 3 }),
+        ];
+
+        const pausedDay = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 11, 12, 0, 0), null, ['2026-03-11']);
+        const resumedDay = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 12, 12, 0, 0), null, ['2026-03-11']);
+
+        expect(pausedDay).toEqual([]);
+        expect(resumedDay.map((task) => task.id)).toEqual(['b']);
+    });
+
     it('keeps block 0 visible on an unscheduled anchor day and projects future scheduled occurrences from there', () => {
         freezeTime(new Date(2026, 2, 10, 12, 0, 0)); // Tue
 

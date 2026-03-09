@@ -796,7 +796,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     // const lastBottomTriggerScrollTopRef = useRef<number>(Number.NEGATIVE_INFINITY);
     const activeMonthMeasureRef = useRef<HTMLDivElement>(null);
     const previousMonthMeasureRef = useRef<HTMLDivElement>(null);
-    const pendingScrollToDateRef = useRef<string | null>(null);
+    const initialCurrentDateStrRef = useRef(
+        format(new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate()), 'yyyy-MM-dd')
+    );
+    const pendingScrollToDateRef = useRef<string | null>(initialCurrentDateStrRef.current);
+    const pendingScrollBehaviorRef = useRef<ScrollBehavior>('auto');
     const recurrenceScopeResolverRef = useRef<((scope: RecurrenceEditScope) => void) | null>(null);
 
     const buildMonthLabel = useCallback((date: Date): MonthLabel => {
@@ -837,7 +841,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
         const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
         const targetTop = Math.max(0, targetCell.offsetTop - headerHeight - 8);
-        container.scrollTo({ top: targetTop, behavior });
+        if (typeof container.scrollTo === 'function') {
+            container.scrollTo({ top: targetTop, behavior });
+        } else {
+            container.scrollTop = targetTop;
+        }
         return true;
     }, []);
 
@@ -1198,6 +1206,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         }
 
         pendingTopScrollAdjustRef.current = null;
+        pendingScrollBehaviorRef.current = 'smooth';
         pendingScrollToDateRef.current = todayStr;
         setRangeStart(startOfWeek(addWeeks(normalizedToday, -initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
         setRangeEnd(endOfWeek(addWeeks(normalizedToday, initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
@@ -2166,12 +2175,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     useEffect(() => {
         const pendingDate = pendingScrollToDateRef.current;
-        if (!pendingDate) return;
+        if (!pendingDate || scrollContainerHeight === null) return;
 
-        if (scrollToDateStr(pendingDate, 'smooth')) {
+        if (scrollToDateStr(pendingDate, pendingScrollBehaviorRef.current)) {
             pendingScrollToDateRef.current = null;
+            pendingScrollBehaviorRef.current = 'smooth';
         }
-    }, [weeks.length, scrollToDateStr]);
+    }, [scrollContainerHeight, weeks.length, scrollToDateStr]);
 
     useEffect(() => {
         monthLabelRef.current = activeMonthLabel;
@@ -2557,8 +2567,6 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    let lastMonth: Date | null = null;
-    let lastNepaliMonth: any = null;
     let isYearSet = false;
     let shouldDisplayBothYears = false;
     let shouldDisplayYear = false;
@@ -2587,6 +2595,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             ) : null}
             <div
                 ref={scrollContainerRef}
+                data-testid="calendar-scroll-container"
                 className={styles.calendarScrollContainer}
                 style={
                     scrollContainerHeight
@@ -2703,20 +2712,8 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                                     shouldDisplayNepaliYear = false;
                                 }
 
-                                const displayMonthName = !lastMonth || getMonth(day) !== getMonth(lastMonth);
-                                if (displayMonthName) {
-                                    lastMonth = day;
-                                }
-
-                                let displayNepaliMonthName = false;
-                                if (displayBS) {
-                                    if (!lastNepaliMonth || nepaliDate.getMonth() !== lastNepaliMonth.getMonth()) {
-                                        displayNepaliMonthName = true;
-                                    }
-                                    if (displayNepaliMonthName) {
-                                        lastNepaliMonth = nepaliDate;
-                                    }
-                                }
+                                const displayMonthName = isFirstDayOfMonth;
+                                const displayNepaliMonthName = displayBS && isFirstDayOfNepaliMonth;
 
                                     const dayItems = dayItemsByDate.get(dateStr) || [];
 

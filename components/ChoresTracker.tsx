@@ -23,9 +23,10 @@ import FamilyMembersList from './FamilyMembersList';
 import ChoreList from './ChoreList';
 import DetailedChoreForm from './DetailedChoreForm';
 import DateCarousel from '@/components/ui/DateCarousel';
-import { createRRuleWithStartDate, getNextOccurrence, toUTCDate, calculateDailyXP } from '@/lib/chore-utils'; // +++ Added calculateDailyXP +++
+import { toUTCDate, calculateDailyXP } from '@/lib/chore-utils';
 import { useToast } from '@/components/ui/use-toast';
 import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
+import type { ChorePauseState, ChoreSchedulePatch } from '@/lib/chore-schedule';
 // **** NEW: Import types and utility ****
 import { UnitDefinition, Envelope, computeAllApplicableCurrencyCodes } from '@/lib/currency-utils'; // Import computeMonetaryCurrencies
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
@@ -77,6 +78,8 @@ interface Chore {
     startDate: string; // Keep as string to match DetailedChoreForm/utils expectations
     done: boolean; // Assuming this exists, though not used directly here
     rrule?: string;
+    exdates?: string[] | null;
+    pauseState?: ChorePauseState | null;
     assignees: FamilyMember[];
     rotationType: 'none' | 'daily' | 'weekly' | 'monthly';
     weight?: number;
@@ -277,6 +280,8 @@ function ChoresTracker() {
 
                 done: false,
                 rrule: choreData.rrule || null,
+                exdates: choreData.exdates ?? [],
+                pauseState: choreData.pauseState ?? null,
                 rotationType: choreData.rotationType || 'none',
                 weight: choreData.weight ?? null, // Save weight, null if undefined
                 isUpForGrabs: choreData.isUpForGrabs ?? false,
@@ -443,6 +448,8 @@ function ChoresTracker() {
                     description: updatedChoreData.description,
                     startDate: updatedChoreData.startDate,
                     rrule: updatedChoreData.rrule,
+                    exdates: updatedChoreData.exdates ?? [],
+                    pauseState: updatedChoreData.pauseState ?? null,
                     rotationType: updatedChoreData.rotationType,
                     weight: updatedChoreData.weight ?? null,
                     isUpForGrabs: updatedChoreData.isUpForGrabs ?? false,
@@ -576,6 +583,31 @@ function ChoresTracker() {
                 description: error.message || 'Failed to update chore. Please try again.',
                 variant: 'destructive',
             });
+        }
+    };
+
+    const updateChoreSchedule = async (choreId: string, schedulePatch: ChoreSchedulePatch) => {
+        try {
+            await db.transact([
+                tx.chores[choreId].update({
+                    rrule: schedulePatch.rrule ?? null,
+                    exdates: schedulePatch.exdates ?? [],
+                    pauseState: schedulePatch.pauseState ?? null,
+                }),
+            ]);
+
+            toast({
+                title: 'Schedule updated',
+                description: 'The chore schedule was updated successfully.',
+            });
+        } catch (error: any) {
+            console.error('Error updating chore schedule:', error);
+            toast({
+                title: 'Error Updating Schedule',
+                description: error.message || 'Failed to update the chore schedule. Please try again.',
+                variant: 'destructive',
+            });
+            throw error;
         }
     };
 
@@ -871,6 +903,7 @@ function ChoresTracker() {
                                 selectedDate={selectedDate} // Pass selectedDate
                                 toggleChoreDone={toggleChoreDone}
                                 updateChore={updateChore}
+                                updateChoreSchedule={updateChoreSchedule}
                                 deleteChore={deleteChore}
                                 // Pass props needed for DetailedChoreForm within ChoreList's Dialog
                                 db={db}

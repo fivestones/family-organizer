@@ -51,8 +51,14 @@ vi.mock('@atlaskit/pragmatic-drag-and-drop/element/adapter', () => ({
 }));
 
 vi.mock('@/components/DroppableDayCell', () => ({
-    DroppableDayCell: ({ day, dateStr, onClick, children }: any) => (
-        <td data-testid={`day-cell-${dateStr}`} onClick={() => onClick(day)}>
+    DroppableDayCell: ({ day, dateStr, onClick, children, className, style }: any) => (
+        <td
+            data-testid={`day-cell-${dateStr}`}
+            data-calendar-cell-date={dateStr}
+            className={className}
+            style={style}
+            onClick={() => onClick(day)}
+        >
             {children}
         </td>
     ),
@@ -191,6 +197,62 @@ describe('Calendar', () => {
         const form = screen.getByTestId('add-event-form');
         expect(form).toHaveAttribute('data-selected-date', '2026-03-15');
         expect(form).toHaveAttribute('data-selected-event-id', 'evt-1');
+    });
+
+    it('positions today on the top visible row when the calendar first renders', async () => {
+        const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo');
+        const originalOffsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop');
+        const scrollToMock = vi.fn(function scrollTo(this: HTMLElement, options: ScrollToOptions) {
+            this.scrollTop = Number(options?.top || 0);
+        });
+
+        Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+            configurable: true,
+            value: scrollToMock,
+        });
+        Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
+            configurable: true,
+            get() {
+                return this.getAttribute?.('data-calendar-cell-date') === '2026-03-15' ? 420 : 0;
+            },
+        });
+
+        try {
+            renderCalendarWithItems([], { currentDate: new Date(2026, 2, 15) });
+
+            await waitFor(() => {
+                expect(scrollToMock).toHaveBeenCalledWith({ top: 412, behavior: 'auto' });
+            });
+
+            expect(screen.getByTestId('calendar-scroll-container')).toHaveProperty('scrollTop', 412);
+        } finally {
+            if (originalScrollTo) {
+                Object.defineProperty(HTMLElement.prototype, 'scrollTo', originalScrollTo);
+            } else {
+                delete (HTMLElement.prototype as any).scrollTo;
+            }
+
+            if (originalOffsetTop) {
+                Object.defineProperty(HTMLElement.prototype, 'offsetTop', originalOffsetTop);
+            } else {
+                delete (HTMLElement.prototype as any).offsetTop;
+            }
+        }
+    });
+
+    it('renders vertical month labels only on the first day of the respective month', () => {
+        renderCalendarWithItems([], {
+            currentDate: new Date(2026, 0, 18),
+            displayBS: true,
+        });
+
+        const leadingCell = screen.getByTestId('day-cell-2025-12-07');
+        expect(within(leadingCell).queryByText('December')).toBeNull();
+        expect(within(leadingCell).queryByText('चैत (Chait)')).toBeNull();
+
+        const firstOfMonthCell = screen.getByTestId('day-cell-2026-01-01');
+        expect(within(firstOfMonthCell).getByText('January')).toBeInTheDocument();
+        expect(within(firstOfMonthCell).getByText('वैशाख (Baisakh)')).toBeInTheDocument();
     });
 
     it('reschedules an event via drag-drop monitor and persists the moved date', () => {

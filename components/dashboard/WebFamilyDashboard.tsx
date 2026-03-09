@@ -70,6 +70,7 @@ type ChoreRecord = {
     description?: string | null;
     startDate: string;
     rrule?: string | null;
+    exdates?: string[] | null;
     rewardType?: string | null;
     weight?: number | null;
     isUpForGrabs?: boolean | null;
@@ -348,7 +349,14 @@ export default function WebFamilyDashboard() {
 
                     if (dayDiff(todayUtc, dueDate) < 0 || dayDiff(todayUtc, dueDate) > TASK_SERIES_LOOKAHEAD_DAYS) return;
 
-                    const scheduledTasks = getTasksForDate(allTasks, chore.rrule || null, chore.startDate, dueDate, series.startDate || null);
+                    const scheduledTasks = getTasksForDate(
+                        allTasks,
+                        chore.rrule || null,
+                        chore.startDate,
+                        dueDate,
+                        series.startDate || null,
+                        chore.exdates || null
+                    );
                     if (!scheduledTasks.length) return;
 
                     const scheduledIds = new Set(scheduledTasks.map((task) => task.id));

@@ -1,6 +1,6 @@
 // lib/task-scheduler.ts
-import { RRule } from 'rrule';
-import { toUTCDate, createRRuleWithStartDate } from './chore-utils';
+import { toUTCDate } from './chore-utils';
+import { choreOccursOnDate, getChoreOccurrencesInRange } from './chore-schedule';
 import { tx } from '@instantdb/react';
 
 export interface Task {
@@ -55,7 +55,8 @@ export function getTasksForDate(
     rruleString: string | null,
     startDateString: string,
     viewDate: Date,
-    seriesStartDateString?: string | null
+    seriesStartDateString?: string | null,
+    exdates?: string[] | null
 ): Task[] {
     // 1. Normalize dates
     const utcViewDate = toUTCDate(viewDate);
@@ -159,12 +160,14 @@ export function getTasksForDate(
     // 9. Handle Future Dates Logic
     if (utcViewDate.getTime() > anchorDate.getTime()) {
         if (!rruleString) return [];
-
-        const rrule = createRRuleWithStartDate(rruleString, startDateString);
-        if (!rrule) return [];
+        const schedule = {
+            startDate: startDateString,
+            rrule: rruleString,
+            exdates: exdates || [],
+        };
 
         // Find occurrences starting from Anchor Date
-        const relevantOccurrences = rrule.between(anchorDate, toUTCDate(new Date(utcViewDate.getTime() + 1000)), true);
+        const relevantOccurrences = getChoreOccurrencesInRange(schedule, anchorDate, utcViewDate);
 
         // Find the index of the viewDate in the sequence
         const occurrenceIndex = relevantOccurrences.findIndex((d) => toUTCDate(d).getTime() === utcViewDate.getTime());
@@ -214,20 +217,24 @@ export function isSeriesActiveForDate(
     rruleString: string | null,
     choreStartDateString: string,
     viewDate: Date,
-    seriesStartDateString?: string | null
+    seriesStartDateString?: string | null,
+    exdates?: string[] | null
 ): boolean {
     if (!allTasks || allTasks.length === 0) return false;
 
     const utcViewDate = toUTCDate(viewDate);
-    const rrule = createRRuleWithStartDate(rruleString, choreStartDateString);
+    const schedule = {
+        startDate: choreStartDateString,
+        rrule: rruleString,
+        exdates: exdates || [],
+    };
 
     // 1. Basic Schedule Check
-    if (!rrule && toUTCDate(new Date(choreStartDateString)).getTime() !== utcViewDate.getTime()) {
+    if (!rruleString && toUTCDate(new Date(choreStartDateString)).getTime() !== utcViewDate.getTime()) {
         return false;
     }
-    if (rrule) {
-        const isScheduled = rrule.between(utcViewDate, toUTCDate(new Date(utcViewDate.getTime() + 1000)), true).length > 0;
-
+    if (rruleString) {
+        const isScheduled = choreOccursOnDate(schedule, utcViewDate);
         if (!isScheduled) return false;
     }
 
@@ -297,9 +304,13 @@ export function isSeriesActiveForDate(
             if (pendingQueue[i].isDayBreak) blockIndex++;
         }
 
-        if (!rrule) return blockIndex === 0 ? anchorDate.getTime() : null;
+        if (!rruleString) return blockIndex === 0 ? anchorDate.getTime() : null;
 
-        const occurrences = rrule.between(anchorDate, new Date(anchorDate.getTime() + 1000 * 60 * 60 * 24 * 365 * 5), true, (_, i) => i <= blockIndex);
+        const occurrences = getChoreOccurrencesInRange(
+            schedule,
+            anchorDate,
+            new Date(anchorDate.getTime() + 1000 * 60 * 60 * 24 * 365 * 5)
+        );
 
         const targetDate = occurrences[blockIndex];
         return targetDate ? toUTCDate(targetDate).getTime() : null;

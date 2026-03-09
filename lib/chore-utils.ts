@@ -1,6 +1,8 @@
-import { RRule, Frequency, Weekday, RRuleSet } from 'rrule';
+import { RRule, Frequency } from 'rrule';
 import { tx, id } from '@instantdb/react';
 import { db } from '@/lib/db';
+import type { ChorePauseState } from '@/lib/chore-schedule';
+import { choreOccursOnDate, getChoreOccurrencesInRange, getNextChoreOccurrence } from '@/lib/chore-schedule';
 
 // --- Type Definitions (Refine based on actual schema/data structure) ---
 export interface Chore {
@@ -9,6 +11,8 @@ export interface Chore {
     description?: string | null;
     startDate: string; // ISO string date
     rrule?: string | null;
+    exdates?: string[] | null;
+    pauseState?: ChorePauseState | null;
     weight?: number | null;
     rotationType: 'none' | 'daily' | 'weekly' | 'monthly';
     assignees: { id: string; name?: string }[]; // Simplified assignee type
@@ -149,8 +153,7 @@ export const isChoreAssignedForPersonOnDate = async (db: any, chore: any, family
     dateEnd.setHours(23, 59, 59, 999);
 
     // Check if the chore occurs on the given date
-    const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
-    const occurrences = rrule.between(dateStart, dateEnd, true);
+    const occurrences = getChoreOccurrencesInRange(chore, dateStart, dateEnd);
 
     if (occurrences.length === 0) {
         return { assigned: false, completed: false };
@@ -160,7 +163,7 @@ export const isChoreAssignedForPersonOnDate = async (db: any, chore: any, family
 
     if (chore.rotationType && chore.rotationType !== 'none' && chore.assignments && chore.assignments.length > 0) {
         // Handle rotation
-        const rotationIndex = getRotationIndex(new Date(chore.startDate), dateStart, chore.rotationType, rrule);
+        const rotationIndex = getRotationIndex(chore, dateStart);
         const assignmentIndex = rotationIndex % chore.assignments.length;
         const assignedPersonId = chore.assignments[assignmentIndex].familyMember.id;
         assigned = assignedPersonId === familyMemberId;
@@ -199,8 +202,7 @@ export const isChoreAssignedForPersonOnDate = async (db: any, chore: any, family
 // This function also seems to be no longer used
 // TODO
 export const getChoreAssignmentGrid = async (db: any, chore: any, startDate: Date, endDate: Date) => {
-    const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
-    const occurrences = rrule.between(startDate, endDate, true);
+    const occurrences = getChoreOccurrencesInRange(chore, startDate, endDate);
 
     const { data } = await db.query({
         choreCompletions: {
@@ -233,24 +235,7 @@ export const getChoreAssignmentGrid = async (db: any, chore: any, startDate: Dat
 
         if (chore.rotationType && chore.assignments && chore.assignments.length > 0) {
             // Handle rotation
-            const startDate = new Date(chore.startDate);
-            const daysSinceStart = Math.floor((date.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
-
-            let rotationIndex = 0;
-            switch (chore.rotationType) {
-                case 'daily':
-                    rotationIndex = daysSinceStart;
-                    break;
-                case 'weekly':
-                    rotationIndex = Math.floor(daysSinceStart / 7);
-                    break;
-                case 'monthly':
-                    rotationIndex = (date.getFullYear() - startDate.getFullYear()) * 12 + (date.getMonth() - startDate.getMonth());
-                    break;
-                default:
-                    rotationIndex = 0;
-            }
-
+            const rotationIndex = getRotationIndex(chore, date);
             const assignedIndex = rotationIndex % chore.assignments.length;
             assignedMembers = [chore.assignments[assignedIndex].familyMember];
         } else {
@@ -276,41 +261,39 @@ export const getChoreAssignmentGrid = async (db: any, chore: any, startDate: Dat
     return dateAssignments;
 };
 
-const getRotationIndex = (
-    choreStartDate: Date,
-    occurrenceDate: Date,
-    rotationType: string,
-    rrule: RRule // Pass the RRule object itself
-): number => {
-    const utcStartDate = toUTCDate(choreStartDate);
+const getRotationIndex = (chore: Chore, occurrenceDate: Date): number => {
+    const utcStartDate = toUTCDate(chore.startDate);
     const utcOccurrenceDate = toUTCDate(occurrenceDate);
-    const interval = Math.max(1, rrule?.options?.interval ?? 1);
+    const actualOccurrences = getChoreOccurrencesInRange(chore, utcStartDate, utcOccurrenceDate).map((entry) => toUTCDate(entry));
 
-    switch (rotationType) {
+    if (actualOccurrences.length === 0) {
+        return 0;
+    }
+
+    switch (chore.rotationType) {
         case 'daily':
-            // Count actual occurrences between start date (inclusive) and occurrence date (inclusive)
-            // This handles varying intervals correctly.
-            try {
-                // RRuleSet might be safer if EXDATEs are involved, but for simple rules:
-                const occurrences = rrule.between(utcStartDate, utcOccurrenceDate, true); // inc = true
-                return Math.max(0, occurrences.length - 1); // 0-based index
-            } catch (e) {
-                console.error('Error calculating daily rotation index:', e);
-                return 0; // Fallback
-            }
-
-        case 'weekly':
-            // Calculate weeks passed based on UTC dates
-            const oneWeek = 7 * 24 * 60 * 60 * 1000;
-            const weeksDiff = Math.floor((utcOccurrenceDate.getTime() - utcStartDate.getTime()) / oneWeek);
-            return Math.max(0, Math.floor(weeksDiff / interval));
-        case 'monthly':
-            // Calculate months passed based on UTC dates
-            const monthsDiff =
-                (utcOccurrenceDate.getUTCFullYear() - utcStartDate.getUTCFullYear()) * 12 + (utcOccurrenceDate.getUTCMonth() - utcStartDate.getUTCMonth());
-            return Math.max(0, Math.floor(monthsDiff / interval));
+            return Math.max(0, actualOccurrences.length - 1);
+        case 'weekly': {
+            const weekBuckets = new Set(
+                actualOccurrences.map((entry) => {
+                    const diffDays = Math.floor((entry.getTime() - utcStartDate.getTime()) / 86400000);
+                    return Math.floor(diffDays / 7);
+                })
+            );
+            return Math.max(0, weekBuckets.size - 1);
+        }
+        case 'monthly': {
+            const monthBuckets = new Set(
+                actualOccurrences.map(
+                    (entry) =>
+                        (entry.getUTCFullYear() - utcStartDate.getUTCFullYear()) * 12 +
+                        (entry.getUTCMonth() - utcStartDate.getUTCMonth())
+                )
+            );
+            return Math.max(0, monthBuckets.size - 1);
+        }
         default:
-            return 0; // No rotation or unknown type
+            return 0;
     }
 };
 
@@ -323,28 +306,15 @@ export const getAssignedMembersForChoreOnDate = (chore: Chore, date: Date): { id
     const utcDate = toUTCDate(date);
     const choreStartDate = toUTCDate(chore.startDate);
 
-    // Handle non-recurring chores first
-    if (!chore.rrule) {
-        return isSameDay(choreStartDate, utcDate) ? chore.assignees || [] : [];
+    if (!choreOccursOnDate(chore, utcDate)) {
+        return [];
     }
 
     try {
-        const rrule = createRRuleWithStartDate(chore.rrule, choreStartDate);
-        if (!rrule) return []; // Invalid RRULE
-
-        const dayStart = new Date(utcDate);
-        const dayEnd = new Date(Date.UTC(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate() + 1));
-        dayEnd.setUTCMilliseconds(dayEnd.getUTCMilliseconds() - 1);
-        const occurrencesOnDate = rrule.between(dayStart, dayEnd, true);
-
-        if (occurrencesOnDate.length === 0) {
-            return [];
-        }
-
         // Determine assignment based on rotation or direct assignees
         // +++ Added check for chore.isUpForGrabs +++
         if (chore.rotationType && chore.rotationType !== 'none' && !chore.isUpForGrabs && chore.assignments && chore.assignments.length > 0) {
-            const rotationIndex = getRotationIndex(choreStartDate, utcDate, chore.rotationType, rrule);
+            const rotationIndex = getRotationIndex(chore, utcDate);
             // Ensure assignments array is not empty before modulo
             if (chore.assignments.length === 0) return [];
             const sortedAssignments = [...chore.assignments].sort((a, b) => a.order - b.order);
@@ -506,10 +476,7 @@ export const getChoreOccurrencesForMemberInPeriod = (chore: Chore, memberId: str
 
     // Handle recurring chores
     try {
-        const rrule = createRRuleWithStartDate(chore.rrule, choreStartDate);
-        if (!rrule) return []; // Invalid RRULE
-
-        const occurrencesInPeriod = rrule.between(periodStartDate, periodEndDate, true); // inc=true
+        const occurrencesInPeriod = getChoreOccurrencesInRange(chore, periodStartDate, periodEndDate);
 
         for (const occurrenceDate of occurrencesInPeriod) {
             const assignedMembersOnDate = getAssignedMembersForChoreOnDate(chore, occurrenceDate);
@@ -673,10 +640,7 @@ export const markCompletionsAwarded = async (db: any, completionIds: string[]): 
 };
 
 export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Date, endDate: Date) => {
-    const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate); //first we make an rrule including the start date (which isn't included in our database)
-
-    if (!rrule) return {}; // Handle invalid rule
-    const occurrences = rrule.between(toUTCDate(startDate), toUTCDate(endDate), true); // find out how many times the chore occurs between the start and end dates
+    const occurrences = getChoreOccurrencesInRange(chore, toUTCDate(startDate), toUTCDate(endDate));
 
     //initialize an empty object of the type that will hold dates, and for each dates family members, and for each family member whether or not they have been assigned the chore and whether or not they have completed it
     const dateAssignments: { [date: string]: { [memberId: string]: { assigned: boolean; completed: boolean } } } = {};

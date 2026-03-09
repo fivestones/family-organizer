@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Edit, Trash2 } from 'lucide-react';
-import { createRRuleWithStartDate, getAssignedMembersForChoreOnDate, toUTCDate } from '@/lib/chore-utils';
+import { getAssignedMembersForChoreOnDate, toUTCDate } from '@/lib/chore-utils';
+import { choreOccursOnDate } from '@/lib/chore-schedule';
 import { format } from 'date-fns';
 import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
 import DetailedChoreForm from './DetailedChoreForm';
@@ -22,6 +23,7 @@ function ChoreList({
     selectedDate,
     toggleChoreDone,
     updateChore,
+    updateChoreSchedule,
     deleteChore,
     db,
     unitDefinitions,
@@ -95,31 +97,8 @@ function ChoreList({
     const isPastDate = safeSelectedDate.getTime() < localToday.getTime();
 
     const shouldShowChore = (chore) => {
-        if (!chore.rrule) {
-            // Handle potential invalid date string in chore.startDate
-            try {
-                const choreDate = toUTCDate(new Date(chore.startDate));
-                return isSameDay(choreDate, safeSelectedDate);
-            } catch (e) {
-                console.error('Invalid chore start date:', chore.startDate, chore.id);
-                return false;
-            }
-        }
-
         try {
-            const rrule = createRRuleWithStartDate(chore.rrule, chore.startDate);
-            if (!rrule) return false; // Handle invalid rrule gracefully
-
-            const selectedDayStart = new Date(safeSelectedDate);
-            // Adjust end date for 'between' to correctly include the selected day
-            const selectedDayEnd = new Date(
-                Date.UTC(safeSelectedDate.getUTCFullYear(), safeSelectedDate.getUTCMonth(), safeSelectedDate.getUTCDate(), 23, 59, 59, 999)
-            );
-
-            const occurrences = rrule.between(selectedDayStart, selectedDayEnd, true);
-
-            // Check if any occurrence date matches the selected date (day, month, year)
-            return occurrences.some((date) => isSameDay(toUTCDate(date), safeSelectedDate));
+            return choreOccursOnDate(chore, safeSelectedDate);
         } catch (error) {
             console.error(`Error processing RRULE for chore ${chore.id}:`, error);
             return false;
@@ -172,10 +151,14 @@ function ChoreList({
 
     const handleUpdateChore = (updatedChore) => {
         if (editingChore?.id) {
-            // Ensure editingChore is not null
-            // updateChore(editingChore.id, updatedChore);
             updateChore(editingChore.id, updatedChore);
         }
+        setEditingChore(null);
+    };
+
+    const handleScheduleUpdate = async (patch) => {
+        if (!editingChore?.id) return;
+        await updateChoreSchedule(editingChore.id, patch);
         setEditingChore(null);
     };
 
@@ -371,7 +354,8 @@ function ChoreList({
                                             chore.rrule,
                                             chore.startDate,
                                             safeSelectedDate,
-                                            targetSeries.startDate // <--- PASS SERIES START DATE
+                                            targetSeries.startDate,
+                                            chore.exdates || null
                                         );
                                     }
 
@@ -448,7 +432,8 @@ function ChoreList({
                                         chore.rrule || null,
                                         chore.startDate,
                                         safeSelectedDate,
-                                        series.startDate || null
+                                        series.startDate || null,
+                                        chore.exdates || null
                                     );
 
                                     if (isActive) {
@@ -519,7 +504,8 @@ function ChoreList({
                                     chore.rrule, // Use the Chore's recurrence
                                     chore.startDate, // Use the Chore's start date
                                     safeSelectedDate,
-                                    series.startDate // Use the Series specific start date
+                                    series.startDate, // Use the Series specific start date
+                                    chore.exdates || null
                                 );
 
                                 // 4. Check if Up-For-Grabs logic disables this
@@ -645,6 +631,7 @@ function ChoreList({
                         <DetailedChoreForm
                             familyMembers={familyMembers}
                             onSave={handleUpdateChore}
+                            onScheduleAction={handleScheduleUpdate}
                             initialChore={editingChore}
                             initialDate={selectedDate} // Pass selectedDate
                             // +++ Pass props down +++

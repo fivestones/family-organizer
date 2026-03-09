@@ -432,7 +432,8 @@ export default function DashboardTab() {
           chore.rrule || null,
           chore.startDate,
           selectedDate,
-          series.startDate || null
+          series.startDate || null,
+          chore.exdates || null
         );
 
         if (!scheduledTasks.length) continue;
