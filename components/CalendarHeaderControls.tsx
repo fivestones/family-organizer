@@ -18,11 +18,21 @@ import {
     CALENDAR_STATE_EVENT,
     CALENDAR_VISIBLE_WEEKS_MAX,
     CALENDAR_VISIBLE_WEEKS_MIN,
+    CALENDAR_VIEW_MODE_STORAGE_KEY,
+    CALENDAR_YEAR_FONT_SCALE_DEFAULT,
+    CALENDAR_YEAR_FONT_SCALE_MAX,
+    CALENDAR_YEAR_FONT_SCALE_MIN,
+    CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY,
+    CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY,
+    type CalendarViewMode,
+    type CalendarYearMonthBasis,
     type CalendarCommandDetail,
     type CalendarStateDetail,
 } from '@/lib/calendar-controls';
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const clampYearFontScale = (value: number) =>
+    Math.round(clampNumber(value, CALENDAR_YEAR_FONT_SCALE_MIN, CALENDAR_YEAR_FONT_SCALE_MAX) * 100) / 100;
 const normalizeChecked = (value: boolean | 'indeterminate') => value === true;
 const humanJoin = (items: string[]) => {
     if (items.length === 0) return '';
@@ -51,6 +61,9 @@ export default function CalendarHeaderControls() {
     const [dayHeight, setDayHeight] = useState(CALENDAR_DAY_HEIGHT_DEFAULT);
     const [visibleWeeks, setVisibleWeeks] = useState(6);
     const [showChores, setShowChores] = useState(false);
+    const [viewMode, setViewMode] = useState<CalendarViewMode>('monthly');
+    const [yearMonthBasis, setYearMonthBasis] = useState<CalendarYearMonthBasis>('gregorian');
+    const [yearFontScale, setYearFontScale] = useState(CALENDAR_YEAR_FONT_SCALE_DEFAULT);
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
     const [choreFilterConfigured, setChoreFilterConfigured] = useState(false);
     const [everyoneSelected, setEveryoneSelected] = useState(true);
@@ -91,6 +104,18 @@ export default function CalendarHeaderControls() {
         if (!isCalendarRoute) return;
 
         setShowChores(window.localStorage.getItem(CALENDAR_SHOW_CHORES_STORAGE_KEY) === 'true');
+        const storedViewMode = window.localStorage.getItem(CALENDAR_VIEW_MODE_STORAGE_KEY);
+        if (storedViewMode === 'monthly' || storedViewMode === 'year') {
+            setViewMode(storedViewMode);
+        }
+        const storedYearMonthBasis = window.localStorage.getItem(CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY);
+        if (storedYearMonthBasis === 'gregorian' || storedYearMonthBasis === 'bs') {
+            setYearMonthBasis(storedYearMonthBasis);
+        }
+        const storedYearFontScale = Number(window.localStorage.getItem(CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY));
+        if (Number.isFinite(storedYearFontScale)) {
+            setYearFontScale(clampYearFontScale(storedYearFontScale));
+        }
 
         const stored = window.localStorage.getItem(CALENDAR_DAY_HEIGHT_STORAGE_KEY);
         if (!stored) return;
@@ -110,6 +135,9 @@ export default function CalendarHeaderControls() {
             setDayHeight(clampNumber(Math.round(detail.dayHeight), CALENDAR_DAY_HEIGHT_MIN, CALENDAR_DAY_HEIGHT_MAX));
             setVisibleWeeks(clampNumber(Math.round(detail.visibleWeeks), CALENDAR_VISIBLE_WEEKS_MIN, CALENDAR_VISIBLE_WEEKS_MAX));
             setShowChores(Boolean(detail.showChores));
+            setViewMode(detail.viewMode);
+            setYearMonthBasis(detail.yearMonthBasis);
+            setYearFontScale(clampYearFontScale(detail.yearFontScale));
             if (detail.choreFilter) {
                 setChoreFilterConfigured(Boolean(detail.choreFilter.configured));
                 setSelectedChoreIds(
@@ -316,53 +344,119 @@ export default function CalendarHeaderControls() {
                     <div className="grid gap-4">
                         <div className="space-y-1">
                             <h4 className="text-sm font-semibold leading-none">Calendar Settings</h4>
-                            <p className="text-xs text-muted-foreground">Adjust day height or weeks visible.</p>
+                            <p className="text-xs text-muted-foreground">Switch views and adjust the calendar display.</p>
                         </div>
 
                         <div className="grid gap-2">
-                            <div className="flex items-center justify-between gap-3">
-                                <Label htmlFor="calendar-day-height-header">Day Height</Label>
-                                <span className="text-xs text-muted-foreground">{dayHeight}px</span>
-                            </div>
-                            <input
-                                id="calendar-day-height-header"
-                                type="range"
-                                min={CALENDAR_DAY_HEIGHT_MIN}
-                                max={CALENDAR_DAY_HEIGHT_MAX}
-                                step={2}
-                                value={dayHeight}
+                            <Label htmlFor="calendar-view-mode-header">View</Label>
+                            <select
+                                id="calendar-view-mode-header"
+                                value={viewMode}
                                 onChange={(event) => {
-                                    const next = clampNumber(Number(event.target.value), CALENDAR_DAY_HEIGHT_MIN, CALENDAR_DAY_HEIGHT_MAX);
-                                    setDayHeight(next);
-                                    dispatchCalendarCommand({ type: 'setDayHeight', dayHeight: next });
+                                    const next = event.target.value === 'year' ? 'year' : 'monthly';
+                                    setViewMode(next);
+                                    dispatchCalendarCommand({ type: 'setViewMode', viewMode: next });
                                 }}
-                            />
+                                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                            >
+                                <option value="monthly">Monthly</option>
+                                <option value="year">Full year</option>
+                            </select>
                         </div>
 
-                        <div className="grid gap-2">
-                            <div className="flex items-center justify-between gap-3">
-                                <Label htmlFor="calendar-weeks-visible-header">Weeks Visible</Label>
-                                <span className="text-xs text-muted-foreground">{visibleWeeks}</span>
+                        {viewMode === 'year' ? (
+                            <div className="grid gap-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="calendar-year-month-basis-header">Year View Month Basis</Label>
+                                    <select
+                                        id="calendar-year-month-basis-header"
+                                        value={yearMonthBasis}
+                                        onChange={(event) => {
+                                            const next = event.target.value === 'bs' ? 'bs' : 'gregorian';
+                                            setYearMonthBasis(next);
+                                            dispatchCalendarCommand({ type: 'setYearMonthBasis', yearMonthBasis: next });
+                                        }}
+                                        className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                                    >
+                                        <option value="gregorian">Gregorian months</option>
+                                        <option value="bs">BS months</option>
+                                    </select>
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <Label htmlFor="calendar-year-font-scale-header">Event Font Size</Label>
+                                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                            <span>Small</span>
+                                            <span>Large</span>
+                                        </div>
+                                    </div>
+                                    <input
+                                        id="calendar-year-font-scale-header"
+                                        type="range"
+                                        min={CALENDAR_YEAR_FONT_SCALE_MIN}
+                                        max={CALENDAR_YEAR_FONT_SCALE_MAX}
+                                        step={0.02}
+                                        value={yearFontScale}
+                                        onChange={(event) => {
+                                            const next = clampYearFontScale(Number(event.target.value));
+                                            setYearFontScale(next);
+                                            dispatchCalendarCommand({ type: 'setYearFontScale', yearFontScale: next });
+                                        }}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Year view auto-sizes the months to fit the display and uses this slider for event density.
+                                    </p>
+                                </div>
                             </div>
-                            <input
-                                id="calendar-weeks-visible-header"
-                                type="range"
-                                min={CALENDAR_VISIBLE_WEEKS_MIN}
-                                max={CALENDAR_VISIBLE_WEEKS_MAX}
-                                step={1}
-                                value={visibleWeeks}
-                                onChange={(event) => {
-                                    const next = clampNumber(
-                                        Number(event.target.value),
-                                        CALENDAR_VISIBLE_WEEKS_MIN,
-                                        CALENDAR_VISIBLE_WEEKS_MAX
-                                    );
-                                    setVisibleWeeks(next);
-                                    dispatchCalendarCommand({ type: 'setVisibleWeeks', visibleWeeks: next });
-                                }}
-                            />
-                            <p className="text-xs text-muted-foreground">Approx. days visible: {visibleWeeks * 7}</p>
-                        </div>
+                        ) : (
+                            <>
+                                <div className="grid gap-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <Label htmlFor="calendar-day-height-header">Day Height</Label>
+                                        <span className="text-xs text-muted-foreground">{dayHeight}px</span>
+                                    </div>
+                                    <input
+                                        id="calendar-day-height-header"
+                                        type="range"
+                                        min={CALENDAR_DAY_HEIGHT_MIN}
+                                        max={CALENDAR_DAY_HEIGHT_MAX}
+                                        step={2}
+                                        value={dayHeight}
+                                        onChange={(event) => {
+                                            const next = clampNumber(Number(event.target.value), CALENDAR_DAY_HEIGHT_MIN, CALENDAR_DAY_HEIGHT_MAX);
+                                            setDayHeight(next);
+                                            dispatchCalendarCommand({ type: 'setDayHeight', dayHeight: next });
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <Label htmlFor="calendar-weeks-visible-header">Weeks Visible</Label>
+                                        <span className="text-xs text-muted-foreground">{visibleWeeks}</span>
+                                    </div>
+                                    <input
+                                        id="calendar-weeks-visible-header"
+                                        type="range"
+                                        min={CALENDAR_VISIBLE_WEEKS_MIN}
+                                        max={CALENDAR_VISIBLE_WEEKS_MAX}
+                                        step={1}
+                                        value={visibleWeeks}
+                                        onChange={(event) => {
+                                            const next = clampNumber(
+                                                Number(event.target.value),
+                                                CALENDAR_VISIBLE_WEEKS_MIN,
+                                                CALENDAR_VISIBLE_WEEKS_MAX
+                                            );
+                                            setVisibleWeeks(next);
+                                            dispatchCalendarCommand({ type: 'setVisibleWeeks', visibleWeeks: next });
+                                        }}
+                                    />
+                                    <p className="text-xs text-muted-foreground">Approx. days visible: {visibleWeeks * 7}</p>
+                                </div>
+                            </>
+                        )}
 
                         <label
                             htmlFor="calendar-show-chores-header"

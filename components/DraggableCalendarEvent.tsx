@@ -28,7 +28,8 @@ interface DraggableCalendarEventProps {
     item: CalendarItem;
     index: number;
     onClick?: (e: React.MouseEvent) => void;
-    layout?: 'cell' | 'span';
+    layout?: 'cell' | 'span' | 'year';
+    scale?: number;
     continuesBefore?: boolean;
     continuesAfter?: boolean;
     draggableEnabled?: boolean;
@@ -60,6 +61,7 @@ export const DraggableCalendarEvent = ({
     index,
     onClick,
     layout = 'cell',
+    scale = 1,
     continuesBefore = false,
     continuesAfter = false,
     draggableEnabled = true,
@@ -70,11 +72,13 @@ export const DraggableCalendarEvent = ({
     const visibleMembers = useMemo(() => members.slice(0, 3), [members]);
     const remainingMemberCount = Math.max(0, members.length - visibleMembers.length);
     const isSpanLayout = layout === 'span';
+    const isYearLayout = layout === 'year';
+    const effectiveScale = Number.isFinite(scale) ? Math.max(0.6, scale) : 1;
     const itemKind = item.calendarItemKind === 'chore' ? 'chore' : 'event';
     const isInteractive = draggableEnabled || typeof onClick === 'function';
     const descriptionText = useMemo(() => String(item.description || '').replace(/\s+/g, ' ').trim(), [item.description]);
-    const showAudienceInline = !isSpanLayout;
-    const showDescriptionRow = !isSpanLayout && descriptionText.length > 0;
+    const showAudienceInline = !isSpanLayout && !isYearLayout;
+    const showDescriptionRow = !isSpanLayout && !isYearLayout && descriptionText.length > 0;
 
     useEffect(() => {
         if (!draggableEnabled) {
@@ -99,19 +103,27 @@ export const DraggableCalendarEvent = ({
             ref={eventRef}
             data-testid={`calendar-event-${item.id}`}
             data-calendar-item-kind={itemKind}
-            style={{ opacity: isDragging ? 0.4 : 1 }} // Style when dragging
+            style={
+                {
+                    opacity: isDragging ? 0.4 : 1,
+                    '--calendar-item-scale': String(effectiveScale),
+                } as React.CSSProperties
+            }
             className={cn(
                 styles.calendarItem,
                 styles[itemKind],
                 styles.circled,
                 isInteractive ? styles.calendarItemInteractive : styles.calendarItemStatic,
+                effectiveScale !== 1 && styles.calendarItemScaled,
+                isYearLayout && styles.calendarItemYear,
                 isSpanLayout && styles.eventSpan,
                 isSpanLayout && continuesBefore && styles.eventSpanContinuesBefore,
                 isSpanLayout && continuesAfter && styles.eventSpanContinuesAfter
             )}
             onClick={onClick}
+            title={item.title}
         >
-            <div className={cn(styles.eventHeaderRow, isSpanLayout && styles.eventHeaderRowSpan)}>
+            <div className={cn(styles.eventHeaderRow, isSpanLayout && styles.eventHeaderRowSpan, isYearLayout && styles.eventHeaderRowYear)}>
                 {showAudienceInline ? (
                     <div className={cn(styles.eventAudienceRow, isSpanLayout && styles.eventAudienceRowSpan)}>
                         {members.length === 0 ? (
@@ -132,7 +144,9 @@ export const DraggableCalendarEvent = ({
                         )}
                     </div>
                 ) : null}
-                <div className={cn(styles.eventTitle, isSpanLayout && styles.eventTitleSpan)}>{item.title}</div>
+                <div className={cn(styles.eventTitle, isSpanLayout && styles.eventTitleSpan, isYearLayout && styles.eventTitleYear)}>
+                    {item.title}
+                </div>
             </div>
             {showDescriptionRow ? <div className={styles.eventMetaText}>{descriptionText}</div> : null}
         </div>

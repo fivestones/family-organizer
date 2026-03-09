@@ -255,6 +255,56 @@ describe('Calendar', () => {
         expect(within(firstOfMonthCell).getByText('वैशाख (Baisakh)')).toBeInTheDocument();
     });
 
+    it('switches into the full year view and renders discrete month cards', async () => {
+        renderCalendarWithItems([], {
+            currentDate: new Date(2026, 2, 15),
+            displayBS: true,
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'year' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('year-month-gregorian-2026-03')).toBeInTheDocument();
+            expect(screen.getByTestId('year-month-gregorian-2027-02')).toBeInTheDocument();
+        });
+    });
+
+    it('keeps multi-day events as shared span bars in the year view', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-span',
+                title: 'Spring Break',
+                description: '',
+                startDate: '2026-03-18',
+                endDate: '2026-03-21',
+                isAllDay: true,
+            },
+        ], {
+            currentDate: new Date(2026, 2, 15),
+            displayBS: true,
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'year' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('year-month-gregorian-2026-03')).toBeInTheDocument();
+        });
+
+        expect(screen.getAllByTestId('calendar-event-evt-span')).toHaveLength(1);
+    });
+
     it('reschedules an event via drag-drop monitor and persists the moved date', () => {
         renderCalendarWithItems([
             {

@@ -371,6 +371,18 @@
     cursor: default;
 }
 
+.calendarItemYear {
+    gap: 0;
+    min-width: 0;
+    padding: 1px 4px 2px;
+}
+
+.calendarItemScaled {
+    transform-origin: top left;
+    transform: scale(var(--calendar-item-scale, 1));
+    width: calc(100% / var(--calendar-item-scale, 1));
+}
+
 .eventTitle {
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -391,6 +403,10 @@
 }
 
 .eventHeaderRowSpan {
+    gap: 0;
+}
+
+.eventHeaderRowYear {
     gap: 0;
 }
 
@@ -481,6 +497,12 @@
     font-size: 0.72rem;
 }
 
+.eventTitleYear {
+    font-size: 0.62rem;
+    line-height: 1.05;
+    font-weight: 700;
+}
+
 .eventAudienceRowSpan {
     flex-shrink: 0;
 }
@@ -561,4 +583,178 @@
 
 .react-beautiful-dnd-dragging {
     opacity: 0.8;
+}
+
+.yearCalendarGrid {
+    display: grid;
+    grid-auto-rows: auto;
+    gap: 12px;
+    align-items: start;
+}
+
+.yearMonthCard {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    border: 0.75px solid rgba(15, 23, 42, 0.12);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+    box-shadow:
+        0 8px 20px rgba(15, 23, 42, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    padding: 6px 6px 7px;
+}
+
+.yearMonthHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-height: 28px;
+}
+
+.yearMonthYear {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: rgba(15, 23, 42, 0.5);
+}
+
+.yearMonthTitle {
+    font-size: clamp(0.86rem, 1vw, 1.12rem);
+    line-height: 1.05;
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.yearMonthTable {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.yearMonthWeekdayCell {
+    padding: 0 0 4px;
+    font-size: 0.56rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-align: center;
+    color: rgba(15, 23, 42, 0.5);
+}
+
+.yearWeekRow {
+    height: var(--calendar-year-day-cell-height, 42px);
+}
+
+.yearDayCell {
+    position: relative;
+    height: var(--calendar-year-day-cell-height, 42px);
+    min-height: var(--calendar-year-day-cell-height, 42px);
+    padding: 1px 1px 2px;
+    border: 0.35px solid rgba(15, 23, 42, 0.14);
+    background: rgba(255, 255, 255, 0.92);
+    vertical-align: top;
+    overflow: visible;
+}
+
+.yearDayCellOutsideMonth {
+    background: rgba(241, 245, 249, 0.72);
+}
+
+.yearDayNumberWrap {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 3px;
+    min-height: 11px;
+    padding-left: 8px;
+}
+
+.yearDayPrimary {
+    font-size: calc(0.64rem * var(--calendar-year-font-scale, 1));
+    line-height: 1;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.yearDaySecondary {
+    font-size: calc(0.48rem * var(--calendar-year-font-scale, 1));
+    line-height: 1;
+    font-weight: 700;
+    color: rgba(15, 23, 42, 0.6);
+}
+
+.yearDayMuted {
+    color: rgba(15, 23, 42, 0.38);
+}
+
+.yearDayEventStack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 2px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.yearDayMore {
+    margin-top: 2px;
+    font-size: calc(0.48rem * var(--calendar-year-font-scale, 1));
+    line-height: 1;
+    font-weight: 700;
+    text-align: left;
+    color: rgba(15, 23, 42, 0.58);
+}
+
+.yearDayCell .monthName {
+    font-size: calc(0.64rem * var(--calendar-year-font-scale, 1));
+    line-height: 0.9;
+    padding: 2px 0 1px;
+}
+
+.yearDayCell .nepaliMonthName {
+    top: 14px;
+    font-size: calc(0.58rem * var(--calendar-year-font-scale, 1));
+    line-height: 0.9;
+    padding: 2px 0 1px;
+}
+
+.yearDayCell .yearNumber,
+.yearDayCell .nepaliYearNumber {
+    top: 1px;
+    left: 1px;
+    font-size: calc(0.5rem * var(--calendar-year-font-scale, 1));
+    line-height: 1;
+    font-weight: 700;
+}
+
+.yearDayCell.firstDayOfMonth {
+    background: linear-gradient(to right, rgb(209, 223, 252), white);
+    border-top: 1px double blue;
+    border-left: 1px double blue;
+}
+
+.yearDayCell.firstWeekOfMonth {
+    border-top: 1px double blue;
+}
+
+.yearDayCell.firstDayOfYear {
+    background: linear-gradient(to right, rgb(49, 138, 255), white) 0% 0% / 80% 23% no-repeat,
+        linear-gradient(to right, rgb(209, 223, 252), white);
+}
+
+.yearDayCell.firstDayOfNepaliMonth {
+    background: linear-gradient(to right, rgb(252, 209, 209), white);
+    border-top: 1px double rgb(255, 150, 150);
+    border-left: 1px double rgb(255, 150, 150);
+}
+
+.yearDayCell.firstWeekOfNepaliMonth {
+    border-top: 1px double rgb(255, 150, 150);
+}
+
+.yearDayCell.firstDayOfNepaliYear {
+    background: linear-gradient(to right, red, white) 0% 0% / 80% 23% no-repeat,
+        linear-gradient(to right, rgb(252, 209, 209), white);
 }

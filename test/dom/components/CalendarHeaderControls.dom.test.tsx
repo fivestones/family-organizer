@@ -162,4 +162,48 @@ describe('CalendarHeaderControls member filter summary', () => {
 
         window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
     });
+
+    it('offers full year view controls and dispatches year-specific settings', async () => {
+        const receivedCommands: any[] = [];
+        const handleCommand = (event: Event) => {
+            receivedCommands.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+
+        render(<CalendarHeaderControls />);
+
+        const viewSelect = screen.getByLabelText('View') as HTMLSelectElement;
+        fireEvent.change(viewSelect, { target: { value: 'year' } });
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setViewMode',
+                        viewMode: 'year',
+                    }),
+                ])
+            );
+        });
+
+        const basisSelect = screen.getByLabelText('Year View Month Basis') as HTMLSelectElement;
+        fireEvent.change(basisSelect, { target: { value: 'bs' } });
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setYearMonthBasis',
+                        yearMonthBasis: 'bs',
+                    }),
+                ])
+            );
+        });
+
+        const fontScaleSlider = screen.getByLabelText('Event Font Size') as HTMLInputElement;
+        expect(fontScaleSlider).toHaveAttribute('min', '0.72');
+        expect(fontScaleSlider).toHaveAttribute('max', '1');
+
+        window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+    });
 });
