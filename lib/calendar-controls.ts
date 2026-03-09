@@ -25,6 +25,7 @@ export type CalendarCommandDetail =
     | { type: 'setViewMode'; viewMode: CalendarViewMode }
     | { type: 'setYearMonthBasis'; yearMonthBasis: CalendarYearMonthBasis }
     | { type: 'setYearFontScale'; yearFontScale: number }
+    | { type: 'shiftYearView'; direction: 'left' | 'right' }
     | { type: 'setChoreFilter'; selectedChoreIds: string[] }
     | { type: 'setMemberFilter'; everyoneSelected: boolean; selectedMemberIds: string[] }
     | { type: 'scrollToday' }

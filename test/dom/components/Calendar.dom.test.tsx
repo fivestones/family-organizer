@@ -275,6 +275,40 @@ describe('Calendar', () => {
         });
     });
 
+    it('shifts the year view by one month when the shift command is dispatched', async () => {
+        renderCalendarWithItems([], {
+            currentDate: new Date(2026, 2, 15),
+            displayBS: true,
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'year' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('year-month-gregorian-2025-03')).toBeInTheDocument();
+            expect(screen.getByTestId('year-month-gregorian-2028-02')).toBeInTheDocument();
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'shiftYearView', direction: 'left' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.queryByTestId('year-month-gregorian-2025-03')).not.toBeInTheDocument();
+            expect(screen.getByTestId('year-month-gregorian-2025-04')).toBeInTheDocument();
+            expect(screen.getByTestId('year-month-gregorian-2028-03')).toBeInTheDocument();
+        });
+    });
+
     it('keeps multi-day events as shared span bars in the year view', async () => {
         renderCalendarWithItems([
             {
@@ -303,6 +337,54 @@ describe('Calendar', () => {
         });
 
         expect(screen.getAllByTestId('calendar-event-evt-span')).toHaveLength(1);
+    });
+
+    it('lets single-day year-view events rise when no multi-day span occupies that day', async () => {
+        renderCalendarWithItems(
+            [
+                {
+                    id: 'evt-span',
+                    title: 'School Trip',
+                    description: '',
+                    startDate: '2026-03-11',
+                    endDate: '2026-03-14',
+                    isAllDay: true,
+                },
+                {
+                    id: 'evt-single',
+                    title: 'Something',
+                    description: '',
+                    startDate: '2026-03-14',
+                    endDate: '2026-03-15',
+                    isAllDay: true,
+                },
+            ],
+            {
+                currentDate: new Date(2026, 2, 15),
+                displayBS: true,
+            }
+        );
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'year' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('year-month-gregorian-2026-03')).toBeInTheDocument();
+        });
+
+        const spanEndDay = screen.getByTestId('day-cell-2026-03-13');
+        const adjacentSingleDay = screen.getByTestId('day-cell-2026-03-14');
+        const spanSpacer = spanEndDay.querySelector<HTMLElement>('[aria-hidden="true"]');
+        const adjacentSpacer = adjacentSingleDay.querySelector<HTMLElement>('[aria-hidden="true"]');
+
+        expect(within(adjacentSingleDay).getByTestId('calendar-event-evt-single')).toBeInTheDocument();
+        expect(spanSpacer).not.toBeNull();
+        expect(adjacentSpacer).toBeNull();
     });
 
     it('reschedules an event via drag-drop monitor and persists the moved date', () => {

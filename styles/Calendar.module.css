@@ -374,13 +374,24 @@
 .calendarItemYear {
     gap: 0;
     min-width: 0;
-    padding: 1px 4px 2px;
+    width: fit-content;
+    max-width: 100%;
+    align-self: flex-start;
+    min-height: var(--calendar-year-single-event-height, 14px);
+    height: var(--calendar-year-single-event-height, 14px);
+    padding: 0 4px;
+    justify-content: center;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
 .calendarItemScaled {
-    transform-origin: top left;
-    transform: scale(var(--calendar-item-scale, 1));
-    width: calc(100% / var(--calendar-item-scale, 1));
+    --calendar-year-event-font-scale: var(--calendar-item-scale, 1);
+}
+
+.calendarItemCarryover {
+    opacity: 0.56;
+    filter: saturate(0.82);
 }
 
 .eventTitle {
@@ -478,6 +489,26 @@
     box-sizing: border-box;
 }
 
+.yearCalendarGrid .eventSpan {
+    gap: 0;
+    min-height: var(--calendar-year-span-event-height, 16px);
+    height: var(--calendar-year-span-event-height, 16px);
+    padding: 0 4px;
+    border-color: var(--calendar-chip-border, #a7f3d0);
+    background: var(--calendar-chip-bg, linear-gradient(135deg, #d1fae5, #a7f3d0));
+    border-radius: 6px;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.yearCalendarGrid .eventHeaderRowSpan {
+    gap: 0;
+}
+
+.yearCalendarGrid .eventSpanContinuesBefore,
+.yearCalendarGrid .eventSpanContinuesAfter {
+    border-radius: 6px;
+}
+
 .eventSpanContinuesBefore {
     border-top-left-radius: 4px;
     border-bottom-left-radius: 4px;
@@ -494,11 +525,17 @@
     text-overflow: ellipsis;
     flex: 1;
     min-width: 0;
-    font-size: 0.72rem;
+    font-size: calc(0.72rem * var(--calendar-year-event-font-scale, 1));
+}
+
+.yearCalendarGrid .eventTitleSpan {
+    font-size: calc(0.62rem * var(--calendar-year-event-font-scale, 1));
+    line-height: 1.05;
+    font-weight: 700;
 }
 
 .eventTitleYear {
-    font-size: 0.62rem;
+    font-size: calc(0.62rem * var(--calendar-year-event-font-scale, 1));
     line-height: 1.05;
     font-weight: 700;
 }
@@ -585,6 +622,10 @@
     opacity: 0.8;
 }
 
+.yearCalendarStage {
+    position: relative;
+}
+
 .yearCalendarGrid {
     display: grid;
     grid-auto-rows: auto;
@@ -592,7 +633,16 @@
     align-items: start;
 }
 
+.yearShiftOverlay {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 15;
+}
+
 .yearMonthCard {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -604,6 +654,13 @@
         0 8px 20px rgba(15, 23, 42, 0.06),
         inset 0 1px 0 rgba(255, 255, 255, 0.95);
     padding: 6px 6px 7px;
+}
+
+.yearMonthCardGhost {
+    position: absolute;
+    margin: 0;
+    pointer-events: none;
+    will-change: transform;
 }
 
 .yearMonthHeader {
@@ -672,14 +729,14 @@
 }
 
 .yearDayPrimary {
-    font-size: calc(0.64rem * var(--calendar-year-font-scale, 1));
+    font-size: 0.64rem;
     line-height: 1;
     font-weight: 800;
     color: #0f172a;
 }
 
 .yearDaySecondary {
-    font-size: calc(0.48rem * var(--calendar-year-font-scale, 1));
+    font-size: 0.48rem;
     line-height: 1;
     font-weight: 700;
     color: rgba(15, 23, 42, 0.6);
@@ -692,15 +749,15 @@
 .yearDayEventStack {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    margin-top: 2px;
+    align-items: flex-start;
+    gap: var(--calendar-year-event-gap, 1px);
     min-width: 0;
     overflow: hidden;
 }
 
 .yearDayMore {
-    margin-top: 2px;
-    font-size: calc(0.48rem * var(--calendar-year-font-scale, 1));
+    margin-top: var(--calendar-year-event-gap, 1px);
+    font-size: calc(0.48rem * var(--calendar-year-event-font-scale, 1));
     line-height: 1;
     font-weight: 700;
     text-align: left;
@@ -708,14 +765,14 @@
 }
 
 .yearDayCell .monthName {
-    font-size: calc(0.64rem * var(--calendar-year-font-scale, 1));
+    font-size: 0.64rem;
     line-height: 0.9;
     padding: 2px 0 1px;
 }
 
 .yearDayCell .nepaliMonthName {
     top: 14px;
-    font-size: calc(0.58rem * var(--calendar-year-font-scale, 1));
+    font-size: 0.58rem;
     line-height: 0.9;
     padding: 2px 0 1px;
 }
@@ -724,19 +781,19 @@
 .yearDayCell .nepaliYearNumber {
     top: 1px;
     left: 1px;
-    font-size: calc(0.5rem * var(--calendar-year-font-scale, 1));
+    font-size: 0.5rem;
     line-height: 1;
     font-weight: 700;
 }
 
 .yearDayCell.firstDayOfMonth {
     background: linear-gradient(to right, rgb(209, 223, 252), white);
-    border-top: 1px double blue;
-    border-left: 1px double blue;
+    border-top: 1px solid blue;
+    border-left: 1px solid blue;
 }
 
 .yearDayCell.firstWeekOfMonth {
-    border-top: 1px double blue;
+    border-top: 1px solid blue;
 }
 
 .yearDayCell.firstDayOfYear {
@@ -746,12 +803,12 @@
 
 .yearDayCell.firstDayOfNepaliMonth {
     background: linear-gradient(to right, rgb(252, 209, 209), white);
-    border-top: 1px double rgb(255, 150, 150);
-    border-left: 1px double rgb(255, 150, 150);
+    border-top: 1px solid rgb(255, 150, 150);
+    border-left: 1px solid rgb(255, 150, 150);
 }
 
 .yearDayCell.firstWeekOfNepaliMonth {
-    border-top: 1px double rgb(255, 150, 150);
+    border-top: 1px solid rgb(255, 150, 150);
 }
 
 .yearDayCell.firstDayOfNepaliYear {

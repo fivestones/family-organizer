@@ -30,6 +30,7 @@ interface DraggableCalendarEventProps {
     onClick?: (e: React.MouseEvent) => void;
     layout?: 'cell' | 'span' | 'year';
     scale?: number;
+    className?: string;
     continuesBefore?: boolean;
     continuesAfter?: boolean;
     draggableEnabled?: boolean;
@@ -62,6 +63,7 @@ export const DraggableCalendarEvent = ({
     onClick,
     layout = 'cell',
     scale = 1,
+    className,
     continuesBefore = false,
     continuesAfter = false,
     draggableEnabled = true,
@@ -118,7 +120,8 @@ export const DraggableCalendarEvent = ({
                 isYearLayout && styles.calendarItemYear,
                 isSpanLayout && styles.eventSpan,
                 isSpanLayout && continuesBefore && styles.eventSpanContinuesBefore,
-                isSpanLayout && continuesAfter && styles.eventSpanContinuesAfter
+                isSpanLayout && continuesAfter && styles.eventSpanContinuesAfter,
+                className
             )}
             onClick={onClick}
             title={item.title}

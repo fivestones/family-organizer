@@ -11,6 +11,7 @@ export interface CalendarWeekSpanSegmentLike {
     endCol: number;
     continuesBefore: boolean;
     continuesAfter: boolean;
+    className?: string;
 }
 
 export const WEEK_SPAN_TOP_OFFSET_PX = 23;
@@ -98,6 +99,7 @@ export default function CalendarWeekSpanOverlay({
                                 index={laneIndex}
                                 layout="span"
                                 scale={eventScale}
+                                className={segment.className}
                                 continuesBefore={segment.continuesBefore}
                                 continuesAfter={segment.continuesAfter}
                                 onClick={(event) => onEventClick(event, segment.item)}

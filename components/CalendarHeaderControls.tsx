@@ -408,6 +408,30 @@ export default function CalendarHeaderControls() {
                                         Year view auto-sizes the months to fit the display and uses this slider for event density.
                                     </p>
                                 </div>
+
+                                <div className="grid gap-2">
+                                    <span className="text-sm font-medium leading-none">Shift Visible Months</span>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 flex-1"
+                                            onClick={() => dispatchCalendarCommand({ type: 'shiftYearView', direction: 'left' })}
+                                        >
+                                            Shift left
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 flex-1"
+                                            onClick={() => dispatchCalendarCommand({ type: 'shiftYearView', direction: 'right' })}
+                                        >
+                                            Shift right
+                                        </Button>
+                                    </div>
+                                </div>
                             </div>
                         ) : (
                             <>

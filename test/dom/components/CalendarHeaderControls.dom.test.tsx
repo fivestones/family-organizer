@@ -204,6 +204,24 @@ describe('CalendarHeaderControls member filter summary', () => {
         expect(fontScaleSlider).toHaveAttribute('min', '0.72');
         expect(fontScaleSlider).toHaveAttribute('max', '1');
 
+        fireEvent.click(screen.getByRole('button', { name: 'Shift left' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Shift right' }));
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'shiftYearView',
+                        direction: 'left',
+                    }),
+                    expect.objectContaining({
+                        type: 'shiftYearView',
+                        direction: 'right',
+                    }),
+                ])
+            );
+        });
+
         window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
     });
 });

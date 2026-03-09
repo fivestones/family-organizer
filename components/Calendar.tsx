@@ -799,10 +799,12 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const [rangeEnd, setRangeEnd] = useState<Date>(() =>
         endOfWeek(addWeeks(currentDate, initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON })
     );
+    const [yearViewportStartOffset, setYearViewportStartOffset] = useState(0);
     const [yearRangeStartOffset, setYearRangeStartOffset] = useState(-12);
     const [yearRangeEndOffset, setYearRangeEndOffset] = useState(23);
     const [scrollContainerHeight, setScrollContainerHeight] = useState<number | null>(null);
     const [scrollContainerWidth, setScrollContainerWidth] = useState<number | null>(null);
+    const [yearShiftAnimation, setYearShiftAnimation] = useState<{ key: number; direction: 'left' | 'right' } | null>(null);
     const [dayNumberStickyTop, setDayNumberStickyTop] = useState(0);
     const stickyMonthTop = 2;
     const [monthBoxSize, setMonthBoxSize] = useState<{ width: number; height: number } | null>(null);
@@ -832,6 +834,8 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const lastScrollTopRef = useRef<number | null>(null);
     const lastTopLoadAtRef = useRef(0);
     const lastBottomLoadAtRef = useRef(0);
+    const yearShiftLockRef = useRef(false);
+    const yearShiftUnlockTimerRef = useRef<number | null>(null);
     // const lastTopTriggerScrollTopRef = useRef<number>(Number.POSITIVE_INFINITY);
     // const lastBottomTriggerScrollTopRef = useRef<number>(Number.NEGATIVE_INFINITY);
     const activeMonthMeasureRef = useRef<HTMLDivElement>(null);
@@ -946,10 +950,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             buildYearCalendarMonthDescriptors({
                 currentDate,
                 basis: yearMonthBasis,
-                startOffset: 0,
-                endOffset: 11,
+                startOffset: yearViewportStartOffset,
+                endOffset: yearViewportStartOffset + 11,
             }),
-        [currentDate, yearMonthBasis]
+        [currentDate, yearMonthBasis, yearViewportStartOffset]
     );
 
     const yearLayout = useMemo(
@@ -1336,11 +1340,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const todayStr = format(normalizedToday, 'yyyy-MM-dd');
 
         if (viewMode === 'year') {
+            setYearViewportStartOffset(0);
             if (scrollToMonthOffset(0, 'smooth')) {
                 return;
             }
 
             pendingTopScrollAdjustRef.current = null;
+            pendingScrollBehaviorRef.current = 'smooth';
             pendingYearScrollToMonthOffsetRef.current = 0;
             setYearRangeStartOffset(-12);
             setYearRangeEndOffset(23);
@@ -1357,6 +1363,34 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         setRangeStart(startOfWeek(addWeeks(normalizedToday, -initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
         setRangeEnd(endOfWeek(addWeeks(normalizedToday, initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
     }, [initialWeeksPerSide, scrollToDateStr, scrollToMonthOffset, viewMode]);
+
+    const shiftYearViewport = useCallback(
+        (direction: 'left' | 'right') => {
+            if (yearShiftLockRef.current) {
+                return;
+            }
+
+            const delta = direction === 'left' ? 1 : -1;
+
+            yearShiftLockRef.current = true;
+            if (yearShiftUnlockTimerRef.current !== null) {
+                window.clearTimeout(yearShiftUnlockTimerRef.current);
+            }
+            yearShiftUnlockTimerRef.current = window.setTimeout(() => {
+                yearShiftLockRef.current = false;
+                yearShiftUnlockTimerRef.current = null;
+            }, 250);
+
+            pendingTopScrollAdjustRef.current = null;
+            setYearRangeStartOffset((previous) => previous + delta);
+            setYearRangeEndOffset((previous) => previous + delta);
+            setYearShiftAnimation((previous) => ({
+                key: (previous?.key ?? 0) + 1,
+                direction,
+            }));
+        },
+        []
+    );
 
     const handleQuickAddClick = useCallback(() => {
         const today = new Date();
@@ -2054,8 +2088,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     useEffect(() => {
         if (viewMode !== 'year') return;
+        setYearViewportStartOffset(0);
         setYearRangeStartOffset(-12);
         setYearRangeEndOffset(23);
+        setYearShiftAnimation(null);
         pendingYearScrollToMonthOffsetRef.current = 0;
     }, [viewMode, yearMonthBasis]);
 
@@ -2391,6 +2427,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 return;
             }
 
+            if (detail.type === 'shiftYearView') {
+                shiftYearViewport(detail.direction === 'right' ? 'right' : 'left');
+                return;
+            }
+
             if (detail.type === 'setChoreFilter') {
                 const sanitizedChoreIds = Array.from(
                     new Set(
@@ -2464,6 +2505,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         selectedMemberIds,
         setDayHeight,
         showChores,
+        shiftYearViewport,
         visibleWeeksEstimate,
         viewMode,
         yearFontScale,
@@ -2490,7 +2532,16 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             pendingYearScrollToMonthOffsetRef.current = null;
             pendingScrollBehaviorRef.current = 'smooth';
         }
-    }, [scrollContainerHeight, scrollContainerWidth, scrollToMonthOffset, viewMode, yearLayout.columns, yearRangeEndOffset, yearRangeStartOffset]);
+    }, [
+        scrollContainerHeight,
+        scrollContainerWidth,
+        scrollToMonthOffset,
+        viewMode,
+        yearLayout.columns,
+        yearRangeEndOffset,
+        yearRangeStartOffset,
+        yearViewportStartOffset,
+    ]);
 
     useEffect(() => {
         monthLabelRef.current = activeMonthLabel;
@@ -2500,6 +2551,9 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         return () => {
             if (monthFadeTimerRef.current !== null) {
                 window.clearTimeout(monthFadeTimerRef.current);
+            }
+            if (yearShiftUnlockTimerRef.current !== null) {
+                window.clearTimeout(yearShiftUnlockTimerRef.current);
             }
         };
     }, []);
@@ -2980,7 +3034,9 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                         dayCellHeight={yearLayout.dayCellHeight}
                         chipScale={yearLayout.chipScale}
                         fontScale={yearFontScale}
+                        shiftAnimation={yearShiftAnimation}
                         displayBS={displayBS}
+                        scrollContainerRef={scrollContainerRef}
                         onDayClick={handleDayClick}
                         onEventClick={handleEventClick}
                     />
