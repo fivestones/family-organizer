@@ -39,15 +39,15 @@ describe('MainNav', () => {
         mocks.pathnameState.pathname = '/';
     });
 
-    it('marks the root chores link active only on exact root path', () => {
+    it('marks the root dashboard link active only on exact root path', () => {
         const { rerender } = render(<MainNav />);
 
-        expect(classTokens(screen.getByRole('button', { name: /chores/i }))).toContain('bg-accent');
+        expect(classTokens(screen.getByRole('button', { name: /dashboard/i }))).toContain('bg-accent');
 
         mocks.pathnameState.pathname = '/calendar';
         rerender(<MainNav />);
 
-        expect(classTokens(screen.getByRole('button', { name: /chores/i }))).not.toContain('bg-accent');
+        expect(classTokens(screen.getByRole('button', { name: /dashboard/i }))).not.toContain('bg-accent');
         expect(classTokens(screen.getByRole('button', { name: /calendar/i }))).toContain('bg-accent');
     });
 
