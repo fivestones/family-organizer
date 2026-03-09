@@ -32,7 +32,10 @@ interface MiniInfiniteCalendarViewProps {
     showGregorianDays: boolean;
     showBsDays: boolean;
     onDayClick: (day: Date) => void;
+    onDayDoubleClick: (day: Date) => void;
     onEventClick: (event: React.MouseEvent, item: CalendarItem) => void;
+    onEventDoubleClick: (event: React.MouseEvent, item: CalendarItem) => void;
+    isEventSelected: (item: CalendarItem) => boolean;
 }
 
 interface MiniHeaderLabel {
@@ -165,7 +168,10 @@ export default function MiniInfiniteCalendarView({
     showGregorianDays,
     showBsDays,
     onDayClick,
+    onDayDoubleClick,
     onEventClick,
+    onEventDoubleClick,
+    isEventSelected,
 }: MiniInfiniteCalendarViewProps) {
     const initialDate = weeks[0]?.[0] ?? new Date();
     const [gregorianLabel, setGregorianLabel] = useState<AnimatedHeaderState>(() =>
@@ -424,6 +430,7 @@ export default function MiniInfiniteCalendarView({
                                                 day={day}
                                                 dateStr={dateStr}
                                                 onClick={onDayClick}
+                                                onDoubleClick={onDayDoubleClick}
                                                 dataAttributes={{
                                                     'data-calendar-gregorian-boundary': isFirstGregorianDay ? dateStr : undefined,
                                                     'data-calendar-bs-boundary': isFirstBsDay ? dateStr : undefined,
@@ -446,7 +453,9 @@ export default function MiniInfiniteCalendarView({
                                                         laneGapPx={spanLaneGapPx}
                                                         eventScale={effectiveEventScale}
                                                         memberIndicatorStyle="dot"
+                                                        isEventSelected={isEventSelected}
                                                         onEventClick={onEventClick}
+                                                        onEventDoubleClick={onEventDoubleClick}
                                                     />
                                                 ) : null}
 
@@ -479,11 +488,17 @@ export default function MiniInfiniteCalendarView({
                                                                 layout="year"
                                                                 memberIndicatorStyle="dot"
                                                                 scale={effectiveEventScale}
+                                                                selected={isEventSelected(item)}
                                                                 draggableEnabled={item.calendarItemKind !== 'chore'}
                                                                 onClick={
                                                                     item.calendarItemKind === 'chore'
                                                                         ? undefined
                                                                         : (event) => onEventClick(event, item)
+                                                                }
+                                                                onDoubleClick={
+                                                                    item.calendarItemKind === 'chore'
+                                                                        ? undefined
+                                                                        : (event) => onEventDoubleClick(event, item)
                                                                 }
                                                             />
                                                         ))}

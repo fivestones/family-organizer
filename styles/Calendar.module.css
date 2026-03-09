@@ -624,6 +624,21 @@
     --calendar-year-event-font-scale: var(--calendar-item-scale, 1);
 }
 
+.calendarItemSelected {
+    --calendar-selection-color: #f97316;
+    border-color: var(--calendar-selection-color);
+    box-shadow:
+        0 0 0 1px rgba(249, 115, 22, 0.16),
+        0 0 0 2px rgba(249, 115, 22, 0.7);
+}
+
+.calendarItemPlainSelected {
+    border: 1px solid var(--calendar-selection-color, #f97316);
+    border-radius: 6px;
+    padding: 0 4px;
+    box-shadow: none;
+}
+
 .calendarItemCarryover {
     opacity: 0.56;
     filter: saturate(0.82);
@@ -752,6 +767,13 @@
     box-sizing: border-box;
 }
 
+.eventSpan.calendarItemSelected {
+    border-color: var(--calendar-selection-color, #f97316);
+    box-shadow:
+        0 0 0 1px rgba(249, 115, 22, 0.16),
+        0 0 0 2px rgba(249, 115, 22, 0.7);
+}
+
 .yearCalendarGrid .eventSpan {
     gap: 0;
     min-height: var(--calendar-year-span-event-height, 16px);
@@ -762,6 +784,13 @@
     background: var(--calendar-chip-bg, linear-gradient(135deg, #d1fae5, #a7f3d0));
     border-radius: var(--calendar-year-event-radius, 6px);
     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.yearCalendarGrid .eventSpan.calendarItemSelected {
+    border-color: var(--calendar-selection-color, #f97316);
+    box-shadow:
+        0 0 0 1px rgba(249, 115, 22, 0.16),
+        0 0 0 2px rgba(249, 115, 22, 0.7);
 }
 
 .yearCalendarGrid .eventHeaderRowSpan {

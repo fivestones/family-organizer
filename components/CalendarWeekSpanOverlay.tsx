@@ -51,6 +51,7 @@ interface CalendarWeekSpanOverlayProps {
     weekKey: string;
     weekSpanLanes: CalendarWeekSpanSegmentLike[][];
     onEventClick?: (event: React.MouseEvent, item: CalendarItem) => void;
+    onEventDoubleClick?: (event: React.MouseEvent, item: CalendarItem) => void;
     topOffsetPx?: number;
     laneHeightPx?: number;
     laneGapPx?: number;
@@ -58,12 +59,14 @@ interface CalendarWeekSpanOverlayProps {
     memberIndicatorStyle?: 'badge' | 'dot';
     interactive?: boolean;
     eventTestIds?: boolean;
+    isEventSelected?: (item: CalendarItem) => boolean;
 }
 
 export default function CalendarWeekSpanOverlay({
     weekKey,
     weekSpanLanes,
     onEventClick,
+    onEventDoubleClick,
     topOffsetPx = WEEK_SPAN_TOP_OFFSET_PX,
     laneHeightPx = WEEK_SPAN_LANE_HEIGHT_PX,
     laneGapPx = WEEK_SPAN_LANE_GAP_PX,
@@ -71,6 +74,7 @@ export default function CalendarWeekSpanOverlay({
     memberIndicatorStyle = 'badge',
     interactive = true,
     eventTestIds = true,
+    isEventSelected,
 }: CalendarWeekSpanOverlayProps) {
     const { weekSpanReservedHeight } = getWeekSpanReservedHeightData(weekSpanLanes, {
         laneHeightPx,
@@ -106,12 +110,16 @@ export default function CalendarWeekSpanOverlay({
                                 layout="span"
                                 memberIndicatorStyle={memberIndicatorStyle}
                                 scale={eventScale}
+                                selected={isEventSelected?.(segment.item) ?? false}
                                 className={segment.className}
                                 continuesBefore={segment.continuesBefore}
                                 continuesAfter={segment.continuesAfter}
                                 draggableEnabled={interactive}
                                 testId={eventTestIds ? undefined : null}
                                 onClick={interactive && onEventClick ? (event) => onEventClick(event, segment.item) : undefined}
+                                onDoubleClick={
+                                    interactive && onEventDoubleClick ? (event) => onEventDoubleClick(event, segment.item) : undefined
+                                }
                             />
                         </div>
                     ))}

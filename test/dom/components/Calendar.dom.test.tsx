@@ -51,13 +51,14 @@ vi.mock('@atlaskit/pragmatic-drag-and-drop/element/adapter', () => ({
 }));
 
 vi.mock('@/components/DroppableDayCell', () => ({
-    DroppableDayCell: ({ day, dateStr, onClick, children, className, style }: any) => (
+    DroppableDayCell: ({ day, dateStr, onClick, onDoubleClick, children, className, style }: any) => (
         <td
             data-testid={`day-cell-${dateStr}`}
             data-calendar-cell-date={dateStr}
             className={className}
             style={style}
-            onClick={() => onClick(day)}
+            onClick={() => onClick?.(day)}
+            onDoubleClick={() => onDoubleClick?.(day)}
         >
             {children}
         </td>
@@ -65,7 +66,7 @@ vi.mock('@/components/DroppableDayCell', () => ({
 }));
 
 vi.mock('@/components/DraggableCalendarEvent', () => ({
-    DraggableCalendarEvent: ({ item, onClick, memberIndicatorStyle, layout }: any) => {
+    DraggableCalendarEvent: ({ item, onClick, onDoubleClick, memberIndicatorStyle, layout, selected }: any) => {
         const usesChipChrome = (item.calendarItemKind || 'event') === 'event' && (item.isAllDay || layout === 'span');
 
         return (
@@ -74,9 +75,11 @@ vi.mock('@/components/DraggableCalendarEvent', () => ({
                 data-testid={`calendar-event-${item.id}`}
                 data-calendar-item-kind={item.calendarItemKind || 'event'}
                 data-calendar-chip-surface={usesChipChrome ? 'chip' : 'plain'}
+                data-calendar-selected={selected ? 'true' : 'false'}
                 data-member-colors={(item.pertainsTo || []).map((member: any) => member?.color || '').join(',')}
                 data-member-indicator-style={memberIndicatorStyle || 'badge'}
                 onClick={(e) => onClick?.(e)}
+                onDoubleClick={(e) => onDoubleClick?.(e)}
             >
                 {item.title}
             </button>
@@ -122,6 +125,21 @@ vi.mock('@/components/ui/dialog', () => ({
     DialogTitle: ({ children }: any) => <h2>{children}</h2>,
 }));
 
+vi.mock('@/components/ui/alert-dialog', () => ({
+    AlertDialog: ({ open, children }: any) => (open ? <div data-testid="delete-confirm-dialog">{children}</div> : null),
+    AlertDialogContent: ({ children }: any) => <div>{children}</div>,
+    AlertDialogHeader: ({ children }: any) => <div>{children}</div>,
+    AlertDialogTitle: ({ children }: any) => <h2>{children}</h2>,
+    AlertDialogDescription: ({ children }: any) => <p>{children}</p>,
+    AlertDialogFooter: ({ children }: any) => <div>{children}</div>,
+    AlertDialogCancel: ({ children }: any) => <button type="button">{children}</button>,
+    AlertDialogAction: ({ children, onClick }: any) => (
+        <button type="button" onClick={onClick}>
+            {children}
+        </button>
+    ),
+}));
+
 vi.mock('@instantdb/react', () => ({
     id: () => 'evt-generated',
     tx: {
@@ -132,6 +150,9 @@ vi.mock('@instantdb/react', () => ({
                     return {
                         update(payload: any) {
                             return { entity: 'calendarItems', id: String(key), op: 'update', payload };
+                        },
+                        delete() {
+                            return { entity: 'calendarItems', id: String(key), op: 'delete' };
                         },
                     };
                 },
@@ -176,18 +197,18 @@ describe('Calendar', () => {
         window.localStorage.clear();
     });
 
-    it('opens the add-event modal in create mode when a day cell is clicked', () => {
+    it('opens the add-event modal in create mode when a day cell is double-clicked', () => {
         renderCalendarWithItems([]);
 
         const firstDayCell = screen.getByTestId('day-cell-2026-03-15');
-        fireEvent.click(firstDayCell);
+        fireEvent.doubleClick(firstDayCell);
 
         const form = screen.getByTestId('add-event-form');
         expect(form).toHaveAttribute('data-selected-date', '2026-03-15');
         expect(form).toHaveAttribute('data-selected-event-id', '');
     });
 
-    it('opens the add-event modal in edit mode when an existing event is clicked', () => {
+    it('selects an event on single click and opens edit mode on double click', () => {
         renderCalendarWithItems([
             {
                 id: 'evt-1',
@@ -201,9 +222,33 @@ describe('Calendar', () => {
 
         fireEvent.click(screen.getByTestId('calendar-event-evt-1'));
 
+        expect(screen.queryByTestId('add-event-form')).toBeNull();
+        expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-calendar-selected', 'true');
+
+        fireEvent.doubleClick(screen.getByTestId('calendar-event-evt-1'));
+
         const form = screen.getByTestId('add-event-form');
         expect(form).toHaveAttribute('data-selected-date', '2026-03-15');
         expect(form).toHaveAttribute('data-selected-event-id', 'evt-1');
+    });
+
+    it('clears selection when a day cell is single-clicked', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-1',
+                title: 'Family Lunch',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+            },
+        ]);
+
+        fireEvent.click(screen.getByTestId('calendar-event-evt-1'));
+        expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-calendar-selected', 'true');
+
+        fireEvent.click(screen.getByTestId('day-cell-2026-03-16'));
+        expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-calendar-selected', 'false');
     });
 
     it('resolves member colors for regular events and chores before rendering event chips', () => {
@@ -245,6 +290,59 @@ describe('Calendar', () => {
         expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-member-indicator-style', 'badge');
         expect(screen.getByTestId('calendar-event-chore-chore-1-2026-03-15')).toHaveAttribute('data-member-colors', '#EF4444');
         expect(screen.getByTestId('calendar-event-chore-chore-1-2026-03-15')).toHaveAttribute('data-calendar-chip-surface', 'plain');
+    });
+
+    it('opens a delete confirmation for a selected non-recurring event and deletes it with the keyboard', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-1',
+                title: 'Family Lunch',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+            },
+        ]);
+
+        fireEvent.click(screen.getByTestId('calendar-event-evt-1'));
+        fireEvent.keyDown(window, { key: 'Delete' });
+
+        expect(screen.getByTestId('delete-confirm-dialog')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByText('Delete'));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledWith([{ entity: 'calendarItems', id: 'evt-1', op: 'delete' }]);
+        });
+    });
+
+    it('uses the recurrence scope flow when deleting a selected recurring event with the keyboard', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-recurring',
+                title: 'Lesson',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY',
+            },
+        ]);
+
+        fireEvent.click(screen.getAllByTestId('calendar-event-evt-recurring')[0]);
+        fireEvent.keyDown(window, { key: 'Delete' });
+
+        expect(screen.getByTestId('recurrence-scope-dialog')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByText('Only this event'));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+
+        const txOps = mocks.dbTransact.mock.calls[0][0];
+        expect(txOps[0]).toMatchObject({ entity: 'calendarItems', id: 'evt-recurring', op: 'update' });
+        expect(txOps[0].payload.exdates).toContain('2026-03-15');
     });
 
     it('positions today on the top visible row when the calendar first renders', async () => {

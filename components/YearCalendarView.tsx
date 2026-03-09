@@ -48,7 +48,10 @@ interface YearCalendarViewProps {
     scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
     onShiftAnimationComplete?: (shift: { key: number; direction: 'left' | 'right' }) => void;
     onDayClick: (day: Date) => void;
+    onDayDoubleClick: (day: Date) => void;
     onEventClick: (event: React.MouseEvent, item: CalendarItem) => void;
+    onEventDoubleClick: (event: React.MouseEvent, item: CalendarItem) => void;
+    isEventSelected: (item: CalendarItem) => boolean;
 }
 
 type MonthRenderMode = 'interactive' | 'inert';
@@ -223,7 +226,10 @@ export default function YearCalendarView({
     scrollContainerRef,
     onShiftAnimationComplete,
     onDayClick,
+    onDayDoubleClick,
     onEventClick,
+    onEventDoubleClick,
+    isEventSelected,
 }: YearCalendarViewProps) {
     const effectiveEventFontScale = Math.max(
         CALENDAR_YEAR_FONT_SCALE_MIN,
@@ -562,7 +568,9 @@ export default function YearCalendarView({
                                                         memberIndicatorStyle="dot"
                                                         interactive={interactive}
                                                         eventTestIds={interactive}
+                                                        isEventSelected={isEventSelected}
                                                         onEventClick={interactive ? onEventClick : undefined}
+                                                        onEventDoubleClick={interactive ? onEventDoubleClick : undefined}
                                                     />
                                                 ) : null}
 
@@ -606,12 +614,18 @@ export default function YearCalendarView({
                                                                 layout="year"
                                                                 memberIndicatorStyle="dot"
                                                                 scale={effectiveEventFontScale}
+                                                                selected={isEventSelected(item)}
                                                                 testId={interactive ? undefined : null}
                                                                 className={!inMonth ? styles.calendarItemCarryover : undefined}
                                                                 draggableEnabled={interactive && item.calendarItemKind !== 'chore'}
                                                                 onClick={
                                                                     interactive && item.calendarItemKind !== 'chore'
                                                                         ? (event) => onEventClick(event, item)
+                                                                        : undefined
+                                                                }
+                                                                onDoubleClick={
+                                                                    interactive && item.calendarItemKind !== 'chore'
+                                                                        ? (event) => onEventDoubleClick(event, item)
                                                                         : undefined
                                                                 }
                                                             />
@@ -630,6 +644,7 @@ export default function YearCalendarView({
                                                     day={day}
                                                     dateStr={dayKey}
                                                     onClick={onDayClick}
+                                                    onDoubleClick={onDayDoubleClick}
                                                     className={cellClassName}
                                                 >
                                                     {cellChildren}

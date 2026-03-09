@@ -39,6 +39,7 @@ interface DraggableCalendarEventProps {
     item: CalendarItem;
     index: number;
     onClick?: (e: React.MouseEvent) => void;
+    onDoubleClick?: (e: React.MouseEvent) => void;
     layout?: 'cell' | 'span' | 'year';
     memberIndicatorStyle?: 'badge' | 'dot';
     scale?: number;
@@ -47,6 +48,7 @@ interface DraggableCalendarEventProps {
     continuesAfter?: boolean;
     draggableEnabled?: boolean;
     testId?: string | null;
+    selected?: boolean;
 }
 
 const getMemberInitials = (name: string | null | undefined) => {
@@ -74,6 +76,7 @@ export const DraggableCalendarEvent = ({
     item,
     index,
     onClick,
+    onDoubleClick,
     layout = 'cell',
     memberIndicatorStyle = 'badge',
     scale = 1,
@@ -82,6 +85,7 @@ export const DraggableCalendarEvent = ({
     continuesAfter = false,
     draggableEnabled = true,
     testId,
+    selected = false,
 }: DraggableCalendarEventProps) => {
     const eventRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -147,6 +151,7 @@ export const DraggableCalendarEvent = ({
             data-testid={testId === null ? undefined : (testId ?? `calendar-event-${item.id}`)}
             data-calendar-item-kind={itemKind}
             data-calendar-chip-surface={usesChipChrome ? 'chip' : 'plain'}
+            data-calendar-selected={selected ? 'true' : 'false'}
             style={
                 {
                     opacity: isDragging ? 0.4 : 1,
@@ -162,12 +167,15 @@ export const DraggableCalendarEvent = ({
                 isInteractive ? styles.calendarItemInteractive : styles.calendarItemStatic,
                 effectiveScale !== 1 && styles.calendarItemScaled,
                 isYearLayout && styles.calendarItemYear,
+                selected && styles.calendarItemSelected,
+                selected && !usesChipChrome && styles.calendarItemPlainSelected,
                 isSpanLayout && styles.eventSpan,
                 isSpanLayout && continuesBefore && styles.eventSpanContinuesBefore,
                 isSpanLayout && continuesAfter && styles.eventSpanContinuesAfter,
                 className
             )}
             onClick={onClick}
+            onDoubleClick={onDoubleClick}
             title={item.title}
         >
             <div className={cn(styles.eventHeaderRow, isSpanLayout && styles.eventHeaderRowSpan, isYearLayout && styles.eventHeaderRowYear)}>

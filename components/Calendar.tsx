@@ -25,6 +25,16 @@ import CalendarWeekSpanOverlay, { getWeekSpanReservedHeightData } from './Calend
 import YearCalendarView from './YearCalendarView';
 import MiniInfiniteCalendarView from './MiniInfiniteCalendarView';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import localFont from 'next/font/local';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { DroppableDayCell } from './DroppableDayCell'; // Import new component
@@ -765,6 +775,14 @@ const applyResolvedMemberColorsToCalendarItems = (
         pertainsTo: resolveMemberColors(item.pertainsTo, memberColorsById),
     }));
 
+const getCalendarItemSelectionKey = (item: Pick<CalendarItem, 'id' | 'startDate'> & { recurrenceId?: string; __displayDate?: string }) => {
+    const occurrenceToken =
+        (typeof item.recurrenceId === 'string' && item.recurrenceId.trim()) ||
+        (typeof item.__displayDate === 'string' && item.__displayDate.trim()) ||
+        String(item.startDate || '').trim();
+    return `${String(item.id || '').trim()}::${occurrenceToken}`;
+};
+
 const optimisticItemSatisfiedByServer = (
     serverItem: CalendarItem | undefined,
     optimisticItem: Partial<CalendarItem> & { id: string }
@@ -822,13 +840,15 @@ const Calendar = ({
     const [optimisticItemsById, setOptimisticItemsById] = useState<Record<string, Partial<CalendarItem> & { id: string }>>({});
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedEvent, setSelectedEvent] = useState<CalendarItem | null>(null);
+    const [selectedEventKey, setSelectedEventKey] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [everyoneSelected, setEveryoneSelected] = useState(true);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [memberFilterConfigured, setMemberFilterConfigured] = useState(false);
     const [recurrenceScopeDialogOpen, setRecurrenceScopeDialogOpen] = useState(false);
-    const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag'>('drag');
+    const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag' | 'delete'>('drag');
     const [recurrenceScopeDialogMode, setRecurrenceScopeDialogMode] = useState<RecurrenceSeriesScopeMode>('following');
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
     const [dragRecurrenceIndicator, setDragRecurrenceIndicator] = useState<DragRecurrenceIndicatorState | null>(null);
     const [showChores, setShowChores] = useState<boolean>(() => {
         if (typeof window === 'undefined' || !commandsEnabled) {
@@ -1335,26 +1355,45 @@ const Calendar = ({
         []
     );
 
-    const handleDayClick = (day: Date) => {
-        setSelectedDate(day);
+    const selectCalendarEvent = useCallback((calendarEvent: CalendarItem) => {
+        setSelectedDate(parseISO(calendarEvent.startDate));
+        setSelectedEvent(calendarEvent);
+        setSelectedEventKey(getCalendarItemSelectionKey(calendarEvent));
+    }, []);
+
+    const clearCalendarSelection = useCallback(() => {
         setSelectedEvent(null);
+        setSelectedEventKey(null);
+    }, []);
+
+    const handleDayClick = () => {
+        clearCalendarSelection();
+    };
+
+    const handleDayDoubleClick = (day: Date) => {
+        setSelectedDate(day);
+        clearCalendarSelection();
         setIsModalOpen(true);
     };
 
     const handleEventClick = (e: React.MouseEvent, calendarEvent: CalendarItem) => {
         e.stopPropagation();
-        setSelectedDate(parseISO(calendarEvent.startDate));
-        setSelectedEvent(calendarEvent);
+        selectCalendarEvent(calendarEvent);
+    };
+
+    const handleEventDoubleClick = (e: React.MouseEvent, calendarEvent: CalendarItem) => {
+        e.stopPropagation();
+        selectCalendarEvent(calendarEvent);
         setIsModalOpen(true);
     };
 
     const handleCloseModal = () => {
         setIsModalOpen(false);
         setSelectedDate(null);
-        setSelectedEvent(null);
+        clearCalendarSelection();
     };
 
-    const requestRecurrenceScope = useCallback((action: 'edit' | 'drag', scopeMode: RecurrenceSeriesScopeMode = 'following') => {
+    const requestRecurrenceScope = useCallback((action: 'edit' | 'drag' | 'delete', scopeMode: RecurrenceSeriesScopeMode = 'following') => {
         return new Promise<RecurrenceEditScope>((resolve) => {
             recurrenceScopeResolverRef.current = resolve;
             setRecurrenceScopeDialogAction(action);
@@ -1384,6 +1423,255 @@ const Calendar = ({
 
         return occurrenceReferenceDate.getTime() === masterStartDate.getTime();
     }, []);
+
+    const handleDeleteByScope = useCallback(
+        async (scope: RecurrenceEditScope) => {
+            if (!selectedEvent) return;
+
+            const masterEvent = (((selectedEvent as any).__masterEvent as CalendarItem | undefined) || selectedEvent) as CalendarItem;
+            const masterRrule = normalizeRruleString(String(masterEvent?.rrule || ''));
+            const masterId = String(masterEvent?.id || selectedEvent.id);
+            const hasRecurringContext = Boolean(masterRrule || String(selectedEvent.recurringEventId || '').trim());
+
+            if (!hasRecurringContext) {
+                await db.transact([tx.calendarItems[selectedEvent.id].delete()]);
+                clearCalendarSelection();
+                return;
+            }
+
+            const referenceTokenRaw = String((selectedEvent as any).recurrenceId || selectedEvent.startDate || '').trim();
+            const referenceDate = parseRecurrenceDateToken(referenceTokenRaw) || parseRecurrenceDateToken(String(selectedEvent.startDate || ''));
+            if (!referenceDate) {
+                window.alert('Unable to identify the recurrence instance for deletion.');
+                return;
+            }
+            const referenceToken = selectedEvent.isAllDay ? format(referenceDate, 'yyyy-MM-dd') : referenceDate.toISOString();
+            const boundaryDateOnly = format(referenceDate, 'yyyy-MM-dd');
+
+            if (!masterRrule) {
+                if (scope !== 'single') {
+                    window.alert('Unable to delete following events because the recurrence series was not found.');
+                    return;
+                }
+
+                await db.transact([tx.calendarItems[selectedEvent.id].delete()]);
+                clearCalendarSelection();
+                return;
+            }
+
+            const masterExdates = normalizeRecurrenceTokens([
+                ...(Array.isArray(masterEvent.exdates) ? masterEvent.exdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(masterEvent.recurrenceLines, 'EXDATE'),
+            ]);
+            const masterRdates = normalizeRecurrenceTokens([
+                ...(Array.isArray(masterEvent.rdates) ? masterEvent.rdates.map((entry) => String(entry)) : []),
+                ...collectRecurrenceLineTokens(masterEvent.recurrenceLines, 'RDATE'),
+            ]);
+            const masterSequence = typeof masterEvent.sequence === 'number' ? masterEvent.sequence : 0;
+            const masterXProps =
+                masterEvent.xProps && typeof masterEvent.xProps === 'object' && !Array.isArray(masterEvent.xProps)
+                    ? { ...(masterEvent.xProps as Record<string, unknown>) }
+                    : {};
+
+            const txOps: any[] = [];
+            const selectedIsOverride =
+                selectedEvent.id !== masterId &&
+                String(selectedEvent.recurringEventId || '').trim() === masterId &&
+                !normalizeRruleString(String(selectedEvent.rrule || ''));
+
+            const collectRelatedOverrideIds = (boundaryTime?: number) => {
+                const overrideIds = new Set<string>();
+                for (const candidate of calendarItems) {
+                    const parentId = String(candidate.recurringEventId || '').trim();
+                    if (!parentId || parentId !== masterId) continue;
+
+                    if (boundaryTime == null) {
+                        overrideIds.add(candidate.id);
+                        continue;
+                    }
+
+                    const recurrenceRefToken =
+                        typeof candidate.recurrenceId === 'string' && candidate.recurrenceId.trim()
+                            ? candidate.recurrenceId
+                            : candidate.startDate;
+                    const recurrenceRefDate = parseRecurrenceDateToken(String(recurrenceRefToken || ''));
+                    if (!recurrenceRefDate) continue;
+                    const recurrenceTime = candidate.isAllDay
+                        ? parseISO(`${format(recurrenceRefDate, 'yyyy-MM-dd')}T00:00:00`).getTime()
+                        : recurrenceRefDate.getTime();
+                    if (recurrenceTime >= boundaryTime) {
+                        overrideIds.add(candidate.id);
+                    }
+                }
+
+                if (selectedIsOverride) {
+                    overrideIds.add(selectedEvent.id);
+                }
+
+                return overrideIds;
+            };
+
+            if (scope === 'single') {
+                const nextExdates = normalizeRecurrenceTokens([...masterExdates, referenceToken]);
+                const nextExceptionRows = normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceExceptionRows);
+                if (
+                    !nextExceptionRows.some((row) =>
+                        row.mode === 'date'
+                            ? row.date === boundaryDateOnly
+                            : row.rangeStart.localeCompare(boundaryDateOnly) <= 0 && row.rangeEnd.localeCompare(boundaryDateOnly) >= 0
+                    )
+                ) {
+                    nextExceptionRows.push({
+                        mode: 'date',
+                        date: boundaryDateOnly,
+                        rangeStart: boundaryDateOnly,
+                        rangeEnd: boundaryDateOnly,
+                    });
+                }
+
+                txOps.push(
+                    tx.calendarItems[masterId].update({
+                        exdates: nextExdates,
+                        recurrenceLines: buildRecurrenceLines(masterRrule, masterRdates, nextExdates),
+                        updatedAt: new Date().toISOString(),
+                        dtStamp: new Date().toISOString(),
+                        lastModified: new Date().toISOString(),
+                        sequence: masterSequence + 1,
+                        xProps: {
+                            ...masterXProps,
+                            recurrenceExceptionRows: nextExceptionRows,
+                        },
+                    })
+                );
+                if (selectedIsOverride) {
+                    txOps.push(tx.calendarItems[selectedEvent.id].delete());
+                }
+            } else if (scope === 'all') {
+                txOps.push(tx.calendarItems[masterId].delete());
+                for (const overrideId of Array.from(collectRelatedOverrideIds())) {
+                    txOps.push(tx.calendarItems[overrideId].delete());
+                }
+            } else {
+                const boundaryTime = selectedEvent.isAllDay
+                    ? parseISO(`${boundaryDateOnly}T00:00:00`).getTime()
+                    : referenceDate.getTime();
+                const masterStartReferenceDate = parseRecurrenceDateToken(String(masterEvent.startDate || ''));
+                const masterStartTime = masterStartReferenceDate
+                    ? selectedEvent.isAllDay
+                        ? parseISO(`${format(masterStartReferenceDate, 'yyyy-MM-dd')}T00:00:00`).getTime()
+                        : masterStartReferenceDate.getTime()
+                    : Number.NaN;
+                const deletingFromFirstOccurrence = Number.isFinite(masterStartTime) && boundaryTime <= masterStartTime;
+
+                if (deletingFromFirstOccurrence) {
+                    txOps.push(tx.calendarItems[masterId].delete());
+                } else {
+                    const cappedMasterRrule = capRruleBeforeOccurrence(masterRrule, referenceDate, selectedEvent.isAllDay);
+                    const splitExdates = partitionRecurrenceTokensByBoundary(masterExdates, referenceDate, selectedEvent.isAllDay);
+                    const splitRdates = partitionRecurrenceTokensByBoundary(masterRdates, referenceDate, selectedEvent.isAllDay);
+                    const splitExceptionRows = splitRecurrenceRowsAtBoundary(
+                        normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceExceptionRows),
+                        boundaryDateOnly
+                    );
+                    const splitRdateRows = splitRecurrenceRowsAtBoundary(
+                        normalizeStoredRecurrenceExceptionRows((masterXProps as any)?.recurrenceRdateRows),
+                        boundaryDateOnly
+                    );
+                    const patchedMasterXProps = { ...masterXProps };
+                    if (splitExceptionRows.before.length > 0) {
+                        patchedMasterXProps.recurrenceExceptionRows = splitExceptionRows.before;
+                    } else {
+                        delete patchedMasterXProps.recurrenceExceptionRows;
+                    }
+                    if (splitRdateRows.before.length > 0) {
+                        patchedMasterXProps.recurrenceRdateRows = splitRdateRows.before;
+                    } else {
+                        delete patchedMasterXProps.recurrenceRdateRows;
+                    }
+
+                    txOps.push(
+                        tx.calendarItems[masterId].update({
+                            rrule: cappedMasterRrule,
+                            rdates: splitRdates.before,
+                            exdates: splitExdates.before,
+                            recurrenceLines: buildRecurrenceLines(cappedMasterRrule, splitRdates.before, splitExdates.before),
+                            updatedAt: new Date().toISOString(),
+                            dtStamp: new Date().toISOString(),
+                            lastModified: new Date().toISOString(),
+                            sequence: masterSequence + 1,
+                            xProps: patchedMasterXProps,
+                        })
+                    );
+                }
+
+                const overrideIds = deletingFromFirstOccurrence ? collectRelatedOverrideIds() : collectRelatedOverrideIds(boundaryTime);
+                for (const overrideId of Array.from(overrideIds)) {
+                    txOps.push(tx.calendarItems[overrideId].delete());
+                }
+            }
+
+            try {
+                await db.transact(txOps);
+                clearCalendarSelection();
+            } catch (error) {
+                console.error('Unable to delete recurring event:', error);
+                window.alert('Unable to delete event. Please try again.');
+            }
+        },
+        [calendarItems, clearCalendarSelection, selectedEvent]
+    );
+
+    const handleDeleteSelectedEvent = useCallback(async () => {
+        if (!selectedEvent) return;
+
+        const masterEvent = (((selectedEvent as any).__masterEvent as CalendarItem | undefined) || selectedEvent) as CalendarItem;
+        const masterRrule = normalizeRruleString(String(masterEvent?.rrule || ''));
+        const isRecurringContext = Boolean(masterRrule || String(selectedEvent.recurringEventId || '').trim());
+
+        if (!isRecurringContext) {
+            setDeleteConfirmOpen(true);
+            return;
+        }
+
+        const scope = await requestRecurrenceScope(
+            'delete',
+            selectedEvent && masterEvent && isOriginalSeriesOccurrence(selectedEvent, masterEvent) ? 'all' : 'following'
+        );
+        if (scope === 'cancel') return;
+        await handleDeleteByScope(scope);
+    }, [handleDeleteByScope, isOriginalSeriesOccurrence, requestRecurrenceScope, selectedEvent]);
+
+    const isEventSelected = useCallback(
+        (item: CalendarItem) => (selectedEventKey ? getCalendarItemSelectionKey(item) === selectedEventKey : false),
+        [selectedEventKey]
+    );
+
+    useEffect(() => {
+        if (!selectedEventKey || isModalOpen) return;
+
+        const handleWindowKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Delete' && event.key !== 'Backspace') {
+                return;
+            }
+
+            const target = event.target as HTMLElement | null;
+            if (
+                target &&
+                (target.tagName === 'INPUT' ||
+                    target.tagName === 'TEXTAREA' ||
+                    target.tagName === 'SELECT' ||
+                    target.isContentEditable)
+            ) {
+                return;
+            }
+
+            event.preventDefault();
+            void handleDeleteSelectedEvent();
+        };
+
+        window.addEventListener('keydown', handleWindowKeyDown);
+        return () => window.removeEventListener('keydown', handleWindowKeyDown);
+    }, [handleDeleteSelectedEvent, isModalOpen, selectedEventKey]);
 
     const getForcedRecurrenceScopeFromInput = useCallback(
         (input: { altKey?: boolean; shiftKey?: boolean } | null | undefined, item: CalendarItem, masterEvent: CalendarItem): RecurrenceDragForcedScope | null => {
@@ -3255,7 +3543,10 @@ const Calendar = ({
                     showGregorianDays={effectiveShowGregorianDays}
                     showBsDays={effectiveShowBsDays}
                     onDayClick={handleDayClick}
+                    onDayDoubleClick={handleDayDoubleClick}
                     onEventClick={handleEventClick}
+                    onEventDoubleClick={handleEventDoubleClick}
+                    isEventSelected={isEventSelected}
                 />
             ) : (
                 <div
@@ -3289,7 +3580,10 @@ const Calendar = ({
                             scrollContainerRef={scrollContainerRef}
                             onShiftAnimationComplete={handleYearShiftAnimationComplete}
                             onDayClick={handleDayClick}
+                            onDayDoubleClick={handleDayDoubleClick}
                             onEventClick={handleEventClick}
+                            onEventDoubleClick={handleEventDoubleClick}
+                            isEventSelected={isEventSelected}
                         />
                     ) : (
                         <>
@@ -3402,6 +3696,7 @@ const Calendar = ({
                                                                 day={day}
                                                                 dateStr={dateStr}
                                                                 onClick={handleDayClick}
+                                                                onDoubleClick={handleDayDoubleClick}
                                                                 style={weekCellStyle}
                                                                 className={`${styles.dayCell} ${isFirstDayOfYear ? styles.firstDayOfYear : ''} ${
                                                                     isFirstDayOfMonth ? styles.firstDayOfMonth : ''
@@ -3418,6 +3713,8 @@ const Calendar = ({
                                                                         weekKey={weekKey}
                                                                         weekSpanLanes={weekSpanLanes}
                                                                         onEventClick={handleEventClick}
+                                                                        onEventDoubleClick={handleEventDoubleClick}
+                                                                        isEventSelected={isEventSelected}
                                                                     />
                                                                 ) : null}
                                                                 {shouldDisplayYear && <div className={styles.yearNumber}>{year}</div>}
@@ -3458,11 +3755,17 @@ const Calendar = ({
                                                                                 key={`${item.id}-${item.startDate}`}
                                                                                 item={item}
                                                                                 index={index}
+                                                                                selected={isEventSelected(item)}
                                                                                 draggableEnabled={item.calendarItemKind !== 'chore'}
                                                                                 onClick={
                                                                                     item.calendarItemKind === 'chore'
                                                                                         ? undefined
                                                                                         : (e) => handleEventClick(e, item)
+                                                                                }
+                                                                                onDoubleClick={
+                                                                                    item.calendarItemKind === 'chore'
+                                                                                        ? undefined
+                                                                                        : (e) => handleEventDoubleClick(e, item)
                                                                                 }
                                                                             />
                                                                         ))}
@@ -3482,7 +3785,16 @@ const Calendar = ({
                 </div>
             )}
 
-            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+            <Dialog
+                open={isModalOpen}
+                onOpenChange={(open) => {
+                    if (open) {
+                        setIsModalOpen(true);
+                        return;
+                    }
+                    handleCloseModal();
+                }}
+            >
                 <DialogContent>
                     <DialogTitle className="sr-only">{selectedEvent ? 'Edit calendar event' : 'Add calendar event'}</DialogTitle>
                     <AddEventForm
@@ -3494,6 +3806,26 @@ const Calendar = ({
                     />
                 </DialogContent>
             </Dialog>
+            <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Event?</AlertDialogTitle>
+                        <AlertDialogDescription>This will permanently delete the selected event.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(event) => {
+                                event.preventDefault();
+                                setDeleteConfirmOpen(false);
+                                void handleDeleteByScope('single');
+                            }}
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

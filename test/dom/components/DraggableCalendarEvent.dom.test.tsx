@@ -167,4 +167,24 @@ describe('DraggableCalendarEvent', () => {
         expect(badge).not.toBeNull();
         expect(badge?.style.getPropertyValue('--calendar-member-indicator-contrast-surface')).toBe('#000000');
     });
+
+    it('marks multi-day span events as selected when chosen', () => {
+        render(
+            <DraggableCalendarEvent
+                item={{
+                    id: 'evt-5',
+                    title: 'Spring break',
+                    startDate: '2026-04-01',
+                    endDate: '2026-04-04',
+                    isAllDay: true,
+                }}
+                index={0}
+                layout="span"
+                selected
+                draggableEnabled={false}
+            />
+        );
+
+        expect(screen.getByTestId('calendar-event-evt-5')).toHaveAttribute('data-calendar-selected', 'true');
+    });
 });
