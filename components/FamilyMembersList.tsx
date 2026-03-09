@@ -13,7 +13,17 @@ import { tx, id } from '@instantdb/react';
 import { UnitDefinition } from '@/lib/currency-utils';
 import Link from 'next/link';
 import { deleteS3Objects, getAvatarVariantUploadUrls, hashPin } from '@/app/actions';
+import {
+    MEMBER_COLOR_SWATCHES,
+    buildMemberColorMap,
+    findSimilarMemberColors,
+    getReadableTextColor,
+    hexToRgbaString,
+    normalizeHexColor,
+    pickRandomMemberColor,
+} from '@/lib/family-member-colors';
 import { getPhotoKeys, getPhotoUrl, type PhotoUrls } from '@/lib/photo-urls';
+import { cn } from '@/lib/utils';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -51,6 +61,7 @@ interface FamilyMember {
     order?: number | null; // <-- Add order
     // +++ NEW: Add Role +++
     role?: string | null;
+    color?: string | null;
     // Add other fields if needed from the query context (ChoreList vs AllowanceView)
 }
 
@@ -85,6 +96,19 @@ interface AvatarUploadTarget {
 
 interface AvatarUploadApiResponse {
     photoUrls: PhotoUrls;
+}
+
+function formatColorSimilarityWarning(matches: ReturnType<typeof findSimilarMemberColors>) {
+    if (matches.length === 0) return null;
+
+    const names = matches.map((match) => match.memberName);
+    if (names.length === 1) {
+        return `This color is very close to ${names[0]}'s and may be hard to distinguish on the calendar.`;
+    }
+    if (names.length === 2) {
+        return `This color is very close to ${names[0]} and ${names[1]} and may be hard to distinguish on the calendar.`;
+    }
+    return `This color is very close to ${names[0]}, ${names[1]}, and ${names.length - 2} more family members and may be hard to distinguish on the calendar.`;
 }
 
 function loadImageForCanvas(file: Blob): Promise<HTMLImageElement> {
@@ -132,6 +156,140 @@ function renderSquarePngVariant(image: HTMLImageElement, size: number): Promise<
             0.95
         );
     });
+}
+
+function MemberColorField({
+    color,
+    inputId,
+    onColorChange,
+    previewName,
+    warningMessage,
+}: {
+    color: string;
+    inputId: string;
+    onColorChange: (nextColor: string) => void;
+    previewName: string;
+    warningMessage?: string | null;
+}) {
+    const readableTextColor = getReadableTextColor(color);
+    const normalizedPreviewName = previewName.trim() || 'New family member';
+
+    return (
+        <div className="grid grid-cols-4 items-start gap-4">
+            <Label htmlFor={inputId} className="text-right pt-2">
+                Calendar color
+            </Label>
+            <div className="col-span-3 space-y-3">
+                <p className="text-sm text-muted-foreground">This color will be used for calendar events associated with this family member.</p>
+
+                <div
+                    className="rounded-2xl border p-3"
+                    style={{
+                        backgroundColor: hexToRgbaString(color, 0.08),
+                        borderColor: hexToRgbaString(color, 0.22),
+                    }}
+                >
+                    <div
+                        className="rounded-xl border px-4 py-4 shadow-sm"
+                        style={{
+                            background: `linear-gradient(135deg, ${hexToRgbaString(color, 0.96)} 0%, ${hexToRgbaString(color, 0.76)} 100%)`,
+                            borderColor: hexToRgbaString(color, 0.38),
+                            color: readableTextColor,
+                        }}
+                    >
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.28em] opacity-80">Calendar preview</div>
+                        <div className="mt-3 flex items-center gap-3">
+                            <div
+                                className="inline-flex h-11 min-w-[2.75rem] items-center justify-center rounded-full border px-3 text-sm font-semibold"
+                                style={{
+                                    borderColor: hexToRgbaString(readableTextColor, 0.28),
+                                    backgroundColor: hexToRgbaString(readableTextColor, 0.12),
+                                }}
+                            >
+                                {normalizedPreviewName.slice(0, 1).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                                <div className="truncate text-lg font-semibold leading-none">{normalizedPreviewName}</div>
+                                <div className="mt-1 text-sm opacity-80">Sample event color for this person</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="rounded-xl border bg-background/70 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Quick picks</div>
+                            <div className="mt-1 text-sm text-muted-foreground">Choose one of the built-in swatches or fine-tune with the custom picker.</div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <div
+                                aria-hidden="true"
+                                className="h-10 w-10 rounded-lg border shadow-sm"
+                                style={{ backgroundColor: color, borderColor: hexToRgbaString(color, 0.3) }}
+                            />
+                            <Input
+                                id={inputId}
+                                type="color"
+                                value={color}
+                                onChange={(event) => {
+                                    const nextColor = normalizeHexColor(event.target.value);
+                                    if (nextColor) {
+                                        onColorChange(nextColor);
+                                    }
+                                }}
+                                aria-label={`${normalizedPreviewName} custom calendar color`}
+                                className="h-10 w-16 cursor-pointer rounded-lg border p-1"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-8">
+                        {MEMBER_COLOR_SWATCHES.map((swatch) => {
+                            const isSelected = swatch.value === color;
+                            return (
+                                <button
+                                    key={swatch.value}
+                                    type="button"
+                                    aria-label={`Use ${swatch.label} for ${normalizedPreviewName}'s calendar color`}
+                                    title={swatch.label}
+                                    onClick={() => onColorChange(swatch.value)}
+                                    className={cn(
+                                        'h-10 rounded-xl border transition-transform duration-150 hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2',
+                                        isSelected ? 'scale-[1.04] ring-2 ring-slate-900/15 ring-offset-2' : ''
+                                    )}
+                                    style={{
+                                        backgroundColor: swatch.value,
+                                        borderColor: isSelected ? hexToRgbaString(swatch.value, 0.72) : hexToRgbaString(swatch.value, 0.25),
+                                    }}
+                                >
+                                    <span className="sr-only">{swatch.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2">
+                    <div
+                        aria-hidden="true"
+                        className="h-10 w-10 rounded-lg border shadow-sm"
+                        style={{ backgroundColor: color, borderColor: hexToRgbaString(color, 0.32) }}
+                    />
+                    <div className="min-w-0">
+                        <div className="text-sm font-medium">Selected color</div>
+                        <div className="font-mono text-xs uppercase text-muted-foreground">{color}</div>
+                    </div>
+                </div>
+
+                {warningMessage ? (
+                    <p className="text-sm font-medium text-amber-700">{warningMessage}</p>
+                ) : (
+                    <p className="text-xs text-muted-foreground">You can still save if colors are close. We’ll only show a warning.</p>
+                )}
+            </div>
+        </div>
+    );
 }
 
 function FamilyMembersList({
@@ -249,6 +407,7 @@ function FamilyMembersList({
     // +++ NEW State for Add Member +++
     const [newMemberRole, setNewMemberRole] = useState('child');
     const [newMemberPin, setNewMemberPin] = useState('');
+    const [newMemberColor, setNewMemberColor] = useState<string>(MEMBER_COLOR_SWATCHES[0].value);
 
     const isEditMode = alwaysEditMode;
     const { toast } = useToast();
@@ -266,6 +425,7 @@ function FamilyMembersList({
     // +++ NEW State for Edit Member +++
     const [editMemberRole, setEditMemberRole] = useState('child');
     const [editMemberPin, setEditMemberPin] = useState('');
+    const [editMemberColor, setEditMemberColor] = useState<string>(MEMBER_COLOR_SWATCHES[0].value);
 
     const [editImageSrc, setEditImageSrc] = useState<string | null>(null); // Type annotation
     const [editCrop, setEditCrop] = useState({ x: 0, y: 0 });
@@ -285,6 +445,39 @@ function FamilyMembersList({
 
     // --- NEW: State for optimistic UI reordering ---
     const [orderedMembers, setOrderedMembers] = useState<FamilyMember[]>(familyMembers);
+    const memberColorsById = useMemo(() => buildMemberColorMap(orderedMembers), [orderedMembers]);
+    const currentMemberColors = useMemo(
+        () => orderedMembers.map((member) => memberColorsById[member.id]).filter((color): color is string => Boolean(color)),
+        [orderedMembers, memberColorsById]
+    );
+    const newMemberColorComparisons = useMemo(
+        () =>
+            orderedMembers.map((member) => ({
+                id: member.id,
+                name: member.name,
+                color: memberColorsById[member.id],
+            })),
+        [orderedMembers, memberColorsById]
+    );
+    const editMemberColorComparisons = useMemo(
+        () =>
+            orderedMembers
+                .filter((member) => member.id !== editingMember?.id)
+                .map((member) => ({
+                    id: member.id,
+                    name: member.name,
+                    color: memberColorsById[member.id],
+                })),
+        [orderedMembers, memberColorsById, editingMember?.id]
+    );
+    const newMemberColorWarning = useMemo(
+        () => formatColorSimilarityWarning(findSimilarMemberColors(newMemberColor, newMemberColorComparisons)),
+        [newMemberColor, newMemberColorComparisons]
+    );
+    const editMemberColorWarning = useMemo(
+        () => formatColorSimilarityWarning(findSimilarMemberColors(editMemberColor, editMemberColorComparisons)),
+        [editMemberColor, editMemberColorComparisons]
+    );
 
     // --- NEW: Sync local state with sorted prop ---
     useEffect(() => {
@@ -513,6 +706,7 @@ function FamilyMembersList({
         const memberData: any = {
             // Use Partial<FamilyMember> or any to include new fields easily
             name,
+            color: newMemberColor,
             email: email || '',
             order: orderedMembers.length, // <-- NEW: Set order to be the last item
 
@@ -583,6 +777,7 @@ function FamilyMembersList({
             setNewMemberEmail('');
             setNewMemberRole('child'); // Reset role
             setNewMemberPin(''); // Reset pin
+            setNewMemberColor(pickRandomMemberColor(currentMemberColors));
             setImageSrc(null);
             setCrop({ x: 0, y: 0 });
             setZoom(1);
@@ -663,6 +858,7 @@ function FamilyMembersList({
         // +++ Populate Role +++
         setEditMemberRole(member.role || 'child');
         setEditMemberPin(''); // Always clear PIN input on open
+        setEditMemberColor(memberColorsById[member.id] || MEMBER_COLOR_SWATCHES[0].value);
 
         setEditImageSrc(getPhotoUrl(member.photoUrls, '1200') || null);
         setEditCrop({ x: 0, y: 0 });
@@ -683,6 +879,7 @@ function FamilyMembersList({
         setEditMemberEmail('');
         setEditMemberRole('child');
         setEditMemberPin('');
+        setEditMemberColor(MEMBER_COLOR_SWATCHES[0].value);
         setEditImageSrc(null);
         setEditCrop({ x: 0, y: 0 });
         setEditZoom(1);
@@ -701,6 +898,7 @@ function FamilyMembersList({
         setNewMemberEmail('');
         setNewMemberRole('child');
         setNewMemberPin('');
+        setNewMemberColor(pickRandomMemberColor(currentMemberColors));
         setImageSrc(null);
         setCrop({ x: 0, y: 0 });
         setZoom(1);
@@ -730,6 +928,7 @@ function FamilyMembersList({
             // Check editingMember is not null
             const updates: { [key: string]: any } = {
                 name: editMemberName,
+                color: editMemberColor,
                 email: editMemberEmail || '',
                 role: editMemberRole,
             };
@@ -779,10 +978,12 @@ function FamilyMembersList({
                 const updatedMember: FamilyMember = {
                     ...editingMember,
                     name: editMemberName,
+                    color: editMemberColor,
                     email: editMemberEmail || '',
                     role: editMemberRole,
                     photoUrls: updatedPhotoUrls,
                 };
+                setOrderedMembers((prevMembers) => prevMembers.map((member) => (member.id === editingMember.id ? updatedMember : member)));
                 setEditingMember(updatedMember);
                 setEditImageSrc(getPhotoUrl(updatedPhotoUrls, '1200') || null);
                 if (shouldDeletePreviousPhoto) {
@@ -998,6 +1199,7 @@ function FamilyMembersList({
                                 <SortableFamilyMemberItem
                                     key={member.id}
                                     member={member}
+                                    memberColor={memberColorsById[member.id]}
                                     index={index}
                                     isEditMode={isEditMode}
                                     selectedMember={activeMemberId}
@@ -1074,6 +1276,13 @@ function FamilyMembersList({
                                         placeholder="4-6 digit code"
                                     />
                                 </div>
+                                <MemberColorField
+                                    inputId="add-member-color"
+                                    color={newMemberColor}
+                                    onColorChange={setNewMemberColor}
+                                    previewName={newMemberName || 'New family member'}
+                                    warningMessage={newMemberColorWarning}
+                                />
                                 <div className="grid grid-cols-4 items-center gap-4">
                                     <Label htmlFor="photo" className="text-right">
                                         Photo
@@ -1223,6 +1432,14 @@ function FamilyMembersList({
                                         placeholder={isChildSelfEdit ? 'Enter new PIN to change' : 'Leave blank to keep existing'}
                                     />
                                 </div>
+
+                                <MemberColorField
+                                    inputId="edit-member-color"
+                                    color={editMemberColor}
+                                    onColorChange={setEditMemberColor}
+                                    previewName={editMemberName || editingMember.name || 'Family member'}
+                                    warningMessage={editMemberColorWarning}
+                                />
 
                                 {isChildSelfEdit ? (
                                     <div className="flex justify-center mt-2 mb-2">

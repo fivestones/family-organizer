@@ -26,6 +26,7 @@ interface FamilyMember {
 
 interface SortableFamilyMemberItemProps {
     member: FamilyMember;
+    memberColor?: string;
     index: number;
     isEditMode: boolean;
     selectedMember: string | null | 'All';
@@ -46,6 +47,7 @@ type DropIndicatorEdge = Edge | null; // 'top' | 'bottom' | 'left' | 'right' | n
 
 export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> = ({
     member,
+    memberColor,
     index,
     isEditMode,
     selectedMember,
@@ -179,6 +181,13 @@ export const SortableFamilyMemberItem: React.FC<SortableFamilyMemberItemProps> =
                             </Avatar>
                             <div className="flex flex-col min-w-0 flex-1">
                                 <div className="flex items-center gap-2 min-w-0">
+                                    {memberColor ? (
+                                        <span
+                                            aria-hidden="true"
+                                            className="h-3 w-3 shrink-0 rounded-full border border-slate-300/80 shadow-sm"
+                                            style={{ backgroundColor: memberColor }}
+                                        />
+                                    ) : null}
                                     <span className="font-medium truncate">{member.name}</span>
                                     {xpData && (
                                         <span className="text-xs text-muted-foreground shrink-0">

@@ -130,6 +130,7 @@ const _schema = i.schema({
             allowancePayoutDelayDays: i.number().optional(),
             allowanceRrule: i.string().optional(),
             allowanceStartDate: i.date().optional(),
+            color: i.string().optional(),
             email: i.string().indexed().optional(),
             lastDisplayCurrency: i.string().optional(),
             name: i.string(),

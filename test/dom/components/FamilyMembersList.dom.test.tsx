@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -281,6 +281,8 @@ describe('FamilyMembersList', () => {
         await user.type(screen.getByLabelText(/^name$/i), 'Taylor');
         await user.click(screen.getByLabelText(/^parent$/i));
         await user.type(screen.getByLabelText(/pin \(numbers\)/i), '1234');
+        expect((screen.getByLabelText(/custom calendar color/i) as HTMLInputElement).value).toMatch(/^#[0-9A-F]{6}$/i);
+        await user.click(screen.getByRole('button', { name: /use pink for taylor's calendar color/i }));
 
         await user.click(screen.getByRole('button', { name: /^add member$/i }));
 
@@ -300,6 +302,7 @@ describe('FamilyMembersList', () => {
                 id: 'member-new',
                 payload: expect.objectContaining({
                     name: 'Taylor',
+                    color: '#EC4899',
                     email: '',
                     role: 'parent',
                     pinHash: 'hashed-pin',
@@ -334,6 +337,28 @@ describe('FamilyMembersList', () => {
                 description: expect.stringMatching(/added successfully/i),
             })
         );
+    });
+
+    it('shows a non-blocking warning when a chosen color is very close to another member', async () => {
+        const user = userEvent.setup();
+        renderFamilyMembersList({
+            familyMembers: [
+                { id: 'member-1', name: 'Alex Kid', role: 'child', email: '', color: '#3B82F6' },
+                { id: 'member-2', name: 'Parent Pat', role: 'parent', email: 'pat@example.com', color: '#3B84F8' },
+            ] as any,
+            alwaysEditMode: true,
+        });
+
+        await user.click(screen.getByRole('button', { name: /open edit alex kid/i }));
+
+        fireEvent.change(screen.getByLabelText(/alex kid custom calendar color/i), {
+            target: { value: '#3B83F7' },
+        });
+
+        expect(
+            screen.getByText(/very close to parent pat's and may be hard to distinguish on the calendar/i)
+        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /save member/i })).toBeEnabled();
     });
 
     it('shows child self-edit UI (restricted fields hidden) and saves a new hashed PIN', async () => {
