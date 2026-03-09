@@ -5,11 +5,22 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { cn } from '../lib/utils';
 import { CALENDAR_YEAR_FONT_SCALE_MAX, CALENDAR_YEAR_FONT_SCALE_MIN } from '../lib/calendar-controls';
+import { buildMemberColorMap, getReadableTextColor, hexToRgbaString } from '../lib/family-member-colors';
 import styles from '../styles/Calendar.module.css'; // Import your calendar styles
 
 interface EventFamilyMember {
     id: string;
     name?: string | null;
+    color?: string | null;
+}
+
+interface EventMemberIndicator {
+    id: string;
+    name: string | null;
+    initials: string;
+    color: string;
+    textColor: string;
+    tintColor: string;
 }
 
 export interface CalendarItem {
@@ -30,6 +41,7 @@ interface DraggableCalendarEventProps {
     index: number;
     onClick?: (e: React.MouseEvent) => void;
     layout?: 'cell' | 'span' | 'year';
+    memberIndicatorStyle?: 'badge' | 'dot';
     scale?: number;
     className?: string;
     continuesBefore?: boolean;
@@ -64,6 +76,7 @@ export const DraggableCalendarEvent = ({
     index,
     onClick,
     layout = 'cell',
+    memberIndicatorStyle = 'badge',
     scale = 1,
     className,
     continuesBefore = false,
@@ -74,8 +87,6 @@ export const DraggableCalendarEvent = ({
     const eventRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
     const members = item.pertainsTo || [];
-    const visibleMembers = useMemo(() => members.slice(0, 3), [members]);
-    const remainingMemberCount = Math.max(0, members.length - visibleMembers.length);
     const isSpanLayout = layout === 'span';
     const isYearLayout = layout === 'year';
     const effectiveScale = Number.isFinite(scale)
@@ -84,8 +95,34 @@ export const DraggableCalendarEvent = ({
     const itemKind = item.calendarItemKind === 'chore' ? 'chore' : 'event';
     const isInteractive = draggableEnabled || typeof onClick === 'function';
     const descriptionText = useMemo(() => String(item.description || '').replace(/\s+/g, ' ').trim(), [item.description]);
-    const showAudienceInline = !isSpanLayout && !isYearLayout;
     const showDescriptionRow = !isSpanLayout && !isYearLayout && descriptionText.length > 0;
+    const memberIndicators = useMemo<EventMemberIndicator[]>(() => {
+        const memberColorsById = buildMemberColorMap(members);
+
+        return members
+            .map((member) => {
+                const memberId = typeof member?.id === 'string' ? member.id.trim() : '';
+                if (!memberId) {
+                    return null;
+                }
+
+                const color = memberColorsById[memberId];
+                if (!color) {
+                    return null;
+                }
+
+                return {
+                    id: memberId,
+                    name: member.name || null,
+                    initials: getMemberInitials(member.name),
+                    color,
+                    textColor: getReadableTextColor(color),
+                    tintColor: hexToRgbaString(color, 0.16),
+                };
+            })
+            .filter((member): member is EventMemberIndicator => Boolean(member));
+    }, [members]);
+    const usesDotIndicators = memberIndicatorStyle === 'dot';
 
     useEffect(() => {
         if (!draggableEnabled) {
@@ -132,24 +169,31 @@ export const DraggableCalendarEvent = ({
             title={item.title}
         >
             <div className={cn(styles.eventHeaderRow, isSpanLayout && styles.eventHeaderRowSpan, isYearLayout && styles.eventHeaderRowYear)}>
-                {showAudienceInline ? (
-                    <div className={cn(styles.eventAudienceRow, isSpanLayout && styles.eventAudienceRowSpan)}>
-                        {members.length === 0 ? (
-                            <span className={styles.eventAudienceAll}>All</span>
-                        ) : (
-                            <>
-                                {visibleMembers.map((member) => (
-                                    <span
-                                        key={member.id}
-                                        title={member.name || 'Unknown member'}
-                                        className={styles.eventAudienceAvatar}
-                                    >
-                                        {getMemberInitials(member.name)}
-                                    </span>
-                                ))}
-                                {remainingMemberCount > 0 && <span className={styles.eventAudienceCount}>+{remainingMemberCount}</span>}
-                            </>
+                {memberIndicators.length > 0 ? (
+                    <div
+                        className={cn(
+                            styles.eventAudienceRow,
+                            isSpanLayout && styles.eventAudienceRowSpan,
+                            usesDotIndicators && styles.eventAudienceRowDots
                         )}
+                    >
+                        {memberIndicators.map((member) => (
+                            <span
+                                key={member.id}
+                                title={member.name || 'Unknown member'}
+                                data-calendar-member-indicator={usesDotIndicators ? 'dot' : 'badge'}
+                                className={usesDotIndicators ? styles.eventMemberDot : styles.eventAudienceAvatar}
+                                style={
+                                    {
+                                        '--calendar-member-indicator-color': member.color,
+                                        '--calendar-member-indicator-soft': member.tintColor,
+                                        '--calendar-member-indicator-text': member.textColor,
+                                    } as React.CSSProperties
+                                }
+                            >
+                                {usesDotIndicators ? null : member.initials}
+                            </span>
+                        ))}
                     </div>
                 ) : null}
                 <div className={cn(styles.eventTitle, isSpanLayout && styles.eventTitleSpan, isYearLayout && styles.eventTitleYear)}>

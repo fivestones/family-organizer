@@ -633,11 +633,11 @@
 }
 
 .eventHeaderRowSpan {
-    gap: 0;
+    gap: 4px;
 }
 
 .eventHeaderRowYear {
-    gap: 0;
+    gap: 4px;
 }
 
 .eventAudienceRow {
@@ -645,6 +645,10 @@
     align-items: center;
     gap: 3px;
     flex-shrink: 0;
+}
+
+.eventAudienceRowDots {
+    gap: 2px;
 }
 
 .eventMetaText {
@@ -671,17 +675,20 @@
 }
 
 .eventAudienceAvatar {
-    width: 12px;
+    min-width: 12px;
     height: 12px;
     border-radius: 9999px;
-    border: 1px solid var(--calendar-chip-avatar-border, #34d399);
-    background: var(--calendar-chip-avatar-bg, rgba(255, 255, 255, 0.82));
-    color: var(--calendar-chip-avatar-text, #065f46);
+    border: 1px solid var(--calendar-member-indicator-color, var(--calendar-chip-avatar-border, #34d399));
+    background: var(--calendar-member-indicator-soft, var(--calendar-chip-avatar-bg, rgba(255, 255, 255, 0.82)));
+    color: var(--calendar-member-indicator-text, var(--calendar-chip-avatar-text, #065f46));
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-size: 0.38rem;
     font-weight: 700;
+    line-height: 1;
+    padding: 0 3px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42);
 }
 
 .eventAudienceCount {
@@ -691,6 +698,17 @@
     font-size: 0.45rem;
     font-weight: 700;
     padding: 0 4px;
+}
+
+.eventMemberDot {
+    width: calc(6px * var(--calendar-year-event-font-scale, 1));
+    height: calc(6px * var(--calendar-year-event-font-scale, 1));
+    border-radius: 9999px;
+    background: var(--calendar-member-indicator-color, var(--calendar-chip-avatar-border, #34d399));
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.56),
+        0 0 0 1px rgba(15, 23, 42, 0.14);
+    flex-shrink: 0;
 }
 
 .eventSpan {
@@ -721,7 +739,7 @@
 }
 
 .yearCalendarGrid .eventHeaderRowSpan {
-    gap: 0;
+    gap: 3px;
 }
 
 .yearCalendarGrid .eventSpanContinuesBefore,

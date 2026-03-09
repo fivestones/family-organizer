@@ -81,4 +81,60 @@ describe('DraggableCalendarEvent', () => {
         expect(dndMocks.draggable).not.toHaveBeenCalled();
         expect(screen.getByTestId('calendar-event-chore-1')).toHaveAttribute('data-calendar-item-kind', 'chore');
     });
+
+    it('shows colored initials badges in roomy layouts', () => {
+        render(
+            <DraggableCalendarEvent
+                item={{
+                    id: 'evt-2',
+                    title: 'Music lesson',
+                    startDate: '2026-04-01',
+                    endDate: '2026-04-02',
+                    isAllDay: true,
+                    pertainsTo: [
+                        { id: 'member-1', name: 'Judah Bell', color: '#3B82F6' },
+                        { id: 'member-2', name: 'Ava Bell', color: '#EF4444' },
+                    ],
+                }}
+                index={0}
+                draggableEnabled={false}
+            />
+        );
+
+        const eventNode = screen.getByTestId('calendar-event-evt-2');
+        const badges = eventNode.querySelectorAll('[data-calendar-member-indicator="badge"]');
+
+        expect(badges).toHaveLength(2);
+        expect(eventNode).toHaveTextContent('JB');
+        expect(eventNode).toHaveTextContent('AB');
+    });
+
+    it('shows compact color dots without initials in compact layouts', () => {
+        render(
+            <DraggableCalendarEvent
+                item={{
+                    id: 'evt-3',
+                    title: 'Doctor visit',
+                    startDate: '2026-04-01',
+                    endDate: '2026-04-02',
+                    isAllDay: true,
+                    pertainsTo: [
+                        { id: 'member-1', name: 'Judah Bell', color: '#3B82F6' },
+                        { id: 'member-2', name: 'Ava Bell', color: '#EF4444' },
+                    ],
+                }}
+                index={0}
+                layout="year"
+                memberIndicatorStyle="dot"
+                draggableEnabled={false}
+            />
+        );
+
+        const eventNode = screen.getByTestId('calendar-event-evt-3');
+        const dots = eventNode.querySelectorAll('[data-calendar-member-indicator="dot"]');
+
+        expect(dots).toHaveLength(2);
+        expect(eventNode).not.toHaveTextContent('JB');
+        expect(eventNode).not.toHaveTextContent('AB');
+    });
 });

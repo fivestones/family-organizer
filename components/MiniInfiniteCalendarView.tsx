@@ -445,6 +445,7 @@ export default function MiniInfiniteCalendarView({
                                                         laneHeightPx={spanLaneHeightPx}
                                                         laneGapPx={spanLaneGapPx}
                                                         eventScale={effectiveEventScale}
+                                                        memberIndicatorStyle="dot"
                                                         onEventClick={onEventClick}
                                                     />
                                                 ) : null}
@@ -476,6 +477,7 @@ export default function MiniInfiniteCalendarView({
                                                                 item={item}
                                                                 index={index}
                                                                 layout="year"
+                                                                memberIndicatorStyle="dot"
                                                                 scale={effectiveEventScale}
                                                                 draggableEnabled={item.calendarItemKind !== 'chore'}
                                                                 onClick={

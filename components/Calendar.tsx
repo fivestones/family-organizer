@@ -64,6 +64,7 @@ import {
     buildYearCalendarMonthDescriptors,
     calculateYearCalendarLayout,
 } from '@/lib/calendar-year-layout';
+import { buildMemberColorMap } from '@/lib/family-member-colors';
 
 const ebGaramond = localFont({
     src: '../public/fonts/EBGaramond-Regular.ttf',
@@ -122,6 +123,12 @@ interface CalendarWeekSpanSegment {
     endCol: number;
     continuesBefore: boolean;
     continuesAfter: boolean;
+}
+
+interface CalendarMemberWithColor {
+    id?: string | null;
+    name?: string | null;
+    color?: string | null;
 }
 
 const WEEK_STARTS_ON = 0;
@@ -722,6 +729,41 @@ const mergeCalendarItemsWithOptimistic = (
 
     return Array.from(mergedById.values());
 };
+
+const resolveMemberColors = <T extends CalendarMemberWithColor>(
+    members: T[] | undefined,
+    memberColorsById: Record<string, string>
+): T[] => {
+    if (!Array.isArray(members) || members.length === 0) {
+        return [];
+    }
+
+    return members.map((member) => {
+        const memberId = typeof member?.id === 'string' ? member.id.trim() : '';
+        if (!memberId) {
+            return member;
+        }
+
+        const resolvedColor = memberColorsById[memberId] || member.color || null;
+        if (resolvedColor === member.color) {
+            return member;
+        }
+
+        return {
+            ...member,
+            color: resolvedColor,
+        };
+    });
+};
+
+const applyResolvedMemberColorsToCalendarItems = (
+    items: CalendarItem[],
+    memberColorsById: Record<string, string>
+) =>
+    items.map((item) => ({
+        ...item,
+        pertainsTo: resolveMemberColors(item.pertainsTo, memberColorsById),
+    }));
 
 const optimisticItemSatisfiedByServer = (
     serverItem: CalendarItem | undefined,
@@ -2752,6 +2794,7 @@ const Calendar = ({
                     familyMember: {},
                 },
             },
+            familyMembers: {},
         }),
         [monthConditions, recurrenceReferenceMonthConditions]
     );
@@ -2759,14 +2802,25 @@ const Calendar = ({
     const queryResult = (db as any).useQuery(query) as any;
     const { isLoading, error, data } = queryResult;
     const chores = useMemo(() => ((data?.chores as Chore[]) || []), [data?.chores]);
+    const familyMembers = useMemo(
+        () =>
+            (((data?.familyMembers as CalendarMemberWithColor[]) || []).filter(
+                (member) => typeof member?.id === 'string' && member.id.trim().length > 0
+            )),
+        [data?.familyMembers]
+    );
+    const memberColorsById = useMemo(() => buildMemberColorMap(familyMembers), [familyMembers]);
 
     useEffect(() => {
         if (!isLoading && !error && data) {
             setCalendarItems(
-                mergeCalendarItemsWithOptimistic(data.calendarItems as CalendarItem[], optimisticItemsById)
+                applyResolvedMemberColorsToCalendarItems(
+                    mergeCalendarItemsWithOptimistic(data.calendarItems as CalendarItem[], optimisticItemsById),
+                    memberColorsById
+                )
             );
         }
-    }, [isLoading, data, error, optimisticItemsById]);
+    }, [isLoading, data, error, optimisticItemsById, memberColorsById]);
 
     useEffect(() => {
         if (!data || isLoading || error) return;
@@ -2826,7 +2880,7 @@ const Calendar = ({
             return pertainsToIds.some((id) => selectedMemberIdSet.has(id));
         };
 
-        const matchesChoreMemberFilter = (assignedMembers: Array<{ id: string; name?: string }>) => {
+        const matchesChoreMemberFilter = (assignedMembers: Array<{ id: string; name?: string; color?: string | null }>) => {
             const assignedIds = assignedMembers
                 .map((member) => member?.id)
                 .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
@@ -3096,7 +3150,7 @@ const Calendar = ({
                     if (!chore?.id || !chore?.title || !chore?.startDate) continue;
                     if (!matchesChoreIdFilter(chore.id)) continue;
 
-                    const assignedMembers = getAssignedMembersForChoreOnDate(chore, utcDay);
+                    const assignedMembers = resolveMemberColors(getAssignedMembersForChoreOnDate(chore, utcDay), memberColorsById);
                     if (!matchesChoreMemberFilter(assignedMembers)) continue;
 
                     pushByDate(dateKey, {
@@ -3158,6 +3212,7 @@ const Calendar = ({
         effectiveShowChores,
         chores,
         days,
+        memberColorsById,
     ]);
 
     const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

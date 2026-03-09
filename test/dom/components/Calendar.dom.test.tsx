@@ -65,11 +65,13 @@ vi.mock('@/components/DroppableDayCell', () => ({
 }));
 
 vi.mock('@/components/DraggableCalendarEvent', () => ({
-    DraggableCalendarEvent: ({ item, onClick }: any) => (
+    DraggableCalendarEvent: ({ item, onClick, memberIndicatorStyle }: any) => (
         <button
             type="button"
             data-testid={`calendar-event-${item.id}`}
             data-calendar-item-kind={item.calendarItemKind || 'event'}
+            data-member-colors={(item.pertainsTo || []).map((member: any) => member?.color || '').join(',')}
+            data-member-indicator-style={memberIndicatorStyle || 'badge'}
             onClick={(e) => onClick?.(e)}
         >
             {item.title}
@@ -143,13 +145,13 @@ vi.mock('@/lib/db', () => ({
 import Calendar from '@/components/Calendar';
 
 function renderCalendarWithData(
-    { calendarItems = [], chores = [] }: { calendarItems?: any[]; chores?: any[] },
+    { calendarItems = [], chores = [], familyMembers = [] }: { calendarItems?: any[]; chores?: any[]; familyMembers?: any[] },
     props?: Partial<React.ComponentProps<typeof Calendar>>
 ) {
     mocks.dbUseQuery.mockReturnValue({
         isLoading: false,
         error: null,
-        data: { calendarItems, chores },
+        data: { calendarItems, chores, familyMembers },
     });
     render(<Calendar currentDate={new Date(2026, 2, 15)} numWeeks={1} displayBS={false} {...props} />);
 }
@@ -197,6 +199,46 @@ describe('Calendar', () => {
         const form = screen.getByTestId('add-event-form');
         expect(form).toHaveAttribute('data-selected-date', '2026-03-15');
         expect(form).toHaveAttribute('data-selected-event-id', 'evt-1');
+    });
+
+    it('resolves member colors for regular events and chores before rendering event chips', () => {
+        renderCalendarWithData(
+            {
+                familyMembers: [
+                    { id: 'member-1', name: 'Judah', color: '#3B82F6' },
+                    { id: 'member-2', name: 'Ava', color: '#EF4444' },
+                ],
+                calendarItems: [
+                    {
+                        id: 'evt-1',
+                        title: 'Piano',
+                        description: '',
+                        startDate: '2026-03-15',
+                        endDate: '2026-03-16',
+                        isAllDay: true,
+                        pertainsTo: [{ id: 'member-1', name: 'Judah' }],
+                    },
+                ],
+                chores: [
+                    {
+                        id: 'chore-1',
+                        title: 'Kitchen reset',
+                        description: '',
+                        startDate: '2026-03-15',
+                        rotationType: 'none',
+                        assignees: [{ id: 'member-2', name: 'Ava' }],
+                        assignments: [],
+                        isJoint: false,
+                        isUpForGrabs: false,
+                    },
+                ],
+            },
+            { showChores: true }
+        );
+
+        expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-member-colors', '#3B82F6');
+        expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-member-indicator-style', 'badge');
+        expect(screen.getByTestId('calendar-event-chore-chore-1-2026-03-15')).toHaveAttribute('data-member-colors', '#EF4444');
     });
 
     it('positions today on the top visible row when the calendar first renders', async () => {
@@ -385,6 +427,41 @@ describe('Calendar', () => {
         });
 
         expect(screen.getAllByTestId('calendar-event-evt-span')).toHaveLength(1);
+    });
+
+    it('uses compact member indicators in the year view', async () => {
+        renderCalendarWithData(
+            {
+                familyMembers: [{ id: 'member-1', name: 'Judah', color: '#3B82F6' }],
+                calendarItems: [
+                    {
+                        id: 'evt-dot',
+                        title: 'Piano',
+                        description: '',
+                        startDate: '2026-03-15',
+                        endDate: '2026-03-16',
+                        isAllDay: true,
+                        pertainsTo: [{ id: 'member-1', name: 'Judah' }],
+                    },
+                ],
+            },
+            {
+                currentDate: new Date(2026, 2, 15),
+                displayBS: true,
+            }
+        );
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'year' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('calendar-event-evt-dot')).toHaveAttribute('data-member-indicator-style', 'dot');
+        });
     });
 
     it('lets single-day year-view events rise when no multi-day span occupies that day', async () => {

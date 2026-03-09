@@ -15,11 +15,11 @@ export interface Chore {
     pauseState?: ChorePauseState | null;
     weight?: number | null;
     rotationType: 'none' | 'daily' | 'weekly' | 'monthly';
-    assignees: { id: string; name?: string }[]; // Simplified assignee type
+    assignees: { id: string; name?: string; color?: string | null }[]; // Simplified assignee type
     assignments?: {
         // For rotation
         order: number;
-        familyMember: { id: string; name?: string };
+        familyMember: { id: string; name?: string; color?: string | null };
     }[];
     completions?: ChoreCompletion[]; // Link to completions
     // +++ Up for Grabs fields +++
@@ -43,6 +43,7 @@ export interface ChoreCompletion {
 interface FamilyMember {
     id: string;
     name?: string;
+    color?: string | null;
     // Add other relevant fields
 }
 
@@ -302,7 +303,7 @@ const isSameDay = (date1: Date, date2: Date) => {
     return date1.getUTCFullYear() === date2.getUTCFullYear() && date1.getUTCMonth() === date2.getUTCMonth() && date1.getUTCDate() === date2.getUTCDate();
 };
 
-export const getAssignedMembersForChoreOnDate = (chore: Chore, date: Date): { id: string; name?: string }[] => {
+export const getAssignedMembersForChoreOnDate = (chore: Chore, date: Date): { id: string; name?: string; color?: string | null }[] => {
     const utcDate = toUTCDate(date);
     const choreStartDate = toUTCDate(chore.startDate);
 
@@ -330,12 +331,12 @@ export const getAssignedMembersForChoreOnDate = (chore: Chore, date: Date): { id
 
             // Now check if the extracted object and its id exist
             return assignedMemberData && assignedMemberData.id
-                ? [{ id: assignedMemberData.id, name: assignedMemberData.name }] // Return valid assignee in an array
+                ? [{ id: assignedMemberData.id, name: assignedMemberData.name, color: assignedMemberData.color ?? null }] // Return valid assignee in an array
                 : []; // Return empty array if data is incomplete or missing
         } else {
             // Assigned to all direct assignees (for non-rotating or up-for-grabs chores)
             // Ensure this also returns an array of objects with id/name
-            return (chore.assignees || []).map((a) => ({ id: a.id, name: a.name }));
+            return (chore.assignees || []).map((a) => ({ id: a.id, name: a.name, color: a.color ?? null }));
         }
     } catch (error) {
         console.error(`Error processing RRULE for chore ${chore.id} on date ${date.toISOString()}:`, error);

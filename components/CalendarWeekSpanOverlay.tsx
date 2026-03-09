@@ -55,6 +55,7 @@ interface CalendarWeekSpanOverlayProps {
     laneHeightPx?: number;
     laneGapPx?: number;
     eventScale?: number;
+    memberIndicatorStyle?: 'badge' | 'dot';
     interactive?: boolean;
     eventTestIds?: boolean;
 }
@@ -67,6 +68,7 @@ export default function CalendarWeekSpanOverlay({
     laneHeightPx = WEEK_SPAN_LANE_HEIGHT_PX,
     laneGapPx = WEEK_SPAN_LANE_GAP_PX,
     eventScale,
+    memberIndicatorStyle = 'badge',
     interactive = true,
     eventTestIds = true,
 }: CalendarWeekSpanOverlayProps) {
@@ -102,6 +104,7 @@ export default function CalendarWeekSpanOverlay({
                                 item={segment.item}
                                 index={laneIndex}
                                 layout="span"
+                                memberIndicatorStyle={memberIndicatorStyle}
                                 scale={eventScale}
                                 className={segment.className}
                                 continuesBefore={segment.continuesBefore}

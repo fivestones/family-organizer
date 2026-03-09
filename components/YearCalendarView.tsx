@@ -559,6 +559,7 @@ export default function YearCalendarView({
                                                         laneHeightPx={spanLaneHeightPx}
                                                         laneGapPx={spanLaneGapPx}
                                                         eventScale={effectiveEventFontScale}
+                                                        memberIndicatorStyle="dot"
                                                         interactive={interactive}
                                                         eventTestIds={interactive}
                                                         onEventClick={interactive ? onEventClick : undefined}
@@ -603,6 +604,7 @@ export default function YearCalendarView({
                                                                 item={item}
                                                                 index={index}
                                                                 layout="year"
+                                                                memberIndicatorStyle="dot"
                                                                 scale={effectiveEventFontScale}
                                                                 testId={interactive ? undefined : null}
                                                                 className={!inMonth ? styles.calendarItemCarryover : undefined}
