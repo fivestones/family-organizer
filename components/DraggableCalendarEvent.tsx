@@ -34,6 +34,7 @@ interface DraggableCalendarEventProps {
     continuesBefore?: boolean;
     continuesAfter?: boolean;
     draggableEnabled?: boolean;
+    testId?: string | null;
 }
 
 const getMemberInitials = (name: string | null | undefined) => {
@@ -67,6 +68,7 @@ export const DraggableCalendarEvent = ({
     continuesBefore = false,
     continuesAfter = false,
     draggableEnabled = true,
+    testId,
 }: DraggableCalendarEventProps) => {
     const eventRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -103,7 +105,7 @@ export const DraggableCalendarEvent = ({
     return (
         <div
             ref={eventRef}
-            data-testid={`calendar-event-${item.id}`}
+            data-testid={testId === null ? undefined : (testId ?? `calendar-event-${item.id}`)}
             data-calendar-item-kind={itemKind}
             style={
                 {

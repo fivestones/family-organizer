@@ -35,6 +35,20 @@ export interface YearCalendarLayout {
     chipScale: number;
 }
 
+export const calculateYearMonthCardHeight = ({
+    weekCount,
+    dayCellHeight,
+}: {
+    weekCount: number;
+    dayCellHeight: number;
+}) => {
+    if (weekCount <= 0 || dayCellHeight <= 0) {
+        return YEAR_VIEW_CARD_HEADER_PX + YEAR_VIEW_WEEKDAY_ROW_PX + YEAR_VIEW_CARD_CHROME_PX;
+    }
+
+    return YEAR_VIEW_CARD_HEADER_PX + YEAR_VIEW_WEEKDAY_ROW_PX + YEAR_VIEW_CARD_CHROME_PX + weekCount * dayCellHeight;
+};
+
 const buildWeeks = (startDate: Date, endDateExclusive: Date) => {
     const monthEndInclusive = addDays(endDateExclusive, -1);
     const gridStart = startOfWeek(startDate, { weekStartsOn: WEEK_STARTS_ON });

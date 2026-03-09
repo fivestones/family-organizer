@@ -302,10 +302,58 @@ describe('Calendar', () => {
             );
         });
 
+        expect(screen.getByTestId('year-month-gregorian-2025-03')).toBeInTheDocument();
+        expect(screen.queryByTestId('year-month-gregorian-2028-03')).not.toBeInTheDocument();
+
         await waitFor(() => {
             expect(screen.queryByTestId('year-month-gregorian-2025-03')).not.toBeInTheDocument();
             expect(screen.getByTestId('year-month-gregorian-2025-04')).toBeInTheDocument();
             expect(screen.getByTestId('year-month-gregorian-2028-03')).toBeInTheDocument();
+        });
+    });
+
+    it('allows consecutive year-view shifts in both directions', async () => {
+        renderCalendarWithItems([], {
+            currentDate: new Date(2026, 2, 15),
+            displayBS: true,
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'year' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('year-month-gregorian-2026-03')).toBeInTheDocument();
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'shiftYearView', direction: 'right' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('year-month-gregorian-2026-02')).toBeInTheDocument();
+            expect(screen.queryByTestId('year-month-gregorian-2028-02')).not.toBeInTheDocument();
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'shiftYearView', direction: 'left' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('year-month-gregorian-2026-03')).toBeInTheDocument();
+            expect(screen.getByTestId('year-month-gregorian-2027-02')).toBeInTheDocument();
         });
     });
 

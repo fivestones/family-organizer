@@ -12,8 +12,11 @@ import { DraggableCalendarEvent, type CalendarItem } from '@/components/Draggabl
 import styles from '@/styles/Calendar.module.css';
 import { formatCommonBsMonthLabel, toDevanagariDigits } from '@/lib/calendar-display';
 import { type CalendarYearMonthBasis } from '@/lib/calendar-controls';
-import { planYearShift, type YearShiftMonthSnapshot } from '@/lib/calendar-year-shift';
-import { type YearCalendarMonthDescriptor, yearCalendarDateBelongsToMonth } from '@/lib/calendar-year-layout';
+import {
+    calculateYearMonthCardHeight,
+    type YearCalendarMonthDescriptor,
+    yearCalendarDateBelongsToMonth,
+} from '@/lib/calendar-year-layout';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const YEAR_DAY_BASE_TOP_CHROME_PX = 12;
@@ -23,9 +26,11 @@ const YEAR_MORE_ROW_PX = 11;
 const YEAR_EVENT_ROW_GAP_PX = 1;
 const YEAR_SHIFT_ANIMATION_MS = 230;
 const YEAR_SHIFT_ANIMATION_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const YEAR_MONTH_ROW_GAP_PX = 12;
 
 interface YearCalendarViewProps {
     months: YearCalendarMonthDescriptor[];
+    leadingBufferMonth?: YearCalendarMonthDescriptor | null;
     monthBasis: CalendarYearMonthBasis;
     dayItemsByDate: Map<string, CalendarItem[]>;
     weekSpanLanesByWeek: Map<string, CalendarWeekSpanSegmentLike[][]>;
@@ -34,14 +39,24 @@ interface YearCalendarViewProps {
     chipScale: number;
     fontScale: number;
     shiftAnimation?: { key: number; direction: 'left' | 'right' } | null;
+    trailingBufferMonth?: YearCalendarMonthDescriptor | null;
     displayBS: boolean;
     scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+    onShiftAnimationComplete?: (shift: { key: number; direction: 'left' | 'right' }) => void;
     onDayClick: (day: Date) => void;
     onEventClick: (event: React.MouseEvent, item: CalendarItem) => void;
 }
 
-interface CapturedYearMonthSnapshot extends YearShiftMonthSnapshot {
-    clone: HTMLElement;
+type MonthRenderMode = 'interactive' | 'inert';
+
+interface YearMonthRowModel {
+    rowIndex: number;
+    visibleMonths: Array<YearCalendarMonthDescriptor | null>;
+    leftEdgeMonth: YearCalendarMonthDescriptor | null;
+    rightEdgeMonth: YearCalendarMonthDescriptor | null;
+    oldHeight: number;
+    shiftLeftHeight: number;
+    shiftRightHeight: number;
 }
 
 const getScaledPx = (basePx: number, scale: number, minimumPx: number) => Math.max(minimumPx, Math.round(basePx * scale));
@@ -140,66 +155,59 @@ const getDayMeta = (day: Date, monthBasis: CalendarYearMonthBasis, displayBS: bo
     };
 };
 
-const stripMonthCloneAttributes = (root: HTMLElement) => {
-    const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))];
-    for (const element of elements) {
-        element.removeAttribute('id');
-        element.removeAttribute('data-testid');
-        element.removeAttribute('data-calendar-month-key');
-        element.removeAttribute('data-calendar-month-offset');
-        element.removeAttribute('data-calendar-cell-date');
-        element.setAttribute('aria-hidden', 'true');
-        if ('tabIndex' in element) {
-            element.tabIndex = -1;
-        }
-    }
-};
+const getRowHeight = (months: Array<YearCalendarMonthDescriptor | null>, dayCellHeight: number) =>
+    months.reduce(
+        (rowMax, month) =>
+            Math.max(
+                rowMax,
+                month
+                    ? calculateYearMonthCardHeight({
+                          weekCount: month.weekCount,
+                          dayCellHeight,
+                      })
+                    : 0
+            ),
+        0
+    );
 
-const captureYearMonthSnapshots = ({
-    grid,
-    stage,
+const buildYearMonthRows = ({
+    months,
+    leadingBufferMonth,
     columns,
+    dayCellHeight,
+    trailingBufferMonth,
 }: {
-    grid: HTMLDivElement;
-    stage: HTMLDivElement;
+    months: YearCalendarMonthDescriptor[];
+    leadingBufferMonth?: YearCalendarMonthDescriptor | null;
     columns: number;
-}): CapturedYearMonthSnapshot[] => {
-    const stageRect = stage.getBoundingClientRect();
-    const monthNodes = Array.from(grid.querySelectorAll<HTMLElement>('[data-calendar-month-key]'));
+    dayCellHeight: number;
+    trailingBufferMonth?: YearCalendarMonthDescriptor | null;
+}) => {
+    const rows: YearMonthRowModel[] = [];
 
-    return monthNodes
-        .map((node, index) => {
-            const key = node.dataset.calendarMonthKey;
-            if (!key) {
-                return null;
-            }
+    for (let startIndex = 0; startIndex < months.length; startIndex += columns) {
+        const visibleMonths = Array.from({ length: columns }, (_, slotIndex) => months[startIndex + slotIndex] ?? null);
+        const leftEdgeMonth = months[startIndex - 1] ?? (startIndex === 0 ? leadingBufferMonth ?? null : null);
+        const rightEdgeMonth =
+            months[startIndex + columns] ?? (startIndex + columns >= months.length ? trailingBufferMonth ?? null : null);
 
-            const rect = node.getBoundingClientRect();
-            if (rect.width <= 0 || rect.height <= 0) {
-                return null;
-            }
+        rows.push({
+            rowIndex: rows.length,
+            visibleMonths,
+            leftEdgeMonth,
+            rightEdgeMonth,
+            oldHeight: getRowHeight(visibleMonths, dayCellHeight),
+            shiftRightHeight: getRowHeight([leftEdgeMonth, ...visibleMonths.slice(0, Math.max(0, columns - 1))], dayCellHeight),
+            shiftLeftHeight: getRowHeight([...visibleMonths.slice(1), rightEdgeMonth], dayCellHeight),
+        });
+    }
 
-            const clone = node.cloneNode(true) as HTMLElement;
-            stripMonthCloneAttributes(clone);
-
-            return {
-                key,
-                rowIndex: Math.floor(index / columns),
-                colIndex: index % columns,
-                rect: {
-                    top: rect.top - stageRect.top,
-                    left: rect.left - stageRect.left,
-                    width: rect.width,
-                    height: rect.height,
-                },
-                clone,
-            } satisfies CapturedYearMonthSnapshot;
-        })
-        .filter((snapshot): snapshot is CapturedYearMonthSnapshot => snapshot !== null);
+    return rows;
 };
 
 export default function YearCalendarView({
     months,
+    leadingBufferMonth,
     monthBasis,
     dayItemsByDate,
     weekSpanLanesByWeek,
@@ -208,8 +216,10 @@ export default function YearCalendarView({
     chipScale,
     fontScale,
     shiftAnimation,
+    trailingBufferMonth,
     displayBS,
     scrollContainerRef,
+    onShiftAnimationComplete,
     onDayClick,
     onEventClick,
 }: YearCalendarViewProps) {
@@ -221,25 +231,43 @@ export default function YearCalendarView({
     const moreRowPx = Math.max(8, getScaledPx(YEAR_MORE_ROW_PX - 2, effectiveEventFontScale, 8));
     const spanTopOffsetPx = YEAR_DAY_BASE_TOP_CHROME_PX;
     const stageRef = useRef<HTMLDivElement>(null);
-    const gridRef = useRef<HTMLDivElement>(null);
-    const overlayRef = useRef<HTMLDivElement>(null);
-    const previousMonthSnapshotsRef = useRef<CapturedYearMonthSnapshot[]>([]);
-    const lastAnimatedShiftKeyRef = useRef<number | null>(null);
+    const animationPrepFrameRef = useRef<number | null>(null);
+    const animationPlayFrameRef = useRef<number | null>(null);
     const animationCleanupTimerRef = useRef<number | null>(null);
-    const animationFrameRef = useRef<number | null>(null);
     const scrollUnlockRef = useRef<(() => void) | null>(null);
+    const lastAnimatedShiftKeyRef = useRef<number | null>(null);
 
-    const gridStyle = useMemo(
+    const slotWidthCss = useMemo(
+        () => `calc((100% - (${YEAR_MONTH_ROW_GAP_PX}px * ${Math.max(0, columns - 1)})) / ${Math.max(1, columns)})`,
+        [columns]
+    );
+
+    const stageStyle = useMemo(
         () =>
             ({
-                gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                '--calendar-year-columns': String(columns),
                 '--calendar-year-day-cell-height': `${dayCellHeight}px`,
                 '--calendar-year-event-gap': `${eventGapPx}px`,
                 '--calendar-year-event-font-scale': effectiveEventFontScale.toString(),
                 '--calendar-year-single-event-height': `${singleDayChipHeightPx}px`,
                 '--calendar-year-span-event-height': `${spanLaneHeightPx}px`,
+                '--calendar-year-row-gap': `${YEAR_MONTH_ROW_GAP_PX}px`,
+                '--calendar-year-slot-width': slotWidthCss,
+                '--calendar-year-step': `calc(var(--calendar-year-slot-width) + ${YEAR_MONTH_ROW_GAP_PX}px)`,
             } as React.CSSProperties),
-        [columns, dayCellHeight, effectiveEventFontScale, eventGapPx, singleDayChipHeightPx, spanLaneHeightPx]
+        [columns, dayCellHeight, effectiveEventFontScale, eventGapPx, singleDayChipHeightPx, slotWidthCss, spanLaneHeightPx]
+    );
+
+    const yearRows = useMemo(
+        () =>
+            buildYearMonthRows({
+                months,
+                leadingBufferMonth,
+                columns,
+                dayCellHeight,
+                trailingBufferMonth,
+            }),
+        [columns, dayCellHeight, leadingBufferMonth, months, trailingBufferMonth]
     );
 
     const splitWeekSpanLanesForMonth = (
@@ -281,16 +309,31 @@ export default function YearCalendarView({
 
     useLayoutEffect(() => {
         const stage = stageRef.current;
-        const grid = gridRef.current;
-        const overlay = overlayRef.current;
-        if (!stage || !grid || !overlay) {
+        if (!stage) {
             return;
         }
 
-        const clearAnimationSurface = () => {
-            if (animationFrameRef.current !== null) {
-                window.cancelAnimationFrame(animationFrameRef.current);
-                animationFrameRef.current = null;
+        const rowNodes = Array.from(stage.querySelectorAll<HTMLElement>('[data-year-row-index]'));
+        const resetRowStyles = () => {
+            for (const rowNode of rowNodes) {
+                const trackNode = rowNode.querySelector<HTMLElement>('[data-year-row-track]');
+                rowNode.style.height = '';
+                rowNode.style.transition = '';
+                if (trackNode) {
+                    trackNode.style.transition = '';
+                    trackNode.classList.remove(styles.yearMonthRowTrackShiftLeft, styles.yearMonthRowTrackShiftRight);
+                }
+            }
+        };
+
+        const clearActiveShift = () => {
+            if (animationPrepFrameRef.current !== null) {
+                window.cancelAnimationFrame(animationPrepFrameRef.current);
+                animationPrepFrameRef.current = null;
+            }
+            if (animationPlayFrameRef.current !== null) {
+                window.cancelAnimationFrame(animationPlayFrameRef.current);
+                animationPlayFrameRef.current = null;
             }
             if (animationCleanupTimerRef.current !== null) {
                 window.clearTimeout(animationCleanupTimerRef.current);
@@ -298,76 +341,39 @@ export default function YearCalendarView({
             }
             scrollUnlockRef.current?.();
             scrollUnlockRef.current = null;
-            overlay.replaceChildren();
-            grid.style.visibility = '';
         };
 
-        clearAnimationSurface();
-
-        const nextMonthSnapshots = captureYearMonthSnapshots({
-            grid,
-            stage,
-            columns,
-        });
-        const previousMonthSnapshots = previousMonthSnapshotsRef.current;
-        previousMonthSnapshotsRef.current = nextMonthSnapshots;
-
-        const shouldAnimate =
-            Boolean(shiftAnimation) &&
-            shiftAnimation?.key !== lastAnimatedShiftKeyRef.current &&
-            previousMonthSnapshots.length > 0;
-
-        if (!shouldAnimate) {
-            if (shiftAnimation) {
-                lastAnimatedShiftKeyRef.current = shiftAnimation.key;
+        if (!shiftAnimation || lastAnimatedShiftKeyRef.current === shiftAnimation.key || yearRows.length === 0) {
+            if (!shiftAnimation) {
+                lastAnimatedShiftKeyRef.current = null;
             }
-            return;
+            resetRowStyles();
+            return () => {
+                clearActiveShift();
+            };
         }
 
-        if (shiftAnimation) {
-            lastAnimatedShiftKeyRef.current = shiftAnimation.key;
+        lastAnimatedShiftKeyRef.current = shiftAnimation.key;
+        clearActiveShift();
+        if (rowNodes.length === 0) {
+            onShiftAnimationComplete?.(shiftAnimation);
+            return () => {
+                clearActiveShift();
+            };
         }
 
-        const animationPlan = planYearShift({
-            previousSnapshots: previousMonthSnapshots,
-            nextSnapshots: nextMonthSnapshots,
-            columns,
-            direction: shiftAnimation.direction,
-            viewportWidth: stage.clientWidth,
-        });
-
-        if (!animationPlan || animationPlan.motions.length === 0) {
-            return;
-        }
-
-        const previousSnapshotByKey = new Map(previousMonthSnapshots.map((snapshot) => [snapshot.key, snapshot] as const));
-        const nextSnapshotByKey = new Map(nextMonthSnapshots.map((snapshot) => [snapshot.key, snapshot] as const));
-        const animatedNodes: HTMLElement[] = [];
-
-        for (const motion of animationPlan.motions) {
-            const sourceSnapshot =
-                motion.source === 'previous' ? previousSnapshotByKey.get(motion.key) : nextSnapshotByKey.get(motion.key);
-            if (!sourceSnapshot) {
+        for (const rowNode of rowNodes) {
+            const rowIndex = Number(rowNode.dataset.yearRowIndex);
+            const row = yearRows[rowIndex];
+            const trackNode = rowNode.querySelector<HTMLElement>('[data-year-row-track]');
+            if (!row || !trackNode) {
                 continue;
             }
 
-            const animatedNode = sourceSnapshot.clone.cloneNode(true) as HTMLElement;
-            animatedNode.classList.add(styles.yearMonthCardGhost);
-            animatedNode.style.left = `${motion.endRect.left}px`;
-            animatedNode.style.top = `${motion.endRect.top}px`;
-            animatedNode.style.width = `${motion.endRect.width}px`;
-            animatedNode.style.height = `${motion.endRect.height}px`;
-            animatedNode.style.transform = `translate(${motion.startRect.left - motion.endRect.left}px, ${
-                motion.startRect.top - motion.endRect.top
-            }px)`;
-            animatedNode.style.zIndex = motion.phase === 'enter' ? '3' : motion.phase === 'exit' ? '2' : '1';
-            overlay.appendChild(animatedNode);
-            animatedNodes.push(animatedNode);
-        }
-
-        if (animatedNodes.length === 0) {
-            overlay.replaceChildren();
-            return;
+            rowNode.style.height = `${row.oldHeight}px`;
+            rowNode.style.transition = 'none';
+            trackNode.style.transition = 'none';
+            trackNode.classList.remove(styles.yearMonthRowTrackShiftLeft, styles.yearMonthRowTrackShiftRight);
         }
 
         const scrollViewport = scrollContainerRef?.current ?? null;
@@ -403,190 +409,280 @@ export default function YearCalendarView({
             };
         }
 
-        grid.style.visibility = 'hidden';
-        overlay.getBoundingClientRect();
+        stage.getBoundingClientRect();
 
-        animationFrameRef.current = window.requestAnimationFrame(() => {
-            animationFrameRef.current = null;
-            for (const node of animatedNodes) {
-                node.style.transition = `transform ${YEAR_SHIFT_ANIMATION_MS}ms ${YEAR_SHIFT_ANIMATION_EASING}`;
-                node.style.transform = 'translate(0px, 0px)';
-            }
+        animationPrepFrameRef.current = window.requestAnimationFrame(() => {
+            animationPrepFrameRef.current = null;
+            animationPlayFrameRef.current = window.requestAnimationFrame(() => {
+                animationPlayFrameRef.current = null;
+
+                for (const rowNode of rowNodes) {
+                    const rowIndex = Number(rowNode.dataset.yearRowIndex);
+                    const row = yearRows[rowIndex];
+                    const trackNode = rowNode.querySelector<HTMLElement>('[data-year-row-track]');
+                    if (!row || !trackNode) {
+                        continue;
+                    }
+
+                    rowNode.style.transition = `height ${YEAR_SHIFT_ANIMATION_MS}ms ${YEAR_SHIFT_ANIMATION_EASING}`;
+                    rowNode.style.height = `${
+                        shiftAnimation.direction === 'right' ? row.shiftRightHeight : row.shiftLeftHeight
+                    }px`;
+                    trackNode.style.transition = `transform ${YEAR_SHIFT_ANIMATION_MS}ms ${YEAR_SHIFT_ANIMATION_EASING}`;
+                    trackNode.classList.add(
+                        shiftAnimation.direction === 'right' ? styles.yearMonthRowTrackShiftRight : styles.yearMonthRowTrackShiftLeft
+                    );
+                }
+
+                animationCleanupTimerRef.current = window.setTimeout(() => {
+                    clearActiveShift();
+                    onShiftAnimationComplete?.(shiftAnimation);
+                }, YEAR_SHIFT_ANIMATION_MS + 48);
+            });
         });
 
-        animationCleanupTimerRef.current = window.setTimeout(() => {
-            clearAnimationSurface();
-        }, YEAR_SHIFT_ANIMATION_MS + 48);
-
         return () => {
-            clearAnimationSurface();
+            clearActiveShift();
         };
-    }, [columns, months, scrollContainerRef, shiftAnimation]);
+    }, [onShiftAnimationComplete, scrollContainerRef, shiftAnimation, yearRows]);
 
     useLayoutEffect(() => {
         return () => {
-            if (animationFrameRef.current !== null) {
-                window.cancelAnimationFrame(animationFrameRef.current);
-                animationFrameRef.current = null;
+            if (animationPrepFrameRef.current !== null) {
+                window.cancelAnimationFrame(animationPrepFrameRef.current);
+            }
+            if (animationPlayFrameRef.current !== null) {
+                window.cancelAnimationFrame(animationPlayFrameRef.current);
             }
             if (animationCleanupTimerRef.current !== null) {
                 window.clearTimeout(animationCleanupTimerRef.current);
-                animationCleanupTimerRef.current = null;
             }
             scrollUnlockRef.current?.();
             scrollUnlockRef.current = null;
         };
     }, []);
 
-    return (
-        <div ref={stageRef} className={styles.yearCalendarStage}>
-            <div ref={gridRef} className={styles.yearCalendarGrid} style={gridStyle}>
-                {months.map((month) => (
-                    <div
-                        key={month.key}
-                        data-testid={`year-month-${month.key}`}
-                        data-calendar-month-offset={month.offset}
-                        data-calendar-month-key={month.key}
-                        className={styles.yearMonthCard}
-                    >
-                        <div className={styles.yearMonthHeader}>
-                            {month.showYearLabel ? <div className={styles.yearMonthYear}>{month.yearLabel}</div> : null}
-                            <div className={styles.yearMonthTitle}>{month.title}</div>
-                        </div>
+    const renderMonthCard = (
+        month: YearCalendarMonthDescriptor | null,
+        options: {
+            mode: MonthRenderMode;
+            slotKey: string;
+        }
+    ) => {
+        const { mode, slotKey } = options;
+        const interactive = mode === 'interactive';
 
-                        <table className={styles.yearMonthTable}>
-                            <thead>
-                                <tr>
-                                    {WEEKDAY_LABELS.map((label) => (
-                                        <th key={`${month.key}-${label}`} className={styles.yearMonthWeekdayCell}>
-                                            {label}
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {month.weeks.map((week, weekIndex) => {
-                                    const weekKey = format(week[0], 'yyyy-MM-dd');
-                                    const weekSpanLanes = splitWeekSpanLanesForMonth(month, week, weekSpanLanesByWeek.get(weekKey) || []);
-                                    const { weekSpanReservedHeightsByCol } = getWeekSpanReservedHeightData(weekSpanLanes, {
-                                        laneHeightPx: spanLaneHeightPx,
-                                        laneGapPx: spanLaneGapPx,
-                                    });
+        if (!month) {
+            return <div key={slotKey} className={styles.yearMonthSlotPlaceholder} aria-hidden="true" />;
+        }
 
-                                    return (
-                                        <tr key={`${month.key}-week-${weekIndex}`} className={styles.yearWeekRow}>
-                                            {week.map((day, dayIndex) => {
-                                                const dayKey = format(day, 'yyyy-MM-dd');
-                                                const inMonth = yearCalendarDateBelongsToMonth(day, month);
-                                                const dayMeta = getDayMeta(day, monthBasis, displayBS);
-                                                const dayItems = dayItemsByDate.get(dayKey) || [];
-                                                const rawReservedHeight = weekSpanReservedHeightsByCol[dayIndex] || 0;
-                                                const reservedHeight = rawReservedHeight > 0 ? rawReservedHeight + eventGapPx : 0;
-                                                const visibleSlots = getVisibleEventSlots({
-                                                    dayCellHeight,
-                                                    reservedHeight,
-                                                    totalItems: dayItems.length,
-                                                    eventRowPx: singleDayChipHeightPx,
-                                                    eventGapPx,
-                                                    moreRowPx,
-                                                    showTransitionMonth: dayMeta.showTransitionMonth,
-                                                    showTransitionYear: dayMeta.showTransitionYear,
-                                                });
-                                                const visibleItems = dayItems.slice(0, visibleSlots);
-                                                const hiddenCount = Math.max(0, dayItems.length - visibleItems.length);
+        return (
+            <div
+                key={slotKey}
+                data-testid={interactive ? `year-month-${month.key}` : undefined}
+                data-calendar-month-offset={interactive ? month.offset : undefined}
+                data-calendar-month-key={interactive ? month.key : undefined}
+                className={`${styles.yearMonthCard}${interactive ? '' : ` ${styles.yearMonthCardInert}`}`}
+                aria-hidden={interactive ? undefined : true}
+            >
+                <div className={styles.yearMonthHeader}>
+                    {month.showYearLabel ? <div className={styles.yearMonthYear}>{month.yearLabel}</div> : null}
+                    <div className={styles.yearMonthTitle}>{month.title}</div>
+                </div>
 
-                                                return (
-                                                    <DroppableDayCell
-                                                        key={`${month.key}-${dayKey}`}
-                                                        day={day}
-                                                        dateStr={dayKey}
-                                                        onClick={onDayClick}
-                                                        className={[
-                                                            styles.yearDayCell,
-                                                            !inMonth ? styles.yearDayCellOutsideMonth : '',
-                                                            dayMeta.isFirstTransitionYear ? dayMeta.firstTransitionYearClassName : '',
-                                                            dayMeta.isFirstTransitionDay ? dayMeta.firstTransitionDayClassName : '',
-                                                            dayMeta.isFirstTransitionWeekButNotDay ? dayMeta.firstTransitionWeekClassName : '',
-                                                        ]
-                                                            .filter(Boolean)
-                                                            .join(' ')}
+                <table className={styles.yearMonthTable}>
+                    <thead>
+                        <tr>
+                            {WEEKDAY_LABELS.map((label) => (
+                                <th key={`${slotKey}-${label}`} className={styles.yearMonthWeekdayCell}>
+                                    {label}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {month.weeks.map((week, weekIndex) => {
+                            const weekKey = format(week[0], 'yyyy-MM-dd');
+                            const weekSpanLanes = splitWeekSpanLanesForMonth(month, week, weekSpanLanesByWeek.get(weekKey) || []);
+                            const { weekSpanReservedHeightsByCol } = getWeekSpanReservedHeightData(weekSpanLanes, {
+                                laneHeightPx: spanLaneHeightPx,
+                                laneGapPx: spanLaneGapPx,
+                            });
+
+                            return (
+                                <tr key={`${slotKey}-week-${weekIndex}`} className={styles.yearWeekRow}>
+                                    {week.map((day, dayIndex) => {
+                                        const dayKey = format(day, 'yyyy-MM-dd');
+                                        const inMonth = yearCalendarDateBelongsToMonth(day, month);
+                                        const dayMeta = getDayMeta(day, monthBasis, displayBS);
+                                        const dayItems = dayItemsByDate.get(dayKey) || [];
+                                        const rawReservedHeight = weekSpanReservedHeightsByCol[dayIndex] || 0;
+                                        const reservedHeight = rawReservedHeight > 0 ? rawReservedHeight + eventGapPx : 0;
+                                        const visibleSlots = getVisibleEventSlots({
+                                            dayCellHeight,
+                                            reservedHeight,
+                                            totalItems: dayItems.length,
+                                            eventRowPx: singleDayChipHeightPx,
+                                            eventGapPx,
+                                            moreRowPx,
+                                            showTransitionMonth: dayMeta.showTransitionMonth,
+                                            showTransitionYear: dayMeta.showTransitionYear,
+                                        });
+                                        const visibleItems = dayItems.slice(0, visibleSlots);
+                                        const hiddenCount = Math.max(0, dayItems.length - visibleItems.length);
+                                        const cellClassName = [
+                                            styles.yearDayCell,
+                                            !inMonth ? styles.yearDayCellOutsideMonth : '',
+                                            dayMeta.isFirstTransitionYear ? dayMeta.firstTransitionYearClassName : '',
+                                            dayMeta.isFirstTransitionDay ? dayMeta.firstTransitionDayClassName : '',
+                                            dayMeta.isFirstTransitionWeekButNotDay ? dayMeta.firstTransitionWeekClassName : '',
+                                        ]
+                                            .filter(Boolean)
+                                            .join(' ');
+
+                                        const cellChildren = (
+                                            <>
+                                                {dayIndex === 0 && weekSpanLanes.length > 0 ? (
+                                                    <CalendarWeekSpanOverlay
+                                                        weekKey={`${slotKey}-${weekKey}`}
+                                                        weekSpanLanes={weekSpanLanes}
+                                                        topOffsetPx={spanTopOffsetPx}
+                                                        laneHeightPx={spanLaneHeightPx}
+                                                        laneGapPx={spanLaneGapPx}
+                                                        eventScale={effectiveEventFontScale}
+                                                        interactive={interactive}
+                                                        eventTestIds={interactive}
+                                                        onEventClick={interactive ? onEventClick : undefined}
+                                                    />
+                                                ) : null}
+
+                                                {dayMeta.showTransitionYear ? (
+                                                    <div className={dayMeta.transitionYearClassName}>{dayMeta.transitionYearLabel}</div>
+                                                ) : null}
+                                                {dayMeta.showTransitionMonth ? (
+                                                    <div className={dayMeta.transitionMonthClassName}>{dayMeta.transitionMonthLabel}</div>
+                                                ) : null}
+
+                                                <div className={styles.yearDayNumberWrap}>
+                                                    <span className={`${styles.yearDayPrimary} ${!inMonth ? styles.yearDayMuted : ''}`}>
+                                                        {dayMeta.primaryLabel}
+                                                    </span>
+                                                    {dayMeta.secondaryLabel ? (
+                                                        <span className={`${styles.yearDaySecondary} ${!inMonth ? styles.yearDayMuted : ''}`}>
+                                                            {dayMeta.secondaryLabel}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+
+                                                {reservedHeight > 0 ? (
+                                                    <div
+                                                        className={styles.multiDayLaneSpacer}
+                                                        style={{ height: `${reservedHeight}px` }}
+                                                        aria-hidden="true"
+                                                    />
+                                                ) : null}
+
+                                                {visibleItems.length > 0 ? (
+                                                    <div
+                                                        className={`${styles.yearDayEventStack}${
+                                                            reservedHeight <= 0 ? ` ${styles.dayEventStackWithTopGap}` : ''
+                                                        }`}
                                                     >
-                                                        {dayIndex === 0 && weekSpanLanes.length > 0 ? (
-                                                            <CalendarWeekSpanOverlay
-                                                                weekKey={`${month.key}-${weekKey}`}
-                                                                weekSpanLanes={weekSpanLanes}
-                                                                topOffsetPx={spanTopOffsetPx}
-                                                                laneHeightPx={spanLaneHeightPx}
-                                                                laneGapPx={spanLaneGapPx}
-                                                                eventScale={effectiveEventFontScale}
-                                                                onEventClick={onEventClick}
+                                                        {visibleItems.map((item, index) => (
+                                                            <DraggableCalendarEvent
+                                                                key={`${item.id}-${String(item.__displayDate || item.startDate)}-${index}`}
+                                                                item={item}
+                                                                index={index}
+                                                                layout="year"
+                                                                scale={effectiveEventFontScale}
+                                                                testId={interactive ? undefined : null}
+                                                                className={!inMonth ? styles.calendarItemCarryover : undefined}
+                                                                draggableEnabled={interactive && item.calendarItemKind !== 'chore'}
+                                                                onClick={
+                                                                    interactive && item.calendarItemKind !== 'chore'
+                                                                        ? (event) => onEventClick(event, item)
+                                                                        : undefined
+                                                                }
                                                             />
-                                                        ) : null}
+                                                        ))}
+                                                    </div>
+                                                ) : null}
 
-                                                        {dayMeta.showTransitionYear ? (
-                                                            <div className={dayMeta.transitionYearClassName}>{dayMeta.transitionYearLabel}</div>
-                                                        ) : null}
-                                                        {dayMeta.showTransitionMonth ? (
-                                                            <div className={dayMeta.transitionMonthClassName}>{dayMeta.transitionMonthLabel}</div>
-                                                        ) : null}
+                                                {hiddenCount > 0 ? <div className={styles.yearDayMore}>+{hiddenCount} more</div> : null}
+                                            </>
+                                        );
 
-                                                        <div className={styles.yearDayNumberWrap}>
-                                                            <span className={`${styles.yearDayPrimary} ${!inMonth ? styles.yearDayMuted : ''}`}>
-                                                                {dayMeta.primaryLabel}
-                                                            </span>
-                                                            {dayMeta.secondaryLabel ? (
-                                                                <span className={`${styles.yearDaySecondary} ${!inMonth ? styles.yearDayMuted : ''}`}>
-                                                                    {dayMeta.secondaryLabel}
-                                                                </span>
-                                                            ) : null}
-                                                        </div>
+                                        if (interactive) {
+                                            return (
+                                                <DroppableDayCell
+                                                    key={`${slotKey}-${dayKey}`}
+                                                    day={day}
+                                                    dateStr={dayKey}
+                                                    onClick={onDayClick}
+                                                    className={cellClassName}
+                                                >
+                                                    {cellChildren}
+                                                </DroppableDayCell>
+                                            );
+                                        }
 
-                                                        {reservedHeight > 0 ? (
-                                                            <div
-                                                                className={styles.multiDayLaneSpacer}
-                                                                style={{ height: `${reservedHeight}px` }}
-                                                                aria-hidden="true"
-                                                            />
-                                                        ) : null}
-
-                                                        {visibleItems.length > 0 ? (
-                                                            <div
-                                                                className={`${styles.yearDayEventStack}${
-                                                                    reservedHeight <= 0 ? ` ${styles.dayEventStackWithTopGap}` : ''
-                                                                }`}
-                                                            >
-                                                                {visibleItems.map((item, index) => (
-                                                                    <DraggableCalendarEvent
-                                                                        key={`${item.id}-${String(item.__displayDate || item.startDate)}-${index}`}
-                                                                        item={item}
-                                                                        index={index}
-                                                                        layout="year"
-                                                                        scale={effectiveEventFontScale}
-                                                                        className={!inMonth ? styles.calendarItemCarryover : undefined}
-                                                                        draggableEnabled={item.calendarItemKind !== 'chore'}
-                                                                        onClick={
-                                                                            item.calendarItemKind === 'chore'
-                                                                                ? undefined
-                                                                                : (event) => onEventClick(event, item)
-                                                                        }
-                                                                    />
-                                                                ))}
-                                                            </div>
-                                                        ) : null}
-
-                                                        {hiddenCount > 0 ? <div className={styles.yearDayMore}>+{hiddenCount} more</div> : null}
-                                                    </DroppableDayCell>
-                                                );
-                                            })}
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                ))}
+                                        return (
+                                            <td key={`${slotKey}-${dayKey}`} className={cellClassName}>
+                                                {cellChildren}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
-            <div ref={overlayRef} className={styles.yearShiftOverlay} aria-hidden="true" />
+        );
+    };
+
+    return (
+        <div ref={stageRef} className={`${styles.yearCalendarStage} ${styles.yearCalendarGrid}`} style={stageStyle}>
+            <div className={styles.yearCalendarRows}>
+                {yearRows.map((row) => {
+                    const isShifting = Boolean(shiftAnimation);
+                    const trackMonths = isShifting
+                        ? [row.leftEdgeMonth, ...row.visibleMonths, row.rightEdgeMonth]
+                        : row.visibleMonths;
+
+                    return (
+                        <div
+                            key={`year-row-${row.rowIndex}`}
+                            data-year-row-index={row.rowIndex}
+                            className={styles.yearMonthRow}
+                            style={isShifting ? { height: `${row.oldHeight}px` } : undefined}
+                        >
+                            <div className={styles.yearMonthRowViewport}>
+                                <div
+                                    data-year-row-track="true"
+                                    className={`${styles.yearMonthRowTrack}${isShifting ? ` ${styles.yearMonthRowTrackWithEdges}` : ''}`}
+                                >
+                                    {trackMonths.map((month, slotIndex) => {
+                                        const isHiddenEdge = isShifting && (slotIndex === 0 || slotIndex === trackMonths.length - 1);
+                                        return (
+                                            <div
+                                                key={`row-${row.rowIndex}-slot-${slotIndex}-${month?.key ?? 'empty'}`}
+                                                className={`${styles.yearMonthSlot}${isHiddenEdge ? ` ${styles.yearMonthSlotHiddenEdge}` : ''}`}
+                                                aria-hidden={isHiddenEdge || undefined}
+                                            >
+                                                {renderMonthCard(month, {
+                                                    mode: isHiddenEdge ? 'inert' : 'interactive',
+                                                    slotKey: `row-${row.rowIndex}-slot-${slotIndex}-${month?.key ?? 'empty'}`,
+                                                })}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 }

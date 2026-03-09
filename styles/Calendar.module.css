@@ -627,10 +627,65 @@
 }
 
 .yearCalendarGrid {
-    display: grid;
-    grid-auto-rows: auto;
-    gap: 12px;
-    align-items: start;
+    position: relative;
+}
+
+.yearCalendarRows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--calendar-year-row-gap, 12px);
+}
+
+.yearMonthRow {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.yearMonthRowViewport {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.yearMonthRowTrack {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--calendar-year-row-gap, 12px);
+    width: max-content;
+    min-width: 100%;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+}
+
+.yearMonthRowTrackWithEdges {
+    transform: translate3d(calc(-1 * var(--calendar-year-step)), 0, 0);
+}
+
+.yearMonthRowTrackShiftRight {
+    transform: translate3d(0, 0, 0);
+}
+
+.yearMonthRowTrackShiftLeft {
+    transform: translate3d(calc(-2 * var(--calendar-year-step)), 0, 0);
+}
+
+.yearMonthSlot {
+    flex: 0 0 var(--calendar-year-slot-width);
+    min-width: 0;
+}
+
+.yearMonthSlotHiddenEdge {
+    pointer-events: none;
+}
+
+.yearMonthSlotPlaceholder {
+    height: 100%;
+}
+
+.yearMonthCardInert {
+    pointer-events: none;
+    user-select: none;
 }
 
 .yearShiftOverlay {

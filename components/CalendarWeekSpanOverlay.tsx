@@ -50,11 +50,13 @@ export const getWeekSpanReservedHeightData = (
 interface CalendarWeekSpanOverlayProps {
     weekKey: string;
     weekSpanLanes: CalendarWeekSpanSegmentLike[][];
-    onEventClick: (event: React.MouseEvent, item: CalendarItem) => void;
+    onEventClick?: (event: React.MouseEvent, item: CalendarItem) => void;
     topOffsetPx?: number;
     laneHeightPx?: number;
     laneGapPx?: number;
     eventScale?: number;
+    interactive?: boolean;
+    eventTestIds?: boolean;
 }
 
 export default function CalendarWeekSpanOverlay({
@@ -65,6 +67,8 @@ export default function CalendarWeekSpanOverlay({
     laneHeightPx = WEEK_SPAN_LANE_HEIGHT_PX,
     laneGapPx = WEEK_SPAN_LANE_GAP_PX,
     eventScale,
+    interactive = true,
+    eventTestIds = true,
 }: CalendarWeekSpanOverlayProps) {
     const { weekSpanReservedHeight } = getWeekSpanReservedHeightData(weekSpanLanes, {
         laneHeightPx,
@@ -102,7 +106,9 @@ export default function CalendarWeekSpanOverlay({
                                 className={segment.className}
                                 continuesBefore={segment.continuesBefore}
                                 continuesAfter={segment.continuesAfter}
-                                onClick={(event) => onEventClick(event, segment.item)}
+                                draggableEnabled={interactive}
+                                testId={eventTestIds ? undefined : null}
+                                onClick={interactive && onEventClick ? (event) => onEventClick(event, segment.item) : undefined}
                             />
                         </div>
                     ))}
