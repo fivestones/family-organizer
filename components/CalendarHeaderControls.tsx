@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { db } from '@/lib/db';
 import {
     CALENDAR_COMMAND_EVENT,
     CALENDAR_DAY_HEIGHT_DEFAULT,
@@ -20,19 +19,18 @@ import {
     CALENDAR_VISIBLE_WEEKS_MIN,
     CALENDAR_VIEW_MODE_STORAGE_KEY,
     CALENDAR_YEAR_FONT_SCALE_DEFAULT,
-    CALENDAR_YEAR_FONT_SCALE_MAX,
-    CALENDAR_YEAR_FONT_SCALE_MIN,
     CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY,
     CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY,
+    clampCalendarYearFontScale,
     type CalendarViewMode,
     type CalendarYearMonthBasis,
     type CalendarCommandDetail,
     type CalendarStateDetail,
 } from '@/lib/calendar-controls';
+import CalendarEventFontScaleControl from '@/components/calendar/CalendarEventFontScaleControl';
+import { useCalendarFilterOptions } from '@/components/calendar/useCalendarFilterOptions';
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const clampYearFontScale = (value: number) =>
-    Math.round(clampNumber(value, CALENDAR_YEAR_FONT_SCALE_MIN, CALENDAR_YEAR_FONT_SCALE_MAX) * 100) / 100;
 const normalizeChecked = (value: boolean | 'indeterminate') => value === true;
 const humanJoin = (items: string[]) => {
     if (items.length === 0) return '';
@@ -40,16 +38,6 @@ const humanJoin = (items: string[]) => {
     if (items.length === 2) return `${items[0]} and ${items[1]}`;
     return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
 };
-
-interface FamilyMember {
-    id: string;
-    name?: string | null;
-}
-
-interface ChoreFilterOption {
-    id: string;
-    title?: string | null;
-}
 
 const dispatchCalendarCommand = (detail: CalendarCommandDetail) => {
     window.dispatchEvent(new CustomEvent<CalendarCommandDetail>(CALENDAR_COMMAND_EVENT, { detail }));
@@ -71,30 +59,8 @@ export default function CalendarHeaderControls() {
     const [isChoreFilterExpanded, setIsChoreFilterExpanded] = useState(false);
     const hasInitializedMemberFilterRef = useRef(false);
 
-    const filterOptionsQuery = db.useQuery({
-        familyMembers: {
-            $: {
-                order: {
-                    order: 'asc',
-                },
-            },
-        },
-        chores: {},
-    });
-    const familyMembers = useMemo(() => {
-        return ((((filterOptionsQuery.data?.familyMembers as FamilyMember[]) || []).filter((member) => Boolean(member?.id))));
-    }, [filterOptionsQuery.data?.familyMembers]);
-    const familyMemberIds = useMemo(() => familyMembers.map((member) => member.id), [familyMembers]);
-    const chores = useMemo(() => {
-        return (((filterOptionsQuery.data?.chores as ChoreFilterOption[]) || [])
-            .filter((chore) => Boolean(chore?.id))
-            .sort((left, right) => {
-                const leftTitle = String(left?.title || '').trim() || 'Untitled chore';
-                const rightTitle = String(right?.title || '').trim() || 'Untitled chore';
-                return leftTitle.localeCompare(rightTitle);
-            }));
-    }, [filterOptionsQuery.data?.chores]);
-    const choreIds = useMemo(() => chores.map((chore) => chore.id), [chores]);
+    const filterOptionsQuery = useCalendarFilterOptions();
+    const { familyMembers, familyMemberIds, chores, choreIds } = filterOptionsQuery;
     const effectiveSelectedChoreIds = useMemo(
         () => (choreFilterConfigured ? selectedChoreIds : choreIds),
         [choreFilterConfigured, choreIds, selectedChoreIds]
@@ -114,7 +80,7 @@ export default function CalendarHeaderControls() {
         }
         const storedYearFontScale = Number(window.localStorage.getItem(CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY));
         if (Number.isFinite(storedYearFontScale)) {
-            setYearFontScale(clampYearFontScale(storedYearFontScale));
+            setYearFontScale(clampCalendarYearFontScale(storedYearFontScale));
         }
 
         const stored = window.localStorage.getItem(CALENDAR_DAY_HEIGHT_STORAGE_KEY);
@@ -137,7 +103,7 @@ export default function CalendarHeaderControls() {
             setShowChores(Boolean(detail.showChores));
             setViewMode(detail.viewMode);
             setYearMonthBasis(detail.yearMonthBasis);
-            setYearFontScale(clampYearFontScale(detail.yearFontScale));
+            setYearFontScale(clampCalendarYearFontScale(detail.yearFontScale));
             if (detail.choreFilter) {
                 setChoreFilterConfigured(Boolean(detail.choreFilter.configured));
                 setSelectedChoreIds(
@@ -383,31 +349,16 @@ export default function CalendarHeaderControls() {
                                     </select>
                                 </div>
 
-                                <div className="grid gap-2">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <Label htmlFor="calendar-year-font-scale-header">Event Font Size</Label>
-                                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                            <span>Small</span>
-                                            <span>Large</span>
-                                        </div>
-                                    </div>
-                                    <input
-                                        id="calendar-year-font-scale-header"
-                                        type="range"
-                                        min={CALENDAR_YEAR_FONT_SCALE_MIN}
-                                        max={CALENDAR_YEAR_FONT_SCALE_MAX}
-                                        step={0.02}
-                                        value={yearFontScale}
-                                        onChange={(event) => {
-                                            const next = clampYearFontScale(Number(event.target.value));
-                                            setYearFontScale(next);
-                                            dispatchCalendarCommand({ type: 'setYearFontScale', yearFontScale: next });
-                                        }}
-                                    />
-                                    <p className="text-xs text-muted-foreground">
-                                        Year view auto-sizes the months to fit the display and uses this slider for event density.
-                                    </p>
-                                </div>
+                                <CalendarEventFontScaleControl
+                                    id="calendar-year-font-scale-header"
+                                    value={yearFontScale}
+                                    onChange={(nextValue) => {
+                                        const next = clampCalendarYearFontScale(nextValue);
+                                        setYearFontScale(next);
+                                        dispatchCalendarCommand({ type: 'setYearFontScale', yearFontScale: next });
+                                    }}
+                                    description="Year view auto-sizes the months to fit the display and uses this slider for event density."
+                                />
 
                                 <div className="grid gap-2">
                                     <span className="text-sm font-medium leading-none">Shift Visible Months</span>

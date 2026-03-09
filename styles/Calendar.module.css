@@ -175,6 +175,223 @@
     }
 }
 
+.miniCalendarShell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 20px;
+    background:
+        radial-gradient(circle at top left, rgba(191, 219, 254, 0.42), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+    box-shadow:
+        0 18px 40px rgba(15, 23, 42, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.miniCalendarShellInner {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.miniStickyHeader {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.9));
+}
+
+.miniStickyHeaderTrack {
+    position: relative;
+    flex: 1;
+    min-height: 38px;
+    overflow: hidden;
+}
+
+.miniStickyHeaderTrackRight {
+    text-align: right;
+}
+
+.miniStickyHeaderLabel {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 2px;
+}
+
+.miniStickyHeaderLabelPrevious {
+    pointer-events: none;
+}
+
+.miniStickyHeaderTitle {
+    font-size: 0.98rem;
+    line-height: 1.02;
+    font-weight: 700;
+    color: #0f172a;
+    white-space: nowrap;
+}
+
+.miniStickyHeaderSubtitle {
+    font-size: 0.68rem;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: rgba(15, 23, 42, 0.55);
+}
+
+.miniStickyLabelInUp {
+    animation: miniStickyLabelInUp 260ms ease both;
+}
+
+.miniStickyLabelOutUp {
+    animation: miniStickyLabelOutUp 260ms ease both;
+}
+
+.miniStickyLabelInDown {
+    animation: miniStickyLabelInDown 260ms ease both;
+}
+
+.miniStickyLabelOutDown {
+    animation: miniStickyLabelOutDown 260ms ease both;
+}
+
+@keyframes miniStickyLabelInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes miniStickyLabelOutUp {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+}
+
+@keyframes miniStickyLabelInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes miniStickyLabelOutDown {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+}
+
+.miniWeekdayHeader {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0;
+    padding: 0 10px 6px;
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(248, 250, 252, 0.82));
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.miniWeekdayCell {
+    padding-top: 5px;
+    font-size: 0.58rem;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-align: center;
+    color: rgba(15, 23, 42, 0.54);
+}
+
+.miniCalendarScrollContainer {
+    flex: 1;
+    min-height: 0;
+    padding: 0 10px 10px;
+    background: transparent;
+}
+
+.miniCalendarTable {
+    width: 100%;
+}
+
+.miniDayCell {
+    position: relative;
+    height: var(--calendar-day-cell-height, 36px);
+    min-height: var(--calendar-day-cell-height, 36px);
+    padding: 1px 1px 2px;
+    border: 0.35px solid rgba(15, 23, 42, 0.14);
+    background: rgba(255, 255, 255, 0.94);
+    vertical-align: top;
+    overflow: hidden;
+}
+
+.miniDayNumberWrap {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 3px;
+    min-height: 10px;
+    padding-right: 1px;
+}
+
+.miniDayPrimary {
+    font-size: 0.62rem;
+    line-height: 1;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.miniDaySecondary {
+    font-size: 0.48rem;
+    line-height: 1;
+    font-weight: 700;
+    color: rgba(15, 23, 42, 0.6);
+}
+
+.miniDayEventStack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--calendar-year-event-gap, 1px);
+    min-width: 0;
+    overflow: hidden;
+}
+
+.miniDayMore {
+    margin-top: var(--calendar-year-event-gap, 1px);
+    font-size: calc(0.44rem * var(--calendar-year-event-font-scale, 1));
+    line-height: 1;
+    font-weight: 700;
+    color: rgba(15, 23, 42, 0.56);
+}
+
 .sentinelRow td {
     border: none;
     height: 1px;

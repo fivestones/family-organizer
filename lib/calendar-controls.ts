@@ -11,6 +11,9 @@ export const CALENDAR_YEAR_FONT_SCALE_MIN = 0.72;
 export const CALENDAR_YEAR_FONT_SCALE_MAX = 1;
 export const CALENDAR_YEAR_FONT_SCALE_DEFAULT = 0.84;
 export const CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY = 'calendar.yearFontScale';
+export const clampCalendarYearFontScale = (value: number) =>
+    Math.round(Math.min(CALENDAR_YEAR_FONT_SCALE_MAX, Math.max(CALENDAR_YEAR_FONT_SCALE_MIN, value)) * 100) / 100;
+export const CALENDAR_MINI_VISIBLE_WEEKS = 5;
 
 export const CALENDAR_COMMAND_EVENT = 'calendar:command';
 export const CALENDAR_STATE_EVENT = 'calendar:state';

@@ -12,14 +12,18 @@ interface DroppableDayCellProps {
     dateStr: string;
     className?: string;
     style?: React.CSSProperties;
+    dataAttributes?: Record<string, string | undefined>;
     onClick: (day: Date) => void;
     children?: React.ReactNode;
 }
 
-export const DroppableDayCell = ({ day, dateStr, className, style, onClick, children }: DroppableDayCellProps) => {
+export const DroppableDayCell = ({ day, dateStr, className, style, dataAttributes, onClick, children }: DroppableDayCellProps) => {
     const cellRef = useRef<HTMLTableCellElement>(null);
     // NEW: State to track if the cell is being dragged over
     const [isBeingDraggedOver, setIsBeingDraggedOver] = useState(false);
+    const resolvedDataAttributes = Object.fromEntries(
+        Object.entries(dataAttributes || {}).filter(([, value]) => typeof value === 'string' && value.length > 0)
+    );
 
     useEffect(() => {
         const cell = cellRef.current;
@@ -54,6 +58,7 @@ export const DroppableDayCell = ({ day, dateStr, className, style, onClick, chil
         <td
             ref={cellRef}
             data-calendar-cell-date={dateStr}
+            {...resolvedDataAttributes}
             className={cn(className, isBeingDraggedOver && styles.dragOverCell)}
             style={style}
             onClick={() => onClick(day)}

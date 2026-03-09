@@ -23,6 +23,7 @@ import { RRule } from 'rrule';
 import AddEventForm from './AddEvent';
 import CalendarWeekSpanOverlay, { getWeekSpanReservedHeightData } from './CalendarWeekSpanOverlay';
 import YearCalendarView from './YearCalendarView';
+import MiniInfiniteCalendarView from './MiniInfiniteCalendarView';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import localFont from 'next/font/local';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
@@ -32,22 +33,23 @@ import { DraggableCalendarEvent, CalendarItem } from './DraggableCalendarEvent';
 import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesScopeMode } from './RecurrenceScopeDialog';
 import { db } from '@/lib/db';
 import { getAssignedMembersForChoreOnDate, type Chore } from '@/lib/chore-utils';
+import { cn } from '@/lib/utils';
 import {
     CALENDAR_COMMAND_EVENT,
     CALENDAR_DAY_HEIGHT_DEFAULT,
     CALENDAR_DAY_HEIGHT_MAX,
     CALENDAR_DAY_HEIGHT_MIN,
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
+    CALENDAR_MINI_VISIBLE_WEEKS,
     CALENDAR_SHOW_CHORES_STORAGE_KEY,
     CALENDAR_STATE_EVENT,
     CALENDAR_VISIBLE_WEEKS_MAX,
     CALENDAR_VISIBLE_WEEKS_MIN,
     CALENDAR_VIEW_MODE_STORAGE_KEY,
     CALENDAR_YEAR_FONT_SCALE_DEFAULT,
-    CALENDAR_YEAR_FONT_SCALE_MAX,
-    CALENDAR_YEAR_FONT_SCALE_MIN,
     CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY,
     CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY,
+    clampCalendarYearFontScale,
     type CalendarViewMode,
     type CalendarYearMonthBasis,
     type CalendarCommandDetail,
@@ -56,13 +58,11 @@ import {
 import {
     NEPALI_MONTHS_COMMON_DEVANAGARI,
     NEPALI_MONTHS_COMMON_ROMAN,
-    getBsMonthMeta,
     toDevanagariDigits,
 } from '@/lib/calendar-display';
 import {
     buildYearCalendarMonthDescriptors,
     calculateYearCalendarLayout,
-    type YearCalendarMonthDescriptor,
 } from '@/lib/calendar-year-layout';
 
 const ebGaramond = localFont({
@@ -71,10 +71,24 @@ const ebGaramond = localFont({
     display: 'swap',
 });
 
+type CalendarVariant = 'default' | 'miniInfinite';
+
 interface CalendarProps {
     currentDate?: Date;
     numWeeks?: number;
     displayBS?: boolean;
+    variant?: CalendarVariant;
+    className?: string;
+    style?: React.CSSProperties;
+    showGregorianDays?: boolean;
+    showBsDays?: boolean;
+    showChores?: boolean;
+    everyoneSelected?: boolean;
+    selectedMemberIds?: string[];
+    selectedChoreIds?: string[];
+    dayHeight?: number;
+    eventFontScale?: number;
+    commandBusEnabled?: boolean;
 }
 
 interface MonthLabel {
@@ -121,8 +135,6 @@ const MONTH_BOX_HORIZONTAL_PADDING = 16;
 const MONTH_BOX_VERTICAL_PADDING = 10;
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const clampYearFontScale = (value: number) =>
-    Math.round(clampNumber(value, CALENDAR_YEAR_FONT_SCALE_MIN, CALENDAR_YEAR_FONT_SCALE_MAX) * 100) / 100;
 
 const shouldRetryLegacyCalendarMutation = (error: unknown) => {
     const message = String((error as any)?.message || '').toLowerCase();
@@ -139,7 +151,20 @@ const getCalendarItemEndTime = (item: CalendarItem) => {
     return Number.isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
 };
 
+const getCalendarItemDisplayPriority = (item: CalendarItem) => {
+    const isChore = item.calendarItemKind === 'chore';
+    const isAllDay = item.isAllDay;
+
+    if (!isChore && isAllDay) return 0;
+    if (!isChore) return 1;
+    if (isAllDay) return 2;
+    return 3;
+};
+
 const compareCalendarItemsByStartTime = (left: CalendarItem, right: CalendarItem) => {
+    const priorityDiff = getCalendarItemDisplayPriority(left) - getCalendarItemDisplayPriority(right);
+    if (priorityDiff !== 0) return priorityDiff;
+
     const startDiff = getCalendarItemStartTime(left) - getCalendarItemStartTime(right);
     if (startDiff !== 0) return startDiff;
 
@@ -725,10 +750,32 @@ const optimisticItemSatisfiedByServer = (
     });
 };
 
-const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: CalendarProps) => {
+const Calendar = ({
+    currentDate = new Date(),
+    numWeeks = 5,
+    displayBS = true,
+    variant = 'default',
+    className,
+    style,
+    showGregorianDays,
+    showBsDays,
+    showChores: controlledShowChores,
+    everyoneSelected: controlledEveryoneSelected,
+    selectedMemberIds: controlledSelectedMemberIds,
+    selectedChoreIds: controlledSelectedChoreIds,
+    dayHeight: controlledDayHeight,
+    eventFontScale: controlledEventFontScale,
+    commandBusEnabled,
+}: CalendarProps) => {
     // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
     // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
     // and displayMonthNumber = false, to display the month number as well as the name.
+    const isMiniInfinite = variant === 'miniInfinite';
+    const commandsEnabled = commandBusEnabled ?? !isMiniInfinite;
+    const effectiveCurrentDate = useMemo(
+        () => new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate()),
+        [currentDate]
+    );
     const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
     const [optimisticItemsById, setOptimisticItemsById] = useState<Record<string, Partial<CalendarItem> & { id: string }>>({});
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -742,14 +789,14 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const [recurrenceScopeDialogMode, setRecurrenceScopeDialogMode] = useState<RecurrenceSeriesScopeMode>('following');
     const [dragRecurrenceIndicator, setDragRecurrenceIndicator] = useState<DragRecurrenceIndicatorState | null>(null);
     const [showChores, setShowChores] = useState<boolean>(() => {
-        if (typeof window === 'undefined') {
+        if (typeof window === 'undefined' || !commandsEnabled) {
             return false;
         }
 
         return window.localStorage.getItem(CALENDAR_SHOW_CHORES_STORAGE_KEY) === 'true';
     });
     const [viewMode, setViewMode] = useState<CalendarViewMode>(() => {
-        if (typeof window === 'undefined') {
+        if (typeof window === 'undefined' || isMiniInfinite) {
             return 'monthly';
         }
 
@@ -757,7 +804,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         return stored === 'year' ? 'year' : 'monthly';
     });
     const [yearMonthBasis, setYearMonthBasis] = useState<CalendarYearMonthBasis>(() => {
-        if (typeof window === 'undefined') {
+        if (typeof window === 'undefined' || !commandsEnabled) {
             return 'gregorian';
         }
 
@@ -765,17 +812,17 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         return stored === 'bs' ? 'bs' : 'gregorian';
     });
     const [yearFontScale, setYearFontScale] = useState<number>(() => {
-        if (typeof window === 'undefined') {
+        if (typeof window === 'undefined' || !commandsEnabled) {
             return CALENDAR_YEAR_FONT_SCALE_DEFAULT;
         }
 
         const stored = Number(window.localStorage.getItem(CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY));
-        return Number.isFinite(stored) ? clampYearFontScale(stored) : CALENDAR_YEAR_FONT_SCALE_DEFAULT;
+        return Number.isFinite(stored) ? clampCalendarYearFontScale(stored) : CALENDAR_YEAR_FONT_SCALE_DEFAULT;
     });
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
     const [choreFilterConfigured, setChoreFilterConfigured] = useState(false);
     const [dayCellHeight, setDayCellHeight] = useState<number>(() => {
-        if (typeof window === 'undefined') {
+        if (typeof window === 'undefined' || !commandsEnabled) {
             return CALENDAR_DAY_HEIGHT_DEFAULT;
         }
 
@@ -794,10 +841,10 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     const initialWeeksPerSide = Math.max(6, numWeeks);
     const [rangeStart, setRangeStart] = useState<Date>(() =>
-        startOfWeek(addWeeks(currentDate, -initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON })
+        startOfWeek(addWeeks(effectiveCurrentDate, -initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON })
     );
     const [rangeEnd, setRangeEnd] = useState<Date>(() =>
-        endOfWeek(addWeeks(currentDate, initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON })
+        endOfWeek(addWeeks(effectiveCurrentDate, initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON })
     );
     const [yearViewportStartOffset, setYearViewportStartOffset] = useState(0);
     const [yearRangeStartOffset, setYearRangeStartOffset] = useState(-12);
@@ -810,13 +857,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const [monthBoxSize, setMonthBoxSize] = useState<{ width: number; height: number } | null>(null);
     const [activeMonthLabel, setActiveMonthLabel] = useState<MonthLabel>(() => {
         // @ts-ignore - package has no strict Date typing
-        const nepaliDate = new NepaliDate(currentDate);
+        const nepaliDate = new NepaliDate(effectiveCurrentDate);
         const nepaliMonth = nepaliDate.getMonth();
         const nepaliYear = String(nepaliDate.getYear());
         return {
-            key: `${format(currentDate, 'yyyy-MM')}-${nepaliDate.getYear()}-${nepaliMonth}`,
-            gregorianMonth: format(currentDate, 'MMMM'),
-            gregorianYear: format(currentDate, 'yyyy'),
+            key: `${format(effectiveCurrentDate, 'yyyy-MM')}-${nepaliDate.getYear()}-${nepaliMonth}`,
+            gregorianMonth: format(effectiveCurrentDate, 'MMMM'),
+            gregorianYear: format(effectiveCurrentDate, 'yyyy'),
             nepaliMonth: `${NEPALI_MONTHS_COMMON_DEVANAGARI[nepaliMonth]} (${NEPALI_MONTHS_COMMON_ROMAN[nepaliMonth]})`,
             nepaliYearDevanagari: toDevanagariDigits(nepaliYear),
         };
@@ -841,12 +888,54 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const activeMonthMeasureRef = useRef<HTMLDivElement>(null);
     const previousMonthMeasureRef = useRef<HTMLDivElement>(null);
     const initialCurrentDateStrRef = useRef(
-        format(new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate()), 'yyyy-MM-dd')
+        format(effectiveCurrentDate, 'yyyy-MM-dd')
     );
     const pendingScrollToDateRef = useRef<string | null>(initialCurrentDateStrRef.current);
     const pendingScrollBehaviorRef = useRef<ScrollBehavior>('auto');
     const pendingYearScrollToMonthOffsetRef = useRef<number | null>(0);
     const recurrenceScopeResolverRef = useRef<((scope: RecurrenceEditScope) => void) | null>(null);
+
+    const sanitizeControlledIds = useCallback(
+        (value: string[] | undefined) =>
+            Array.from(
+                new Set(
+                    (Array.isArray(value) ? value : [])
+                        .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+                        .map((entry) => entry.trim())
+                )
+            ),
+        []
+    );
+
+    const effectiveShowBsDays = Boolean(showBsDays ?? displayBS);
+    const effectiveShowGregorianDays = Boolean((showGregorianDays ?? true) || !effectiveShowBsDays);
+    const effectiveYearFontScale =
+        controlledEventFontScale == null ? yearFontScale : clampCalendarYearFontScale(controlledEventFontScale);
+    const effectiveDayCellHeight = useMemo(() => {
+        if (isMiniInfinite) {
+            if (!scrollContainerHeight) {
+                return 36;
+            }
+
+            const usableHeight = Math.max(1, scrollContainerHeight - 10);
+            return Math.max(28, Math.floor(usableHeight / CALENDAR_MINI_VISIBLE_WEEKS));
+        }
+
+        return controlledDayHeight == null
+            ? dayCellHeight
+            : clampNumber(Math.round(controlledDayHeight), CALENDAR_DAY_HEIGHT_MIN, CALENDAR_DAY_HEIGHT_MAX);
+    }, [controlledDayHeight, dayCellHeight, isMiniInfinite, scrollContainerHeight]);
+    const memberFilterControlled = controlledEveryoneSelected !== undefined || controlledSelectedMemberIds !== undefined;
+    const choreFilterControlled = controlledSelectedChoreIds !== undefined;
+    const effectiveShowChores = typeof controlledShowChores === 'boolean' ? controlledShowChores : showChores;
+    const effectiveEveryoneSelected =
+        typeof controlledEveryoneSelected === 'boolean' ? controlledEveryoneSelected : everyoneSelected;
+    const effectiveSelectedMemberIds = memberFilterControlled
+        ? sanitizeControlledIds(controlledSelectedMemberIds)
+        : selectedMemberIds;
+    const effectiveSelectedChoreIds = choreFilterControlled ? sanitizeControlledIds(controlledSelectedChoreIds) : selectedChoreIds;
+    const effectiveMemberFilterConfigured = memberFilterControlled ? true : memberFilterConfigured;
+    const effectiveChoreFilterConfigured = choreFilterControlled ? true : choreFilterConfigured;
 
     const buildMonthLabel = useCallback((date: Date): MonthLabel => {
         // @ts-ignore - package has no strict Date typing
@@ -877,6 +966,31 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         );
     }, []);
 
+    useEffect(() => {
+        if (isMiniInfinite && viewMode !== 'monthly') {
+            setViewMode('monthly');
+        }
+    }, [isMiniInfinite, viewMode]);
+
+    const lastAppliedCurrentDateRef = useRef(initialCurrentDateStrRef.current);
+    useEffect(() => {
+        const nextDateStr = format(effectiveCurrentDate, 'yyyy-MM-dd');
+        if (lastAppliedCurrentDateRef.current === nextDateStr) {
+            return;
+        }
+
+        lastAppliedCurrentDateRef.current = nextDateStr;
+        pendingTopScrollAdjustRef.current = null;
+        pendingScrollBehaviorRef.current = 'auto';
+        pendingScrollToDateRef.current = nextDateStr;
+        setActiveMonthLabel(buildMonthLabel(effectiveCurrentDate));
+        monthLabelRef.current = buildMonthLabel(effectiveCurrentDate);
+        setPreviousMonthLabel(null);
+        setIsMonthTransitioning(false);
+        setRangeStart(startOfWeek(addWeeks(effectiveCurrentDate, -initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
+        setRangeEnd(endOfWeek(addWeeks(effectiveCurrentDate, initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
+    }, [buildMonthLabel, effectiveCurrentDate, initialWeeksPerSide]);
+
     const scrollToDateStr = useCallback((dateStr: string, behavior: ScrollBehavior = 'smooth') => {
         const container = scrollContainerRef.current;
         if (!container) return false;
@@ -884,15 +998,15 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const targetCell = container.querySelector<HTMLElement>(`[data-calendar-cell-date="${dateStr}"]`);
         if (!targetCell) return false;
 
-        const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
-        const targetTop = Math.max(0, targetCell.offsetTop - headerHeight - 8);
+        const headerHeight = isMiniInfinite ? 0 : headerRef.current?.getBoundingClientRect().height ?? 0;
+        const targetTop = Math.max(0, targetCell.offsetTop - headerHeight - (isMiniInfinite ? 2 : 8));
         if (typeof container.scrollTo === 'function') {
             container.scrollTo({ top: targetTop, behavior });
         } else {
             container.scrollTop = targetTop;
         }
         return true;
-    }, []);
+    }, [isMiniInfinite]);
 
     const recalculateMonthBoxSize = useCallback(() => {
         const activeRect = activeMonthMeasureRef.current?.getBoundingClientRect();
@@ -937,45 +1051,45 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     const yearMonths = useMemo(
         () =>
             buildYearCalendarMonthDescriptors({
-                currentDate,
+                currentDate: effectiveCurrentDate,
                 basis: yearMonthBasis,
                 startOffset: yearRangeStartOffset,
                 endOffset: yearRangeEndOffset,
             }),
-        [currentDate, yearMonthBasis, yearRangeEndOffset, yearRangeStartOffset]
+        [effectiveCurrentDate, yearMonthBasis, yearRangeEndOffset, yearRangeStartOffset]
     );
 
     const yearLeadingBufferMonth = useMemo(
         () =>
             buildYearCalendarMonthDescriptors({
-                currentDate,
+                currentDate: effectiveCurrentDate,
                 basis: yearMonthBasis,
                 startOffset: yearRangeStartOffset - 1,
                 endOffset: yearRangeStartOffset - 1,
             })[0] ?? null,
-        [currentDate, yearMonthBasis, yearRangeStartOffset]
+        [effectiveCurrentDate, yearMonthBasis, yearRangeStartOffset]
     );
 
     const yearTrailingBufferMonth = useMemo(
         () =>
             buildYearCalendarMonthDescriptors({
-                currentDate,
+                currentDate: effectiveCurrentDate,
                 basis: yearMonthBasis,
                 startOffset: yearRangeEndOffset + 1,
                 endOffset: yearRangeEndOffset + 1,
             })[0] ?? null,
-        [currentDate, yearMonthBasis, yearRangeEndOffset]
+        [effectiveCurrentDate, yearMonthBasis, yearRangeEndOffset]
     );
 
     const yearLayoutReferenceMonths = useMemo(
         () =>
             buildYearCalendarMonthDescriptors({
-                currentDate,
+                currentDate: effectiveCurrentDate,
                 basis: yearMonthBasis,
                 startOffset: 0,
                 endOffset: 11,
             }),
-        [currentDate, yearMonthBasis]
+        [effectiveCurrentDate, yearMonthBasis]
     );
 
     const yearLayout = useMemo(
@@ -990,21 +1104,21 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
     const activeRangeStart = useMemo(() => {
         if (viewMode === 'year') {
-            return yearLeadingBufferMonth?.gridStart ?? yearMonths[0]?.gridStart ?? startOfMonth(currentDate);
+            return yearLeadingBufferMonth?.gridStart ?? yearMonths[0]?.gridStart ?? startOfMonth(effectiveCurrentDate);
         }
         return rangeStart;
-    }, [currentDate, rangeStart, viewMode, yearLeadingBufferMonth, yearMonths]);
+    }, [effectiveCurrentDate, rangeStart, viewMode, yearLeadingBufferMonth, yearMonths]);
 
     const activeRangeEnd = useMemo(() => {
         if (viewMode === 'year') {
             return (
                 yearTrailingBufferMonth?.gridEnd ??
                 yearMonths[yearMonths.length - 1]?.gridEnd ??
-                endOfWeek(currentDate, { weekStartsOn: WEEK_STARTS_ON })
+                endOfWeek(effectiveCurrentDate, { weekStartsOn: WEEK_STARTS_ON })
             );
         }
         return rangeEnd;
-    }, [currentDate, rangeEnd, viewMode, yearMonths, yearTrailingBufferMonth]);
+    }, [effectiveCurrentDate, rangeEnd, viewMode, yearMonths, yearTrailingBufferMonth]);
 
     const days = useMemo(() => {
         const generatedDays: Date[] = [];
@@ -1092,7 +1206,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         let anchorSelector: string | null = null;
         let anchorOffset: number | null = null;
 
-        const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
+        const headerHeight = isMiniInfinite ? 0 : headerRef.current?.getBoundingClientRect().height ?? 0;
         const containerTop = container.getBoundingClientRect().top;
         const scanLine = containerTop + headerHeight;
 
@@ -1113,7 +1227,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             anchorSelector,
             anchorOffset,
         };
-    }, []);
+    }, [isMiniInfinite]);
 
     const expandRange = useCallback(
         (direction: 'up' | 'down') => {
@@ -1336,28 +1450,36 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     }, []);
 
     const visibleWeeksEstimate = useMemo(() => {
+        if (isMiniInfinite) {
+            return CALENDAR_MINI_VISIBLE_WEEKS;
+        }
         if (!scrollContainerHeight) {
             return 6;
         }
-        const headerHeight = Math.max(0, dayNumberStickyTop - 2);
+        const headerHeight = isMiniInfinite ? 0 : Math.max(0, dayNumberStickyTop - 2);
         const usableHeight = Math.max(1, scrollContainerHeight - headerHeight);
-        return clampNumber(Math.round(usableHeight / dayCellHeight), CALENDAR_VISIBLE_WEEKS_MIN, CALENDAR_VISIBLE_WEEKS_MAX);
-    }, [scrollContainerHeight, dayNumberStickyTop, dayCellHeight]);
+        return clampNumber(Math.round(usableHeight / effectiveDayCellHeight), CALENDAR_VISIBLE_WEEKS_MIN, CALENDAR_VISIBLE_WEEKS_MAX);
+    }, [effectiveDayCellHeight, isMiniInfinite, scrollContainerHeight, dayNumberStickyTop]);
 
     const applyVisibleWeeks = useCallback(
         (nextVisibleWeeks: number) => {
+            if (isMiniInfinite) {
+                return;
+            }
             const requestedWeeks = clampNumber(
                 Math.round(nextVisibleWeeks),
                 CALENDAR_VISIBLE_WEEKS_MIN,
                 CALENDAR_VISIBLE_WEEKS_MAX
             );
             const container = scrollContainerRef.current;
-            const headerHeight = headerRef.current?.getBoundingClientRect().height ?? Math.max(0, dayNumberStickyTop - 2);
+            const headerHeight = isMiniInfinite
+                ? 0
+                : headerRef.current?.getBoundingClientRect().height ?? Math.max(0, dayNumberStickyTop - 2);
             const viewportHeight = container?.clientHeight ?? scrollContainerHeight ?? 0;
             const usableHeight = Math.max(1, viewportHeight - headerHeight);
             setDayHeight(usableHeight / requestedWeeks);
         },
-        [dayNumberStickyTop, scrollContainerHeight, setDayHeight]
+        [dayNumberStickyTop, isMiniInfinite, scrollContainerHeight, setDayHeight]
     );
 
     const handleTodayClick = useCallback(() => {
@@ -2096,6 +2218,13 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             const container = scrollContainerRef.current;
             if (!container) return;
 
+            if (isMiniInfinite) {
+                setScrollContainerHeight(Math.max(0, Math.floor(container.clientHeight)));
+                setScrollContainerWidth(Math.max(0, Math.floor(container.clientWidth)));
+                setDayNumberStickyTop(0);
+                return;
+            }
+
             const rect = container.getBoundingClientRect();
             const remaining = window.innerHeight - rect.top - 8;
             setScrollContainerHeight(Math.max(360, Math.floor(remaining)));
@@ -2105,9 +2234,19 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         };
 
         syncContainerHeight();
+        if (isMiniInfinite && typeof ResizeObserver !== 'undefined') {
+            const container = scrollContainerRef.current;
+            if (!container) return;
+            const observer = new ResizeObserver(() => {
+                syncContainerHeight();
+            });
+            observer.observe(container);
+            return () => observer.disconnect();
+        }
+
         window.addEventListener('resize', syncContainerHeight);
         return () => window.removeEventListener('resize', syncContainerHeight);
-    }, [viewMode]);
+    }, [isMiniInfinite, viewMode]);
 
     useLayoutEffect(() => {
         recalculateMonthBoxSize();
@@ -2119,7 +2258,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     }, [recalculateMonthBoxSize]);
 
     useEffect(() => {
-        if (viewMode !== 'year') return;
+        if (isMiniInfinite || viewMode !== 'year') return;
         yearShiftLockRef.current = false;
         yearShiftAnimationKeyRef.current = 0;
         setYearViewportStartOffset(0);
@@ -2127,7 +2266,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         setYearRangeEndOffset(23);
         setYearShiftAnimation(null);
         pendingYearScrollToMonthOffsetRef.current = 0;
-    }, [viewMode, yearMonthBasis]);
+    }, [isMiniInfinite, viewMode, yearMonthBasis]);
 
     const transitionToMonth = useCallback((nextMonth: MonthLabel) => {
         const current = monthLabelRef.current;
@@ -2211,7 +2350,9 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             scrollRafRef.current = window.requestAnimationFrame(() => {
                 scrollRafRef.current = null;
 
-                updateVisibleMonthFromScrollRef.current();
+                if (!isMiniInfinite) {
+                    updateVisibleMonthFromScrollRef.current();
+                }
 
                 const activeContainer = scrollContainerRef.current;
                 if (!activeContainer) return;
@@ -2269,7 +2410,9 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             }
         };
 
-        updateVisibleMonthFromScrollRef.current();
+        if (!isMiniInfinite) {
+            updateVisibleMonthFromScrollRef.current();
+        }
         lastScrollTopRef.current = container.scrollTop;
         container.addEventListener('scroll', onScroll, { passive: true });
         container.addEventListener('wheel', onWheel, { passive: true });
@@ -2282,7 +2425,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 scrollRafRef.current = null;
             }
         };
-    }, [viewMode]);
+    }, [isMiniInfinite, viewMode]);
 
     useEffect(() => {
         if (viewMode !== 'year') return;
@@ -2366,67 +2509,70 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     }, [viewMode]);
 
     useEffect(() => {
-        if (viewMode !== 'monthly') return;
+        if (isMiniInfinite || viewMode !== 'monthly') return;
         updateVisibleMonthFromScroll();
-    }, [viewMode, weeks.length, updateVisibleMonthFromScroll]);
+    }, [isMiniInfinite, viewMode, weeks.length, updateVisibleMonthFromScroll]);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
+        if (typeof window === 'undefined' || !commandsEnabled) return;
         window.localStorage.setItem(CALENDAR_DAY_HEIGHT_STORAGE_KEY, String(dayCellHeight));
-    }, [dayCellHeight]);
+    }, [commandsEnabled, dayCellHeight]);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-        window.localStorage.setItem(CALENDAR_SHOW_CHORES_STORAGE_KEY, showChores ? 'true' : 'false');
-    }, [showChores]);
+        if (typeof window === 'undefined' || !commandsEnabled) return;
+        window.localStorage.setItem(CALENDAR_SHOW_CHORES_STORAGE_KEY, effectiveShowChores ? 'true' : 'false');
+    }, [commandsEnabled, effectiveShowChores]);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
+        if (typeof window === 'undefined' || !commandsEnabled) return;
         window.localStorage.setItem(CALENDAR_VIEW_MODE_STORAGE_KEY, viewMode);
-    }, [viewMode]);
+    }, [commandsEnabled, viewMode]);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
+        if (typeof window === 'undefined' || !commandsEnabled) return;
         window.localStorage.setItem(CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY, yearMonthBasis);
-    }, [yearMonthBasis]);
+    }, [commandsEnabled, yearMonthBasis]);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
+        if (typeof window === 'undefined' || !commandsEnabled) return;
         window.localStorage.setItem(CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY, String(yearFontScale));
-    }, [yearFontScale]);
+    }, [commandsEnabled, yearFontScale]);
 
     useEffect(() => {
+        if (!commandsEnabled) return;
         const detail: CalendarStateDetail = {
-            dayHeight: dayCellHeight,
+            dayHeight: effectiveDayCellHeight,
             visibleWeeks: visibleWeeksEstimate,
-            showChores,
+            showChores: effectiveShowChores,
             viewMode,
             yearMonthBasis,
-            yearFontScale,
+            yearFontScale: effectiveYearFontScale,
             choreFilter: {
-                configured: choreFilterConfigured,
-                selectedChoreIds,
+                configured: effectiveChoreFilterConfigured,
+                selectedChoreIds: effectiveSelectedChoreIds,
             },
             memberFilter: {
-                everyoneSelected,
-                selectedMemberIds,
+                everyoneSelected: effectiveEveryoneSelected,
+                selectedMemberIds: effectiveSelectedMemberIds,
             },
         };
         window.dispatchEvent(new CustomEvent<CalendarStateDetail>(CALENDAR_STATE_EVENT, { detail }));
     }, [
-        choreFilterConfigured,
-        dayCellHeight,
-        everyoneSelected,
-        selectedChoreIds,
-        selectedMemberIds,
-        showChores,
+        commandsEnabled,
+        effectiveChoreFilterConfigured,
+        effectiveDayCellHeight,
+        effectiveEveryoneSelected,
+        effectiveSelectedChoreIds,
+        effectiveSelectedMemberIds,
+        effectiveShowChores,
         viewMode,
         visibleWeeksEstimate,
-        yearFontScale,
+        effectiveYearFontScale,
         yearMonthBasis,
     ]);
 
     useEffect(() => {
+        if (!commandsEnabled) return;
         const onCalendarCommand = (event: Event) => {
             const detail = (event as CustomEvent<CalendarCommandDetail>).detail;
             if (!detail) return;
@@ -2457,7 +2603,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             }
 
             if (detail.type === 'setYearFontScale') {
-                setYearFontScale(clampYearFontScale(detail.yearFontScale));
+                setYearFontScale(clampCalendarYearFontScale(detail.yearFontScale));
                 return;
             }
 
@@ -2504,20 +2650,20 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             }
 
             if (detail.type === 'requestState') {
-                const stateDetail: CalendarStateDetail = {
-                    dayHeight: dayCellHeight,
+                    const stateDetail: CalendarStateDetail = {
+                    dayHeight: effectiveDayCellHeight,
                     visibleWeeks: visibleWeeksEstimate,
-                    showChores,
+                    showChores: effectiveShowChores,
                     viewMode,
                     yearMonthBasis,
-                    yearFontScale,
+                    yearFontScale: effectiveYearFontScale,
                     choreFilter: {
-                        configured: choreFilterConfigured,
-                        selectedChoreIds,
+                        configured: effectiveChoreFilterConfigured,
+                        selectedChoreIds: effectiveSelectedChoreIds,
                     },
                     memberFilter: {
-                        everyoneSelected,
-                        selectedMemberIds,
+                        everyoneSelected: effectiveEveryoneSelected,
+                        selectedMemberIds: effectiveSelectedMemberIds,
                     },
                 };
                 window.dispatchEvent(new CustomEvent<CalendarStateDetail>(CALENDAR_STATE_EVENT, { detail: stateDetail }));
@@ -2530,19 +2676,20 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         };
     }, [
         applyVisibleWeeks,
-        choreFilterConfigured,
-        dayCellHeight,
-        everyoneSelected,
+        commandsEnabled,
+        effectiveChoreFilterConfigured,
+        effectiveDayCellHeight,
+        effectiveEveryoneSelected,
+        effectiveSelectedChoreIds,
+        effectiveSelectedMemberIds,
+        effectiveShowChores,
         handleQuickAddClick,
         handleTodayClick,
-        selectedChoreIds,
-        selectedMemberIds,
         setDayHeight,
-        showChores,
         shiftYearViewport,
         visibleWeeksEstimate,
         viewMode,
-        yearFontScale,
+        effectiveYearFontScale,
         yearMonthBasis,
     ]);
 
@@ -2650,8 +2797,8 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         const rangeStartDay = toDayStart(activeRangeStart);
         const rangeEndDay = toDayStart(activeRangeEnd);
         const recurrenceOverrideDayKeysByMasterId = new Map<string, Set<string>>();
-        const selectedMemberIdSet = new Set(selectedMemberIds);
-        const selectedChoreIdSet = new Set(selectedChoreIds);
+        const selectedMemberIdSet = new Set(effectiveSelectedMemberIds);
+        const selectedChoreIdSet = new Set(effectiveSelectedChoreIds);
 
         const matchesMemberFilter = (item: CalendarItem) => {
             const pertainsToIds = (Array.isArray(item.pertainsTo) ? item.pertainsTo : [])
@@ -2660,11 +2807,11 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 .map((id) => id.trim());
             const isEveryoneEvent = pertainsToIds.length === 0;
 
-            if (!memberFilterConfigured && everyoneSelected && selectedMemberIdSet.size === 0) {
+            if (!effectiveMemberFilterConfigured && effectiveEveryoneSelected && selectedMemberIdSet.size === 0) {
                 return true;
             }
 
-            if (everyoneSelected) {
+            if (effectiveEveryoneSelected) {
                 if (selectedMemberIdSet.size === 0) {
                     return isEveryoneEvent;
                 }
@@ -2689,7 +2836,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 return false;
             }
 
-            if (!memberFilterConfigured && everyoneSelected && selectedMemberIdSet.size === 0) {
+            if (!effectiveMemberFilterConfigured && effectiveEveryoneSelected && selectedMemberIdSet.size === 0) {
                 return true;
             }
 
@@ -2706,7 +2853,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                 return false;
             }
 
-            if (!choreFilterConfigured && selectedChoreIdSet.size === 0) {
+            if (!effectiveChoreFilterConfigured && selectedChoreIdSet.size === 0) {
                 return true;
             }
 
@@ -2719,7 +2866,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
 
         const calendarItemsForView = calendarItems.filter(matchesMemberFilter);
         const calendarItemsById = new Map(calendarItems.map((item) => [item.id, item] as const));
-        if (!everyoneSelected && selectedMemberIdSet.size === 0) {
+        if (!effectiveEveryoneSelected && selectedMemberIdSet.size === 0) {
             return {
                 dayItemsByDate: byDate,
                 denseDayItemsByDate: denseByDate,
@@ -2939,7 +3086,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
             }
         }
 
-        if (showChores) {
+        if (effectiveShowChores) {
             for (const day of days) {
                 const dateKey = format(day, 'yyyy-MM-dd');
                 const utcDay = getUtcDateFromDateKey(dateKey);
@@ -3003,17 +3150,18 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
         activeRangeEnd,
         activeRangeStart,
         calendarItems,
-        choreFilterConfigured,
+        effectiveChoreFilterConfigured,
+        effectiveEveryoneSelected,
+        effectiveMemberFilterConfigured,
+        effectiveSelectedChoreIds,
+        effectiveSelectedMemberIds,
+        effectiveShowChores,
         chores,
         days,
-        everyoneSelected,
-        memberFilterConfigured,
-        selectedChoreIds,
-        selectedMemberIds,
-        showChores,
     ]);
 
     const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const showYearView = !isMiniInfinite && viewMode === 'year';
 
     let isYearSet = false;
     let shouldDisplayBothYears = false;
@@ -3021,7 +3169,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
     let shouldDisplayNepaliYear = true;
 
     return (
-        <>
+        <div className={cn(isMiniInfinite && styles.miniCalendarShell, className)} style={style}>
             <RecurrenceScopeDialog
                 open={recurrenceScopeDialogOpen}
                 action={recurrenceScopeDialogAction}
@@ -3041,221 +3189,243 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     <span className={styles.dragRecurrenceIndicatorKey}>{dragRecurrenceIndicator.hotkeyLabel}</span>
                 </div>
             ) : null}
-            <div
-                ref={scrollContainerRef}
-                data-testid="calendar-scroll-container"
-                className={styles.calendarScrollContainer}
-                style={
-                    scrollContainerHeight
-                        ? ({
-                              height: `${scrollContainerHeight}px`,
-                              '--calendar-day-number-top': `${dayNumberStickyTop}px`,
-                              '--calendar-day-cell-height': `${dayCellHeight}px`,
-                          } as React.CSSProperties)
-                        : undefined
-                }
-            >
-                {viewMode === 'year' ? (
-                    <YearCalendarView
-                        months={yearMonths}
-                        leadingBufferMonth={yearLeadingBufferMonth}
-                        monthBasis={yearMonthBasis}
-                        dayItemsByDate={dayItemsByDate}
-                        weekSpanLanesByWeek={weekSpanLanesByWeek}
-                        columns={yearLayout.columns}
-                        dayCellHeight={yearLayout.dayCellHeight}
-                        chipScale={yearLayout.chipScale}
-                        fontScale={yearFontScale}
-                        shiftAnimation={yearShiftAnimation}
-                        trailingBufferMonth={yearTrailingBufferMonth}
-                        displayBS={displayBS}
-                        scrollContainerRef={scrollContainerRef}
-                        onShiftAnimationComplete={handleYearShiftAnimationComplete}
-                        onDayClick={handleDayClick}
-                        onEventClick={handleEventClick}
-                    />
-                ) : (
-                    <>
-                        <div className={styles.stickyMonthBox} style={{ top: `${stickyMonthTop}px` }}>
-                            <div
-                                className={styles.stickyMonthFrame}
-                                style={monthBoxSize ? { width: `${monthBoxSize.width}px`, height: `${monthBoxSize.height}px` } : undefined}
-                            >
-                                <div ref={activeMonthMeasureRef} className={styles.stickyMonthMeasure}>
-                                    {renderMonthLabel(activeMonthLabel)}
-                                </div>
-                                {previousMonthLabel && (
-                                    <div ref={previousMonthMeasureRef} className={styles.stickyMonthMeasure}>
-                                        {renderMonthLabel(previousMonthLabel)}
+            {isMiniInfinite ? (
+                <MiniInfiniteCalendarView
+                    weeks={weeks}
+                    dayItemsByDate={dayItemsByDate}
+                    weekSpanLanesByWeek={weekSpanLanesByWeek}
+                    scrollContainerRef={scrollContainerRef}
+                    dayCellHeight={effectiveDayCellHeight}
+                    eventFontScale={effectiveYearFontScale}
+                    showGregorianDays={effectiveShowGregorianDays}
+                    showBsDays={effectiveShowBsDays}
+                    onDayClick={handleDayClick}
+                    onEventClick={handleEventClick}
+                />
+            ) : (
+                <div
+                    ref={scrollContainerRef}
+                    data-testid="calendar-scroll-container"
+                    className={styles.calendarScrollContainer}
+                    style={
+                        scrollContainerHeight
+                            ? ({
+                                  height: `${scrollContainerHeight}px`,
+                                  '--calendar-day-number-top': `${dayNumberStickyTop}px`,
+                                  '--calendar-day-cell-height': `${effectiveDayCellHeight}px`,
+                              } as React.CSSProperties)
+                            : undefined
+                    }
+                >
+                    {showYearView ? (
+                        <YearCalendarView
+                            months={yearMonths}
+                            leadingBufferMonth={yearLeadingBufferMonth}
+                            monthBasis={yearMonthBasis}
+                            dayItemsByDate={dayItemsByDate}
+                            weekSpanLanesByWeek={weekSpanLanesByWeek}
+                            columns={yearLayout.columns}
+                            dayCellHeight={yearLayout.dayCellHeight}
+                            chipScale={yearLayout.chipScale}
+                            fontScale={effectiveYearFontScale}
+                            shiftAnimation={yearShiftAnimation}
+                            trailingBufferMonth={yearTrailingBufferMonth}
+                            displayBS={effectiveShowBsDays}
+                            scrollContainerRef={scrollContainerRef}
+                            onShiftAnimationComplete={handleYearShiftAnimationComplete}
+                            onDayClick={handleDayClick}
+                            onEventClick={handleEventClick}
+                        />
+                    ) : (
+                        <>
+                            <div className={styles.stickyMonthBox} style={{ top: `${stickyMonthTop}px` }}>
+                                <div
+                                    className={styles.stickyMonthFrame}
+                                    style={monthBoxSize ? { width: `${monthBoxSize.width}px`, height: `${monthBoxSize.height}px` } : undefined}
+                                >
+                                    <div ref={activeMonthMeasureRef} className={styles.stickyMonthMeasure}>
+                                        {renderMonthLabel(activeMonthLabel)}
                                     </div>
-                                )}
-                                {previousMonthLabel && (
-                                    <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeOut : ''}`}>
-                                        {renderMonthLabel(previousMonthLabel)}
+                                    {previousMonthLabel && (
+                                        <div ref={previousMonthMeasureRef} className={styles.stickyMonthMeasure}>
+                                            {renderMonthLabel(previousMonthLabel)}
+                                        </div>
+                                    )}
+                                    {previousMonthLabel && (
+                                        <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeOut : ''}`}>
+                                            {renderMonthLabel(previousMonthLabel)}
+                                        </div>
+                                    )}
+                                    <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeIn : styles.monthStatic}`}>
+                                        {renderMonthLabel(activeMonthLabel)}
                                     </div>
-                                )}
-                                <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeIn : styles.monthStatic}`}>
-                                    {renderMonthLabel(activeMonthLabel)}
                                 </div>
                             </div>
-                        </div>
 
-                        <table className={styles.calendarTable}>
-                            <thead ref={headerRef} className={ebGaramond.className}>
-                                <tr>
-                                    {daysOfWeek.map((day, index) => (
-                                        <th key={index} className={styles.headerCell}>
-                                            {day}
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {weeks.map((week, weekIndex) => {
-                                    const weekKey = format(week[0], 'yyyy-MM-dd');
-                                    const weekSpanLanes = weekSpanLanesByWeek.get(weekKey) || [];
-                                    const { weekSpanReservedHeightsByCol, weekSpanReservedHeight } =
-                                        getWeekSpanReservedHeightData(weekSpanLanes);
-                                    const weekCellStyle =
-                                        weekSpanReservedHeight > 0
-                                            ? ({
-                                                  height: `calc(var(--calendar-day-cell-height, 120px) + ${weekSpanReservedHeight}px)`,
-                                              } as React.CSSProperties)
-                                            : undefined;
+                            <table className={styles.calendarTable}>
+                                <thead ref={headerRef} className={ebGaramond.className}>
+                                    <tr>
+                                        {daysOfWeek.map((day, index) => (
+                                            <th key={index} className={styles.headerCell}>
+                                                {day}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {weeks.map((week, weekIndex) => {
+                                        const weekKey = format(week[0], 'yyyy-MM-dd');
+                                        const weekSpanLanes = weekSpanLanesByWeek.get(weekKey) || [];
+                                        const { weekSpanReservedHeightsByCol, weekSpanReservedHeight } =
+                                            getWeekSpanReservedHeightData(weekSpanLanes);
+                                        const weekCellStyle =
+                                            weekSpanReservedHeight > 0
+                                                ? ({
+                                                      height: `calc(var(--calendar-day-cell-height, 120px) + ${weekSpanReservedHeight}px)`,
+                                                  } as React.CSSProperties)
+                                                : undefined;
 
-                                    return (
-                                        <React.Fragment key={weekKey}>
-                                            <tr>
-                                                {week.map((day, dayIndex) => {
-                                                    // @ts-ignore
-                                                    const nepaliDate = new NepaliDate(day);
-                                                    const currentMonth = format(day, 'MMMM');
-                                                    const isFirstDayOfMonth = getDate(day) === 1;
-                                                    const isFirstWeekOfMonthButNotFirstDay =
-                                                        getDate(day) === 2 ||
-                                                        getDate(day) === 3 ||
-                                                        getDate(day) === 4 ||
-                                                        getDate(day) === 5 ||
-                                                        getDate(day) === 6 ||
-                                                        getDate(day) === 7;
-                                                    const isFirstDayOfYear = getDate(day) === 1 && getMonth(day) === 0;
-                                                    const year = format(day, 'yyyy');
-                                                    const nepaliYear = nepaliDate.format('YYYY');
-                                                    shouldDisplayBothYears = false;
-                                                    const dateStr = format(day, 'yyyy-MM-dd');
-                                                    const dayReservedHeight = weekSpanReservedHeightsByCol[dayIndex] || 0;
+                                        return (
+                                            <React.Fragment key={weekKey}>
+                                                <tr>
+                                                    {week.map((day, dayIndex) => {
+                                                        const nepaliDate = new NepaliDate(day);
+                                                        const currentMonth = format(day, 'MMMM');
+                                                        const isFirstDayOfMonth = getDate(day) === 1;
+                                                        const isFirstWeekOfMonthButNotFirstDay =
+                                                            getDate(day) === 2 ||
+                                                            getDate(day) === 3 ||
+                                                            getDate(day) === 4 ||
+                                                            getDate(day) === 5 ||
+                                                            getDate(day) === 6 ||
+                                                            getDate(day) === 7;
+                                                        const isFirstDayOfYear = getDate(day) === 1 && getMonth(day) === 0;
+                                                        const year = format(day, 'yyyy');
+                                                        const nepaliYear = nepaliDate.format('YYYY');
+                                                        shouldDisplayBothYears = false;
+                                                        const dateStr = format(day, 'yyyy-MM-dd');
+                                                        const dayReservedHeight = weekSpanReservedHeightsByCol[dayIndex] || 0;
 
-                                                    const isFirstDayOfNepaliMonth = nepaliDate.getDate() === 1;
-                                                    const isFirstWeekOfNepaliMonthButNotFirstDay =
-                                                        nepaliDate.getDate() === 2 ||
-                                                        nepaliDate.getDate() === 3 ||
-                                                        nepaliDate.getDate() === 4 ||
-                                                        nepaliDate.getDate() === 5 ||
-                                                        nepaliDate.getDate() === 6 ||
-                                                        nepaliDate.getDate() === 7;
-                                                    const isFirstDayOfNepaliYear = nepaliDate.getDate() === 1 && nepaliDate.getMonth() === 0;
+                                                        const isFirstDayOfNepaliMonth = nepaliDate.getDate() === 1;
+                                                        const isFirstWeekOfNepaliMonthButNotFirstDay =
+                                                            nepaliDate.getDate() === 2 ||
+                                                            nepaliDate.getDate() === 3 ||
+                                                            nepaliDate.getDate() === 4 ||
+                                                            nepaliDate.getDate() === 5 ||
+                                                            nepaliDate.getDate() === 6 ||
+                                                            nepaliDate.getDate() === 7;
+                                                        const isFirstDayOfNepaliYear =
+                                                            nepaliDate.getDate() === 1 && nepaliDate.getMonth() === 0;
 
-                                                    shouldDisplayYear = (!isYearSet && dayIndex === 0 && weekIndex === 0) || isFirstDayOfYear;
-                                                    if (shouldDisplayYear) {
-                                                        isYearSet = true;
-                                                    }
+                                                        shouldDisplayYear =
+                                                            (!isYearSet && dayIndex === 0 && weekIndex === 0) || isFirstDayOfYear;
+                                                        if (shouldDisplayYear) {
+                                                            isYearSet = true;
+                                                        }
 
-                                                    shouldDisplayNepaliYear =
-                                                        displayBS && ((dayIndex === 0 && weekIndex === 0) || isFirstDayOfNepaliYear);
+                                                        shouldDisplayNepaliYear =
+                                                            effectiveShowBsDays &&
+                                                            ((dayIndex === 0 && weekIndex === 0) || isFirstDayOfNepaliYear);
 
-                                                    if (shouldDisplayYear && shouldDisplayNepaliYear) {
-                                                        shouldDisplayBothYears = true;
-                                                        shouldDisplayYear = false;
-                                                        shouldDisplayNepaliYear = false;
-                                                    }
+                                                        if (shouldDisplayYear && shouldDisplayNepaliYear) {
+                                                            shouldDisplayBothYears = true;
+                                                            shouldDisplayYear = false;
+                                                            shouldDisplayNepaliYear = false;
+                                                        }
 
-                                                    const displayMonthName = isFirstDayOfMonth;
-                                                    const displayNepaliMonthName = displayBS && isFirstDayOfNepaliMonth;
+                                                        const displayMonthName = isFirstDayOfMonth;
+                                                        const displayNepaliMonthName = effectiveShowBsDays && isFirstDayOfNepaliMonth;
+                                                        const dayItems = dayItemsByDate.get(dateStr) || [];
+                                                        const dayLabelParts = [
+                                                            effectiveShowGregorianDays ? format(day, 'd') : '',
+                                                            effectiveShowBsDays ? nepaliDate.format('D', 'np') : '',
+                                                        ].filter(Boolean);
 
-                                                    const dayItems = dayItemsByDate.get(dateStr) || [];
-
-                                                    return (
-                                                        <DroppableDayCell
-                                                            key={dateStr}
-                                                            day={day}
-                                                            dateStr={dateStr}
-                                                            onClick={handleDayClick}
-                                                            style={weekCellStyle}
-                                                            className={`${styles.dayCell} ${isFirstDayOfYear ? styles.firstDayOfYear : ''} ${
-                                                                isFirstDayOfMonth ? styles.firstDayOfMonth : ''
-                                                            } ${isFirstWeekOfMonthButNotFirstDay ? styles.firstWeekOfMonth : ''} ${
-                                                                displayBS && isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''
-                                                            } ${displayBS && isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''} ${
-                                                                displayBS && isFirstWeekOfNepaliMonthButNotFirstDay ? styles.firstWeekOfNepaliMonth : ''
-                                                            }`}
-                                                        >
-                                                            {dayIndex === 0 && weekSpanLanes.length > 0 ? (
-                                                                <CalendarWeekSpanOverlay
-                                                                    weekKey={weekKey}
-                                                                    weekSpanLanes={weekSpanLanes}
-                                                                    onEventClick={handleEventClick}
-                                                                />
-                                                            ) : null}
-                                                            {shouldDisplayYear && <div className={styles.yearNumber}>{year}</div>}
-                                                            {shouldDisplayNepaliYear && <div className={styles.nepaliYearNumber}>{nepaliYear}</div>}
-                                                            {shouldDisplayBothYears && (
-                                                                <div className={styles.yearNumber}>
-                                                                    {year} / {nepaliYear}
+                                                        return (
+                                                            <DroppableDayCell
+                                                                key={dateStr}
+                                                                day={day}
+                                                                dateStr={dateStr}
+                                                                onClick={handleDayClick}
+                                                                style={weekCellStyle}
+                                                                className={`${styles.dayCell} ${isFirstDayOfYear ? styles.firstDayOfYear : ''} ${
+                                                                    isFirstDayOfMonth ? styles.firstDayOfMonth : ''
+                                                                } ${isFirstWeekOfMonthButNotFirstDay ? styles.firstWeekOfMonth : ''} ${
+                                                                    effectiveShowBsDays && isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''
+                                                                } ${effectiveShowBsDays && isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''} ${
+                                                                    effectiveShowBsDays && isFirstWeekOfNepaliMonthButNotFirstDay
+                                                                        ? styles.firstWeekOfNepaliMonth
+                                                                        : ''
+                                                                }`}
+                                                            >
+                                                                {dayIndex === 0 && weekSpanLanes.length > 0 ? (
+                                                                    <CalendarWeekSpanOverlay
+                                                                        weekKey={weekKey}
+                                                                        weekSpanLanes={weekSpanLanes}
+                                                                        onEventClick={handleEventClick}
+                                                                    />
+                                                                ) : null}
+                                                                {shouldDisplayYear && <div className={styles.yearNumber}>{year}</div>}
+                                                                {shouldDisplayNepaliYear && <div className={styles.nepaliYearNumber}>{nepaliYear}</div>}
+                                                                {shouldDisplayBothYears && (
+                                                                    <div className={styles.yearNumber}>
+                                                                        {year} / {nepaliYear}
+                                                                    </div>
+                                                                )}
+                                                                {displayMonthName && <div className={styles.monthName}>{currentMonth}</div>}
+                                                                {displayNepaliMonthName && (
+                                                                    <div className={styles.nepaliMonthName}>
+                                                                        {NEPALI_MONTHS_COMMON_DEVANAGARI[nepaliDate.getMonth()] +
+                                                                            ' (' +
+                                                                            NEPALI_MONTHS_COMMON_ROMAN[nepaliDate.getMonth()] +
+                                                                            ')'}
+                                                                    </div>
+                                                                )}
+                                                                <div className={styles.dayNumber} data-calendar-date={dateStr}>
+                                                                    {dayLabelParts.join(' / ')}
                                                                 </div>
-                                                            )}
-                                                            {displayMonthName && <div className={styles.monthName}>{currentMonth}</div>}
-                                                            {displayNepaliMonthName && (
-                                                                <div className={styles.nepaliMonthName}>
-                                                                    {NEPALI_MONTHS_COMMON_DEVANAGARI[nepaliDate.getMonth()] +
-                                                                        ' (' +
-                                                                        NEPALI_MONTHS_COMMON_ROMAN[nepaliDate.getMonth()] +
-                                                                        ')'}
-                                                                </div>
-                                                            )}
-                                                            <div className={styles.dayNumber} data-calendar-date={dateStr}>
-                                                                {format(day, 'd')} {displayBS ? ' / ' + nepaliDate.format('D', 'np') : ''}
-                                                            </div>
-                                                            {dayReservedHeight > 0 ? (
-                                                                <div
-                                                                    className={styles.multiDayLaneSpacer}
-                                                                    style={{ height: `${dayReservedHeight}px` }}
-                                                                    aria-hidden="true"
-                                                                />
-                                                            ) : null}
+                                                                {dayReservedHeight > 0 ? (
+                                                                    <div
+                                                                        className={styles.multiDayLaneSpacer}
+                                                                        style={{ height: `${dayReservedHeight}px` }}
+                                                                        aria-hidden="true"
+                                                                    />
+                                                                ) : null}
 
-                                                            {dayItems.length > 0 ? (
-                                                                <div
-                                                                    className={`${styles.dayEventStack}${
-                                                                        dayReservedHeight <= 0 ? ` ${styles.dayEventStackWithTopGap}` : ''
-                                                                    }`}
-                                                                >
-                                                                    {dayItems.map((item, index) => (
-                                                                        <DraggableCalendarEvent
-                                                                            key={`${item.id}-${item.startDate}`}
-                                                                            item={item}
-                                                                            index={index}
-                                                                            draggableEnabled={item.calendarItemKind !== 'chore'}
-                                                                            onClick={
-                                                                                item.calendarItemKind === 'chore'
-                                                                                    ? undefined
-                                                                                    : (e) => handleEventClick(e, item)
-                                                                            }
-                                                                        />
-                                                                    ))}
-                                                                </div>
-                                                            ) : null}
-                                                        </DroppableDayCell>
-                                                    );
-                                                })}
-                                            </tr>
-                                        </React.Fragment>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </>
-                )}
-            </div>
+                                                                {dayItems.length > 0 ? (
+                                                                    <div
+                                                                        className={`${styles.dayEventStack}${
+                                                                            dayReservedHeight <= 0 ? ` ${styles.dayEventStackWithTopGap}` : ''
+                                                                        }`}
+                                                                    >
+                                                                        {dayItems.map((item, index) => (
+                                                                            <DraggableCalendarEvent
+                                                                                key={`${item.id}-${item.startDate}`}
+                                                                                item={item}
+                                                                                index={index}
+                                                                                draggableEnabled={item.calendarItemKind !== 'chore'}
+                                                                                onClick={
+                                                                                    item.calendarItemKind === 'chore'
+                                                                                        ? undefined
+                                                                                        : (e) => handleEventClick(e, item)
+                                                                                }
+                                                                            />
+                                                                        ))}
+                                                                    </div>
+                                                                ) : null}
+                                                            </DroppableDayCell>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </>
+                    )}
+                </div>
+            )}
 
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
                 <DialogContent>
@@ -3269,7 +3439,7 @@ const Calendar = ({ currentDate = new Date(), numWeeks = 5, displayBS = true }: 
                     />
                 </DialogContent>
             </Dialog>
-        </>
+        </div>
     );
 };
 
