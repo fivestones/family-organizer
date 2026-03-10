@@ -43,12 +43,14 @@ describe('middleware device auth gate', () => {
         const activateResponse = middleware(new NextRequest('http://localhost:3000/activate'));
         const deviceActivateApiResponse = middleware(new NextRequest('http://localhost:3000/api/device-activate'));
         const mobileApiResponse = middleware(new NextRequest('http://localhost:3000/api/mobile/device-activate'));
+        const calendarSyncRunResponse = middleware(new NextRequest('http://localhost:3000/api/calendar-sync/apple/run'));
 
         expect(manifestResponse.headers.get('x-middleware-next')).toBe('1');
         expect(offlineResponse.headers.get('x-middleware-next')).toBe('1');
         expect(activateResponse.headers.get('x-middleware-next')).toBe('1');
         expect(deviceActivateApiResponse.headers.get('x-middleware-next')).toBe('1');
         expect(mobileApiResponse.headers.get('x-middleware-next')).toBe('1');
+        expect(calendarSyncRunResponse.headers.get('x-middleware-next')).toBe('1');
     });
 
     it('blocks legacy upload and delete-image routes without device auth', async () => {

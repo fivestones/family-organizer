@@ -16,6 +16,7 @@ const PUBLIC_ALLOWLIST_PATHS = [
     '/api/device-activate',
 ];
 const PUBLIC_ALLOWLIST_PREFIXES = ['/api/mobile/'];
+const API_ROUTE_AUTH_PREFIXES = ['/api/calendar-sync/'];
 
 export function middleware(request: NextRequest) {
     // 1. Read the key INSIDE the function to ensure we get the runtime value
@@ -29,6 +30,7 @@ export function middleware(request: NextRequest) {
     if (
         PUBLIC_ALLOWLIST_PATHS.includes(pathname) ||
         PUBLIC_ALLOWLIST_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
+        API_ROUTE_AUTH_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
         PUBLIC_FILE_EXTENSIONS.some((ext) => pathname.endsWith(ext))
     ) {
         return NextResponse.next();
