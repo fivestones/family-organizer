@@ -31,7 +31,7 @@ import {
     upsertImportedCalendarItems,
 } from '@/lib/apple-caldav/repository';
 
-function shouldForceRepair(calendar: any, account: any, trigger: string | undefined, now: Date) {
+export function shouldForceRepair(calendar: any, account: any, trigger: string | undefined, now: Date) {
     if (trigger === 'repair') return true;
     const intervalHours = account.repairScanIntervalHours || getDefaultRepairScanIntervalHours();
     if (!calendar.lastSuccessfulSyncAt) return true;

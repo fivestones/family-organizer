@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
 describe('apple caldav sync discovery policy', () => {
+    it('keeps normal manual syncs incremental while reserving repair runs for full rewrites', async () => {
+        const { shouldForceRepair } = await import('@/lib/apple-caldav/sync');
+        const baseCalendar = {
+            lastSuccessfulSyncAt: '2026-03-10T08:00:00.000Z',
+        };
+        const baseAccount = {
+            repairScanIntervalHours: 24,
+        };
+        const now = new Date('2026-03-10T09:00:00.000Z');
+
+        expect(shouldForceRepair(baseCalendar, baseAccount, 'manual', now)).toBe(false);
+        expect(shouldForceRepair(baseCalendar, baseAccount, 'repair', now)).toBe(true);
+    });
+
     it('reuses fresh cached calendar metadata during hot polling', async () => {
         const { shouldRefreshAppleCalendarDiscovery } = await import('@/lib/apple-caldav/sync');
         const decision = shouldRefreshAppleCalendarDiscovery({

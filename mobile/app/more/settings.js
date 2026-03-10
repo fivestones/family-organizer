@@ -97,6 +97,20 @@ function pollReasonLabel(value) {
   }
 }
 
+function isPollingHeartbeatOverdue(polling) {
+  if (!polling?.lastSuccessfulPollAt) return false;
+  const lastPollMs = new Date(polling.lastSuccessfulPollAt).getTime();
+  if (Number.isNaN(lastPollMs)) return false;
+
+  const nextPollMs = new Date(polling.nextPollAt || '').getTime();
+  if (!Number.isNaN(nextPollMs)) {
+    return Date.now() > nextPollMs + 60_000;
+  }
+
+  const intervalMs = Math.max(15_000, Number(polling?.pollIntervalMs) || 0);
+  return Date.now() - lastPollMs > intervalMs + 60_000;
+}
+
 export default function SettingsScreen() {
   const searchParams = useLocalSearchParams();
   const { requireParentAction } = useParentActionGate();
@@ -159,9 +173,11 @@ export default function SettingsScreen() {
     if (!canManageUnits) return;
     let cancelled = false;
 
-    async function loadCalendarSyncStatus() {
-      setCalendarSyncLoading(true);
-      setCalendarSyncError('');
+    async function loadCalendarSyncStatus({ silent = false } = {}) {
+      if (!silent) {
+        setCalendarSyncLoading(true);
+        setCalendarSyncError('');
+      }
       try {
         const nextStatus = await getAppleCalendarSyncStatus();
         if (cancelled) return;
@@ -173,16 +189,20 @@ export default function SettingsScreen() {
           selectedCalendarIds: (nextStatus?.calendars || []).filter((calendar) => calendar.isEnabled).map((calendar) => calendar.remoteCalendarId),
         }));
       } catch (nextError) {
-        if (cancelled) return;
+        if (cancelled || silent) return;
         setCalendarSyncError(nextError?.message || 'Unable to load Apple Calendar sync status.');
       } finally {
-        if (!cancelled) setCalendarSyncLoading(false);
+        if (!cancelled && !silent) setCalendarSyncLoading(false);
       }
     }
 
     void loadCalendarSyncStatus();
+    const intervalId = setInterval(() => {
+      void loadCalendarSyncStatus({ silent: true });
+    }, 15_000);
     return () => {
       cancelled = true;
+      clearInterval(intervalId);
     };
   }, [canManageUnits]);
 
@@ -232,6 +252,13 @@ export default function SettingsScreen() {
         color: colors.danger,
       };
     }
+    if (isPollingHeartbeatOverdue(calendarSyncStatus?.polling)) {
+      return {
+        label: 'Polling overdue',
+        body: 'The background poller has not checked in on schedule. Near-real-time sync only works while the worker or cron is running.',
+        color: colors.warning,
+      };
+    }
     if (calendarSyncStatus?.polling?.pollReason === 'error_backoff') {
       return {
         label: 'Retry backoff',
@@ -253,6 +280,7 @@ export default function SettingsScreen() {
     calendarSyncStatus?.configured,
     calendarSyncStatus?.lastRun?.errorMessage,
     calendarSyncStatus?.lastRun?.status,
+    calendarSyncStatus?.polling,
     calendarSyncStatus?.polling?.pollReason,
     colors.accentChores,
     colors.danger,
@@ -363,15 +391,48 @@ export default function SettingsScreen() {
     }
   }
 
-  async function handleRunCalendarSync() {
+  async function handleRunCalendarSync(trigger = 'manual') {
     if (!calendarSyncStatus?.account?.id) return;
     setCalendarSyncSaving(true);
     setCalendarSyncError('');
     try {
-      await runAppleCalendarSync({ accountId: calendarSyncStatus.account.id, trigger: 'manual' });
+      const result = await runAppleCalendarSync({ accountId: calendarSyncStatus.account.id, trigger });
+      const completedAtIso = new Date().toISOString();
+      setCalendarSyncStatus((current) => {
+        if (!current?.account) return current;
+        return {
+          ...current,
+          account: {
+            ...current.account,
+            lastAttemptedSyncAt: completedAtIso,
+            lastSuccessfulSyncAt: result?.skipped ? current.account.lastSuccessfulSyncAt : completedAtIso,
+            lastErrorAt: result?.skipped ? current.account.lastErrorAt : '',
+            lastErrorMessage: result?.skipped ? current.account.lastErrorMessage : '',
+          },
+          lastRun: result?.skipped
+            ? current.lastRun
+            : {
+                ...(current.lastRun || {}),
+                status: 'success',
+                errorMessage: '',
+                finishedAt: completedAtIso,
+                startedAt: completedAtIso,
+              },
+          polling: current.polling
+            ? {
+                ...current.polling,
+                lastSuccessfulPollAt: completedAtIso,
+                nextPollAt: result?.nextPollAt || current.polling.nextPollAt,
+                nextPollInMs: typeof result?.nextPollInMs === 'number' ? result.nextPollInMs : current.polling.nextPollInMs,
+                pollIntervalMs: typeof result?.pollIntervalMs === 'number' ? result.pollIntervalMs : current.polling.pollIntervalMs,
+                pollReason: result?.pollReason || current.polling.pollReason,
+              }
+            : current.polling,
+        };
+      });
       await refreshCalendarSyncStatus();
     } catch (nextError) {
-      setCalendarSyncError(nextError?.message || 'Unable to run Apple Calendar sync.');
+      setCalendarSyncError(nextError?.message || (trigger === 'repair' ? 'Unable to sync and rewrite Apple Calendar.' : 'Unable to run Apple Calendar sync.'));
     } finally {
       setCalendarSyncSaving(false);
     }
@@ -533,13 +594,16 @@ export default function SettingsScreen() {
                   <Text style={[styles.syncSummaryLabel, { color: calendarSyncSummary.color }]}>{calendarSyncSummary.label}</Text>
                   <Text style={styles.syncSummaryBody}>{calendarSyncSummary.body}</Text>
                 </View>
+                <Text style={styles.syncStatusHint}>
+                  Sync Now uses the normal incremental Apple delta sync. Sync and Rewrite forces a full repair pass and can rewrite imported rows after bugs or mapping changes.
+                </Text>
                 <View style={styles.syncStatusGrid}>
                   <View style={styles.syncStatusCell}>
                     <Text style={styles.syncStatusLabel}>Last successful sync</Text>
                     <Text style={styles.syncStatusValue}>{formatDateWithRelative(calendarSyncStatus?.account?.lastSuccessfulSyncAt)}</Text>
                   </View>
                   <View style={styles.syncStatusCell}>
-                    <Text style={styles.syncStatusLabel}>Last successful check</Text>
+                    <Text style={styles.syncStatusLabel}>Last poll heartbeat</Text>
                     <Text style={styles.syncStatusValue}>{formatDateWithRelative(calendarSyncStatus?.polling?.lastSuccessfulPollAt)}</Text>
                   </View>
                   <View style={styles.syncStatusCell}>
@@ -553,6 +617,9 @@ export default function SettingsScreen() {
                     <Text style={styles.syncStatusHint}>Interval {formatDurationMs(calendarSyncStatus?.polling?.pollIntervalMs)}</Text>
                   </View>
                 </View>
+                <Text style={styles.syncStatusHint}>
+                  Background polling only updates when the server worker or cron is hitting the Apple sync route. Quiet calendars also back off to a slower cadence between checks.
+                </Text>
                 <View style={styles.choiceColumn}>
                   {(calendarSyncStatus.calendars || []).map((calendar) => {
                     const selected = calendarSyncForm.selectedCalendarIds.includes(calendar.remoteCalendarId);
@@ -580,8 +647,11 @@ export default function SettingsScreen() {
                   <Pressable style={styles.secondaryChip} disabled={calendarSyncSaving} onPress={() => void handleSaveCalendarSelection()}>
                     <Text style={styles.secondaryChipText}>{calendarSyncSaving ? 'Saving…' : 'Save Calendars'}</Text>
                   </Pressable>
-                  <Pressable style={styles.primaryChip} disabled={calendarSyncSaving} onPress={() => void handleRunCalendarSync()}>
-                    <Text style={styles.primaryChipText}>{calendarSyncSaving ? 'Syncing…' : 'Sync Now'}</Text>
+                  <Pressable style={styles.secondaryChip} disabled={calendarSyncSaving} onPress={() => void handleRunCalendarSync('manual')}>
+                    <Text style={styles.secondaryChipText}>{calendarSyncSaving ? 'Syncing…' : 'Sync Now'}</Text>
+                  </Pressable>
+                  <Pressable style={styles.primaryChip} disabled={calendarSyncSaving} onPress={() => void handleRunCalendarSync('repair')}>
+                    <Text style={styles.primaryChipText}>{calendarSyncSaving ? 'Syncing…' : 'Sync and Rewrite'}</Text>
                   </Pressable>
                 </View>
               </>

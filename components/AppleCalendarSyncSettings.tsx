@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -46,6 +46,20 @@ interface SyncStatus {
         quietStreak?: number;
         failureStreak?: number;
     };
+}
+
+function isPollingHeartbeatOverdue(polling: SyncStatus['polling']) {
+    if (!polling?.lastSuccessfulPollAt) return false;
+    const lastPollMs = new Date(polling.lastSuccessfulPollAt).getTime();
+    if (Number.isNaN(lastPollMs)) return false;
+
+    const nextPollMs = new Date(polling.nextPollAt || '').getTime();
+    if (!Number.isNaN(nextPollMs)) {
+        return Date.now() > nextPollMs + 60_000;
+    }
+
+    const intervalMs = Math.max(15_000, Number(polling.pollIntervalMs) || 0);
+    return Date.now() - lastPollMs > intervalMs + 60_000;
 }
 
 function formatRelativeDate(value: string | undefined | null) {
@@ -132,8 +146,10 @@ export default function AppleCalendarSyncSettings() {
     const selectedCount = form.selectedCalendarIds.length;
     const calendars = status?.calendars || [];
 
-    async function loadStatus() {
-        setIsLoading(true);
+    const loadStatus = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+        if (!silent) {
+            setIsLoading(true);
+        }
         try {
             const nextStatus = await parseJson(await fetch('/api/calendar-sync/apple/status', {
                 cache: 'no-store',
@@ -147,19 +163,30 @@ export default function AppleCalendarSyncSettings() {
                 selectedCalendarIds: (nextStatus?.calendars || []).filter((calendar: SyncCalendarRow) => calendar.isEnabled).map((calendar: SyncCalendarRow) => calendar.remoteCalendarId),
             }));
         } catch (error: any) {
-            toast({
-                title: 'Unable to load Apple Calendar sync',
-                description: error?.message || 'Please try again.',
-                variant: 'destructive',
-            });
+            if (!silent) {
+                toast({
+                    title: 'Unable to load Apple Calendar sync',
+                    description: error?.message || 'Please try again.',
+                    variant: 'destructive',
+                });
+            }
         } finally {
-            setIsLoading(false);
+            if (!silent) {
+                setIsLoading(false);
+            }
         }
-    }
+    }, [toast]);
 
     useEffect(() => {
         void loadStatus();
-    }, []);
+        const intervalId = window.setInterval(() => {
+            void loadStatus({ silent: true });
+        }, 15_000);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [loadStatus]);
 
     const syncSummary = useMemo(() => {
         if (!status?.configured) {
@@ -190,6 +217,13 @@ export default function AppleCalendarSyncSettings() {
                 body: status?.account?.lastErrorMessage || status?.lastRun?.errorMessage || 'The most recent sync failed.',
             };
         }
+        if (isPollingHeartbeatOverdue(status?.polling)) {
+            return {
+                tone: 'bg-amber-100 text-amber-700',
+                label: 'Polling overdue',
+                body: 'The background poller has not checked in on schedule. Near-real-time sync only works while the worker or cron is running.',
+            };
+        }
         if (status?.polling?.pollReason === 'error_backoff') {
             return {
                 tone: 'bg-amber-100 text-amber-700',
@@ -215,6 +249,7 @@ export default function AppleCalendarSyncSettings() {
         status?.configured,
         status?.lastRun?.errorMessage,
         status?.lastRun?.status,
+        status?.polling,
         status?.polling?.pollReason,
     ]);
 
@@ -272,25 +307,71 @@ export default function AppleCalendarSyncSettings() {
         });
     }
 
-    async function handleRunSync() {
+    async function handleRunSync(trigger: 'manual' | 'repair') {
         if (!status?.account?.id) return;
         startTransition(async () => {
             try {
-                await parseJson(
+                const result = await parseJson(
                     await fetch('/api/calendar-sync/apple/run', {
                         method: 'POST',
                         headers: calendarSyncHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({
                             accountId: status.account.id,
-                            trigger: 'manual',
+                            trigger,
                         }),
                     })
                 );
-                await loadStatus();
-                toast({ title: 'Apple Calendar sync started' });
+                const completedAtIso = new Date().toISOString();
+                setStatus((current) => {
+                    if (!current?.account) return current;
+                    return {
+                        ...current,
+                        account: {
+                            ...current.account,
+                            lastAttemptedSyncAt: completedAtIso,
+                            lastSuccessfulSyncAt: result?.skipped ? current.account.lastSuccessfulSyncAt : completedAtIso,
+                            lastErrorAt: result?.skipped ? current.account.lastErrorAt : '',
+                            lastErrorMessage: result?.skipped ? current.account.lastErrorMessage : '',
+                        },
+                        lastRun: result?.skipped
+                            ? current.lastRun
+                            : {
+                                ...(current.lastRun || {}),
+                                status: 'success',
+                                errorMessage: '',
+                                finishedAt: completedAtIso,
+                                startedAt: completedAtIso,
+                            },
+                        polling: current.polling
+                            ? {
+                                ...current.polling,
+                                lastSuccessfulPollAt: completedAtIso,
+                                nextPollAt: result?.nextPollAt || current.polling.nextPollAt,
+                                nextPollInMs: typeof result?.nextPollInMs === 'number' ? result.nextPollInMs : current.polling.nextPollInMs,
+                                pollIntervalMs: typeof result?.pollIntervalMs === 'number' ? result.pollIntervalMs : current.polling.pollIntervalMs,
+                                pollReason: result?.pollReason || current.polling.pollReason,
+                            }
+                            : current.polling,
+                    };
+                });
+                await loadStatus({ silent: true });
+
+                const summary = result?.skipped
+                    ? 'No sync work was needed.'
+                    : `${Number(result?.eventsCreated || 0)} created, ${Number(result?.eventsUpdated || 0)} updated, ${Number(result?.eventsMarkedDeleted || 0)} removed`;
+                toast({
+                    title: result?.skipped
+                        ? trigger === 'repair'
+                            ? 'Apple Calendar rewrite check finished'
+                            : 'Apple Calendar check finished'
+                        : trigger === 'repair'
+                            ? 'Apple Calendar rewrite finished'
+                            : 'Apple Calendar sync finished',
+                    description: summary,
+                });
             } catch (error: any) {
                 toast({
-                    title: 'Sync failed',
+                    title: trigger === 'repair' ? 'Sync and rewrite failed' : 'Sync failed',
                     description: error?.message || 'Please try again.',
                     variant: 'destructive',
                 });
@@ -340,8 +421,11 @@ export default function AppleCalendarSyncSettings() {
                     <Button type="button" onClick={() => void handleConnect()} disabled={isPending}>
                         {status?.configured ? 'Reconnect Apple Calendar' : 'Connect Apple Calendar'}
                     </Button>
-                    <Button type="button" variant="secondary" onClick={() => void handleRunSync()} disabled={isPending || !status?.account?.id}>
+                    <Button type="button" variant="secondary" onClick={() => void handleRunSync('manual')} disabled={isPending || !status?.account?.id}>
                         Sync Now
+                    </Button>
+                    <Button type="button" onClick={() => void handleRunSync('repair')} disabled={isPending || !status?.account?.id}>
+                        Sync and Rewrite
                     </Button>
                 </div>
 
@@ -352,6 +436,9 @@ export default function AppleCalendarSyncSettings() {
                                 {status?.configured ? `Connected as ${status?.account?.username || 'Apple account'}` : 'Not connected yet'}
                             </p>
                             <p className="mt-1 text-sm text-slate-600">{syncSummary.body}</p>
+                            <p className="mt-2 text-xs text-slate-500">
+                                `Sync Now` uses the normal incremental Apple delta sync. `Sync and Rewrite` forces a full repair pass and can rewrite imported rows after bugs or mapping changes.
+                            </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                             <div className={`rounded-full px-3 py-1 text-xs font-semibold ${syncSummary.tone}`}>
@@ -368,7 +455,7 @@ export default function AppleCalendarSyncSettings() {
                             <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.account?.lastSuccessfulSyncAt)}</p>
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last successful check</p>
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last poll heartbeat</p>
                             <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.polling?.lastSuccessfulPollAt)}</p>
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
@@ -403,6 +490,9 @@ export default function AppleCalendarSyncSettings() {
                     {status?.lastRun?.errorMessage ? (
                         <p className="mt-3 text-sm font-medium text-rose-600">{status.lastRun.errorMessage}</p>
                     ) : null}
+                    <p className="mt-3 text-xs text-slate-500">
+                        Background polling only updates when the server worker or cron is hitting the Apple sync route. Quiet calendars also back off to a slower cadence between checks.
+                    </p>
                 </div>
 
                 <div className="space-y-3">

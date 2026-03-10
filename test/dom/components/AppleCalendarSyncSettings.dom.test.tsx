@@ -70,15 +70,39 @@ describe('AppleCalendarSyncSettings', () => {
                         { status: 200, headers: { 'Content-Type': 'application/json' } }
                     )
                 )
+                .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+                .mockResolvedValueOnce(
+                    new Response(
+                        JSON.stringify({
+                            configured: true,
+                            account: {
+                                id: 'acct_1',
+                                username: 'parent@example.com',
+                                lastAttemptedSyncAt: '2026-03-10T12:07:00.000Z',
+                                lastSuccessfulSyncAt: '2026-03-10T12:07:00.000Z',
+                            },
+                            calendars: [{ id: 'cal_1', remoteCalendarId: 'home', displayName: 'Home', isEnabled: true }],
+                            lastRun: { status: 'success', finishedAt: '2026-03-10T12:07:00.000Z' },
+                            polling: {
+                                lastSuccessfulPollAt: '2026-03-10T12:07:00.000Z',
+                                nextPollAt: '2026-03-10T12:07:15.000Z',
+                                nextPollInMs: 15_000,
+                                pollIntervalMs: 15_000,
+                                pollReason: 'repair',
+                            },
+                        }),
+                        { status: 200, headers: { 'Content-Type': 'application/json' } }
+                    )
+                )
         );
     });
 
-    it('loads status and can trigger a manual sync', async () => {
+    it('loads status and can trigger both normal and rewrite sync actions', async () => {
         const user = userEvent.setup();
         render(<AppleCalendarSyncSettings />);
 
         await screen.findByText(/Connected as parent@example.com/i);
-        expect(screen.getByText(/Last successful check/i)).toBeInTheDocument();
+        expect(screen.getByText(/Last poll heartbeat/i)).toBeInTheDocument();
         expect(screen.getByText(/Polling mode/i)).toBeInTheDocument();
         expect(global.fetch).toHaveBeenNthCalledWith(
             1,
@@ -104,5 +128,17 @@ describe('AppleCalendarSyncSettings', () => {
                 })
             );
         });
+
+        const manualRequest = (global.fetch as any).mock.calls[1][1];
+        expect(JSON.parse(manualRequest.body)).toMatchObject({ trigger: 'manual' });
+
+        await user.click(screen.getByRole('button', { name: /sync and rewrite/i }));
+
+        await waitFor(() => {
+            expect((global.fetch as any).mock.calls[3][0]).toBe('/api/calendar-sync/apple/run');
+        });
+
+        const repairRequest = (global.fetch as any).mock.calls[3][1];
+        expect(JSON.parse(repairRequest.body)).toMatchObject({ trigger: 'repair' });
     });
 });
