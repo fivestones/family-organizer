@@ -38,7 +38,7 @@ describe('POST /api/calendar-sync/apple/run', () => {
         const response = await POST(
             new NextRequest('http://localhost:3000/api/calendar-sync/apple/run', {
                 method: 'POST',
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { authorization: 'Bearer cron-secret' },
             })
         );
 

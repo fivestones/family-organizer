@@ -20,12 +20,63 @@ import {
     listCalendarSyncAccounts,
     listCalendarSyncCalendars,
     listRecentSyncRuns,
+    markImportedCalendarItemsDeletedByRemoteUrls,
     releaseCalendarSyncLock,
     replaceCalendarSyncCalendars,
     updateSyncRun,
     upsertCalendarSyncAccount,
     upsertImportedCalendarItems,
 } from '@/lib/apple-caldav/repository';
+
+function shouldForceRepair(calendar: any, account: any, trigger: string | undefined, now: Date) {
+    if (trigger === 'repair') return true;
+    const intervalHours = account.repairScanIntervalHours || getDefaultRepairScanIntervalHours();
+    if (!calendar.lastSuccessfulSyncAt) return true;
+    const lastSuccessfulMs = new Date(calendar.lastSuccessfulSyncAt).getTime();
+    if (Number.isNaN(lastSuccessfulMs)) return true;
+    return now.getTime() - lastSuccessfulMs >= intervalHours * 60 * 60 * 1000;
+}
+
+function mergeDiscoveredCalendars(account: any, existingCalendars: any[], discoveredCalendars: any[], nowIso: string) {
+    const existingByRemoteId = new Map(existingCalendars.map((calendar: any) => [calendar.remoteCalendarId, calendar]));
+    const selectedIds = new Set(
+        Array.isArray(account.selectedCalendarIds) && account.selectedCalendarIds.length > 0
+            ? account.selectedCalendarIds
+            : existingCalendars.filter((calendar: any) => calendar.isEnabled).map((calendar: any) => calendar.remoteCalendarId)
+    );
+
+    const merged = discoveredCalendars.map((calendar: any) => {
+        const existing = existingByRemoteId.get(calendar.remoteCalendarId);
+        return {
+            ...existing,
+            ...calendar,
+            accountId: account.id,
+            createdAt: existing?.createdAt || nowIso,
+            isEnabled: selectedIds.has(calendar.remoteCalendarId) && account.status === 'active',
+            lastCtag: existing?.lastCtag || '',
+            lastSeenAt: nowIso,
+            lastSuccessfulSyncAt: existing?.lastSuccessfulSyncAt || '',
+            lastSyncToken: calendar.syncToken || existing?.lastSyncToken || '',
+            observedCtag: calendar.ctag || '',
+            updatedAt: nowIso,
+        };
+    });
+
+    for (const existing of existingCalendars) {
+        if (merged.some((calendar: any) => calendar.remoteCalendarId === existing.remoteCalendarId)) continue;
+        merged.push({
+            ...existing,
+            isEnabled: false,
+            updatedAt: nowIso,
+        });
+    }
+
+    return merged;
+}
+
+function persistableCalendarRows(calendars: any[]) {
+    return calendars.map(({ observedCtag, ...calendar }) => calendar);
+}
 
 export async function connectAppleCalendarAccount(input: { username: string; appSpecificPassword: string; accountLabel?: string }) {
     const discovery = await discoverAppleCalendars({
@@ -148,14 +199,21 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
     });
 
     try {
-        const calendars = ((await listCalendarSyncCalendars(account.id)) as any[]).filter((calendar: any) => calendar.isEnabled);
         const password = decryptCalendarCredential(account.passwordCiphertext);
-        const nowIso = new Date().toISOString();
+        const now = new Date();
+        const nowIso = now.toISOString();
         const window = getCalendarSyncWindow(
-            new Date(),
+            now,
             account.syncWindowPastDays || getDefaultSyncWindowPastDays(),
             account.syncWindowFutureDays || getDefaultSyncWindowFutureDays()
         );
+        const existingCalendars = (await listCalendarSyncCalendars(account.id)) as any[];
+        const discovery = await discoverAppleCalendars({
+            username: account.username,
+            password,
+        });
+        const calendars = mergeDiscoveredCalendars(account, existingCalendars, discovery.calendars, nowIso);
+        await replaceCalendarSyncCalendars(account.id, persistableCalendarRows(calendars));
 
         let remoteEventsFetched = 0;
         let eventsCreated = 0;
@@ -164,17 +222,44 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
         let eventsCancelled = 0;
         let eventsMarkedDeleted = 0;
 
-        for (const calendar of calendars) {
-            const remoteEvents = await fetchCalendarEvents({
-                username: account.username,
-                password,
-                calendarUrl: calendar.remoteUrl,
-                rangeStartIso: window.rangeStartIso,
-                rangeEndIso: window.rangeEndIso,
-            });
-            remoteEventsFetched += remoteEvents.length;
+        for (const calendar of calendars.filter((entry: any) => entry.isEnabled && entry.remoteUrl)) {
+            const forceRepair = shouldForceRepair(calendar, account, input.trigger, now);
+            const ctagUnchanged =
+                Boolean(calendar.lastCtag) &&
+                Boolean(calendar.observedCtag) &&
+                calendar.lastCtag === calendar.observedCtag;
+
+            if (!forceRepair && ctagUnchanged) {
+                continue;
+            }
+
+            let remoteEventsResult;
+            const shouldUseIncremental = !forceRepair && Boolean(calendar.lastSyncToken);
+            try {
+                remoteEventsResult = await fetchCalendarEvents({
+                    username: account.username,
+                    password,
+                    calendarUrl: calendar.remoteUrl,
+                    rangeStartIso: window.rangeStartIso,
+                    rangeEndIso: window.rangeEndIso,
+                    syncToken: shouldUseIncremental ? calendar.lastSyncToken : '',
+                });
+            } catch (error: any) {
+                if (error?.code !== 'invalid_sync_token') {
+                    throw error;
+                }
+                remoteEventsResult = await fetchCalendarEvents({
+                    username: account.username,
+                    password,
+                    calendarUrl: calendar.remoteUrl,
+                    rangeStartIso: window.rangeStartIso,
+                    rangeEndIso: window.rangeEndIso,
+                });
+            }
+
+            remoteEventsFetched += remoteEventsResult.events.length;
             const seenSourceExternalIds = new Set<string>();
-            const normalizedItems = remoteEvents.flatMap((remoteEvent: any) => {
+            const normalizedItems = remoteEventsResult.events.flatMap((remoteEvent: any) => {
                 const parsed = parseCalendarResource({
                     accountId: account.id,
                     calendarId: calendar.remoteCalendarId,
@@ -198,20 +283,41 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
                 accountId: account.id,
                 calendarId: calendar.remoteCalendarId,
                 calendarName: calendar.displayName,
-                ctag: calendar.lastCtag || '',
+                ctag: calendar.observedCtag || calendar.lastCtag || '',
                 items: normalizedItems,
                 seenSourceExternalIds,
                 nowIso,
+                rangeStart: window.rangeStart,
+                rangeEnd: window.rangeEnd,
+                markMissingAsDeleted: remoteEventsResult.mode === 'full',
             });
             eventsCreated += stats.eventsCreated;
             eventsUpdated += stats.eventsUpdated;
             eventsUnchanged += stats.eventsUnchanged;
             eventsCancelled += stats.eventsCancelled;
             eventsMarkedDeleted += stats.eventsMarkedDeleted;
+
+            if (remoteEventsResult.deletedHrefs.length > 0) {
+                const deletedStats = await markImportedCalendarItemsDeletedByRemoteUrls({
+                    accountId: account.id,
+                    calendarId: calendar.remoteCalendarId,
+                    remoteUrls: remoteEventsResult.deletedHrefs,
+                    nowIso,
+                });
+                eventsMarkedDeleted += deletedStats.eventsMarkedDeleted;
+            }
+
+            calendar.lastCtag = calendar.observedCtag || calendar.lastCtag || '';
+            calendar.lastSeenAt = nowIso;
+            calendar.lastSuccessfulSyncAt = nowIso;
+            calendar.lastSyncToken = remoteEventsResult.nextSyncToken || calendar.syncToken || calendar.lastSyncToken || '';
+            calendar.updatedAt = nowIso;
         }
 
+        await replaceCalendarSyncCalendars(account.id, persistableCalendarRows(calendars));
+
         await updateSyncRun(runId, {
-            calendarsProcessed: calendars.length,
+            calendarsProcessed: calendars.filter((entry: any) => entry.isEnabled).length,
             durationMs: Date.now() - startedAt.getTime(),
             eventsCancelled,
             eventsCreated,
@@ -224,6 +330,8 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
         });
         await upsertCalendarSyncAccount({
             ...account,
+            appleCalendarHomeUrl: discovery.calendarHomeUrl,
+            applePrincipalUrl: discovery.principalUrl,
             lastAttemptedSyncAt: startedAt.toISOString(),
             lastErrorAt: '',
             lastErrorCode: '',
@@ -235,7 +343,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
         return {
             skipped: false,
             runId,
-            calendarsProcessed: calendars.length,
+            calendarsProcessed: calendars.filter((entry: any) => entry.isEnabled).length,
             remoteEventsFetched,
             eventsCreated,
             eventsUpdated,
@@ -253,6 +361,8 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
         });
         await upsertCalendarSyncAccount({
             ...account,
+            appleCalendarHomeUrl: account.appleCalendarHomeUrl || '',
+            applePrincipalUrl: account.applePrincipalUrl || '',
             lastAttemptedSyncAt: startedAt.toISOString(),
             lastErrorAt: new Date().toISOString(),
             lastErrorCode: String(error?.status || 'sync_failed'),

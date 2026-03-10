@@ -21,14 +21,56 @@ function textOf(value: any): string {
     return '';
 }
 
-function firstHref(multistatus: any, predicate: (response: any) => boolean): string {
-    const responses = asArray(multistatus?.response);
-    const match = responses.find(predicate);
-    return textOf(match?.href);
-}
-
 function allResponses(multistatus: any) {
     return asArray(multistatus?.response);
+}
+
+function propstatsOf(response: any) {
+    return asArray(response?.propstat);
+}
+
+function getResponseProperty(response: any, propertyName: string) {
+    for (const propstat of propstatsOf(response)) {
+        const status = textOf(propstat?.status);
+        if (status && !status.includes(' 200 ')) continue;
+        const prop = propstat?.prop || {};
+        if (prop[propertyName] != null) {
+            return prop[propertyName];
+        }
+    }
+    return undefined;
+}
+
+function hrefOf(value: any): string {
+    if (!value) return '';
+    if (typeof value === 'string') return value.trim();
+    if (Array.isArray(value)) {
+        for (const entry of value) {
+            const href = hrefOf(entry);
+            if (href) return href;
+        }
+        return '';
+    }
+    if (typeof value === 'object') {
+        if (value.href != null) return hrefOf(value.href);
+        if (value['#text'] != null) return hrefOf(value['#text']);
+    }
+    return '';
+}
+
+function statusesOf(response: any) {
+    return [
+        textOf(response?.status),
+        ...propstatsOf(response).map((propstat: any) => textOf(propstat?.status)),
+    ].filter(Boolean);
+}
+
+function responseHasStatus(response: any, code: number) {
+    return statusesOf(response).some((status) => status.includes(` ${code} `));
+}
+
+function syncTokenOf(multistatus: any) {
+    return textOf(multistatus?.['sync-token']);
 }
 
 async function caldavRequest(url: string, input: {
@@ -87,7 +129,14 @@ export async function discoverAppleCalendars(input: { username: string; password
     });
     const principalText = await principalResponse.text();
     const principalDoc = xmlParser.parse(principalText);
-    const principalUrl = buildAbsoluteUrl(principalResponse.url, firstHref(principalDoc.multistatus, () => true));
+    const principalEntry = allResponses(principalDoc.multistatus)[0] || {};
+    const principalUrl = buildAbsoluteUrl(
+        principalResponse.url,
+        hrefOf(getResponseProperty(principalEntry, 'current-user-principal'))
+    );
+    if (!principalUrl) {
+        throw new Error('Apple Calendar principal discovery did not return a principal URL');
+    }
 
     const homeResponse = await caldavRequest(principalUrl, {
         method: 'PROPFIND',
@@ -103,7 +152,14 @@ export async function discoverAppleCalendars(input: { username: string; password
     });
     const homeText = await homeResponse.text();
     const homeDoc = xmlParser.parse(homeText);
-    const homeUrl = buildAbsoluteUrl(homeResponse.url, firstHref(homeDoc.multistatus, (entry) => Boolean(entry?.propstat?.prop?.['calendar-home-set']?.href)));
+    const homeEntry = allResponses(homeDoc.multistatus)[0] || {};
+    const homeUrl = buildAbsoluteUrl(
+        homeResponse.url,
+        hrefOf(getResponseProperty(homeEntry, 'calendar-home-set'))
+    );
+    if (!homeUrl) {
+        throw new Error('Apple Calendar discovery did not return a calendar home URL');
+    }
 
     const calendarsResponse = await caldavRequest(homeUrl, {
         method: 'PROPFIND',
@@ -128,19 +184,18 @@ export async function discoverAppleCalendars(input: { username: string; password
     const calendarsDoc = xmlParser.parse(calendarsText);
     const calendars = allResponses(calendarsDoc.multistatus)
         .map((entry) => {
-            const prop = entry?.propstat?.prop || {};
-            const resourceType = prop.resourcetype || {};
+            const resourceType = getResponseProperty(entry, 'resourcetype') || {};
             if (!('calendar' in resourceType)) return null;
             const href = textOf(entry.href);
             return {
                 remoteCalendarId: href.replace(/\/+$/, '').split('/').pop() || href,
                 remoteUrl: buildAbsoluteUrl(calendarsResponse.url, href),
-                displayName: textOf(prop.displayname) || 'Apple Calendar',
-                color: textOf(prop['calendar-color']) || '',
-                description: textOf(prop['calendar-description']) || '',
-                timeZone: textOf(prop['calendar-timezone']) || '',
-                ctag: textOf(prop.getctag) || '',
-                syncToken: textOf(prop['sync-token']) || '',
+                displayName: textOf(getResponseProperty(entry, 'displayname')) || 'Apple Calendar',
+                color: textOf(getResponseProperty(entry, 'calendar-color')) || '',
+                description: textOf(getResponseProperty(entry, 'calendar-description')) || '',
+                timeZone: textOf(getResponseProperty(entry, 'calendar-timezone')) || '',
+                ctag: textOf(getResponseProperty(entry, 'getctag')) || '',
+                syncToken: textOf(getResponseProperty(entry, 'sync-token')) || '',
             };
         })
         .filter(Boolean);
@@ -158,7 +213,62 @@ export async function fetchCalendarEvents(input: {
     calendarUrl: string;
     rangeStartIso: string;
     rangeEndIso: string;
+    syncToken?: string;
 }) {
+    if (input.syncToken) {
+        try {
+            const response = await caldavRequest(input.calendarUrl, {
+                method: 'REPORT',
+                username: input.username,
+                password: input.password,
+                depth: '1',
+                body: `<?xml version="1.0" encoding="utf-8" ?>
+                    <d:sync-collection xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+                      <d:sync-token>${input.syncToken}</d:sync-token>
+                      <d:sync-level>1</d:sync-level>
+                      <d:prop>
+                        <d:getetag />
+                        <c:calendar-data />
+                      </d:prop>
+                    </d:sync-collection>`,
+            });
+            const body = await response.text();
+            const parsed = xmlParser.parse(body);
+            const multistatus = parsed.multistatus || {};
+            const events = [];
+            const deletedHrefs = [];
+            const baseUrl = response.url || input.calendarUrl;
+
+            for (const entry of allResponses(multistatus)) {
+                const href = buildAbsoluteUrl(baseUrl, textOf(entry.href));
+                if (!href) continue;
+                if (responseHasStatus(entry, 404)) {
+                    deletedHrefs.push(href);
+                    continue;
+                }
+                const ics = textOf(getResponseProperty(entry, 'calendar-data')) || '';
+                if (!ics) continue;
+                events.push({
+                    href,
+                    etag: textOf(getResponseProperty(entry, 'getetag')) || '',
+                    ics,
+                });
+            }
+
+            return {
+                mode: 'incremental' as const,
+                events,
+                deletedHrefs,
+                nextSyncToken: syncTokenOf(multistatus) || input.syncToken,
+            };
+        } catch (error: any) {
+            if (error?.status === 403 || error?.status === 409) {
+                error.code = 'invalid_sync_token';
+            }
+            throw error;
+        }
+    }
+
     const response = await caldavRequest(input.calendarUrl, {
         method: 'REPORT',
         username: input.username,
@@ -181,13 +291,17 @@ export async function fetchCalendarEvents(input: {
     });
     const body = await response.text();
     const parsed = xmlParser.parse(body);
+    const multistatus = parsed.multistatus || {};
+    const baseUrl = response.url || input.calendarUrl;
 
-    return allResponses(parsed.multistatus).map((entry) => {
-        const prop = entry?.propstat?.prop || {};
-        return {
-            href: buildAbsoluteUrl(response.url, textOf(entry.href)),
-            etag: textOf(prop.getetag) || '',
-            ics: textOf(prop['calendar-data']) || '',
-        };
-    }).filter((entry) => entry.ics);
+    return {
+        mode: 'full' as const,
+        events: allResponses(multistatus).map((entry) => ({
+            href: buildAbsoluteUrl(baseUrl, textOf(entry.href)),
+            etag: textOf(getResponseProperty(entry, 'getetag')) || '',
+            ics: textOf(getResponseProperty(entry, 'calendar-data')) || '',
+        })).filter((entry) => entry.ics),
+        deletedHrefs: [],
+        nextSyncToken: '',
+    };
 }

@@ -1,10 +1,13 @@
 import 'server-only';
 
 import ICAL from 'ical.js';
-import { RRule } from 'rrule';
 
 function formatYmd(date: Date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatYmdUtc(date: Date) {
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }
 
 function buildIsoLike(value: any) {
@@ -25,7 +28,70 @@ function recurrenceKey(value: any) {
 }
 
 function timeZoneOf(event: any, fallback: string) {
-    return event?.startDate?.zone?.tzid || event?.component?.getFirstPropertyValue('tzid') || fallback || 'UTC';
+    const startProperty = event?.component?.getFirstProperty?.('dtstart');
+    const tzidParameter = typeof startProperty?.getParameter === 'function' ? startProperty.getParameter('tzid') : '';
+    const zoneTzid = event?.startDate?.zone?.tzid || '';
+    return (zoneTzid && zoneTzid !== 'floating' ? zoneTzid : '') || tzidParameter || event?.component?.getFirstPropertyValue('tzid') || fallback || 'UTC';
+}
+
+function toJsDate(value: any) {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value.toJSDate === 'function') return value.toJSDate();
+    return null;
+}
+
+function dateOnlyPartsOf(value: any) {
+    if (!value) return null;
+    if (
+        typeof value.year === 'number' &&
+        typeof value.month === 'number' &&
+        typeof value.day === 'number'
+    ) {
+        return {
+            year: value.year,
+            month: value.month,
+            day: value.day,
+        };
+    }
+
+    const date = toJsDate(value);
+    if (!date) return null;
+    return {
+        year: date.getUTCFullYear(),
+        month: date.getUTCMonth() + 1,
+        day: date.getUTCDate(),
+    };
+}
+
+function addDaysUtc(parts: { year: number; month: number; day: number }, days: number) {
+    const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+    date.setUTCDate(date.getUTCDate() + days);
+    return date;
+}
+
+function zonedDatePartsOf(date: Date, timeZone: string) {
+    try {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        });
+        const parts = formatter.formatToParts(date);
+        const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+        return {
+            year: Number(lookup.year),
+            month: Number(lookup.month),
+            day: Number(lookup.day),
+        };
+    } catch {
+        return {
+            year: date.getUTCFullYear(),
+            month: date.getUTCMonth() + 1,
+            day: date.getUTCDate(),
+        };
+    }
 }
 
 function buildParticipant(value: any) {
@@ -52,31 +118,37 @@ function buildAlarm(alarmComponent: any) {
     };
 }
 
-function toDateRange(event: any, occurrenceDate: Date | null) {
-    const startValue = occurrenceDate || event.startDate?.toJSDate?.() || null;
+function toDateRange(event: any, occurrenceValue: any, timeZone: string) {
+    const startValue = toJsDate(occurrenceValue) || event.startDate?.toJSDate?.() || null;
     if (!startValue) return null;
     const durationMs = Math.max(0, (event.endDate?.toJSDate?.()?.getTime?.() || startValue.getTime()) - (event.startDate?.toJSDate?.()?.getTime?.() || startValue.getTime()));
     const endValue = new Date(startValue.getTime() + durationMs);
     const isAllDay = !!event.startDate?.isDate;
 
     if (isAllDay) {
+        const startParts = dateOnlyPartsOf(occurrenceValue || event.startDate);
+        if (!startParts) return null;
+        const durationDays = Math.max(1, Math.round(durationMs / (24 * 60 * 60 * 1000)) || 1);
+        const endDate = addDaysUtc(startParts, durationDays);
         return {
             isAllDay: true,
-            startDate: formatYmd(startValue),
-            endDate: formatYmd(endValue),
-            year: startValue.getFullYear(),
-            month: startValue.getMonth() + 1,
-            dayOfMonth: startValue.getDate(),
+            startDate: `${startParts.year}-${String(startParts.month).padStart(2, '0')}-${String(startParts.day).padStart(2, '0')}`,
+            endDate: formatYmdUtc(endDate),
+            year: startParts.year,
+            month: startParts.month,
+            dayOfMonth: startParts.day,
         };
     }
+
+    const zoned = zonedDatePartsOf(startValue, timeZone || 'UTC');
 
     return {
         isAllDay: false,
         startDate: startValue.toISOString(),
         endDate: endValue.toISOString(),
-        year: startValue.getFullYear(),
-        month: startValue.getMonth() + 1,
-        dayOfMonth: startValue.getDate(),
+        year: zoned.year,
+        month: zoned.month,
+        dayOfMonth: zoned.day,
     };
 }
 
@@ -92,7 +164,8 @@ function eventToNormalized(event: any, options: {
     sourceExternalId: string;
     recurringEventId?: string;
 }) {
-    const range = toDateRange(event, options.occurrenceDate || null);
+    const effectiveTimeZone = timeZoneOf(event, options.fallbackTimeZone || 'UTC');
+    const range = toDateRange(event, options.occurrenceDate || null, effectiveTimeZone);
     if (!range) return null;
     const recurrenceIdValue = event.recurrenceId ? recurrenceKey(event.recurrenceId) : '';
     const rrule = event.component.getFirstPropertyValue('rrule');
@@ -123,7 +196,7 @@ function eventToNormalized(event: any, options: {
         lastModified: buildIsoLike(event.component.getFirstPropertyValue('last-modified')),
         location: event.location || '',
         url: event.url || '',
-        timeZone: timeZoneOf(event, options.fallbackTimeZone || 'UTC'),
+        timeZone: effectiveTimeZone,
         organizer: buildParticipant(organizerProp),
         attendees: attendeeProps.map(buildParticipant).filter(Boolean),
         alarms,
@@ -231,7 +304,7 @@ export function parseCalendarResource(input: {
                 href: input.href,
                 etag: input.etag,
                 ctag: input.ctag,
-                occurrenceDate: override ? null : occurrenceDate,
+                occurrenceDate: override ? null : next,
                 fallbackTimeZone: input.fallbackTimeZone,
                 sourceExternalId,
                 recurringEventId: `apple:${input.accountId}:${input.calendarId}:${uid}`,

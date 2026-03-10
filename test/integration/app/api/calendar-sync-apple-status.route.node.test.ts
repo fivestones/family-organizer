@@ -10,6 +10,7 @@ vi.mock('@/lib/apple-caldav/sync', () => ({
 describe('GET /api/calendar-sync/apple/status', () => {
     beforeEach(() => {
         process.env.DEVICE_ACCESS_KEY = 'test-device-key';
+        process.env.CALENDAR_SYNC_CRON_SECRET = 'cron-secret';
         getAppleCalendarSyncStatus.mockReset();
     });
 
@@ -30,7 +31,7 @@ describe('GET /api/calendar-sync/apple/status', () => {
         const { GET } = await import('@/app/api/calendar-sync/apple/status/route');
         const response = await GET(
             new NextRequest('http://localhost:3000/api/calendar-sync/apple/status', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { authorization: 'Bearer cron-secret' },
             })
         );
 

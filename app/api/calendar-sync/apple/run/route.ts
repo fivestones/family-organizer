@@ -5,7 +5,7 @@ import { runAppleCalendarSync } from '@/lib/apple-caldav/sync';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-    const auth = requireCalendarSyncRouteAuth(request);
+    const auth = await requireCalendarSyncRouteAuth(request);
     if (!auth.authorized) {
         return NextResponse.json({ error: 'Unauthorized device', reason: auth.reason }, { status: 401 });
     }

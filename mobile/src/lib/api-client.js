@@ -1,5 +1,6 @@
 import { getServerUrl } from './server-url';
-import { getDeviceSessionToken } from './device-session-store';
+import { getDeviceSessionToken, getParentPrincipalToken } from './device-session-store';
+import { CALENDAR_SYNC_PARENT_TOKEN_HEADER } from '../../../lib/calendar-sync-constants';
 
 export function getApiBaseUrl() {
   return getServerUrl();
@@ -8,6 +9,11 @@ export function getApiBaseUrl() {
 async function authHeaders() {
   const token = await getDeviceSessionToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function parentPrincipalHeaders() {
+  const token = await getParentPrincipalToken();
+  return token ? { [CALENDAR_SYNC_PARENT_TOKEN_HEADER]: token } : {};
 }
 
 async function parseJson(response) {
@@ -94,6 +100,7 @@ export async function getAppleCalendarSyncStatus() {
   const response = await fetch(`${getApiBaseUrl()}/api/calendar-sync/apple/status`, {
     headers: {
       ...(await authHeaders()),
+      ...(await parentPrincipalHeaders()),
     },
   });
   return parseJson(response);
@@ -105,6 +112,7 @@ export async function connectAppleCalendarSync({ username, appSpecificPassword, 
     headers: {
       'Content-Type': 'application/json',
       ...(await authHeaders()),
+      ...(await parentPrincipalHeaders()),
     },
     body: JSON.stringify({ username, appSpecificPassword, accountLabel }),
   });
@@ -117,6 +125,7 @@ export async function updateAppleCalendarSyncSettings(payload) {
     headers: {
       'Content-Type': 'application/json',
       ...(await authHeaders()),
+      ...(await parentPrincipalHeaders()),
     },
     body: JSON.stringify(payload),
   });
@@ -129,6 +138,7 @@ export async function runAppleCalendarSync(payload = {}) {
     headers: {
       'Content-Type': 'application/json',
       ...(await authHeaders()),
+      ...(await parentPrincipalHeaders()),
     },
     body: JSON.stringify(payload),
   });

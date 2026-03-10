@@ -32,7 +32,9 @@ export async function listCalendarSyncCalendars(accountId: string) {
 
 export async function upsertCalendarSyncAccount(input: any) {
     const db = getInstantAdminDb();
-    const existing = (await listCalendarSyncAccounts()).find((account: any) => account.provider === input.provider);
+    const existing = input.id
+        ? { id: input.id }
+        : (await listCalendarSyncAccounts()).find((account: any) => account.provider === input.provider);
     const accountId = existing?.id || id();
     await db.transact([db.tx.calendarSyncAccounts[accountId].update(input)]);
     return accountId;
@@ -116,6 +118,23 @@ export async function listImportedCalendarItems(accountId: string, calendarId: s
     return asArray(result.calendarItems);
 }
 
+function parseDateValue(value: string) {
+    if (!value) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return new Date(`${value}T00:00:00.000Z`);
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed;
+}
+
+export function calendarItemIntersectsWindow(item: any, rangeStart: Date, rangeEnd: Date) {
+    const start = parseDateValue(item.startDate);
+    const end = parseDateValue(item.endDate);
+    if (!start || !end) return false;
+    return start < rangeEnd && end > rangeStart;
+}
+
 export async function upsertImportedCalendarItems(input: {
     accountId: string;
     calendarId: string;
@@ -124,6 +143,9 @@ export async function upsertImportedCalendarItems(input: {
     items: any[];
     seenSourceExternalIds: Set<string>;
     nowIso: string;
+    rangeStart: Date;
+    rangeEnd: Date;
+    markMissingAsDeleted?: boolean;
 }) {
     const db = getInstantAdminDb();
     const existing = (await listImportedCalendarItems(input.accountId, input.calendarId)) as any[];
@@ -162,15 +184,18 @@ export async function upsertImportedCalendarItems(input: {
         else eventsCreated += 1;
     }
 
-    for (const existingItem of existing) {
-        if (input.seenSourceExternalIds.has(existingItem.sourceExternalId)) continue;
-        if (existingItem.sourceSyncStatus === 'deleted-remote') continue;
-        txs.push(db.tx.calendarItems[existingItem.id].update({
-            sourceSyncStatus: 'deleted-remote',
-            status: 'cancelled',
-            sourceLastSeenAt: input.nowIso,
-        }));
-        eventsMarkedDeleted += 1;
+    if (input.markMissingAsDeleted !== false) {
+        for (const existingItem of existing) {
+            if (input.seenSourceExternalIds.has(existingItem.sourceExternalId)) continue;
+            if (existingItem.sourceSyncStatus === 'deleted-remote') continue;
+            if (!calendarItemIntersectsWindow(existingItem, input.rangeStart, input.rangeEnd)) continue;
+            txs.push(db.tx.calendarItems[existingItem.id].update({
+                sourceSyncStatus: 'deleted-remote',
+                status: 'cancelled',
+                sourceLastSeenAt: input.nowIso,
+            }));
+            eventsMarkedDeleted += 1;
+        }
     }
 
     if (txs.length > 0) {
@@ -184,4 +209,38 @@ export async function upsertImportedCalendarItems(input: {
         eventsCancelled,
         eventsMarkedDeleted,
     };
+}
+
+export async function markImportedCalendarItemsDeletedByRemoteUrls(input: {
+    accountId: string;
+    calendarId: string;
+    remoteUrls: string[];
+    nowIso: string;
+}) {
+    if (input.remoteUrls.length === 0) {
+        return { eventsMarkedDeleted: 0 };
+    }
+
+    const db = getInstantAdminDb();
+    const existing = (await listImportedCalendarItems(input.accountId, input.calendarId)) as any[];
+    const remoteUrlSet = new Set(input.remoteUrls);
+    const targets = existing.filter((item: any) =>
+        item.sourceRemoteUrl &&
+        remoteUrlSet.has(item.sourceRemoteUrl) &&
+        item.sourceSyncStatus !== 'deleted-remote'
+    );
+
+    if (targets.length === 0) {
+        return { eventsMarkedDeleted: 0 };
+    }
+
+    await db.transact(
+        targets.map((item: any) => db.tx.calendarItems[item.id].update({
+            sourceSyncStatus: 'deleted-remote',
+            status: 'cancelled',
+            sourceLastSeenAt: input.nowIso,
+        }))
+    );
+
+    return { eventsMarkedDeleted: targets.length };
 }
