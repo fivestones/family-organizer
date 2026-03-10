@@ -10,6 +10,7 @@ export const DEFAULT_ACTIVE_POLL_SECONDS = 15;
 export const DEFAULT_MAX_IDLE_POLL_SECONDS = 300;
 export const DEFAULT_ERROR_POLL_SECONDS = 30;
 export const DEFAULT_MAX_ERROR_POLL_SECONDS = 300;
+export const DEFAULT_DISCOVERY_REFRESH_HOURS = 12;
 
 function parsePositiveInt(value: string | undefined, fallback: number) {
     const parsed = Number(value);
@@ -63,6 +64,10 @@ export function getCalendarSyncErrorPollMs() {
 
 export function getCalendarSyncMaxErrorPollMs() {
     return parsePositiveInt(process.env.APPLE_CALDAV_POLL_MAX_ERROR_SECONDS, DEFAULT_MAX_ERROR_POLL_SECONDS) * 1000;
+}
+
+export function getCalendarSyncDiscoveryRefreshMs() {
+    return parsePositiveInt(process.env.APPLE_CALDAV_DISCOVERY_REFRESH_HOURS, DEFAULT_DISCOVERY_REFRESH_HOURS) * 60 * 60 * 1000;
 }
 
 export function getCalendarSyncWindow(now = new Date(), pastDays = getDefaultSyncWindowPastDays(), futureDays = getDefaultSyncWindowFutureDays()) {

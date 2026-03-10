@@ -5,6 +5,7 @@ import { discoverAppleCalendars, fetchCalendarEvents } from '@/lib/apple-caldav/
 import {
     APPLE_CALDAV_PROVIDER,
     getCalendarSyncActivePollMs,
+    getCalendarSyncDiscoveryRefreshMs,
     getCalendarSyncLockTtlMs,
     getCalendarSyncWindow,
     getDefaultRepairScanIntervalHours,
@@ -55,11 +56,10 @@ function mergeDiscoveredCalendars(account: any, existingCalendars: any[], discov
             accountId: account.id,
             createdAt: existing?.createdAt || nowIso,
             isEnabled: selectedIds.has(calendar.remoteCalendarId) && account.status === 'active',
-            lastCtag: existing?.lastCtag || '',
+            lastCtag: calendar.ctag || existing?.lastCtag || '',
             lastSeenAt: nowIso,
             lastSuccessfulSyncAt: existing?.lastSuccessfulSyncAt || '',
             lastSyncToken: calendar.syncToken || existing?.lastSyncToken || '',
-            observedCtag: calendar.ctag || '',
             updatedAt: nowIso,
         };
     });
@@ -77,7 +77,48 @@ function mergeDiscoveredCalendars(account: any, existingCalendars: any[], discov
 }
 
 function persistableCalendarRows(calendars: any[]) {
-    return calendars.map(({ observedCtag, ...calendar }) => calendar);
+    return calendars;
+}
+
+function lastDiscoveryAtMs(calendars: any[]) {
+    return calendars.reduce((latest: number, calendar: any) => {
+        const value = new Date(calendar?.lastSeenAt || '').getTime();
+        if (Number.isNaN(value)) return latest;
+        return Math.max(latest, value);
+    }, 0);
+}
+
+export function shouldRefreshAppleCalendarDiscovery(input: {
+    account: any;
+    calendars: any[];
+    now?: Date;
+    discoveryRefreshMs?: number;
+}) {
+    const account = input.account || {};
+    const calendars = Array.isArray(input.calendars) ? input.calendars : [];
+
+    if (!account.appleCalendarHomeUrl) {
+        return { refresh: true, reason: 'missing_calendar_home_url' as const };
+    }
+    if (calendars.length === 0) {
+        return { refresh: true, reason: 'no_cached_calendars' as const };
+    }
+    if (calendars.some((calendar: any) => calendar.isEnabled && !calendar.remoteUrl)) {
+        return { refresh: true, reason: 'missing_calendar_url' as const };
+    }
+
+    const latestDiscoveryMs = lastDiscoveryAtMs(calendars);
+    if (latestDiscoveryMs <= 0) {
+        return { refresh: true, reason: 'missing_discovery_timestamp' as const };
+    }
+
+    const nowMs = (input.now || new Date()).getTime();
+    const discoveryRefreshMs = input.discoveryRefreshMs || getCalendarSyncDiscoveryRefreshMs();
+    if (nowMs - latestDiscoveryMs >= discoveryRefreshMs) {
+        return { refresh: true, reason: 'stale_cached_discovery' as const };
+    }
+
+    return { refresh: false, reason: 'fresh_cached_discovery' as const };
 }
 
 async function recordAppleCalendarPollHeartbeat(account: any, atIso: string) {
@@ -111,12 +152,13 @@ export async function connectAppleCalendarAccount(input: { username: string; app
         updatedAt: nowIso,
         username: input.username,
     });
-    await replaceCalendarSyncCalendars(accountId, discovery.calendars.map((calendar: any) => ({
-        ...calendar,
-        createdAt: nowIso,
-        isEnabled: true,
-        updatedAt: nowIso,
-    })));
+    const existingCalendars = (await listCalendarSyncCalendars(accountId)) as any[];
+    const calendars = mergeDiscoveredCalendars({
+        id: accountId,
+        selectedCalendarIds: discovery.calendars.map((calendar: any) => calendar.remoteCalendarId),
+        status: 'active',
+    }, existingCalendars, discovery.calendars, nowIso);
+    await replaceCalendarSyncCalendars(accountId, persistableCalendarRows(calendars));
     return {
         accountId,
         discovery,
@@ -261,12 +303,28 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
             account.syncWindowFutureDays || getDefaultSyncWindowFutureDays()
         );
         const existingCalendars = (await listCalendarSyncCalendars(account.id)) as any[];
-        const discovery = await discoverAppleCalendars({
-            username: account.username,
-            password,
+        const discoveryPlan = shouldRefreshAppleCalendarDiscovery({
+            account,
+            calendars: existingCalendars,
+            now,
         });
-        const calendars = mergeDiscoveredCalendars(account, existingCalendars, discovery.calendars, nowIso);
-        await replaceCalendarSyncCalendars(account.id, persistableCalendarRows(calendars));
+        let discovery = {
+            principalUrl: account.applePrincipalUrl || '',
+            calendarHomeUrl: account.appleCalendarHomeUrl || '',
+            calendars: existingCalendars,
+        };
+        let calendars = existingCalendars.map((calendar: any) => ({ ...calendar }));
+
+        if (discoveryPlan.refresh) {
+            discovery = await discoverAppleCalendars({
+                username: account.username,
+                password,
+                principalUrl: account.applePrincipalUrl || '',
+                calendarHomeUrl: account.appleCalendarHomeUrl || '',
+            });
+            calendars = mergeDiscoveredCalendars(account, existingCalendars, discovery.calendars, nowIso);
+            await replaceCalendarSyncCalendars(account.id, persistableCalendarRows(calendars));
+        }
 
         let remoteEventsFetched = 0;
         let eventsCreated = 0;
@@ -277,14 +335,6 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
 
         for (const calendar of calendars.filter((entry: any) => entry.isEnabled && entry.remoteUrl)) {
             const forceRepair = shouldForceRepair(calendar, account, input.trigger, now);
-            const ctagUnchanged =
-                Boolean(calendar.lastCtag) &&
-                Boolean(calendar.observedCtag) &&
-                calendar.lastCtag === calendar.observedCtag;
-
-            if (!forceRepair && ctagUnchanged) {
-                continue;
-            }
 
             let remoteEventsResult;
             const shouldUseIncremental = !forceRepair && Boolean(calendar.lastSyncToken);
@@ -336,7 +386,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
                 accountId: account.id,
                 calendarId: calendar.remoteCalendarId,
                 calendarName: calendar.displayName,
-                ctag: calendar.observedCtag || calendar.lastCtag || '',
+                ctag: calendar.lastCtag || '',
                 items: normalizedItems,
                 seenSourceExternalIds,
                 nowIso,
@@ -360,10 +410,8 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
                 eventsMarkedDeleted += deletedStats.eventsMarkedDeleted;
             }
 
-            calendar.lastCtag = calendar.observedCtag || calendar.lastCtag || '';
-            calendar.lastSeenAt = nowIso;
             calendar.lastSuccessfulSyncAt = nowIso;
-            calendar.lastSyncToken = remoteEventsResult.nextSyncToken || calendar.syncToken || calendar.lastSyncToken || '';
+            calendar.lastSyncToken = remoteEventsResult.nextSyncToken || calendar.lastSyncToken || '';
             calendar.updatedAt = nowIso;
         }
 
@@ -384,8 +432,8 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
         });
         await upsertCalendarSyncAccount({
             ...account,
-            appleCalendarHomeUrl: discovery.calendarHomeUrl,
-            applePrincipalUrl: discovery.principalUrl,
+            appleCalendarHomeUrl: discovery.calendarHomeUrl || account.appleCalendarHomeUrl || '',
+            applePrincipalUrl: discovery.principalUrl || account.applePrincipalUrl || '',
             lastAttemptedSyncAt: startedAt.toISOString(),
             lastErrorAt: '',
             lastErrorCode: '',

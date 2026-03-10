@@ -301,6 +301,7 @@ APPLE_CALDAV_POLL_BASE_SECONDS=15
 APPLE_CALDAV_POLL_MAX_IDLE_SECONDS=300
 APPLE_CALDAV_POLL_ERROR_SECONDS=30
 APPLE_CALDAV_POLL_MAX_ERROR_SECONDS=300
+APPLE_CALDAV_DISCOVERY_REFRESH_HOURS=12
 ```
 
 Notes:
@@ -309,6 +310,7 @@ Notes:
 -   `CALENDAR_SYNC_CRON_SECRET` is what your scheduler uses to authenticate the sync endpoint.
 -   The window defaults are usually fine. They control how much history/future data gets materialized into `calendarItems`.
 -   The poll settings control the near-real-time Apple polling behavior. The server stays “hot” after changes and automatically backs off when calendars are quiet or failing.
+-   `APPLE_CALDAV_DISCOVERY_REFRESH_HOURS` controls how often the server refreshes Apple calendar metadata. Hot polls reuse cached calendar URLs and `sync-token` state between refreshes to keep Apple request volume low.
 
 ### 3. Create an Apple app-specific password
 
@@ -367,7 +369,8 @@ POST /api/calendar-sync/apple/run
 Recommended schedule:
 
 -   Hit the sync route every `15-30` seconds if your platform supports frequent scheduled requests.
--   The server uses `sync-token` deltas and adaptive backoff, so frequent ticks do **not** always mean a full sync run.
+-   The server uses cached calendar metadata, `sync-token` deltas, and adaptive backoff, so frequent ticks do **not** always mean a full sync run.
+-   Apple calendar discovery is refreshed separately on a slower cadence based on `APPLE_CALDAV_DISCOVERY_REFRESH_HOURS`, or sooner if cached metadata is missing.
 -   The app still automatically forces periodic repair scans based on `APPLE_CALDAV_REPAIR_SCAN_INTERVAL_HOURS`.
 
 Authenticate the request with either:

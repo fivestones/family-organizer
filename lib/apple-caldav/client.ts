@@ -114,19 +114,20 @@ function buildAbsoluteUrl(baseUrl: string, href: string) {
     }
 }
 
-export async function discoverAppleCalendars(input: { username: string; password: string }) {
+async function getPrincipalUrl(input: { username: string; password: string }) {
     const principalResponse = await caldavRequest(APPLE_CALDAV_BASE_URL, {
         method: 'PROPFIND',
         username: input.username,
         password: input.password,
         depth: '0',
         body: `<?xml version="1.0" encoding="utf-8" ?>
-            <d:propfind xmlns:d="DAV:" xmlns:cd="urn:ietf:params:xml:ns:caldav">
+            <d:propfind xmlns:d="DAV:">
               <d:prop>
                 <d:current-user-principal />
               </d:prop>
             </d:propfind>`,
     });
+
     const principalText = await principalResponse.text();
     const principalDoc = xmlParser.parse(principalText);
     const principalEntry = allResponses(principalDoc.multistatus)[0] || {};
@@ -134,11 +135,16 @@ export async function discoverAppleCalendars(input: { username: string; password
         principalResponse.url,
         hrefOf(getResponseProperty(principalEntry, 'current-user-principal'))
     );
+
     if (!principalUrl) {
         throw new Error('Apple Calendar principal discovery did not return a principal URL');
     }
 
-    const homeResponse = await caldavRequest(principalUrl, {
+    return principalUrl;
+}
+
+async function getCalendarHomeUrl(input: { username: string; password: string; principalUrl: string }) {
+    const homeResponse = await caldavRequest(input.principalUrl, {
         method: 'PROPFIND',
         username: input.username,
         password: input.password,
@@ -160,8 +166,11 @@ export async function discoverAppleCalendars(input: { username: string; password
     if (!homeUrl) {
         throw new Error('Apple Calendar discovery did not return a calendar home URL');
     }
+    return homeUrl;
+}
 
-    const calendarsResponse = await caldavRequest(homeUrl, {
+async function listCalendarsAtHome(input: { username: string; password: string; calendarHomeUrl: string }) {
+    const calendarsResponse = await caldavRequest(input.calendarHomeUrl, {
         method: 'PROPFIND',
         username: input.username,
         password: input.password,
@@ -200,9 +209,74 @@ export async function discoverAppleCalendars(input: { username: string; password
         })
         .filter(Boolean);
 
+    return calendars;
+}
+
+export async function discoverAppleCalendars(input: {
+    username: string;
+    password: string;
+    principalUrl?: string;
+    calendarHomeUrl?: string;
+}) {
+    if (input.calendarHomeUrl) {
+        try {
+            const calendars = await listCalendarsAtHome({
+                username: input.username,
+                password: input.password,
+                calendarHomeUrl: input.calendarHomeUrl,
+            });
+            return {
+                principalUrl: input.principalUrl || '',
+                calendarHomeUrl: input.calendarHomeUrl,
+                calendars,
+            };
+        } catch (error: any) {
+            if (error?.status === 401 || error?.status === 403) {
+                throw error;
+            }
+        }
+    }
+
+    let principalUrl = input.principalUrl || '';
+    if (principalUrl) {
+        try {
+            const calendarHomeUrl = await getCalendarHomeUrl({
+                username: input.username,
+                password: input.password,
+                principalUrl,
+            });
+            const calendars = await listCalendarsAtHome({
+                username: input.username,
+                password: input.password,
+                calendarHomeUrl,
+            });
+            return {
+                principalUrl,
+                calendarHomeUrl,
+                calendars,
+            };
+        } catch (error: any) {
+            if (error?.status === 401 || error?.status === 403) {
+                throw error;
+            }
+        }
+    }
+
+    principalUrl = await getPrincipalUrl(input);
+    const calendarHomeUrl = await getCalendarHomeUrl({
+        username: input.username,
+        password: input.password,
+        principalUrl,
+    });
+    const calendars = await listCalendarsAtHome({
+        username: input.username,
+        password: input.password,
+        calendarHomeUrl,
+    });
+
     return {
         principalUrl,
-        calendarHomeUrl: homeUrl,
+        calendarHomeUrl,
         calendars,
     };
 }

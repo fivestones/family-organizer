@@ -56,6 +56,38 @@ describe('apple caldav client', () => {
         expect(result.calendars[0].displayName).toBe('Home');
     });
 
+    it('reuses a cached calendar-home URL for lightweight metadata refreshes', async () => {
+        const fetchMock = vi.fn().mockResolvedValueOnce(new Response(`<?xml version="1.0" encoding="utf-8"?>
+            <d:multistatus xmlns:d="DAV:" xmlns:cd="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ical="http://apple.com/ns/ical/">
+              <d:response>
+                <d:href>/12345/calendars/home/</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <d:displayname>Home</d:displayname>
+                    <d:resourcetype><d:collection /><cd:calendar /></d:resourcetype>
+                    <cs:getctag>tag-2</cs:getctag>
+                    <d:sync-token>sync-2</d:sync-token>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+              </d:response>
+            </d:multistatus>`, { status: 207 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const { discoverAppleCalendars } = await import('@/lib/apple-caldav/client');
+        const result = await discoverAppleCalendars({
+            username: 'parent@example.com',
+            password: 'app-password',
+            principalUrl: 'https://caldav.icloud.com/12345/principal/',
+            calendarHomeUrl: 'https://caldav.icloud.com/12345/calendars/',
+        });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(result.principalUrl).toBe('https://caldav.icloud.com/12345/principal/');
+        expect(result.calendarHomeUrl).toBe('https://caldav.icloud.com/12345/calendars/');
+        expect(result.calendars[0].remoteCalendarId).toBe('home');
+    });
+
     it('parses sync-token deltas and deleted hrefs from sync-collection responses', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(`<?xml version="1.0" encoding="utf-8"?>
             <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
