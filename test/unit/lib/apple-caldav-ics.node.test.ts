@@ -57,4 +57,38 @@ END:VCALENDAR`,
         expect(result[0].uid).toBe(result[0].sourceExternalId);
         expect(result[0].xProps?.appleUid).toBe('shared-apple-uid');
     });
+
+    it('strips RRULE data from materialized recurring occurrences so the UI does not expand them again', async () => {
+        const { parseCalendarResource } = await import('@/lib/apple-caldav/ics');
+        const result = parseCalendarResource({
+            accountId: 'acct_1',
+            calendarId: 'cal_1',
+            calendarName: 'Home',
+            href: 'https://example.com/weekly.ics',
+            etag: 'etag-weekly',
+            ics: `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:weekly-study
+DTSTART:20260310T120000Z
+DTEND:20260310T130000Z
+RRULE:FREQ=WEEKLY;COUNT=3
+SUMMARY:Bible study
+END:VEVENT
+END:VCALENDAR`,
+            rangeStart: new Date('2026-03-01T00:00:00.000Z'),
+            rangeEnd: new Date('2026-03-31T23:59:59.999Z'),
+            fallbackTimeZone: 'UTC',
+        });
+
+        expect(result).toHaveLength(3);
+        for (const occurrence of result) {
+            expect(occurrence.rrule).toBe('');
+            expect(occurrence.rdates).toEqual([]);
+            expect(occurrence.exdates).toEqual([]);
+            expect(occurrence.recurrenceLines).toEqual([]);
+            expect(occurrence.recurringEventId).toBe('apple:acct_1:cal_1:weekly-study');
+            expect(occurrence.recurrenceId).not.toBe('');
+        }
+    });
 });

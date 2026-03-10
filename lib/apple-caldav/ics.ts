@@ -163,6 +163,7 @@ function eventToNormalized(event: any, options: {
     fallbackTimeZone?: string;
     sourceExternalId: string;
     recurringEventId?: string;
+    materializedOccurrence?: boolean;
 }) {
     const effectiveTimeZone = timeZoneOf(event, options.fallbackTimeZone || 'UTC');
     const range = toDateRange(event, options.occurrenceDate || null, effectiveTimeZone);
@@ -183,6 +184,7 @@ function eventToNormalized(event: any, options: {
         ...(rdates.length ? [`RDATE:${rdates.join(',')}`] : []),
         ...(exdates.length ? [`EXDATE:${exdates.join(',')}`] : []),
     ];
+    const isMaterializedOccurrence = options.materializedOccurrence === true;
 
     return {
         ...range,
@@ -200,10 +202,10 @@ function eventToNormalized(event: any, options: {
         organizer: buildParticipant(organizerProp),
         attendees: attendeeProps.map(buildParticipant).filter(Boolean),
         alarms,
-        rrule: normalizedRrule,
-        rdates,
-        exdates,
-        recurrenceLines,
+        rrule: isMaterializedOccurrence ? '' : normalizedRrule,
+        rdates: isMaterializedOccurrence ? [] : rdates,
+        exdates: isMaterializedOccurrence ? [] : exdates,
+        recurrenceLines: isMaterializedOccurrence ? [] : recurrenceLines,
         recurrenceId: recurrenceIdValue,
         recurringEventId: options.recurringEventId || '',
         recurrenceIdRange: '',
@@ -309,6 +311,7 @@ export function parseCalendarResource(input: {
                 fallbackTimeZone: input.fallbackTimeZone,
                 sourceExternalId,
                 recurringEventId: `apple:${input.accountId}:${input.calendarId}:${uid}`,
+                materializedOccurrence: true,
             });
 
             if (normalizedEvent) {
@@ -331,6 +334,7 @@ export function parseCalendarResource(input: {
                 fallbackTimeZone: input.fallbackTimeZone,
                 sourceExternalId: buildOccurrenceSourceExternalId(input.accountId, input.calendarId, uid, key),
                 recurringEventId: `apple:${input.accountId}:${input.calendarId}:${uid}`,
+                materializedOccurrence: true,
             });
             if (normalizedOverride) normalized.push(normalizedOverride);
         }
