@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { discoverAppleCalendars, fetchCalendarEvents } from '@/lib/apple-caldav/client';
 import {
     APPLE_CALDAV_PROVIDER,
+    getCalendarSyncActivePollMs,
     getCalendarSyncLockTtlMs,
     getCalendarSyncWindow,
     getDefaultRepairScanIntervalHours,
@@ -13,6 +14,7 @@ import {
 import { decryptCalendarCredential, encryptCalendarCredential } from '@/lib/apple-caldav/crypto';
 import { parseCalendarResource } from '@/lib/apple-caldav/ics';
 import { buildInstantCalendarItemPayload } from '@/lib/apple-caldav/mapper';
+import { getAppleCalendarSyncPollPlan } from '@/lib/apple-caldav/polling';
 import {
     acquireCalendarSyncLock,
     createSyncRun,
@@ -78,6 +80,14 @@ function persistableCalendarRows(calendars: any[]) {
     return calendars.map(({ observedCtag, ...calendar }) => calendar);
 }
 
+async function recordAppleCalendarPollHeartbeat(account: any, atIso: string) {
+    await upsertCalendarSyncAccount({
+        ...account,
+        lastAttemptedSyncAt: atIso,
+        updatedAt: atIso,
+    });
+}
+
 export async function connectAppleCalendarAccount(input: { username: string; appSpecificPassword: string; accountLabel?: string }) {
     const discovery = await discoverAppleCalendars({
         username: input.username,
@@ -122,15 +132,31 @@ export async function getAppleCalendarSyncStatus() {
             account: null,
             calendars: [],
             lastRun: null,
+            polling: null,
         };
     }
     const calendars = await listCalendarSyncCalendars(account.id);
-    const runs = await listRecentSyncRuns(account.id);
+    const runs = await listRecentSyncRuns(account.id, 10);
+    const pollPlan = getAppleCalendarSyncPollPlan({
+        trigger: 'cron',
+        recentRuns: runs,
+        now: new Date(),
+    });
     return {
         configured: true,
         account,
         calendars,
         lastRun: runs[0] || null,
+        polling: {
+            due: pollPlan.due,
+            lastSuccessfulPollAt: account.lastAttemptedSyncAt || '',
+            nextPollAt: pollPlan.nextPollAt,
+            nextPollInMs: pollPlan.nextPollInMs,
+            pollIntervalMs: pollPlan.intervalMs,
+            pollReason: pollPlan.reason,
+            quietStreak: pollPlan.quietStreak,
+            failureStreak: pollPlan.failureStreak,
+        },
     };
 }
 
@@ -174,18 +200,45 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
     const account = (input.accountId
         ? await getCalendarSyncAccount(input.accountId)
         : status.account) as any;
+    const requestAtIso = new Date().toISOString();
 
     if (!account) {
         throw new Error('Apple Calendar sync is not configured');
     }
     if (account.status !== 'active') {
-        return { skipped: true, reason: 'disabled' };
+        await recordAppleCalendarPollHeartbeat(account, requestAtIso);
+        return {
+            skipped: true,
+            reason: 'disabled',
+            pollIntervalMs: getCalendarSyncActivePollMs(),
+        };
+    }
+
+    const recentRuns = await listRecentSyncRuns(account.id, 10);
+    const preRunPollPlan = getAppleCalendarSyncPollPlan({
+        trigger: input.trigger,
+        recentRuns,
+        now: new Date(),
+    });
+    if (!preRunPollPlan.due) {
+        await recordAppleCalendarPollHeartbeat(account, requestAtIso);
+        return {
+            skipped: true,
+            reason: 'not_due',
+            nextPollAt: preRunPollPlan.nextPollAt,
+            nextPollInMs: preRunPollPlan.nextPollInMs,
+            pollIntervalMs: preRunPollPlan.intervalMs,
+            pollReason: preRunPollPlan.reason,
+            quietStreak: preRunPollPlan.quietStreak,
+            failureStreak: preRunPollPlan.failureStreak,
+        };
     }
 
     const lockKey = `calendar-sync:apple:${account.id}`;
     const owner = randomUUID();
     const lock = await acquireCalendarSyncLock(lockKey, owner, new Date(Date.now() + getCalendarSyncLockTtlMs()).toISOString());
     if (!lock.acquired) {
+        await recordAppleCalendarPollHeartbeat(account, requestAtIso);
         return { skipped: true, reason: 'already_running' };
     }
 
@@ -316,6 +369,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
 
         await replaceCalendarSyncCalendars(account.id, persistableCalendarRows(calendars));
 
+        const finishedAtIso = new Date().toISOString();
         await updateSyncRun(runId, {
             calendarsProcessed: calendars.filter((entry: any) => entry.isEnabled).length,
             durationMs: Date.now() - startedAt.getTime(),
@@ -324,7 +378,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
             eventsMarkedDeleted,
             eventsUnchanged,
             eventsUpdated,
-            finishedAt: new Date().toISOString(),
+            finishedAt: finishedAtIso,
             remoteEventsFetched,
             status: 'success',
         });
@@ -336,8 +390,22 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
             lastErrorAt: '',
             lastErrorCode: '',
             lastErrorMessage: '',
-            lastSuccessfulSyncAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            lastSuccessfulSyncAt: finishedAtIso,
+            updatedAt: finishedAtIso,
+        });
+
+        const nextPollPlan = getAppleCalendarSyncPollPlan({
+            trigger: 'cron',
+            recentRuns: [{
+                status: 'success',
+                startedAt: startedAt.toISOString(),
+                finishedAt: finishedAtIso,
+                eventsCreated,
+                eventsUpdated,
+                eventsCancelled,
+                eventsMarkedDeleted,
+            }, ...recentRuns],
+            now: new Date(finishedAtIso),
         });
 
         return {
@@ -350,13 +418,18 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
             eventsUnchanged,
             eventsCancelled,
             eventsMarkedDeleted,
+            nextPollAt: nextPollPlan.nextPollAt,
+            nextPollInMs: nextPollPlan.nextPollInMs,
+            pollIntervalMs: nextPollPlan.intervalMs,
+            pollReason: nextPollPlan.reason,
         };
     } catch (error: any) {
+        const finishedAtIso = new Date().toISOString();
         await updateSyncRun(runId, {
             durationMs: Date.now() - startedAt.getTime(),
             errorCode: String(error?.status || 'sync_failed'),
             errorMessage: String(error?.message || 'Sync failed'),
-            finishedAt: new Date().toISOString(),
+            finishedAt: finishedAtIso,
             status: 'failed',
         });
         await upsertCalendarSyncAccount({
@@ -364,10 +437,10 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
             appleCalendarHomeUrl: account.appleCalendarHomeUrl || '',
             applePrincipalUrl: account.applePrincipalUrl || '',
             lastAttemptedSyncAt: startedAt.toISOString(),
-            lastErrorAt: new Date().toISOString(),
+            lastErrorAt: finishedAtIso,
             lastErrorCode: String(error?.status || 'sync_failed'),
             lastErrorMessage: String(error?.message || 'Sync failed'),
-            updatedAt: new Date().toISOString(),
+            updatedAt: finishedAtIso,
         });
         throw error;
     } finally {

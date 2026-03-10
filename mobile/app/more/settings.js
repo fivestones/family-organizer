@@ -52,6 +52,51 @@ function initialFormState() {
   };
 }
 
+function formatRelativeDate(value) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  const diffMs = date.getTime() - Date.now();
+  const absMs = Math.abs(diffMs);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  if (absMs < 60_000) return rtf.format(Math.round(diffMs / 1000), 'second');
+  if (absMs < 3_600_000) return rtf.format(Math.round(diffMs / 60_000), 'minute');
+  if (absMs < 86_400_000) return rtf.format(Math.round(diffMs / 3_600_000), 'hour');
+  return rtf.format(Math.round(diffMs / 86_400_000), 'day');
+}
+
+function formatDateWithRelative(value) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return `${date.toLocaleString()} (${formatRelativeDate(value)})`;
+}
+
+function formatDurationMs(value) {
+  if (!value || value <= 0) return 'Right away';
+  if (value < 60_000) return `${Math.round(value / 1000)}s`;
+  if (value < 3_600_000) return `${Math.round(value / 60_000)}m`;
+  if (value < 86_400_000) return `${Math.round(value / 3_600_000)}h`;
+  return `${Math.round(value / 86_400_000)}d`;
+}
+
+function pollReasonLabel(value) {
+  switch (value) {
+    case 'recent_changes':
+      return 'Active polling after recent changes';
+    case 'idle_backoff':
+      return 'Light backoff while calendars stay quiet';
+    case 'idle_backoff_deep':
+      return 'Deep backoff while calendars stay quiet';
+    case 'error_backoff':
+      return 'Retry backoff after recent errors';
+    case 'first_run':
+      return 'Waiting for the first poll';
+    default:
+      return 'Standard polling cadence';
+  }
+}
+
 export default function SettingsScreen() {
   const searchParams = useLocalSearchParams();
   const { requireParentAction } = useParentActionGate();
@@ -158,6 +203,63 @@ export default function SettingsScreen() {
     () => themeOptions.find((option) => option.id === themeName)?.label || 'Warm Classic',
     [themeName, themeOptions]
   );
+  const calendarSyncSummary = useMemo(() => {
+    if (!calendarSyncStatus?.configured) {
+      return {
+        label: 'Not connected',
+        body: 'Connect Apple Calendar to start importing read-only events.',
+        color: colors.inkMuted,
+      };
+    }
+    if (calendarSyncSaving || calendarSyncLoading) {
+      return {
+        label: 'Working',
+        body: 'Refreshing sync status or sending a sync request.',
+        color: colors.warning,
+      };
+    }
+    if (calendarSyncStatus?.lastRun?.status === 'running') {
+      return {
+        label: 'Sync in progress',
+        body: 'The server is processing Apple changes right now.',
+        color: colors.accentChores,
+      };
+    }
+    if (calendarSyncStatus?.lastRun?.status === 'failed' || calendarSyncStatus?.account?.lastErrorMessage) {
+      return {
+        label: 'Needs attention',
+        body: calendarSyncStatus?.account?.lastErrorMessage || calendarSyncStatus?.lastRun?.errorMessage || 'The last sync failed.',
+        color: colors.danger,
+      };
+    }
+    if (calendarSyncStatus?.polling?.pollReason === 'error_backoff') {
+      return {
+        label: 'Retry backoff',
+        body: 'Polling is healthy enough to retry, but the server is spacing checks after errors.',
+        color: colors.warning,
+      };
+    }
+    return {
+      label: 'Healthy',
+      body: calendarSyncStatus?.polling?.pollReason?.startsWith('idle_backoff')
+        ? 'Polling is healthy and backing off because Apple calendars have been quiet.'
+        : 'Polling is healthy and ready to pick up Apple changes quickly.',
+      color: colors.success,
+    };
+  }, [
+    calendarSyncLoading,
+    calendarSyncSaving,
+    calendarSyncStatus?.account?.lastErrorMessage,
+    calendarSyncStatus?.configured,
+    calendarSyncStatus?.lastRun?.errorMessage,
+    calendarSyncStatus?.lastRun?.status,
+    calendarSyncStatus?.polling?.pollReason,
+    colors.accentChores,
+    colors.danger,
+    colors.inkMuted,
+    colors.success,
+    colors.warning,
+  ]);
 
   async function handoffToParent() {
     await requireParentAction({
@@ -427,9 +529,30 @@ export default function SettingsScreen() {
                 <Text style={styles.serverOk}>
                   Connected as {calendarSyncStatus.account?.username || 'Apple account'}
                 </Text>
-                <Text style={styles.helperText}>
-                  Last sync: {calendarSyncStatus?.account?.lastSuccessfulSyncAt || 'Not synced yet'}
-                </Text>
+                <View style={[styles.syncSummaryBadge, { borderColor: calendarSyncSummary.color, backgroundColor: withAlpha(calendarSyncSummary.color, 0.08) }]}>
+                  <Text style={[styles.syncSummaryLabel, { color: calendarSyncSummary.color }]}>{calendarSyncSummary.label}</Text>
+                  <Text style={styles.syncSummaryBody}>{calendarSyncSummary.body}</Text>
+                </View>
+                <View style={styles.syncStatusGrid}>
+                  <View style={styles.syncStatusCell}>
+                    <Text style={styles.syncStatusLabel}>Last successful sync</Text>
+                    <Text style={styles.syncStatusValue}>{formatDateWithRelative(calendarSyncStatus?.account?.lastSuccessfulSyncAt)}</Text>
+                  </View>
+                  <View style={styles.syncStatusCell}>
+                    <Text style={styles.syncStatusLabel}>Last successful check</Text>
+                    <Text style={styles.syncStatusValue}>{formatDateWithRelative(calendarSyncStatus?.polling?.lastSuccessfulPollAt)}</Text>
+                  </View>
+                  <View style={styles.syncStatusCell}>
+                    <Text style={styles.syncStatusLabel}>Next poll</Text>
+                    <Text style={styles.syncStatusValue}>{formatDateWithRelative(calendarSyncStatus?.polling?.nextPollAt)}</Text>
+                    <Text style={styles.syncStatusHint}>About {formatDurationMs(calendarSyncStatus?.polling?.nextPollInMs)}</Text>
+                  </View>
+                  <View style={styles.syncStatusCell}>
+                    <Text style={styles.syncStatusLabel}>Polling mode</Text>
+                    <Text style={styles.syncStatusValue}>{pollReasonLabel(calendarSyncStatus?.polling?.pollReason)}</Text>
+                    <Text style={styles.syncStatusHint}>Interval {formatDurationMs(calendarSyncStatus?.polling?.pollIntervalMs)}</Text>
+                  </View>
+                </View>
                 <View style={styles.choiceColumn}>
                   {(calendarSyncStatus.calendars || []).map((calendar) => {
                     const selected = calendarSyncForm.selectedCalendarIds.includes(calendar.remoteCalendarId);
@@ -735,6 +858,49 @@ const createStyles = (colors) =>
     borderRadius: radii.md,
     padding: spacing.md,
     gap: spacing.sm,
+  },
+  syncSummaryBadge: {
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    padding: spacing.sm,
+    gap: 4,
+  },
+  syncSummaryLabel: {
+    fontWeight: '800',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  syncSummaryBody: {
+    color: colors.inkMuted,
+    lineHeight: 18,
+  },
+  syncStatusGrid: {
+    gap: spacing.sm,
+  },
+  syncStatusCell: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.sm,
+    backgroundColor: colors.panelElevated,
+    padding: spacing.sm,
+    gap: 4,
+  },
+  syncStatusLabel: {
+    color: colors.inkMuted,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  syncStatusValue: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  syncStatusHint: {
+    color: colors.inkMuted,
+    fontSize: 12,
   },
   themeCard: {
     backgroundColor: withAlpha(colors.accentMore, 0.08),

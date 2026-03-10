@@ -44,4 +44,21 @@ describe('POST /api/calendar-sync/apple/run', () => {
 
         expect(response.status).toBe(409);
     });
+
+    it('returns 200 for cron ticks that are not due yet', async () => {
+        runAppleCalendarSync.mockResolvedValue({
+            skipped: true,
+            reason: 'not_due',
+            nextPollInMs: 30_000,
+        });
+        const { POST } = await import('@/app/api/calendar-sync/apple/run/route');
+        const response = await POST(
+            new NextRequest('http://localhost:3000/api/calendar-sync/apple/run', {
+                method: 'POST',
+                headers: { authorization: 'Bearer cron-secret' },
+            })
+        );
+
+        expect(response.status).toBe(200);
+    });
 });

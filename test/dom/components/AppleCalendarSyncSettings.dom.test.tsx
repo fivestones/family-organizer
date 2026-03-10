@@ -24,9 +24,21 @@ describe('AppleCalendarSyncSettings', () => {
                     new Response(
                         JSON.stringify({
                             configured: true,
-                            account: { id: 'acct_1', username: 'parent@example.com', lastSuccessfulSyncAt: '2026-03-10T12:00:00.000Z' },
+                            account: {
+                                id: 'acct_1',
+                                username: 'parent@example.com',
+                                lastAttemptedSyncAt: '2026-03-10T12:01:00.000Z',
+                                lastSuccessfulSyncAt: '2026-03-10T12:00:00.000Z',
+                            },
                             calendars: [{ id: 'cal_1', remoteCalendarId: 'home', displayName: 'Home', isEnabled: true }],
-                            lastRun: null,
+                            lastRun: { status: 'success', finishedAt: '2026-03-10T12:00:00.000Z' },
+                            polling: {
+                                lastSuccessfulPollAt: '2026-03-10T12:01:00.000Z',
+                                nextPollAt: '2026-03-10T12:01:15.000Z',
+                                nextPollInMs: 15_000,
+                                pollIntervalMs: 15_000,
+                                pollReason: 'recent_changes',
+                            },
                         }),
                         { status: 200, headers: { 'Content-Type': 'application/json' } }
                     )
@@ -36,9 +48,21 @@ describe('AppleCalendarSyncSettings', () => {
                     new Response(
                         JSON.stringify({
                             configured: true,
-                            account: { id: 'acct_1', username: 'parent@example.com', lastSuccessfulSyncAt: '2026-03-10T12:05:00.000Z' },
+                            account: {
+                                id: 'acct_1',
+                                username: 'parent@example.com',
+                                lastAttemptedSyncAt: '2026-03-10T12:05:00.000Z',
+                                lastSuccessfulSyncAt: '2026-03-10T12:05:00.000Z',
+                            },
                             calendars: [{ id: 'cal_1', remoteCalendarId: 'home', displayName: 'Home', isEnabled: true }],
-                            lastRun: null,
+                            lastRun: { status: 'success', finishedAt: '2026-03-10T12:05:00.000Z' },
+                            polling: {
+                                lastSuccessfulPollAt: '2026-03-10T12:05:00.000Z',
+                                nextPollAt: '2026-03-10T12:05:15.000Z',
+                                nextPollInMs: 15_000,
+                                pollIntervalMs: 15_000,
+                                pollReason: 'recent_changes',
+                            },
                         }),
                         { status: 200, headers: { 'Content-Type': 'application/json' } }
                     )
@@ -51,6 +75,8 @@ describe('AppleCalendarSyncSettings', () => {
         render(<AppleCalendarSyncSettings />);
 
         await screen.findByText(/Connected as parent@example.com/i);
+        expect(screen.getByText(/Last successful check/i)).toBeInTheDocument();
+        expect(screen.getByText(/Polling mode/i)).toBeInTheDocument();
         await user.click(screen.getByRole('button', { name: /sync now/i }));
 
         await waitFor(() => {

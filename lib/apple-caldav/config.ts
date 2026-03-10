@@ -6,6 +6,10 @@ export const DEFAULT_SYNC_WINDOW_PAST_DAYS = 90;
 export const DEFAULT_SYNC_WINDOW_FUTURE_DAYS = 365;
 export const DEFAULT_REPAIR_SCAN_INTERVAL_HOURS = 24;
 export const DEFAULT_SYNC_LOCK_TTL_MS = 20 * 60 * 1000;
+export const DEFAULT_ACTIVE_POLL_SECONDS = 15;
+export const DEFAULT_MAX_IDLE_POLL_SECONDS = 300;
+export const DEFAULT_ERROR_POLL_SECONDS = 30;
+export const DEFAULT_MAX_ERROR_POLL_SECONDS = 300;
 
 function parsePositiveInt(value: string | undefined, fallback: number) {
     const parsed = Number(value);
@@ -43,6 +47,22 @@ export function getDefaultRepairScanIntervalHours() {
 
 export function getCalendarSyncLockTtlMs() {
     return parsePositiveInt(process.env.APPLE_CALDAV_LOCK_TTL_MINUTES, DEFAULT_SYNC_LOCK_TTL_MS / 60000) * 60 * 1000;
+}
+
+export function getCalendarSyncActivePollMs() {
+    return parsePositiveInt(process.env.APPLE_CALDAV_POLL_BASE_SECONDS, DEFAULT_ACTIVE_POLL_SECONDS) * 1000;
+}
+
+export function getCalendarSyncMaxIdlePollMs() {
+    return parsePositiveInt(process.env.APPLE_CALDAV_POLL_MAX_IDLE_SECONDS, DEFAULT_MAX_IDLE_POLL_SECONDS) * 1000;
+}
+
+export function getCalendarSyncErrorPollMs() {
+    return parsePositiveInt(process.env.APPLE_CALDAV_POLL_ERROR_SECONDS, DEFAULT_ERROR_POLL_SECONDS) * 1000;
+}
+
+export function getCalendarSyncMaxErrorPollMs() {
+    return parsePositiveInt(process.env.APPLE_CALDAV_POLL_MAX_ERROR_SECONDS, DEFAULT_MAX_ERROR_POLL_SECONDS) * 1000;
 }
 
 export function getCalendarSyncWindow(now = new Date(), pastDays = getDefaultSyncWindowPastDays(), futureDays = getDefaultSyncWindowFutureDays()) {

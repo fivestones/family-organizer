@@ -68,16 +68,18 @@ export async function updateSyncRun(runId: string, patch: any) {
     await db.transact([db.tx.calendarSyncRuns[runId].update(patch)]);
 }
 
-export async function listRecentSyncRuns(accountId: string) {
+export async function listRecentSyncRuns(accountId: string, limit = 20) {
     const db = getInstantAdminDb();
     const result = await db.query({
         calendarSyncRuns: {
             $: {
                 where: { accountId },
+                order: { startedAt: 'desc' },
+                limit,
             },
         },
     });
-    return asArray(result.calendarSyncRuns).sort((a: any, b: any) => String(b.startedAt).localeCompare(String(a.startedAt)));
+    return asArray(result.calendarSyncRuns);
 }
 
 export async function acquireCalendarSyncLock(lockKey: string, owner: string, expiresAtIso: string) {

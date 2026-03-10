@@ -19,17 +19,80 @@ interface SyncStatus {
     configured: boolean;
     account: null | {
         id: string;
+        status?: string;
         username?: string;
         accountLabel?: string;
+        lastAttemptedSyncAt?: string;
         lastSuccessfulSyncAt?: string;
+        lastErrorAt?: string;
         lastErrorMessage?: string;
     };
     calendars: SyncCalendarRow[];
     lastRun: null | {
         status?: string;
         errorMessage?: string;
+        startedAt?: string;
         finishedAt?: string;
     };
+    polling: null | {
+        due?: boolean;
+        lastSuccessfulPollAt?: string;
+        nextPollAt?: string;
+        nextPollInMs?: number;
+        pollIntervalMs?: number;
+        pollReason?: string;
+        quietStreak?: number;
+        failureStreak?: number;
+    };
+}
+
+function formatRelativeDate(value: string | undefined | null) {
+    if (!value) return 'Never';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Unknown';
+    const diffMs = date.getTime() - Date.now();
+    const absMs = Math.abs(diffMs);
+    const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+    if (absMs < 60_000) return rtf.format(Math.round(diffMs / 1000), 'second');
+    if (absMs < 3_600_000) return rtf.format(Math.round(diffMs / 60_000), 'minute');
+    if (absMs < 86_400_000) return rtf.format(Math.round(diffMs / 3_600_000), 'hour');
+    return rtf.format(Math.round(diffMs / 86_400_000), 'day');
+}
+
+function formatDateWithRelative(value: string | undefined | null) {
+    if (!value) return 'Never';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Unknown';
+    return `${date.toLocaleString()} (${formatRelativeDate(value)})`;
+}
+
+function formatDurationMs(value: number | undefined | null) {
+    if (!value || value <= 0) return 'Right away';
+    if (value < 60_000) return `${Math.round(value / 1000)}s`;
+    if (value < 3_600_000) return `${Math.round(value / 60_000)}m`;
+    if (value < 86_400_000) return `${Math.round(value / 3_600_000)}h`;
+    return `${Math.round(value / 86_400_000)}d`;
+}
+
+function pollReasonLabel(value: string | undefined) {
+    switch (value) {
+        case 'recent_changes':
+            return 'Active polling after recent changes';
+        case 'idle_backoff':
+            return 'Light backoff while calendars stay quiet';
+        case 'idle_backoff_deep':
+            return 'Deep backoff while calendars stay quiet';
+        case 'error_backoff':
+            return 'Retry backoff after recent errors';
+        case 'first_run':
+            return 'Waiting for the first poll';
+        case 'manual':
+            return 'Manual sync requested';
+        case 'repair':
+            return 'Repair scan requested';
+        default:
+            return 'Standard polling cadence';
+    }
 }
 
 async function parseJson(response: Response) {
@@ -81,10 +144,62 @@ export default function AppleCalendarSyncSettings() {
         void loadStatus();
     }, []);
 
-    const lastSyncLabel = useMemo(() => {
-        if (!status?.account?.lastSuccessfulSyncAt) return 'Not synced yet';
-        return new Date(status.account.lastSuccessfulSyncAt).toLocaleString();
-    }, [status?.account?.lastSuccessfulSyncAt]);
+    const syncSummary = useMemo(() => {
+        if (!status?.configured) {
+            return {
+                tone: 'bg-slate-100 text-slate-700',
+                label: 'Not connected',
+                body: 'Connect Apple Calendar to start importing events.',
+            };
+        }
+        if (isPending) {
+            return {
+                tone: 'bg-amber-100 text-amber-700',
+                label: 'Working',
+                body: 'Refreshing status or running a sync now.',
+            };
+        }
+        if (status?.lastRun?.status === 'running') {
+            return {
+                tone: 'bg-sky-100 text-sky-700',
+                label: 'Sync in progress',
+                body: 'The server is currently processing Apple calendar changes.',
+            };
+        }
+        if (status?.lastRun?.status === 'failed' || status?.account?.lastErrorMessage) {
+            return {
+                tone: 'bg-rose-100 text-rose-700',
+                label: 'Needs attention',
+                body: status?.account?.lastErrorMessage || status?.lastRun?.errorMessage || 'The most recent sync failed.',
+            };
+        }
+        if (status?.polling?.pollReason === 'error_backoff') {
+            return {
+                tone: 'bg-amber-100 text-amber-700',
+                label: 'Retry backoff',
+                body: 'Polling is active, but the server is spacing checks out after recent errors.',
+            };
+        }
+        if (status?.polling?.pollReason?.startsWith('idle_backoff')) {
+            return {
+                tone: 'bg-emerald-100 text-emerald-700',
+                label: 'Healthy',
+                body: 'Polling is healthy and backing off because Apple calendars have been quiet.',
+            };
+        }
+        return {
+            tone: 'bg-emerald-100 text-emerald-700',
+            label: 'Healthy',
+            body: 'Polling is healthy and ready to pick up new Apple changes quickly.',
+        };
+    }, [
+        isPending,
+        status?.account?.lastErrorMessage,
+        status?.configured,
+        status?.lastRun?.errorMessage,
+        status?.lastRun?.status,
+        status?.polling?.pollReason,
+    ]);
 
     async function handleConnect() {
         startTransition(async () => {
@@ -214,17 +329,60 @@ export default function AppleCalendarSyncSettings() {
                 </div>
 
                 <div className="rounded-xl border border-orange-200 bg-white/80 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-slate-900">
                                 {status?.configured ? `Connected as ${status?.account?.username || 'Apple account'}` : 'Not connected yet'}
                             </p>
-                            <p className="text-sm text-slate-600">Last successful sync: {lastSyncLabel}</p>
+                            <p className="mt-1 text-sm text-slate-600">{syncSummary.body}</p>
                         </div>
-                        <div className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700">
-                            {selectedCount} calendar{selectedCount === 1 ? '' : 's'} selected
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className={`rounded-full px-3 py-1 text-xs font-semibold ${syncSummary.tone}`}>
+                                {syncSummary.label}
+                            </div>
+                            <div className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700">
+                                {selectedCount} calendar{selectedCount === 1 ? '' : 's'} selected
+                            </div>
                         </div>
                     </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last successful sync</p>
+                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.account?.lastSuccessfulSyncAt)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last successful check</p>
+                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.polling?.lastSuccessfulPollAt)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Next poll</p>
+                            <p className="mt-2 text-sm font-medium text-slate-900">
+                                {status?.configured ? formatDateWithRelative(status?.polling?.nextPollAt) : 'Waiting for connection'}
+                            </p>
+                            {status?.polling?.nextPollInMs != null ? (
+                                <p className="mt-1 text-xs text-slate-500">About {formatDurationMs(status.polling.nextPollInMs)}</p>
+                            ) : null}
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Polling mode</p>
+                            <p className="mt-2 text-sm font-medium text-slate-900">{pollReasonLabel(status?.polling?.pollReason)}</p>
+                            {status?.polling?.pollIntervalMs ? (
+                                <p className="mt-1 text-xs text-slate-500">Current interval: {formatDurationMs(status.polling.pollIntervalMs)}</p>
+                            ) : null}
+                        </div>
+                    </div>
+                    {status?.lastRun ? (
+                        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last run</p>
+                            <p className="mt-2 text-sm font-medium capitalize text-slate-900">
+                                {status.lastRun.status || 'Unknown'}
+                                {status.lastRun.finishedAt ? ` • ${formatDateWithRelative(status.lastRun.finishedAt)}` : ''}
+                            </p>
+                            {status?.account?.lastErrorAt ? (
+                                <p className="mt-1 text-xs text-slate-500">Last error seen {formatDateWithRelative(status.account.lastErrorAt)}</p>
+                            ) : null}
+                        </div>
+                    ) : null}
                     {status?.lastRun?.errorMessage ? (
                         <p className="mt-3 text-sm font-medium text-rose-600">{status.lastRun.errorMessage}</p>
                     ) : null}

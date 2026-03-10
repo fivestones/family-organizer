@@ -19,7 +19,8 @@
     "test:perms:live": "RUN_LIVE_INSTANT_PERMS=1 vitest run test/live/instant-perms-live.node.test.ts",
     "test:all": "npm run test && npm run test:e2e",
     "backfill:savings-envelopes": "node scripts/backfill-savings-envelopes.js",
-    "backfill:calendar-events": "node scripts/backfill-calendar-events.js"
+    "backfill:calendar-events": "node scripts/backfill-calendar-events.js",
+    "calendar-sync:worker": "node scripts/apple-calendar-sync-worker.js"
   },
   "dependencies": {
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.7",
