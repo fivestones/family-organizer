@@ -12,6 +12,7 @@ const PUBLIC_ALLOWLIST_PATHS = [
     '/manifest.webmanifest',
     '/offline.html',
     '/activate',
+    '/api/health',
     '/api/device-activate',
 ];
 const PUBLIC_ALLOWLIST_PREFIXES = ['/api/mobile/'];

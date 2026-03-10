@@ -10,10 +10,10 @@ services:
       # These bake the PUBLIC URLs into the JavaScript bundle at build time.
       # Changing these requires running `docker compose up -d --build`.
       args:
-        NEXT_PUBLIC_S3_ENDPOINT: ${NEXT_PUBLIC_S3_ENDPOINT}
-        NEXT_PUBLIC_INSTANT_API_URI: ${NEXT_PUBLIC_INSTANT_API_URI}
-        NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: ${NEXT_PUBLIC_INSTANT_WEBSOCKET_URI}
-        NEXT_PUBLIC_INSTANT_APP_ID: ${NEXT_PUBLIC_INSTANT_APP_ID}
+        NEXT_PUBLIC_S3_ENDPOINT: ${NEXT_PUBLIC_S3_ENDPOINT:-}
+        NEXT_PUBLIC_INSTANT_API_URI: ${NEXT_PUBLIC_INSTANT_API_URI:-}
+        NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: ${NEXT_PUBLIC_INSTANT_WEBSOCKET_URI:-}
+        NEXT_PUBLIC_INSTANT_APP_ID: ${NEXT_PUBLIC_INSTANT_APP_ID:-}
     # No ports needed when using a reverse proxy (e.g. SWAG) on the same Docker network —
     # it can reach this container directly as http://family-organizer:3000.
     # To expose the app directly on the host instead, uncomment:
@@ -39,7 +39,7 @@ services:
     depends_on:
       - minio
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -55,10 +55,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_S3_ENDPOINT: ${NEXT_PUBLIC_S3_ENDPOINT}
-        NEXT_PUBLIC_INSTANT_API_URI: ${NEXT_PUBLIC_INSTANT_API_URI}
-        NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: ${NEXT_PUBLIC_INSTANT_WEBSOCKET_URI}
-        NEXT_PUBLIC_INSTANT_APP_ID: ${NEXT_PUBLIC_INSTANT_APP_ID}
+        NEXT_PUBLIC_S3_ENDPOINT: ${NEXT_PUBLIC_S3_ENDPOINT:-}
+        NEXT_PUBLIC_INSTANT_API_URI: ${NEXT_PUBLIC_INSTANT_API_URI:-}
+        NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: ${NEXT_PUBLIC_INSTANT_WEBSOCKET_URI:-}
+        NEXT_PUBLIC_INSTANT_APP_ID: ${NEXT_PUBLIC_INSTANT_APP_ID:-}
     command: ["node", "scripts/apple-calendar-sync-worker.js"]
     env_file:
       - path: .env
@@ -68,10 +68,6 @@ services:
     environment:
       - NODE_ENV=production
       - APPLE_CALDAV_POLL_TARGET_URL=http://family-organizer:3000
-      - CALENDAR_SYNC_CRON_SECRET=${CALENDAR_SYNC_CRON_SECRET}
-      - APPLE_CALDAV_POLL_BASE_SECONDS=${APPLE_CALDAV_POLL_BASE_SECONDS}
-      - APPLE_CALDAV_POLL_ERROR_SECONDS=${APPLE_CALDAV_POLL_ERROR_SECONDS}
-      - APPLE_CALDAV_POLL_MAX_IDLE_SECONDS=${APPLE_CALDAV_POLL_MAX_IDLE_SECONDS}
     depends_on:
       family-organizer:
         condition: service_healthy
