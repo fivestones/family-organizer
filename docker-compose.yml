@@ -39,7 +39,14 @@ services:
     depends_on:
       - minio
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/api/health"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health', { cache: 'no-store' }).then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      start_period: 10s
       interval: 30s
       timeout: 10s
       retries: 3
