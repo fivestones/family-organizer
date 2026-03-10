@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import AppleCalendarSyncSettings from '@/components/AppleCalendarSyncSettings';
 import CurrencySettings from '@/components/CurrencySettings';
 import FamilyMembersList from '@/components/FamilyMembersList';
 import { ParentGate } from '@/components/auth/ParentGate';
@@ -29,6 +30,10 @@ export default function SettingsPage() {
                 </div>
 
                 <CurrencySettings db={db} />
+
+                <div className="mt-8">
+                    <AppleCalendarSyncSettings />
+                </div>
             </div>
         </ParentGate>
     );
