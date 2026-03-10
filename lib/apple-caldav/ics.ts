@@ -188,7 +188,7 @@ function eventToNormalized(event: any, options: {
         ...range,
         title: event.summary || 'Untitled event',
         description: event.description || '',
-        uid: event.uid || '',
+        uid: options.sourceExternalId,
         status: String(event.component.getFirstPropertyValue('status') || 'confirmed').toLowerCase(),
         sequence: Number(event.component.getFirstPropertyValue('sequence') || 0),
         dtStamp: buildIsoLike(event.component.getFirstPropertyValue('dtstamp')),
@@ -211,6 +211,7 @@ function eventToNormalized(event: any, options: {
         visibility: 'default',
         transparency: event.component.getFirstPropertyValue('transp') === 'TRANSPARENT' ? 'transparent' : range.isAllDay ? 'transparent' : 'opaque',
         xProps: {
+            appleUid: event.uid || '',
             categories: event.component.getFirstPropertyValue('categories') || [],
             class: event.component.getFirstPropertyValue('class') || '',
         },

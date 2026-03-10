@@ -29,4 +29,32 @@ END:VCALENDAR`,
         expect(result[0].dayOfMonth).toBe(10);
         expect(result[0].timeZone).toBe('America/New_York');
     });
+
+    it('uses a per-import unique uid while preserving the raw Apple uid in xProps', async () => {
+        const { parseCalendarResource } = await import('@/lib/apple-caldav/ics');
+        const result = parseCalendarResource({
+            accountId: 'acct_1',
+            calendarId: 'cal_1',
+            calendarName: 'Home',
+            href: 'https://example.com/event.ics',
+            etag: 'etag-1',
+            ics: `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:shared-apple-uid
+DTSTART:20260310T120000Z
+DTEND:20260310T130000Z
+SUMMARY:Imported event
+END:VEVENT
+END:VCALENDAR`,
+            rangeStart: new Date('2026-03-01T00:00:00.000Z'),
+            rangeEnd: new Date('2026-03-31T23:59:59.999Z'),
+            fallbackTimeZone: 'UTC',
+        });
+
+        expect(result).toHaveLength(1);
+        expect(result[0].sourceExternalId).toBe('apple:acct_1:cal_1:shared-apple-uid:single');
+        expect(result[0].uid).toBe(result[0].sourceExternalId);
+        expect(result[0].xProps?.appleUid).toBe('shared-apple-uid');
+    });
 });
