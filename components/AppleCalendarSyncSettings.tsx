@@ -35,6 +35,7 @@ interface SyncStatus {
         errorMessage?: string;
         startedAt?: string;
         finishedAt?: string;
+        trigger?: string;
     };
     polling: null | {
         due?: boolean;
@@ -48,25 +49,25 @@ interface SyncStatus {
     };
 }
 
-function isPollingHeartbeatOverdue(polling: SyncStatus['polling']) {
+function isPollingHeartbeatOverdue(polling: SyncStatus['polling'], nowMs = Date.now()) {
     if (!polling?.lastSuccessfulPollAt) return false;
     const lastPollMs = new Date(polling.lastSuccessfulPollAt).getTime();
     if (Number.isNaN(lastPollMs)) return false;
 
     const nextPollMs = new Date(polling.nextPollAt || '').getTime();
     if (!Number.isNaN(nextPollMs)) {
-        return Date.now() > nextPollMs + 60_000;
+        return nowMs > nextPollMs + 60_000;
     }
 
     const intervalMs = Math.max(15_000, Number(polling.pollIntervalMs) || 0);
-    return Date.now() - lastPollMs > intervalMs + 60_000;
+    return nowMs - lastPollMs > intervalMs + 60_000;
 }
 
-function formatRelativeDate(value: string | undefined | null) {
+function formatRelativeDate(value: string | undefined | null, nowMs = Date.now()) {
     if (!value) return 'Never';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return 'Unknown';
-    const diffMs = date.getTime() - Date.now();
+    const diffMs = date.getTime() - nowMs;
     const absMs = Math.abs(diffMs);
     const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
     if (absMs < 60_000) return rtf.format(Math.round(diffMs / 1000), 'second');
@@ -75,11 +76,11 @@ function formatRelativeDate(value: string | undefined | null) {
     return rtf.format(Math.round(diffMs / 86_400_000), 'day');
 }
 
-function formatDateWithRelative(value: string | undefined | null) {
+function formatDateWithRelative(value: string | undefined | null, nowMs = Date.now()) {
     if (!value) return 'Never';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return 'Unknown';
-    return `${date.toLocaleString()} (${formatRelativeDate(value)})`;
+    return `${date.toLocaleString()} (${formatRelativeDate(value, nowMs)})`;
 }
 
 function formatDurationMs(value: number | undefined | null) {
@@ -111,6 +112,24 @@ function pollReasonLabel(value: string | undefined) {
     }
 }
 
+function runTriggerLabel(value: string | undefined) {
+    switch (value) {
+        case 'manual':
+            return 'Manual sync';
+        case 'repair':
+            return 'Sync and rewrite';
+        case 'cron':
+            return 'Background sync';
+        default:
+            return 'Sync run';
+    }
+}
+
+function sanitizeAppleCalendarDisplayName(value: string | undefined | null) {
+    const next = String(value || '').replace(/\s*[⚠️❗]+\s*$/, '').trim();
+    return next || String(value || 'Apple Calendar');
+}
+
 async function parseJson(response: Response) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -136,6 +155,8 @@ export default function AppleCalendarSyncSettings() {
     const [status, setStatus] = useState<SyncStatus | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isPending, startTransition] = useTransition();
+    const [relativeNowMs, setRelativeNowMs] = useState(() => Date.now());
+    const [isEditingCredentials, setIsEditingCredentials] = useState(false);
     const [form, setForm] = useState({
         username: '',
         appSpecificPassword: '',
@@ -144,7 +165,21 @@ export default function AppleCalendarSyncSettings() {
     });
 
     const selectedCount = form.selectedCalendarIds.length;
-    const calendars = status?.calendars || [];
+    const calendars = useMemo(() => {
+        const seen = new Set<string>();
+        return (status?.calendars || [])
+            .filter((calendar) => {
+                const key = String(calendar.remoteCalendarId || '').trim();
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .sort((left, right) => {
+                const selectedDiff = Number(form.selectedCalendarIds.includes(right.remoteCalendarId)) - Number(form.selectedCalendarIds.includes(left.remoteCalendarId));
+                if (selectedDiff !== 0) return selectedDiff;
+                return sanitizeAppleCalendarDisplayName(left.displayName).localeCompare(sanitizeAppleCalendarDisplayName(right.displayName));
+            });
+    }, [form.selectedCalendarIds, status?.calendars]);
 
     const loadStatus = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
         if (!silent) {
@@ -188,6 +223,22 @@ export default function AppleCalendarSyncSettings() {
         };
     }, [loadStatus]);
 
+    useEffect(() => {
+        const intervalId = window.setInterval(() => {
+            setRelativeNowMs(Date.now());
+        }, 30_000);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!status?.configured) {
+            setIsEditingCredentials(true);
+        }
+    }, [status?.configured]);
+
     const syncSummary = useMemo(() => {
         if (!status?.configured) {
             return {
@@ -217,7 +268,7 @@ export default function AppleCalendarSyncSettings() {
                 body: status?.account?.lastErrorMessage || status?.lastRun?.errorMessage || 'The most recent sync failed.',
             };
         }
-        if (isPollingHeartbeatOverdue(status?.polling)) {
+        if (isPollingHeartbeatOverdue(status?.polling, relativeNowMs)) {
             return {
                 tone: 'bg-amber-100 text-amber-700',
                 label: 'Polling overdue',
@@ -251,6 +302,7 @@ export default function AppleCalendarSyncSettings() {
         status?.lastRun?.status,
         status?.polling,
         status?.polling?.pollReason,
+        relativeNowMs,
     ]);
 
     async function handleConnect() {
@@ -268,8 +320,9 @@ export default function AppleCalendarSyncSettings() {
                     })
                 );
                 setForm((current) => ({ ...current, appSpecificPassword: '' }));
+                setIsEditingCredentials(false);
                 await loadStatus();
-                toast({ title: 'Apple Calendar connected' });
+                toast({ title: 'Apple Calendar credentials saved' });
             } catch (error: any) {
                 toast({
                     title: 'Connection failed',
@@ -321,7 +374,7 @@ export default function AppleCalendarSyncSettings() {
                         }),
                     })
                 );
-                const completedAtIso = new Date().toISOString();
+                const completedAtIso = result?.finishedAt || result?.checkedAt || new Date().toISOString();
                 setStatus((current) => {
                     if (!current?.account) return current;
                     return {
@@ -354,7 +407,9 @@ export default function AppleCalendarSyncSettings() {
                             : current.polling,
                     };
                 });
-                await loadStatus({ silent: true });
+                window.setTimeout(() => {
+                    void loadStatus({ silent: true });
+                }, 2_000);
 
                 const summary = result?.skipped
                     ? 'No sync work was needed.'
@@ -384,43 +439,19 @@ export default function AppleCalendarSyncSettings() {
             <CardHeader>
                 <CardTitle>Apple Calendar Sync</CardTitle>
                 <CardDescription>
-                    Import Apple Calendar events into Family Organizer. Imported events stay read-only here and refresh from the server sync.
+                    Import Apple Calendar events into Family Organizer. Imported events stay read-only here, and the server keeps polling Apple in the background.
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                        <Label htmlFor="apple-calendar-username">Apple ID Email</Label>
-                        <Input
-                            id="apple-calendar-username"
-                            autoCapitalize="none"
-                            autoCorrect="off"
-                            value={form.username}
-                            onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
-                            placeholder="parent@example.com"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="apple-calendar-password">App-Specific Password</Label>
-                        <Input
-                            id="apple-calendar-password"
-                            type="password"
-                            autoCapitalize="none"
-                            autoCorrect="off"
-                            value={form.appSpecificPassword}
-                            onChange={(event) => setForm((current) => ({ ...current, appSpecificPassword: event.target.value }))}
-                            placeholder="xxxx-xxxx-xxxx-xxxx"
-                        />
-                    </div>
-                </div>
-
                 <div className="flex flex-wrap gap-3">
                     <Button type="button" variant="outline" onClick={() => void loadStatus()} disabled={isLoading || isPending}>
-                        {isLoading ? 'Refreshing...' : 'Refresh'}
+                        {isLoading ? 'Refreshing...' : 'Refresh Status'}
                     </Button>
-                    <Button type="button" onClick={() => void handleConnect()} disabled={isPending}>
-                        {status?.configured ? 'Reconnect Apple Calendar' : 'Connect Apple Calendar'}
-                    </Button>
+                    {status?.configured ? (
+                        <Button type="button" variant="outline" onClick={() => setIsEditingCredentials((current) => !current)} disabled={isPending}>
+                            {isEditingCredentials ? 'Hide Credentials' : 'Update Credentials'}
+                        </Button>
+                    ) : null}
                     <Button type="button" variant="secondary" onClick={() => void handleRunSync('manual')} disabled={isPending || !status?.account?.id}>
                         Sync Now
                     </Button>
@@ -428,6 +459,54 @@ export default function AppleCalendarSyncSettings() {
                         Sync and Rewrite
                     </Button>
                 </div>
+
+                {(!status?.configured || isEditingCredentials) ? (
+                    <div className="space-y-4 rounded-2xl border border-orange-200 bg-orange-50/60 p-4">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-900">
+                                {status?.configured ? 'Update Apple credentials' : 'Connect Apple Calendar'}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">
+                                The app only needs these again if you are connecting the first time or replacing a changed Apple ID/app-specific password.
+                            </p>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <Label htmlFor="apple-calendar-username">Apple ID Email</Label>
+                                <Input
+                                    id="apple-calendar-username"
+                                    autoCapitalize="none"
+                                    autoCorrect="off"
+                                    value={form.username}
+                                    onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
+                                    placeholder="parent@example.com"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="apple-calendar-password">App-Specific Password</Label>
+                                <Input
+                                    id="apple-calendar-password"
+                                    type="password"
+                                    autoCapitalize="none"
+                                    autoCorrect="off"
+                                    value={form.appSpecificPassword}
+                                    onChange={(event) => setForm((current) => ({ ...current, appSpecificPassword: event.target.value }))}
+                                    placeholder="xxxx-xxxx-xxxx-xxxx"
+                                />
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                            {status?.configured ? (
+                                <Button type="button" variant="outline" onClick={() => setIsEditingCredentials(false)} disabled={isPending}>
+                                    Cancel
+                                </Button>
+                            ) : null}
+                            <Button type="button" onClick={() => void handleConnect()} disabled={isPending}>
+                                {status?.configured ? 'Save New Credentials' : 'Connect Apple Calendar'}
+                            </Button>
+                        </div>
+                    </div>
+                ) : null}
 
                 <div className="rounded-xl border border-orange-200 bg-white/80 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -437,7 +516,7 @@ export default function AppleCalendarSyncSettings() {
                             </p>
                             <p className="mt-1 text-sm text-slate-600">{syncSummary.body}</p>
                             <p className="mt-2 text-xs text-slate-500">
-                                `Sync Now` uses the normal incremental Apple delta sync. `Sync and Rewrite` forces a full repair pass and can rewrite imported rows after bugs or mapping changes.
+                                `Refresh Status` just reloads this panel from the server. `Sync Now` asks the server to run an immediate incremental sync. `Sync and Rewrite` forces a full repair pass and rewrites imported rows if needed.
                             </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -452,16 +531,16 @@ export default function AppleCalendarSyncSettings() {
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last successful sync</p>
-                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.account?.lastSuccessfulSyncAt)}</p>
+                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.account?.lastSuccessfulSyncAt, relativeNowMs)}</p>
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last poll heartbeat</p>
-                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.polling?.lastSuccessfulPollAt)}</p>
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last completed check</p>
+                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.polling?.lastSuccessfulPollAt, relativeNowMs)}</p>
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Next poll</p>
                             <p className="mt-2 text-sm font-medium text-slate-900">
-                                {status?.configured ? formatDateWithRelative(status?.polling?.nextPollAt) : 'Waiting for connection'}
+                                {status?.configured ? formatDateWithRelative(status?.polling?.nextPollAt, relativeNowMs) : 'Waiting for connection'}
                             </p>
                             {status?.polling?.nextPollInMs != null ? (
                                 <p className="mt-1 text-xs text-slate-500">About {formatDurationMs(status.polling.nextPollInMs)}</p>
@@ -479,11 +558,14 @@ export default function AppleCalendarSyncSettings() {
                         <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last run</p>
                             <p className="mt-2 text-sm font-medium capitalize text-slate-900">
-                                {status.lastRun.status || 'Unknown'}
-                                {status.lastRun.finishedAt ? ` • ${formatDateWithRelative(status.lastRun.finishedAt)}` : ''}
+                                {runTriggerLabel(status.lastRun.trigger)}
+                                {status.lastRun.finishedAt ? ` • ${formatDateWithRelative(status.lastRun.finishedAt, relativeNowMs)}` : ''}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                                {status.lastRun.status === 'success' ? 'Finished successfully' : status.lastRun.status || 'Unknown status'}
                             </p>
                             {status?.account?.lastErrorAt ? (
-                                <p className="mt-1 text-xs text-slate-500">Last error seen {formatDateWithRelative(status.account.lastErrorAt)}</p>
+                                <p className="mt-1 text-xs text-slate-500">Last error seen {formatDateWithRelative(status.account.lastErrorAt, relativeNowMs)}</p>
                             ) : null}
                         </div>
                     ) : null}
@@ -496,13 +578,11 @@ export default function AppleCalendarSyncSettings() {
                 </div>
 
                 <div className="space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="space-y-1">
                         <h3 className="text-sm font-semibold text-slate-900">Imported Calendars</h3>
-                        <Button type="button" variant="outline" onClick={() => void handleSaveCalendars()} disabled={isPending || !status?.account?.id}>
-                            Save Calendars
-                        </Button>
+                        <p className="text-sm text-slate-600">Choose which Apple calendars appear in Family Organizer.</p>
                     </div>
-                    <div className="grid gap-3">
+                    <div className="flex flex-wrap gap-2">
                         {calendars.length === 0 ? (
                             <div className="rounded-xl border border-dashed border-slate-300 bg-white/70 p-4 text-sm text-slate-600">
                                 Connect Apple Calendar first to discover calendars you can import.
@@ -513,7 +593,12 @@ export default function AppleCalendarSyncSettings() {
                                 return (
                                     <label
                                         key={calendar.id || calendar.remoteCalendarId}
-                                        className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+                                        title={calendar.displayName}
+                                        className={`inline-flex max-w-full items-center gap-3 rounded-full border px-4 py-2 text-sm ${
+                                            checked
+                                                ? 'border-orange-300 bg-orange-100 text-orange-950'
+                                                : 'border-slate-200 bg-white text-slate-700'
+                                        }`}
                                     >
                                         <Checkbox
                                             checked={checked}
@@ -526,14 +611,19 @@ export default function AppleCalendarSyncSettings() {
                                                 }));
                                             }}
                                         />
-                                        <div className="min-w-0 flex-1">
-                                            <p className="font-medium text-slate-900">{calendar.displayName}</p>
-                                            <p className="text-sm text-slate-500">{checked ? 'Imported into Family Organizer' : 'Not imported yet'}</p>
-                                        </div>
+                                        <span className="truncate font-medium">{sanitizeAppleCalendarDisplayName(calendar.displayName)}</span>
                                     </label>
                                 );
                             })
                         )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <Button type="button" variant="outline" onClick={() => void handleSaveCalendars()} disabled={isPending || !status?.account?.id}>
+                            Save Calendars
+                        </Button>
+                        <p className="text-xs text-slate-500">
+                            {selectedCount} selected
+                        </p>
                     </div>
                 </div>
             </CardContent>

@@ -1062,6 +1062,37 @@ describe('Calendar', () => {
         );
     });
 
+    it('suppresses the generated recurrence when an imported Apple override points to a master by sourceExternalId', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-master',
+                title: 'Bible study',
+                startDate: '2026-03-10',
+                endDate: '2026-03-11',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;COUNT=3',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;COUNT=3'],
+                sourceExternalId: 'apple:acct_1:cal_1:weekly-study:master',
+                sourceType: 'apple-caldav',
+            },
+            {
+                id: 'evt-override',
+                title: 'Bible study moved',
+                startDate: '2026-03-17',
+                endDate: '2026-03-18',
+                isAllDay: true,
+                recurrenceId: '20260317T120000Z',
+                recurringEventId: 'apple:acct_1:cal_1:weekly-study:master',
+                sourceExternalId: 'apple:acct_1:cal_1:weekly-study:20260317T120000Z',
+                sourceType: 'apple-caldav',
+            },
+        ]);
+
+        expect(within(screen.getByTestId('day-cell-2026-03-17')).queryByRole('button', { name: 'Bible study' })).toBeNull();
+        expect(within(screen.getByTestId('day-cell-2026-03-17')).getByRole('button', { name: 'Bible study moved' })).toBeInTheDocument();
+        expect(within(screen.getByTestId('day-cell-2026-03-24')).getByRole('button', { name: 'Bible study' })).toBeInTheDocument();
+    });
+
     it('uses the Shift drag hotkey to move this and following recurring events without opening the scope dialog', async () => {
         renderCalendarWithItems([
             {

@@ -102,7 +102,7 @@ describe('AppleCalendarSyncSettings', () => {
         render(<AppleCalendarSyncSettings />);
 
         await screen.findByText(/Connected as parent@example.com/i);
-        expect(screen.getByText(/Last poll heartbeat/i)).toBeInTheDocument();
+        expect(screen.getByText(/Last completed check/i)).toBeInTheDocument();
         expect(screen.getByText(/Polling mode/i)).toBeInTheDocument();
         expect(global.fetch).toHaveBeenNthCalledWith(
             1,
@@ -129,16 +129,19 @@ describe('AppleCalendarSyncSettings', () => {
             );
         });
 
-        const manualRequest = (global.fetch as any).mock.calls[1][1];
+        const runCallsAfterManual = (global.fetch as any).mock.calls.filter((call: any[]) => call[0] === '/api/calendar-sync/apple/run');
+        const manualRequest = runCallsAfterManual[0][1];
         expect(JSON.parse(manualRequest.body)).toMatchObject({ trigger: 'manual' });
 
         await user.click(screen.getByRole('button', { name: /sync and rewrite/i }));
 
         await waitFor(() => {
-            expect((global.fetch as any).mock.calls[3][0]).toBe('/api/calendar-sync/apple/run');
+            const runCalls = (global.fetch as any).mock.calls.filter((call: any[]) => call[0] === '/api/calendar-sync/apple/run');
+            expect(runCalls).toHaveLength(2);
         });
 
-        const repairRequest = (global.fetch as any).mock.calls[3][1];
+        const runCallsAfterRepair = (global.fetch as any).mock.calls.filter((call: any[]) => call[0] === '/api/calendar-sync/apple/run');
+        const repairRequest = runCallsAfterRepair[1][1];
         expect(JSON.parse(repairRequest.body)).toMatchObject({ trigger: 'repair' });
     });
 });

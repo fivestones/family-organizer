@@ -163,7 +163,6 @@ function eventToNormalized(event: any, options: {
     fallbackTimeZone?: string;
     sourceExternalId: string;
     recurringEventId?: string;
-    materializedOccurrence?: boolean;
 }) {
     const effectiveTimeZone = timeZoneOf(event, options.fallbackTimeZone || 'UTC');
     const range = toDateRange(event, options.occurrenceDate || null, effectiveTimeZone);
@@ -184,8 +183,6 @@ function eventToNormalized(event: any, options: {
         ...(rdates.length ? [`RDATE:${rdates.join(',')}`] : []),
         ...(exdates.length ? [`EXDATE:${exdates.join(',')}`] : []),
     ];
-    const isMaterializedOccurrence = options.materializedOccurrence === true;
-
     return {
         ...range,
         title: event.summary || 'Untitled event',
@@ -202,10 +199,10 @@ function eventToNormalized(event: any, options: {
         organizer: buildParticipant(organizerProp),
         attendees: attendeeProps.map(buildParticipant).filter(Boolean),
         alarms,
-        rrule: isMaterializedOccurrence ? '' : normalizedRrule,
-        rdates: isMaterializedOccurrence ? [] : rdates,
-        exdates: isMaterializedOccurrence ? [] : exdates,
-        recurrenceLines: isMaterializedOccurrence ? [] : recurrenceLines,
+        rrule: normalizedRrule,
+        rdates,
+        exdates,
+        recurrenceLines,
         recurrenceId: recurrenceIdValue,
         recurringEventId: options.recurringEventId || '',
         recurrenceIdRange: '',
@@ -232,6 +229,10 @@ function eventToNormalized(event: any, options: {
 
 function buildOccurrenceSourceExternalId(accountId: string, calendarId: string, uid: string, recurrenceId: string) {
     return `apple:${accountId}:${calendarId}:${uid}:${recurrenceId || 'single'}`;
+}
+
+function buildMasterSourceExternalId(accountId: string, calendarId: string, uid: string) {
+    return `apple:${accountId}:${calendarId}:${uid}:master`;
 }
 
 export function parseCalendarResource(input: {
@@ -283,47 +284,26 @@ export function parseCalendarResource(input: {
             if (single) normalized.push(single);
             continue;
         }
-
-        const iterator = master.iterator();
-        const exdateSet = new Set((master.component.getAllProperties('exdate') || []).flatMap((prop: any) => (prop.getValues?.() || []).map(recurrenceKey)));
-        const until = input.rangeEnd.getTime();
-
-        while (true) {
-            const next = iterator.next();
-            if (!next) break;
-            const occurrenceDate = next.toJSDate();
-            if (occurrenceDate.getTime() > until) break;
-            if (occurrenceDate.getTime() < input.rangeStart.getTime()) continue;
-
-            const key = recurrenceKey(next);
-            if (exdateSet.has(key)) continue;
-
-            const override = overrides.get(key) || null;
-            const sourceExternalId = buildOccurrenceSourceExternalId(input.accountId, input.calendarId, uid, key);
-            const normalizedEvent = eventToNormalized(override || master, {
-                accountId: input.accountId,
-                calendarId: input.calendarId,
-                calendarName: input.calendarName,
-                href: input.href,
-                etag: input.etag,
-                ctag: input.ctag,
-                occurrenceDate: override ? null : next,
-                fallbackTimeZone: input.fallbackTimeZone,
-                sourceExternalId,
-                recurringEventId: `apple:${input.accountId}:${input.calendarId}:${uid}`,
-                materializedOccurrence: true,
+        const masterSourceExternalId = buildMasterSourceExternalId(input.accountId, input.calendarId, uid);
+        const normalizedMaster = eventToNormalized(master, {
+            accountId: input.accountId,
+            calendarId: input.calendarId,
+            calendarName: input.calendarName,
+            href: input.href,
+            etag: input.etag,
+            ctag: input.ctag,
+            fallbackTimeZone: input.fallbackTimeZone,
+            sourceExternalId: masterSourceExternalId,
+        });
+        if (normalizedMaster) {
+            normalized.push({
+                ...normalizedMaster,
+                recurrenceId: '',
+                recurringEventId: '',
             });
-
-            if (normalizedEvent) {
-                normalizedEvent.recurrenceId = key;
-                normalized.push(normalizedEvent);
-            }
         }
 
         for (const [key, override] of Array.from(overrides.entries())) {
-            if (normalized.some((entry: any) => entry.sourceExternalId === buildOccurrenceSourceExternalId(input.accountId, input.calendarId, uid, key))) {
-                continue;
-            }
             const normalizedOverride = eventToNormalized(override, {
                 accountId: input.accountId,
                 calendarId: input.calendarId,
@@ -333,10 +313,17 @@ export function parseCalendarResource(input: {
                 ctag: input.ctag,
                 fallbackTimeZone: input.fallbackTimeZone,
                 sourceExternalId: buildOccurrenceSourceExternalId(input.accountId, input.calendarId, uid, key),
-                recurringEventId: `apple:${input.accountId}:${input.calendarId}:${uid}`,
-                materializedOccurrence: true,
+                recurringEventId: masterSourceExternalId,
             });
-            if (normalizedOverride) normalized.push(normalizedOverride);
+            if (!normalizedOverride) continue;
+            normalized.push({
+                ...normalizedOverride,
+                rrule: '',
+                rdates: [],
+                exdates: [],
+                recurrenceLines: [],
+                recurrenceId: key,
+            });
         }
     }
 

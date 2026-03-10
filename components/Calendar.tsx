@@ -3208,6 +3208,11 @@ const Calendar = ({
 
         const calendarItemsForView = calendarItems.filter(matchesMemberFilter);
         const calendarItemsById = new Map(calendarItems.map((item) => [item.id, item] as const));
+        const calendarItemsBySourceExternalId = new Map(
+            calendarItems
+                .filter((item) => typeof item.sourceExternalId === 'string' && item.sourceExternalId.trim())
+                .map((item) => [String(item.sourceExternalId).trim(), item] as const)
+        );
         if (!effectiveEveryoneSelected && selectedMemberIdSet.size === 0) {
             return {
                 dayItemsByDate: byDate,
@@ -3317,7 +3322,8 @@ const Calendar = ({
                     excludedExactTimes.add(parsed.getTime());
                 }
 
-                const overrideDayKeys = recurrenceOverrideDayKeysByMasterId.get(item.id);
+                const sourceExternalId = typeof item.sourceExternalId === 'string' ? item.sourceExternalId.trim() : '';
+                const overrideDayKeys = recurrenceOverrideDayKeysByMasterId.get(item.id) || (sourceExternalId ? recurrenceOverrideDayKeysByMasterId.get(sourceExternalId) : undefined);
                 const seenOccurrenceKeys = new Set<string>();
                 const uniqueStartsByKey = new Map<string, Date>();
                 for (const rawStart of [start, ...generatedStarts, ...rdateStarts]) {
@@ -3368,7 +3374,7 @@ const Calendar = ({
 
         for (const baseItem of calendarItemsForView) {
             const masterId = typeof baseItem.recurringEventId === 'string' ? baseItem.recurringEventId.trim() : '';
-            const masterForOverride = masterId ? calendarItemsById.get(masterId) : undefined;
+            const masterForOverride = masterId ? (calendarItemsById.get(masterId) || calendarItemsBySourceExternalId.get(masterId)) : undefined;
             const sourceItem = masterForOverride ? ({ ...baseItem, __masterEvent: masterForOverride } as CalendarItem) : baseItem;
             const itemsToRender = expandRecurringItemForRange(sourceItem);
             for (const item of itemsToRender) {

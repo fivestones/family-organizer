@@ -88,6 +88,18 @@ function lastDiscoveryAtMs(calendars: any[]) {
     }, 0);
 }
 
+function latestTimestampIso(...values: Array<string | undefined | null>) {
+    let bestIso = '';
+    let bestMs = 0;
+    for (const value of values) {
+        const parsed = new Date(value || '').getTime();
+        if (Number.isNaN(parsed) || parsed < bestMs) continue;
+        bestMs = parsed;
+        bestIso = value || '';
+    }
+    return bestIso;
+}
+
 export function shouldRefreshAppleCalendarDiscovery(input: {
     account: any;
     calendars: any[];
@@ -191,7 +203,7 @@ export async function getAppleCalendarSyncStatus() {
         lastRun: runs[0] || null,
         polling: {
             due: pollPlan.due,
-            lastSuccessfulPollAt: account.lastAttemptedSyncAt || '',
+            lastSuccessfulPollAt: latestTimestampIso(account.lastAttemptedSyncAt, account.lastSuccessfulSyncAt),
             nextPollAt: pollPlan.nextPollAt,
             nextPollInMs: pollPlan.nextPollInMs,
             pollIntervalMs: pollPlan.intervalMs,
@@ -250,6 +262,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
     if (account.status !== 'active') {
         await recordAppleCalendarPollHeartbeat(account, requestAtIso);
         return {
+            checkedAt: requestAtIso,
             skipped: true,
             reason: 'disabled',
             pollIntervalMs: getCalendarSyncActivePollMs(),
@@ -265,6 +278,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
     if (!preRunPollPlan.due) {
         await recordAppleCalendarPollHeartbeat(account, requestAtIso);
         return {
+            checkedAt: requestAtIso,
             skipped: true,
             reason: 'not_due',
             nextPollAt: preRunPollPlan.nextPollAt,
@@ -281,7 +295,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
     const lock = await acquireCalendarSyncLock(lockKey, owner, new Date(Date.now() + getCalendarSyncLockTtlMs()).toISOString());
     if (!lock.acquired) {
         await recordAppleCalendarPollHeartbeat(account, requestAtIso);
-        return { skipped: true, reason: 'already_running' };
+        return { checkedAt: requestAtIso, skipped: true, reason: 'already_running' };
     }
 
     const startedAt = new Date();
@@ -394,6 +408,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
                     rangeStart: window.rangeStart,
                     rangeEnd: window.rangeEnd,
                     markMissingAsDeleted: remoteEventsResult.mode === 'full',
+                    hardDeleteMissingRows: input.trigger === 'repair',
                 });
                 eventsCreated += stats.eventsCreated;
                 eventsUpdated += stats.eventsUpdated;
@@ -442,7 +457,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
             ...account,
             appleCalendarHomeUrl: discovery.calendarHomeUrl || account.appleCalendarHomeUrl || '',
             applePrincipalUrl: discovery.principalUrl || account.applePrincipalUrl || '',
-            lastAttemptedSyncAt: startedAt.toISOString(),
+            lastAttemptedSyncAt: finishedAtIso,
             lastErrorAt: '',
             lastErrorCode: '',
             lastErrorMessage: '',
@@ -467,6 +482,9 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
         return {
             skipped: false,
             runId,
+            startedAt: startedAt.toISOString(),
+            finishedAt: finishedAtIso,
+            status: 'success',
             calendarsProcessed: calendars.filter((entry: any) => entry.isEnabled).length,
             remoteEventsFetched,
             eventsCreated,
@@ -492,7 +510,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
             ...account,
             appleCalendarHomeUrl: account.appleCalendarHomeUrl || '',
             applePrincipalUrl: account.applePrincipalUrl || '',
-            lastAttemptedSyncAt: startedAt.toISOString(),
+            lastAttemptedSyncAt: finishedAtIso,
             lastErrorAt: finishedAtIso,
             lastErrorCode: String(error?.status || 'sync_failed'),
             lastErrorMessage: String(error?.message || 'Sync failed'),

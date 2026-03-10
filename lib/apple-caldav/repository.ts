@@ -9,6 +9,45 @@ function asArray<T>(value: T[] | undefined | null) {
     return Array.isArray(value) ? value : [];
 }
 
+function timestampMs(value: string | undefined | null) {
+    const parsed = new Date(value || '').getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function compareCalendarSyncCalendarRows(left: any, right: any) {
+    const enabledDiff = Number(Boolean(right?.isEnabled)) - Number(Boolean(left?.isEnabled));
+    if (enabledDiff !== 0) return enabledDiff;
+
+    const remoteUrlDiff = Number(Boolean(right?.remoteUrl)) - Number(Boolean(left?.remoteUrl));
+    if (remoteUrlDiff !== 0) return remoteUrlDiff;
+
+    const lastSuccessfulDiff = timestampMs(right?.lastSuccessfulSyncAt) - timestampMs(left?.lastSuccessfulSyncAt);
+    if (lastSuccessfulDiff !== 0) return lastSuccessfulDiff;
+
+    const updatedDiff = timestampMs(right?.updatedAt) - timestampMs(left?.updatedAt);
+    if (updatedDiff !== 0) return updatedDiff;
+
+    const createdDiff = timestampMs(right?.createdAt) - timestampMs(left?.createdAt);
+    if (createdDiff !== 0) return createdDiff;
+
+    return String(left?.id || '').localeCompare(String(right?.id || ''));
+}
+
+export function dedupeCalendarSyncCalendarRows(rows: any[]) {
+    const grouped = new Map<string, any[]>();
+    for (const row of rows) {
+        const key = String(row?.remoteCalendarId || '').trim();
+        if (!key) continue;
+        const list = grouped.get(key) || [];
+        list.push(row);
+        grouped.set(key, list);
+    }
+
+    return Array.from(grouped.values())
+        .map((group) => [...group].sort(compareCalendarSyncCalendarRows)[0])
+        .sort((left, right) => String(left?.displayName || '').localeCompare(String(right?.displayName || '')));
+}
+
 export function chunkForInstantTransact<T>(items: T[], batchSize = INSTANT_TRANSACTION_BATCH_SIZE) {
     const size = Number.isFinite(batchSize) && batchSize > 0 ? Math.floor(batchSize) : INSTANT_TRANSACTION_BATCH_SIZE;
     const batches: T[][] = [];
@@ -44,7 +83,7 @@ export async function listCalendarSyncCalendars(accountId: string) {
             },
         },
     });
-    return asArray(result.calendarSyncCalendars);
+    return dedupeCalendarSyncCalendarRows(asArray(result.calendarSyncCalendars));
 }
 
 export async function upsertCalendarSyncAccount(input: any) {
@@ -59,8 +98,29 @@ export async function upsertCalendarSyncAccount(input: any) {
 
 export async function replaceCalendarSyncCalendars(accountId: string, calendars: any[]) {
     const db = getInstantAdminDb();
-    const existing = (await listCalendarSyncCalendars(accountId)) as any[];
-    const existingByRemoteId = new Map(existing.map((item: any) => [item.remoteCalendarId, item]));
+    const rawExistingResult = await db.query({
+        calendarSyncCalendars: {
+            $: {
+                where: { accountId },
+            },
+        },
+    });
+    const rawExisting = asArray(rawExistingResult.calendarSyncCalendars) as any[];
+    const groupedExisting = new Map<string, any[]>();
+    for (const item of rawExisting) {
+        const key = String(item?.remoteCalendarId || '').trim();
+        const list = groupedExisting.get(key) || [];
+        list.push(item);
+        groupedExisting.set(key, list);
+    }
+
+    const existingByRemoteId = new Map<string, any>();
+    const duplicateIdsToDelete: string[] = [];
+    for (const [remoteCalendarId, group] of Array.from(groupedExisting.entries())) {
+        const ranked = [...group].sort(compareCalendarSyncCalendarRows);
+        existingByRemoteId.set(remoteCalendarId, ranked[0]);
+        duplicateIdsToDelete.push(...ranked.slice(1).map((item: any) => item.id));
+    }
     const txs = calendars.map((calendar) => {
         const current = existingByRemoteId.get(calendar.remoteCalendarId);
         return db.tx.calendarSyncCalendars[current?.id || id()].update({
@@ -68,6 +128,7 @@ export async function replaceCalendarSyncCalendars(accountId: string, calendars:
             ...calendar,
         });
     });
+    txs.push(...duplicateIdsToDelete.map((rowId) => db.tx.calendarSyncCalendars[rowId].delete()));
     if (txs.length > 0) {
         await transactInBatches(db, txs);
     }
@@ -165,6 +226,7 @@ export async function upsertImportedCalendarItems(input: {
     rangeStart: Date;
     rangeEnd: Date;
     markMissingAsDeleted?: boolean;
+    hardDeleteMissingRows?: boolean;
 }) {
     const db = getInstantAdminDb();
     const existing = (await listImportedCalendarItems(input.accountId, input.calendarId)) as any[];
@@ -208,11 +270,15 @@ export async function upsertImportedCalendarItems(input: {
             if (input.seenSourceExternalIds.has(existingItem.sourceExternalId)) continue;
             if (existingItem.sourceSyncStatus === 'deleted-remote') continue;
             if (!calendarItemIntersectsWindow(existingItem, input.rangeStart, input.rangeEnd)) continue;
-            txs.push(db.tx.calendarItems[existingItem.id].update({
-                sourceSyncStatus: 'deleted-remote',
-                status: 'cancelled',
-                sourceLastSeenAt: input.nowIso,
-            }));
+            if (input.hardDeleteMissingRows === true) {
+                txs.push(db.tx.calendarItems[existingItem.id].delete());
+            } else {
+                txs.push(db.tx.calendarItems[existingItem.id].update({
+                    sourceSyncStatus: 'deleted-remote',
+                    status: 'cancelled',
+                    sourceLastSeenAt: input.nowIso,
+                }));
+            }
             eventsMarkedDeleted += 1;
         }
     }
