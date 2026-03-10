@@ -55,3 +55,41 @@ export async function requireCalendarSyncRouteAuth(request: NextRequest) {
 
     return { authorized: false, reason: 'parent_required' as const };
 }
+
+export function getCalendarSyncAuthError(reason: string | undefined) {
+    switch (reason) {
+        case 'parent_required':
+            return {
+                error: 'Parent authorization required',
+                message: 'Switch into parent mode again, then retry Apple Calendar sync.',
+            };
+        case 'missing':
+            return {
+                error: 'Device activation required',
+                message: 'This browser or device is not activated for Family Organizer yet.',
+            };
+        case 'expired':
+            return {
+                error: 'Device session expired',
+                message: 'Your device session expired. Refresh or re-activate this device, then try again.',
+            };
+        case 'revoked':
+            return {
+                error: 'Device session revoked',
+                message: 'This device session has been revoked. Activate the device again to continue.',
+            };
+        case 'malformed':
+        case 'invalid_signature':
+        case 'invalid_payload':
+        case 'unsupported_version':
+            return {
+                error: 'Invalid device authorization',
+                message: 'The device authorization sent with this request was invalid. Refresh and try again.',
+            };
+        default:
+            return {
+                error: 'Calendar sync authorization failed',
+                message: 'This request is missing the required device or parent authorization.',
+            };
+    }
+}

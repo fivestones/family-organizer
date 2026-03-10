@@ -7,6 +7,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
+import { CALENDAR_SYNC_PARENT_TOKEN_HEADER } from '@/lib/calendar-sync-constants';
+import { getCachedToken } from '@/lib/instant-principal-storage';
 
 interface SyncCalendarRow {
     id?: string;
@@ -98,9 +100,21 @@ function pollReasonLabel(value: string | undefined) {
 async function parseJson(response: Response) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-        throw new Error(body?.error || `Request failed (${response.status})`);
+        const error = new Error(body?.message || body?.error || `Request failed (${response.status})`);
+        (error as any).status = response.status;
+        (error as any).reason = body?.reason;
+        (error as any).data = body;
+        throw error;
     }
     return body;
+}
+
+function calendarSyncHeaders(extraHeaders?: Record<string, string>) {
+    const parentToken = getCachedToken('parent');
+    return {
+        ...(extraHeaders || {}),
+        ...(parentToken ? { [CALENDAR_SYNC_PARENT_TOKEN_HEADER]: parentToken } : {}),
+    };
 }
 
 export default function AppleCalendarSyncSettings() {
@@ -121,7 +135,10 @@ export default function AppleCalendarSyncSettings() {
     async function loadStatus() {
         setIsLoading(true);
         try {
-            const nextStatus = await parseJson(await fetch('/api/calendar-sync/apple/status', { cache: 'no-store' }));
+            const nextStatus = await parseJson(await fetch('/api/calendar-sync/apple/status', {
+                cache: 'no-store',
+                headers: calendarSyncHeaders(),
+            }));
             setStatus(nextStatus);
             setForm((current) => ({
                 ...current,
@@ -207,7 +224,7 @@ export default function AppleCalendarSyncSettings() {
                 await parseJson(
                     await fetch('/api/calendar-sync/apple/connect', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: calendarSyncHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({
                             username: form.username,
                             appSpecificPassword: form.appSpecificPassword,
@@ -235,7 +252,7 @@ export default function AppleCalendarSyncSettings() {
                 await parseJson(
                     await fetch('/api/calendar-sync/apple/settings', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: calendarSyncHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({
                             accountId: status.account?.id,
                             selectedCalendarIds: form.selectedCalendarIds,
@@ -262,7 +279,7 @@ export default function AppleCalendarSyncSettings() {
                 await parseJson(
                     await fetch('/api/calendar-sync/apple/run', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: calendarSyncHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({
                             accountId: status.account.id,
                             trigger: 'manual',

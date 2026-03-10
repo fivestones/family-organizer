@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireCalendarSyncRouteAuth } from '@/lib/calendar-sync-auth';
+import { getCalendarSyncAuthError, requireCalendarSyncRouteAuth } from '@/lib/calendar-sync-auth';
 import { runAppleCalendarSync } from '@/lib/apple-caldav/sync';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,10 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
     const auth = await requireCalendarSyncRouteAuth(request);
     if (!auth.authorized) {
-        return NextResponse.json({ error: 'Unauthorized device', reason: auth.reason }, { status: 401 });
+        return NextResponse.json(
+            { ...getCalendarSyncAuthError(auth.reason), reason: auth.reason },
+            { status: 401 }
+        );
     }
 
     let body: any = {};

@@ -5,6 +5,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AppleCalendarSyncSettings from '@/components/AppleCalendarSyncSettings';
+import { CALENDAR_SYNC_PARENT_TOKEN_HEADER } from '@/lib/calendar-sync-constants';
+import { PARENT_TOKEN_CACHE_KEY } from '@/lib/instant-principal-storage';
 
 const toastSpy = vi.fn();
 
@@ -17,6 +19,7 @@ vi.mock('@/components/ui/use-toast', () => ({
 describe('AppleCalendarSyncSettings', () => {
     beforeEach(() => {
         toastSpy.mockReset();
+        window.localStorage.setItem(PARENT_TOKEN_CACHE_KEY, 'parent-token');
         vi.stubGlobal(
             'fetch',
             vi.fn()
@@ -77,12 +80,28 @@ describe('AppleCalendarSyncSettings', () => {
         await screen.findByText(/Connected as parent@example.com/i);
         expect(screen.getByText(/Last successful check/i)).toBeInTheDocument();
         expect(screen.getByText(/Polling mode/i)).toBeInTheDocument();
+        expect(global.fetch).toHaveBeenNthCalledWith(
+            1,
+            '/api/calendar-sync/apple/status',
+            expect.objectContaining({
+                cache: 'no-store',
+                headers: expect.objectContaining({
+                    [CALENDAR_SYNC_PARENT_TOKEN_HEADER]: 'parent-token',
+                }),
+            })
+        );
         await user.click(screen.getByRole('button', { name: /sync now/i }));
 
         await waitFor(() => {
             expect(global.fetch).toHaveBeenCalledWith(
                 '/api/calendar-sync/apple/run',
-                expect.objectContaining({ method: 'POST' })
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: expect.objectContaining({
+                        'Content-Type': 'application/json',
+                        [CALENDAR_SYNC_PARENT_TOKEN_HEADER]: 'parent-token',
+                    }),
+                })
             );
         });
     });
