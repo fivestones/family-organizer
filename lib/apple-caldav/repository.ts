@@ -3,8 +3,25 @@ import 'server-only';
 import { id } from '@instantdb/admin';
 import { getInstantAdminDb } from '@/lib/instant-admin';
 
+const INSTANT_TRANSACTION_BATCH_SIZE = 50;
+
 function asArray<T>(value: T[] | undefined | null) {
     return Array.isArray(value) ? value : [];
+}
+
+export function chunkForInstantTransact<T>(items: T[], batchSize = INSTANT_TRANSACTION_BATCH_SIZE) {
+    const size = Number.isFinite(batchSize) && batchSize > 0 ? Math.floor(batchSize) : INSTANT_TRANSACTION_BATCH_SIZE;
+    const batches: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+        batches.push(items.slice(index, index + size));
+    }
+    return batches;
+}
+
+async function transactInBatches(db: any, txs: any[]) {
+    for (const batch of chunkForInstantTransact(txs)) {
+        await db.transact(batch);
+    }
 }
 
 export async function listCalendarSyncAccounts() {
@@ -52,7 +69,7 @@ export async function replaceCalendarSyncCalendars(accountId: string, calendars:
         });
     });
     if (txs.length > 0) {
-        await db.transact(txs);
+        await transactInBatches(db, txs);
     }
 }
 
@@ -201,7 +218,7 @@ export async function upsertImportedCalendarItems(input: {
     }
 
     if (txs.length > 0) {
-        await db.transact(txs);
+        await transactInBatches(db, txs);
     }
 
     return {
@@ -236,7 +253,8 @@ export async function markImportedCalendarItemsDeletedByRemoteUrls(input: {
         return { eventsMarkedDeleted: 0 };
     }
 
-    await db.transact(
+    await transactInBatches(
+        db,
         targets.map((item: any) => db.tx.calendarItems[item.id].update({
             sourceSyncStatus: 'deleted-remote',
             status: 'cancelled',

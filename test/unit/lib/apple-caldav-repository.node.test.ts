@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 describe('apple caldav repository helpers', () => {
+    it('chunks large transaction sets into smaller Instant batches', async () => {
+        const { chunkForInstantTransact } = await import('@/lib/apple-caldav/repository');
+        const batches = chunkForInstantTransact(Array.from({ length: 123 }, (_, index) => index), 50);
+
+        expect(batches).toHaveLength(3);
+        expect(batches.map((batch) => batch.length)).toEqual([50, 50, 23]);
+    });
+
     it('only treats imported rows inside the sync window as deletion candidates', async () => {
         const { calendarItemIntersectsWindow } = await import('@/lib/apple-caldav/repository');
         const rangeStart = new Date('2026-03-01T00:00:00.000Z');

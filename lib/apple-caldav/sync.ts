@@ -334,85 +334,93 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
         let eventsMarkedDeleted = 0;
 
         for (const calendar of calendars.filter((entry: any) => entry.isEnabled && entry.remoteUrl)) {
-            const forceRepair = shouldForceRepair(calendar, account, input.trigger, now);
-
-            let remoteEventsResult;
-            const shouldUseIncremental = !forceRepair && Boolean(calendar.lastSyncToken);
             try {
-                remoteEventsResult = await fetchCalendarEvents({
-                    username: account.username,
-                    password,
-                    calendarUrl: calendar.remoteUrl,
-                    rangeStartIso: window.rangeStartIso,
-                    rangeEndIso: window.rangeEndIso,
-                    syncToken: shouldUseIncremental ? calendar.lastSyncToken : '',
-                });
-            } catch (error: any) {
-                if (error?.code !== 'invalid_sync_token') {
-                    throw error;
-                }
-                remoteEventsResult = await fetchCalendarEvents({
-                    username: account.username,
-                    password,
-                    calendarUrl: calendar.remoteUrl,
-                    rangeStartIso: window.rangeStartIso,
-                    rangeEndIso: window.rangeEndIso,
-                });
-            }
+                const forceRepair = shouldForceRepair(calendar, account, input.trigger, now);
 
-            remoteEventsFetched += remoteEventsResult.events.length;
-            const seenSourceExternalIds = new Set<string>();
-            const normalizedItems = remoteEventsResult.events.flatMap((remoteEvent: any) => {
-                const parsed = parseCalendarResource({
+                let remoteEventsResult;
+                const shouldUseIncremental = !forceRepair && Boolean(calendar.lastSyncToken);
+                try {
+                    remoteEventsResult = await fetchCalendarEvents({
+                        username: account.username,
+                        password,
+                        calendarUrl: calendar.remoteUrl,
+                        rangeStartIso: window.rangeStartIso,
+                        rangeEndIso: window.rangeEndIso,
+                        syncToken: shouldUseIncremental ? calendar.lastSyncToken : '',
+                    });
+                } catch (error: any) {
+                    if (error?.code !== 'invalid_sync_token') {
+                        throw error;
+                    }
+                    remoteEventsResult = await fetchCalendarEvents({
+                        username: account.username,
+                        password,
+                        calendarUrl: calendar.remoteUrl,
+                        rangeStartIso: window.rangeStartIso,
+                        rangeEndIso: window.rangeEndIso,
+                    });
+                }
+
+                remoteEventsFetched += remoteEventsResult.events.length;
+                const seenSourceExternalIds = new Set<string>();
+                const normalizedItems = remoteEventsResult.events.flatMap((remoteEvent: any) => {
+                    const parsed = parseCalendarResource({
+                        accountId: account.id,
+                        calendarId: calendar.remoteCalendarId,
+                        calendarName: calendar.displayName,
+                        href: remoteEvent.href,
+                        etag: remoteEvent.etag,
+                        ctag: calendar.lastCtag || '',
+                        ics: remoteEvent.ics,
+                        rangeStart: window.rangeStart,
+                        rangeEnd: window.rangeEnd,
+                        fallbackTimeZone: calendar.timeZone,
+                    });
+                    return parsed.map((entry: any) => {
+                        const payload = buildInstantCalendarItemPayload(entry, nowIso);
+                        seenSourceExternalIds.add(payload.sourceExternalId);
+                        return payload;
+                    });
+                });
+
+                const stats = await upsertImportedCalendarItems({
                     accountId: account.id,
                     calendarId: calendar.remoteCalendarId,
                     calendarName: calendar.displayName,
-                    href: remoteEvent.href,
-                    etag: remoteEvent.etag,
                     ctag: calendar.lastCtag || '',
-                    ics: remoteEvent.ics,
+                    items: normalizedItems,
+                    seenSourceExternalIds,
+                    nowIso,
                     rangeStart: window.rangeStart,
                     rangeEnd: window.rangeEnd,
-                    fallbackTimeZone: calendar.timeZone,
+                    markMissingAsDeleted: remoteEventsResult.mode === 'full',
                 });
-                return parsed.map((entry: any) => {
-                    const payload = buildInstantCalendarItemPayload(entry, nowIso);
-                    seenSourceExternalIds.add(payload.sourceExternalId);
-                    return payload;
-                });
-            });
+                eventsCreated += stats.eventsCreated;
+                eventsUpdated += stats.eventsUpdated;
+                eventsUnchanged += stats.eventsUnchanged;
+                eventsCancelled += stats.eventsCancelled;
+                eventsMarkedDeleted += stats.eventsMarkedDeleted;
 
-            const stats = await upsertImportedCalendarItems({
-                accountId: account.id,
-                calendarId: calendar.remoteCalendarId,
-                calendarName: calendar.displayName,
-                ctag: calendar.lastCtag || '',
-                items: normalizedItems,
-                seenSourceExternalIds,
-                nowIso,
-                rangeStart: window.rangeStart,
-                rangeEnd: window.rangeEnd,
-                markMissingAsDeleted: remoteEventsResult.mode === 'full',
-            });
-            eventsCreated += stats.eventsCreated;
-            eventsUpdated += stats.eventsUpdated;
-            eventsUnchanged += stats.eventsUnchanged;
-            eventsCancelled += stats.eventsCancelled;
-            eventsMarkedDeleted += stats.eventsMarkedDeleted;
+                if (remoteEventsResult.deletedHrefs.length > 0) {
+                    const deletedStats = await markImportedCalendarItemsDeletedByRemoteUrls({
+                        accountId: account.id,
+                        calendarId: calendar.remoteCalendarId,
+                        remoteUrls: remoteEventsResult.deletedHrefs,
+                        nowIso,
+                    });
+                    eventsMarkedDeleted += deletedStats.eventsMarkedDeleted;
+                }
 
-            if (remoteEventsResult.deletedHrefs.length > 0) {
-                const deletedStats = await markImportedCalendarItemsDeletedByRemoteUrls({
-                    accountId: account.id,
-                    calendarId: calendar.remoteCalendarId,
-                    remoteUrls: remoteEventsResult.deletedHrefs,
-                    nowIso,
-                });
-                eventsMarkedDeleted += deletedStats.eventsMarkedDeleted;
+                calendar.lastSuccessfulSyncAt = nowIso;
+                calendar.lastSyncToken = remoteEventsResult.nextSyncToken || calendar.lastSyncToken || '';
+                calendar.updatedAt = nowIso;
+            } catch (error: any) {
+                const detail = [
+                    `Apple calendar "${calendar.displayName || calendar.remoteCalendarId}"`,
+                    `(${calendar.remoteCalendarId})`,
+                ].join(' ');
+                throw new Error(`Failed syncing ${detail}: ${error?.message || 'Unknown error'}`);
             }
-
-            calendar.lastSuccessfulSyncAt = nowIso;
-            calendar.lastSyncToken = remoteEventsResult.nextSyncToken || calendar.lastSyncToken || '';
-            calendar.updatedAt = nowIso;
         }
 
         await replaceCalendarSyncCalendars(account.id, persistableCalendarRows(calendars));
