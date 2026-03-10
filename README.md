@@ -257,6 +257,197 @@ If you want to get this running yourself, here's a rough guide. It's not super p
     -   `npm run dev` (or your start script)
     -   Go to `http://localhost:3001` (or the port it says it's running on).
 
+## Apple Calendar Sync Setup
+
+The app now supports one-way Apple Calendar import via CalDAV. The Family Organizer server connects to Apple, pulls events into InstantDB, and keeps them updated on a schedule. Imported events are read-only inside the app.
+
+### What this sync does right now
+
+-   One-way sync from Apple Calendar into Family Organizer.
+-   One Apple account per Family Organizer deployment.
+-   Centralized server sync. No phone or browser has to stay open after setup.
+-   Imported events appear in the normal calendar views.
+-   Imported events are read-only and are marked as Apple-sourced in the UI.
+
+### 1. Make sure your schema and perms are current
+
+If you just pulled a version of the app that includes Apple sync, push the latest Instant schema and perms before trying to connect:
+
+```bash
+npx instant-cli push schema --yes
+npx instant-cli push perms --yes
+```
+
+The Apple sync feature depends on additional `calendarItems` fields plus the new `calendarSyncAccounts`, `calendarSyncCalendars`, `calendarSyncRuns`, and `calendarSyncLocks` entities.
+
+### 2. Add the required server environment variables
+
+These must be available to the Next.js server. Put them in your server environment or local `.env.local`. Do **not** expose them to the client as `NEXT_PUBLIC_*` variables.
+
+```bash
+CALDAV_CREDENTIAL_ENCRYPTION_KEY=replace-with-a-random-32-byte-secret
+CALDAV_CREDENTIAL_ENCRYPTION_KEY_VERSION=v1
+CALENDAR_SYNC_CRON_SECRET=replace-with-a-long-random-secret
+```
+
+Optional tuning variables:
+
+```bash
+APPLE_CALDAV_SYNC_WINDOW_PAST_DAYS=90
+APPLE_CALDAV_SYNC_WINDOW_FUTURE_DAYS=365
+APPLE_CALDAV_REPAIR_SCAN_INTERVAL_HOURS=24
+APPLE_CALDAV_LOCK_TTL_MINUTES=20
+APPLE_CALDAV_POLL_BASE_SECONDS=15
+APPLE_CALDAV_POLL_MAX_IDLE_SECONDS=300
+APPLE_CALDAV_POLL_ERROR_SECONDS=30
+APPLE_CALDAV_POLL_MAX_ERROR_SECONDS=300
+```
+
+Notes:
+
+-   `CALDAV_CREDENTIAL_ENCRYPTION_KEY` is used to encrypt the stored Apple app-specific password at rest.
+-   `CALENDAR_SYNC_CRON_SECRET` is what your scheduler uses to authenticate the sync endpoint.
+-   The window defaults are usually fine. They control how much history/future data gets materialized into `calendarItems`.
+-   The poll settings control the near-real-time Apple polling behavior. The server stays “hot” after changes and automatically backs off when calendars are quiet or failing.
+
+### 3. Create an Apple app-specific password
+
+Apple Calendar CalDAV access should use an app-specific password, not your normal Apple ID password.
+
+1.  Sign in to your Apple account management page.
+2.  Make sure two-factor authentication is enabled on the Apple account.
+3.  Create an app-specific password for Family Organizer.
+4.  Copy the generated password somewhere temporary so you can paste it into the app during setup.
+
+You will use:
+
+-   Apple ID email address
+-   App-specific password
+
+### 4. Start the app and connect Apple Calendar as a parent
+
+You can do this from the web settings page or the mobile settings screen, but using the web app is the easiest first setup path.
+
+1.  Start the app and log in as a parent.
+2.  Open `Settings`.
+3.  Find the `Apple Calendar Sync` section.
+4.  Enter:
+    -   Apple ID email
+    -   app-specific password
+    -   optional account label
+5.  Click `Connect`.
+6.  Wait for the server to validate the CalDAV credentials and discover available Apple calendars.
+7.  Select the Apple calendars you want imported.
+8.  Save the settings.
+9.  Trigger `Sync now` for the initial import if it does not start automatically in your environment.
+
+What happens during connect:
+
+-   The server authenticates to Apple via CalDAV.
+-   It discovers the principal URL and calendar home.
+-   It stores the encrypted app-specific password in InstantDB sync metadata.
+-   It saves the discovered calendars and their selection state.
+
+### 5. Understand what you should expect after the first sync
+
+-   The first sync imports events from the configured sync window.
+-   By default that is `90` days in the past and `365` days in the future.
+-   Recurring Apple events are materialized into visible occurrences inside that window so they show up in the existing calendar views.
+-   Imported events are read-only in Family Organizer.
+-   If an event is cancelled or deleted in Apple Calendar, the next sync will mark the imported Family Organizer copy as cancelled/deleted-remote.
+
+### 6. Set up the recurring server sync job
+
+The sync route is:
+
+```text
+POST /api/calendar-sync/apple/run
+```
+
+Recommended schedule:
+
+-   Hit the sync route every `15-30` seconds if your platform supports frequent scheduled requests.
+-   The server uses `sync-token` deltas and adaptive backoff, so frequent ticks do **not** always mean a full sync run.
+-   The app still automatically forces periodic repair scans based on `APPLE_CALDAV_REPAIR_SCAN_INTERVAL_HOURS`.
+
+Authenticate the request with either:
+
+-   `Authorization: Bearer <CALENDAR_SYNC_CRON_SECRET>`
+-   or `x-calendar-sync-secret: <CALENDAR_SYNC_CRON_SECRET>`
+
+Example:
+
+```bash
+curl -X POST http://localhost:3001/api/calendar-sync/apple/run \
+  -H "Authorization: Bearer $CALENDAR_SYNC_CRON_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"trigger":"cron"}'
+```
+
+Notes:
+
+-   The sync system uses a lock so overlapping runs do not step on each other.
+-   If a run is already in progress, the route may return a skipped/already-running response instead of starting another job.
+-   If the next Apple poll is not due yet, the route will return a skipped `not_due` response with the next recommended poll delay.
+-   You can manually force a repair-style run with `{"trigger":"repair"}` if needed.
+
+### 6a. Optional self-hosted worker for fast polling
+
+If your hosting platform does not support 15-second cron-like schedules, run the included worker process instead:
+
+```bash
+CALENDAR_SYNC_CRON_SECRET=replace-with-the-same-secret \
+APPLE_CALDAV_POLL_TARGET_URL=http://localhost:3001 \
+npm run calendar-sync:worker
+```
+
+What this worker does:
+
+-   It calls `POST /api/calendar-sync/apple/run` with the cron secret.
+-   It respects the server-provided `nextPollInMs` backoff guidance.
+-   It keeps polling near-real-time when changes are happening and slows down automatically when Apple calendars are quiet.
+
+The worker is a good fit for:
+
+-   self-hosted deployments
+-   a sidecar/container process
+-   `systemd`, `pm2`, or another long-running process manager
+
+### 7. Verify that it is working
+
+Good signs:
+
+-   The Apple Calendar Sync settings card shows a connected account.
+-   Selected calendars are listed.
+-   `Last sync` updates after a run.
+-   Apple events appear in the normal calendar views.
+-   Imported events show Apple/read-only indicators.
+
+If you want to check the sync endpoint directly in development:
+
+```bash
+curl http://localhost:3001/api/calendar-sync/apple/status
+```
+
+From the browser, that route uses your parent auth session. From cron, use the run route with the cron secret.
+
+### 8. Common problems and what they usually mean
+
+-   **Connect fails immediately:** the Apple ID email or app-specific password is wrong, or the Apple account is not ready for app-specific passwords.
+-   **The route throws an encryption error:** `CALDAV_CREDENTIAL_ENCRYPTION_KEY` is missing on the server.
+-   **Cron gets unauthorized responses:** `CALENDAR_SYNC_CRON_SECRET` does not match what the server is configured to expect.
+-   **No events show up after connecting:** make sure at least one discovered Apple calendar is enabled and run a manual sync.
+-   **Events show up but cannot be edited:** that is expected for imported Apple events in v1.
+-   **Apple password changed or revoked later:** reconnect from Settings with a fresh app-specific password.
+-   **You imported the feature into a fresh Instant app and settings behave oddly:** double-check that schema and perms were pushed after pulling the latest code.
+
+### 9. Current limitations
+
+-   This is one-way sync only. Editing Family Organizer events does not write back to Apple Calendar.
+-   The system currently supports one Apple account per Family Organizer deployment.
+-   Imported events are not automatically assigned to specific family members.
+-   A real-world smoke test against your own iCloud account is still a very good idea after setup, especially if you rely heavily on recurring events and timezone-heavy calendars.
+
 ## Developer's Corner (My Notes to Self)
 
 ### How I wrangle the `instant.schema.ts` file:
