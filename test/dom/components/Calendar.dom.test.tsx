@@ -345,6 +345,53 @@ describe('Calendar', () => {
         expect(txOps[0].payload.exdates).toContain('2026-03-15');
     });
 
+    it('deletes imported recurring overrides when deleting an Apple series from the first occurrence', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-master',
+                title: 'Bible study',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                rrule: 'RRULE:FREQ=WEEKLY;COUNT=4',
+                recurrenceLines: ['RRULE:FREQ=WEEKLY;COUNT=4'],
+                sourceExternalId: 'apple:acct_1:cal_1:bible-study:master',
+                sourceType: 'apple-caldav',
+            },
+            {
+                id: 'evt-override',
+                title: 'Bible study',
+                description: 'Changed on Apple',
+                startDate: '2026-03-22',
+                endDate: '2026-03-23',
+                isAllDay: true,
+                recurrenceId: '2026-03-22',
+                recurringEventId: 'apple:acct_1:cal_1:bible-study:master',
+                sourceExternalId: 'apple:acct_1:cal_1:bible-study:2026-03-22',
+                sourceType: 'apple-caldav',
+            },
+        ]);
+
+        fireEvent.click(within(screen.getByTestId('day-cell-2026-03-15')).getByRole('button', { name: 'Bible study' }));
+        fireEvent.keyDown(window, { key: 'Delete' });
+
+        expect(screen.getByTestId('recurrence-scope-dialog')).toBeInTheDocument();
+        fireEvent.click(screen.getByText('This and all following events'));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+
+        const txOps = mocks.dbTransact.mock.calls[0][0];
+        expect(txOps).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ entity: 'calendarItems', id: 'evt-master', op: 'delete' }),
+                expect.objectContaining({ entity: 'calendarItems', id: 'evt-override', op: 'delete' }),
+            ])
+        );
+    });
+
     it('positions today on the top visible row when the calendar first renders', async () => {
         const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo');
         const originalOffsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop');

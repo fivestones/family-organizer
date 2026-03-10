@@ -799,6 +799,26 @@ function normalizeRrule(value: string): string {
     return trimmed.toUpperCase().startsWith('RRULE:') ? trimmed : `RRULE:${trimmed}`;
 }
 
+function getRecurringSeriesLinkKeys(masterEvent: CalendarItem | null | undefined): string[] {
+    const keys: string[] = [];
+    const pushKey = (value: unknown) => {
+        const next = String(value || '').trim();
+        if (!next || keys.includes(next)) return;
+        keys.push(next);
+    };
+
+    pushKey(masterEvent?.id);
+    pushKey((masterEvent as any)?.sourceExternalId);
+
+    return keys;
+}
+
+function isRecurringChildOfMaster(item: CalendarItem | null | undefined, masterEvent: CalendarItem | null | undefined) {
+    const parentId = String(item?.recurringEventId || '').trim();
+    if (!parentId) return false;
+    return getRecurringSeriesLinkKeys(masterEvent).includes(parentId);
+}
+
 function parseCsvList(value: string): string[] {
     return value
         .split(',')
@@ -1255,7 +1275,7 @@ const AddEventForm = ({
         selectedEvent &&
             selectedMasterEvent &&
             selectedEvent.id !== selectedMasterEvent.id &&
-            String(selectedEvent.recurringEventId || '').trim() === String(selectedMasterEvent.id || '').trim() &&
+            isRecurringChildOfMaster(selectedEvent, selectedMasterEvent) &&
             !normalizeRrule(String(selectedEvent.rrule || '')) &&
             selectedMasterRrule
     );
@@ -1716,6 +1736,7 @@ const AddEventForm = ({
             const masterEvent = (((selectedEvent as any).__masterEvent as CalendarItem | undefined) || selectedEvent) as CalendarItem;
             const masterRrule = normalizeRrule(String(masterEvent?.rrule || ''));
             const masterId = String(masterEvent?.id || selectedEvent.id);
+            const masterLinkKeys = getRecurringSeriesLinkKeys(masterEvent);
             const hasRecurringContext = Boolean(masterRrule || String(selectedEvent.recurringEventId || '').trim());
 
             if (!hasRecurringContext) {
@@ -1778,12 +1799,12 @@ const AddEventForm = ({
 
             const txOps: any[] = [];
             const selectedIsOverride =
-                selectedEvent.id !== masterId && String(selectedEvent.recurringEventId || '').trim() === masterId && !normalizeRrule(String(selectedEvent.rrule || ''));
+                selectedEvent.id !== masterId && isRecurringChildOfMaster(selectedEvent, masterEvent) && !normalizeRrule(String(selectedEvent.rrule || ''));
             const collectRelatedOverrideIds = (boundaryTime?: number) => {
                 const overrideIds = new Set<string>();
                 for (const candidate of allCalendarItems) {
                     const parentId = String(candidate.recurringEventId || '').trim();
-                    if (!parentId || parentId !== masterId) continue;
+                    if (!parentId || !masterLinkKeys.includes(parentId)) continue;
 
                     if (boundaryTime == null) {
                         overrideIds.add(candidate.id);

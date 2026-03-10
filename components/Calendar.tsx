@@ -233,6 +233,25 @@ const assignWeekSpanLanes = (segments: CalendarWeekSpanSegment[]) => {
 };
 
 const normalizeRruleString = (value: string) => String(value || '').trim().replace(/^RRULE:/i, '');
+const getRecurringSeriesLinkKeys = (masterEvent: CalendarItem | null | undefined) => {
+    const keys: string[] = [];
+    const pushKey = (value: unknown) => {
+        const next = String(value || '').trim();
+        if (!next || keys.includes(next)) return;
+        keys.push(next);
+    };
+
+    pushKey(masterEvent?.id);
+    pushKey((masterEvent as any)?.sourceExternalId);
+
+    return keys;
+};
+
+const isRecurringChildOfMaster = (item: CalendarItem | null | undefined, masterEvent: CalendarItem | null | undefined) => {
+    const parentId = String(item?.recurringEventId || '').trim();
+    if (!parentId) return false;
+    return getRecurringSeriesLinkKeys(masterEvent).includes(parentId);
+};
 const RRULE_WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const;
 const RRULE_WEEKDAY_TOKEN_PATTERN = /^([+-]?\d+)?(SU|MO|TU|WE|TH|FR|SA)$/i;
 
@@ -1431,6 +1450,7 @@ const Calendar = ({
             const masterEvent = (((selectedEvent as any).__masterEvent as CalendarItem | undefined) || selectedEvent) as CalendarItem;
             const masterRrule = normalizeRruleString(String(masterEvent?.rrule || ''));
             const masterId = String(masterEvent?.id || selectedEvent.id);
+            const masterLinkKeys = getRecurringSeriesLinkKeys(masterEvent);
             const hasRecurringContext = Boolean(masterRrule || String(selectedEvent.recurringEventId || '').trim());
 
             if (!hasRecurringContext) {
@@ -1476,14 +1496,14 @@ const Calendar = ({
             const txOps: any[] = [];
             const selectedIsOverride =
                 selectedEvent.id !== masterId &&
-                String(selectedEvent.recurringEventId || '').trim() === masterId &&
+                isRecurringChildOfMaster(selectedEvent, masterEvent) &&
                 !normalizeRruleString(String(selectedEvent.rrule || ''));
 
             const collectRelatedOverrideIds = (boundaryTime?: number) => {
                 const overrideIds = new Set<string>();
                 for (const candidate of calendarItems) {
                     const parentId = String(candidate.recurringEventId || '').trim();
-                    if (!parentId || parentId !== masterId) continue;
+                    if (!parentId || !masterLinkKeys.includes(parentId)) continue;
 
                     if (boundaryTime == null) {
                         overrideIds.add(candidate.id);
@@ -2232,8 +2252,7 @@ const Calendar = ({
 
                     const txOps: any[] = [tx.calendarItems[masterEvent.id].update(nextMasterPatch)];
                     const relatedOverrides = calendarItems.filter((candidate) => {
-                        const parentId = String(candidate.recurringEventId || '').trim();
-                        return parentId === String(masterEvent.id) && !normalizeRruleString(String(candidate.rrule || ''));
+                        return isRecurringChildOfMaster(candidate, masterEvent) && !normalizeRruleString(String(candidate.rrule || ''));
                     });
                     for (const overrideItem of relatedOverrides) {
                         const overrideStartDate = parseISO(String(overrideItem.startDate));
@@ -2416,8 +2435,7 @@ const Calendar = ({
                     ? parseISO(`${boundaryDateOnly}T00:00:00`).getTime()
                     : sourceStartForRecurrence.getTime();
                 const overridesToMove = calendarItems.filter((candidate) => {
-                    const parentId = String(candidate.recurringEventId || '').trim();
-                    if (!parentId || parentId !== String(masterEvent.id)) return false;
+                    if (!isRecurringChildOfMaster(candidate, masterEvent)) return false;
                     const recurrenceRefToken =
                         typeof candidate.recurrenceId === 'string' && candidate.recurrenceId.trim()
                             ? candidate.recurrenceId
