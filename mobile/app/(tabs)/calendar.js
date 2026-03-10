@@ -370,7 +370,15 @@ function normalizeCalendarItem(item) {
     updatedAt: item.updatedAt || '',
     dtStamp: item.dtStamp || '',
     lastModified: item.lastModified || '',
+    sourceType: item.sourceType || 'manual',
+    sourceCalendarName: item.sourceCalendarName || '',
+    sourceReadOnly: !!item.sourceReadOnly,
+    sourceSyncStatus: item.sourceSyncStatus || '',
   };
+}
+
+function isImportedEvent(event) {
+  return !!event?.sourceReadOnly || event?.sourceType === 'apple-caldav';
 }
 
 function firstParam(value) {
@@ -423,7 +431,11 @@ export default function CalendarTab() {
   );
 
   const calendarItems = useMemo(
-    () => (calendarQuery.data?.calendarItems || []).map(normalizeCalendarItem).sort(compareEvents),
+    () =>
+      (calendarQuery.data?.calendarItems || [])
+        .map(normalizeCalendarItem)
+        .filter((item) => item.sourceSyncStatus !== 'deleted-remote')
+        .sort(compareEvents),
     [calendarQuery.data?.calendarItems]
   );
 
@@ -607,6 +619,10 @@ export default function CalendarTab() {
 
   async function handleOpenEventPress(event) {
     recordParentActivity();
+    if (isImportedEvent(event)) {
+      openEditEventModal(event);
+      return;
+    }
     if (!canEditEvents) {
       await handoffToParentLogin('calendar:edit-event', 'Edit calendar event', {
         eventId: event.id,
@@ -620,6 +636,11 @@ export default function CalendarTab() {
 
   async function handleSave() {
     recordParentActivity();
+
+    if (editingEvent && isImportedEvent(editingEvent)) {
+      closeModal();
+      return;
+    }
 
     if (!canEditEvents) {
       await handoffToParentLogin(
@@ -748,6 +769,10 @@ export default function CalendarTab() {
 
   function handleDelete() {
     if (!editingEventId) return;
+    if (editingEvent && isImportedEvent(editingEvent)) {
+      closeModal();
+      return;
+    }
     recordParentActivity();
 
     if (!canEditEvents) {
@@ -1011,7 +1036,9 @@ export default function CalendarTab() {
                   <Text style={styles.eventMeta}>{formatEventRangeLabel(event)}</Text>
                   {!!event.description ? <Text style={styles.eventDescription}>{event.description}</Text> : null}
                   <Text style={styles.eventHint}>Status: {String(event.status || DEFAULT_EVENT_STATUS)}</Text>
+                  {isImportedEvent(event) ? <Text style={styles.eventHint}>Apple Calendar import{event.sourceCalendarName ? ` • ${event.sourceCalendarName}` : ''}</Text> : null}
                   {!canEditEvents ? <Text style={styles.eventHint}>Read only in kid mode</Text> : null}
+                  {isImportedEvent(event) ? <Text style={styles.eventHint}>Read only sync item</Text> : null}
                 </Pressable>
               ))}
             </View>
@@ -1039,9 +1066,11 @@ export default function CalendarTab() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.modalTitle}>{editingEventId ? 'Edit Event' : 'Add Event'}</Text>
                   <Text style={styles.modalSubtitle}>
-                    {canEditEvents
-                      ? 'All-day events store exclusive end dates to match web semantics.'
-                      : 'Read only in kid mode. Switch to parent mode to save changes.'}
+                    {editingEvent && isImportedEvent(editingEvent)
+                      ? 'Imported Apple Calendar events are read only and update on sync.'
+                      : canEditEvents
+                        ? 'All-day events store exclusive end dates to match web semantics.'
+                        : 'Read only in kid mode. Switch to parent mode to save changes.'}
                   </Text>
                 </View>
                 <Pressable
@@ -1068,7 +1097,7 @@ export default function CalendarTab() {
                     testID="calendar-input-title"
                     accessibilityLabel="Calendar event title"
                     value={form.title}
-                    editable={canEditEvents && !saving}
+                    editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
                     onChangeText={(value) => handleChange('title', value)}
                     placeholder="Family dinner"
                     placeholderTextColor={colors.inkMuted}
@@ -1083,7 +1112,7 @@ export default function CalendarTab() {
                     testID="calendar-input-description"
                     accessibilityLabel="Calendar event description"
                     value={form.description}
-                    editable={canEditEvents && !saving}
+                    editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
                     onChangeText={(value) => handleChange('description', value)}
                     placeholder="Optional details"
                     placeholderTextColor={colors.inkMuted}
@@ -1098,7 +1127,7 @@ export default function CalendarTab() {
                   testID="calendar-toggle-all-day"
                   accessibilityRole="switch"
                   accessibilityState={{ checked: !!form.isAllDay, disabled: !canEditEvents || saving }}
-                  disabled={!canEditEvents || saving}
+                  disabled={!canEditEvents || saving || (editingEvent && isImportedEvent(editingEvent))}
                   onPress={() => handleChange('isAllDay', !form.isAllDay)}
                   style={[styles.switchRow, (!canEditEvents || saving) && styles.switchRowDisabled]}
                 >
@@ -1123,8 +1152,8 @@ export default function CalendarTab() {
                     <TextInput
                       testID="calendar-input-start-date"
                       accessibilityLabel="Event start date"
-                      value={form.startDate}
-                      editable={canEditEvents && !saving}
+                    value={form.startDate}
+                      editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
                       onChangeText={(value) => handleChange('startDate', value)}
                       placeholder="YYYY-MM-DD"
                       placeholderTextColor={colors.inkMuted}
@@ -1142,7 +1171,7 @@ export default function CalendarTab() {
                       testID="calendar-input-end-date"
                       accessibilityLabel="Event end date"
                       value={form.endDate}
-                      editable={canEditEvents && !saving}
+                      editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
                       onChangeText={(value) => handleChange('endDate', value)}
                       placeholder="YYYY-MM-DD"
                       placeholderTextColor={colors.inkMuted}
@@ -1163,7 +1192,7 @@ export default function CalendarTab() {
                         testID="calendar-input-start-time"
                         accessibilityLabel="Event start time"
                         value={form.startTime}
-                        editable={canEditEvents && !saving}
+                        editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
                         onChangeText={(value) => handleChange('startTime', value)}
                         placeholder="HH:mm"
                         placeholderTextColor={colors.inkMuted}
@@ -1180,7 +1209,7 @@ export default function CalendarTab() {
                         testID="calendar-input-end-time"
                         accessibilityLabel="Event end time"
                         value={form.endTime}
-                        editable={canEditEvents && !saving}
+                        editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
                         onChangeText={(value) => handleChange('endTime', value)}
                         placeholder="HH:mm"
                         placeholderTextColor={colors.inkMuted}
@@ -1200,7 +1229,7 @@ export default function CalendarTab() {
                       testID="calendar-delete-event"
                       accessibilityRole="button"
                       accessibilityLabel="Delete calendar event"
-                      disabled={saving}
+                      disabled={saving || (editingEvent && isImportedEvent(editingEvent))}
                       onPress={() => {
                         handleDelete();
                       }}
@@ -1210,8 +1239,8 @@ export default function CalendarTab() {
                         !canEditEvents && styles.secondaryDangerLocked,
                       ]}
                     >
-                      <Text style={[styles.secondaryDangerText, (saving || !canEditEvents) && styles.actionTextDisabled]}>
-                        Delete
+                      <Text style={[styles.secondaryDangerText, (saving || !canEditEvents || (editingEvent && isImportedEvent(editingEvent))) && styles.actionTextDisabled]}>
+                        {editingEvent && isImportedEvent(editingEvent) ? 'Synced' : 'Delete'}
                       </Text>
                     </Pressable>
                   ) : (
@@ -1232,14 +1261,20 @@ export default function CalendarTab() {
                       testID="calendar-save-event"
                       accessibilityRole="button"
                       accessibilityLabel="Save calendar event"
-                      disabled={saving}
+                      disabled={saving || (editingEvent && isImportedEvent(editingEvent))}
                       onPress={() => {
                         void handleSave();
                       }}
                       style={[styles.primaryButton, saving && styles.actionButtonDisabled, !canEditEvents && styles.primaryButtonLocked]}
                     >
-                      <Text style={[styles.primaryButtonText, (saving || !canEditEvents) && styles.actionTextDisabled]}>
-                        {saving ? 'Saving...' : canEditEvents ? (editingEventId ? 'Save' : 'Create') : 'Parent Login'}
+                      <Text style={[styles.primaryButtonText, (saving || !canEditEvents || (editingEvent && isImportedEvent(editingEvent))) && styles.actionTextDisabled]}>
+                        {editingEvent && isImportedEvent(editingEvent)
+                          ? 'Synced from Apple'
+                          : saving
+                            ? 'Saving...'
+                            : canEditEvents
+                              ? (editingEventId ? 'Save' : 'Create')
+                              : 'Parent Login'}
                       </Text>
                     </Pressable>
                   </View>

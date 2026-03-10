@@ -18,6 +18,12 @@ import { clearPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 import { getServerUrl, setServerUrl } from '../../src/lib/server-url';
+import {
+  connectAppleCalendarSync,
+  getAppleCalendarSyncStatus,
+  runAppleCalendarSync,
+  updateAppleCalendarSyncSettings,
+} from '../../src/lib/api-client';
 
 function firstParam(value) {
   return Array.isArray(value) ? value[0] : value;
@@ -69,6 +75,16 @@ export default function SettingsScreen() {
   const [isEditingUrl, setIsEditingUrl] = useState(false);
   const [editingUrl, setEditingUrl] = useState('');
   const [testStatus, setTestStatus] = useState('');
+  const [calendarSyncStatus, setCalendarSyncStatus] = useState(null);
+  const [calendarSyncLoading, setCalendarSyncLoading] = useState(false);
+  const [calendarSyncError, setCalendarSyncError] = useState('');
+  const [calendarSyncSaving, setCalendarSyncSaving] = useState(false);
+  const [calendarSyncForm, setCalendarSyncForm] = useState({
+    username: '',
+    appSpecificPassword: '',
+    accountLabel: 'Apple Calendar',
+    selectedCalendarIds: [],
+  });
 
   async function handleTestConnection() {
     setTestStatus('testing');
@@ -93,6 +109,37 @@ export default function SettingsScreen() {
     if (principalType !== 'parent') return;
     void clearPendingParentAction();
   }, [principalType, searchParams.resumeParentAction]);
+
+  useEffect(() => {
+    if (!canManageUnits) return;
+    let cancelled = false;
+
+    async function loadCalendarSyncStatus() {
+      setCalendarSyncLoading(true);
+      setCalendarSyncError('');
+      try {
+        const nextStatus = await getAppleCalendarSyncStatus();
+        if (cancelled) return;
+        setCalendarSyncStatus(nextStatus);
+        setCalendarSyncForm((current) => ({
+          ...current,
+          username: nextStatus?.account?.username || current.username,
+          accountLabel: nextStatus?.account?.accountLabel || current.accountLabel,
+          selectedCalendarIds: (nextStatus?.calendars || []).filter((calendar) => calendar.isEnabled).map((calendar) => calendar.remoteCalendarId),
+        }));
+      } catch (nextError) {
+        if (cancelled) return;
+        setCalendarSyncError(nextError?.message || 'Unable to load Apple Calendar sync status.');
+      } finally {
+        if (!cancelled) setCalendarSyncLoading(false);
+      }
+    }
+
+    void loadCalendarSyncStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageUnits]);
 
   const settingsQuery = db.useQuery(
     isAuthenticated && instantReady && principalType === 'parent'
@@ -168,6 +215,63 @@ export default function SettingsScreen() {
       setError(nextError?.message || 'Unable to create the unit definition.');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function refreshCalendarSyncStatus() {
+    const nextStatus = await getAppleCalendarSyncStatus();
+    setCalendarSyncStatus(nextStatus);
+    setCalendarSyncForm((current) => ({
+      ...current,
+      username: nextStatus?.account?.username || current.username,
+      accountLabel: nextStatus?.account?.accountLabel || current.accountLabel,
+      selectedCalendarIds: (nextStatus?.calendars || []).filter((calendar) => calendar.isEnabled).map((calendar) => calendar.remoteCalendarId),
+    }));
+  }
+
+  async function handleConnectCalendarSync() {
+    setCalendarSyncSaving(true);
+    setCalendarSyncError('');
+    try {
+      await connectAppleCalendarSync(calendarSyncForm);
+      setCalendarSyncForm((current) => ({ ...current, appSpecificPassword: '' }));
+      await refreshCalendarSyncStatus();
+    } catch (nextError) {
+      setCalendarSyncError(nextError?.message || 'Unable to connect Apple Calendar.');
+    } finally {
+      setCalendarSyncSaving(false);
+    }
+  }
+
+  async function handleSaveCalendarSelection() {
+    if (!calendarSyncStatus?.account?.id) return;
+    setCalendarSyncSaving(true);
+    setCalendarSyncError('');
+    try {
+      await updateAppleCalendarSyncSettings({
+        accountId: calendarSyncStatus.account.id,
+        selectedCalendarIds: calendarSyncForm.selectedCalendarIds,
+        enabled: true,
+      });
+      await refreshCalendarSyncStatus();
+    } catch (nextError) {
+      setCalendarSyncError(nextError?.message || 'Unable to save Apple Calendar sync settings.');
+    } finally {
+      setCalendarSyncSaving(false);
+    }
+  }
+
+  async function handleRunCalendarSync() {
+    if (!calendarSyncStatus?.account?.id) return;
+    setCalendarSyncSaving(true);
+    setCalendarSyncError('');
+    try {
+      await runAppleCalendarSync({ accountId: calendarSyncStatus.account.id, trigger: 'manual' });
+      await refreshCalendarSyncStatus();
+    } catch (nextError) {
+      setCalendarSyncError(nextError?.message || 'Unable to run Apple Calendar sync.');
+    } finally {
+      setCalendarSyncSaving(false);
     }
   }
 
@@ -273,6 +377,99 @@ export default function SettingsScreen() {
             </>
           )}
         </View>
+        {canManageUnits ? (
+          <View style={styles.syncCard}>
+            <Text style={styles.serverEyebrow}>Apple Calendar Sync</Text>
+            <Text style={styles.serverTitle}>Read-only import from Apple Calendar</Text>
+            <Text style={styles.themeBody}>
+              Connect one Apple account, choose which calendars to import, and sync those events into the shared family calendar.
+            </Text>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Apple ID Email</Text>
+              <TextInput
+                value={calendarSyncForm.username}
+                onChangeText={(value) => setCalendarSyncForm((current) => ({ ...current, username: value }))}
+                placeholder="parent@example.com"
+                placeholderTextColor={colors.inkMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                style={styles.input}
+              />
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>App-Specific Password</Text>
+              <TextInput
+                value={calendarSyncForm.appSpecificPassword}
+                onChangeText={(value) => setCalendarSyncForm((current) => ({ ...current, appSpecificPassword: value }))}
+                placeholder="xxxx-xxxx-xxxx-xxxx"
+                placeholderTextColor={colors.inkMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                style={styles.input}
+              />
+            </View>
+
+            <View style={styles.serverActions}>
+              <Pressable style={styles.secondaryChip} disabled={calendarSyncSaving || calendarSyncLoading} onPress={() => void refreshCalendarSyncStatus()}>
+                <Text style={styles.secondaryChipText}>{calendarSyncLoading ? 'Refreshing…' : 'Refresh'}</Text>
+              </Pressable>
+              <Pressable style={styles.primaryChip} disabled={calendarSyncSaving} onPress={() => void handleConnectCalendarSync()}>
+                <Text style={styles.primaryChipText}>{calendarSyncSaving ? 'Connecting…' : calendarSyncStatus?.configured ? 'Reconnect' : 'Connect'}</Text>
+              </Pressable>
+            </View>
+
+            {calendarSyncStatus?.configured ? (
+              <>
+                <Text style={styles.serverOk}>
+                  Connected as {calendarSyncStatus.account?.username || 'Apple account'}
+                </Text>
+                <Text style={styles.helperText}>
+                  Last sync: {calendarSyncStatus?.account?.lastSuccessfulSyncAt || 'Not synced yet'}
+                </Text>
+                <View style={styles.choiceColumn}>
+                  {(calendarSyncStatus.calendars || []).map((calendar) => {
+                    const selected = calendarSyncForm.selectedCalendarIds.includes(calendar.remoteCalendarId);
+                    return (
+                      <Pressable
+                        key={calendar.id || calendar.remoteCalendarId}
+                        style={[styles.choiceChip, selected && styles.choiceChipSelected]}
+                        onPress={() => {
+                          setCalendarSyncForm((current) => {
+                            const selectedIds = current.selectedCalendarIds.includes(calendar.remoteCalendarId)
+                              ? current.selectedCalendarIds.filter((item) => item !== calendar.remoteCalendarId)
+                              : [...current.selectedCalendarIds, calendar.remoteCalendarId];
+                            return { ...current, selectedCalendarIds: selectedIds };
+                          });
+                        }}
+                      >
+                        <Text style={[styles.choiceChipText, selected && styles.choiceChipTextSelected]}>
+                          {selected ? 'Imported' : 'Tap to import'} • {calendar.displayName}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View style={styles.serverActions}>
+                  <Pressable style={styles.secondaryChip} disabled={calendarSyncSaving} onPress={() => void handleSaveCalendarSelection()}>
+                    <Text style={styles.secondaryChipText}>{calendarSyncSaving ? 'Saving…' : 'Save Calendars'}</Text>
+                  </Pressable>
+                  <Pressable style={styles.primaryChip} disabled={calendarSyncSaving} onPress={() => void handleRunCalendarSync()}>
+                    <Text style={styles.primaryChipText}>{calendarSyncSaving ? 'Syncing…' : 'Sync Now'}</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+
+            {calendarSyncStatus?.lastRun?.errorMessage ? (
+              <Text style={styles.serverError}>{calendarSyncStatus.lastRun.errorMessage}</Text>
+            ) : null}
+            {calendarSyncError ? <Text style={styles.serverError}>{calendarSyncError}</Text> : null}
+          </View>
+        ) : null}
 
         <View style={styles.themeCard}>
           <Text style={styles.themeEyebrow}>Local Appearance</Text>
@@ -530,6 +727,14 @@ const createStyles = (colors) =>
   addButtonText: {
     color: colors.accentMore,
     fontWeight: '700',
+  },
+  syncCard: {
+    backgroundColor: withAlpha(colors.accentCalendar, 0.08),
+    borderWidth: 1,
+    borderColor: withAlpha(colors.accentCalendar, 0.24),
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.sm,
   },
   themeCard: {
     backgroundColor: withAlpha(colors.accentMore, 0.08),
@@ -819,6 +1024,9 @@ const createStyles = (colors) =>
   choiceRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  choiceColumn: {
     gap: spacing.sm,
   },
   choiceChip: {

@@ -132,6 +132,33 @@ const rules = {
 
     calculatedAllowancePeriods: FAMILY_MUTABLE,
     calendarItems: PARENT_MUTABLE,
+    calendarSyncAccounts: PARENT_MUTABLE,
+    calendarSyncCalendars: PARENT_MUTABLE,
+    calendarSyncLocks: {
+        allow: {
+            view: 'false',
+            create: 'false',
+            update: 'false',
+            delete: 'false',
+            link: { $default: 'false' },
+            unlink: { $default: 'false' },
+        },
+    },
+    calendarSyncRuns: {
+        bind: {
+            isParent: IS_PARENT,
+            isKid: IS_KID,
+            isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+        },
+        allow: {
+            view: 'isParent',
+            create: 'isParent',
+            update: 'isParent',
+            delete: 'isParent',
+            link: { $default: 'false' },
+            unlink: { $default: 'false' },
+        },
+    },
     choreAssignments: PARENT_MUTABLE,
     choreCompletions: {
         bind: {

@@ -89,3 +89,48 @@ export async function getPresignedFileUrl(fileKey) {
   const data = await parseJson(response);
   return data.url;
 }
+
+export async function getAppleCalendarSyncStatus() {
+  const response = await fetch(`${getApiBaseUrl()}/api/calendar-sync/apple/status`, {
+    headers: {
+      ...(await authHeaders()),
+    },
+  });
+  return parseJson(response);
+}
+
+export async function connectAppleCalendarSync({ username, appSpecificPassword, accountLabel }) {
+  const response = await fetch(`${getApiBaseUrl()}/api/calendar-sync/apple/connect`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ username, appSpecificPassword, accountLabel }),
+  });
+  return parseJson(response);
+}
+
+export async function updateAppleCalendarSyncSettings(payload) {
+  const response = await fetch(`${getApiBaseUrl()}/api/calendar-sync/apple/settings`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
+export async function runAppleCalendarSync(payload = {}) {
+  const response = await fetch(`${getApiBaseUrl()}/api/calendar-sync/apple/run`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
