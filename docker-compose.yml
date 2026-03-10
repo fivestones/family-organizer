@@ -46,6 +46,38 @@ services:
     networks:
       - default
 
+  # --- 1a. Apple Calendar Sync Worker ---
+  family-organizer-calendar-sync-worker:
+    container_name: family-organizer-calendar-sync-worker
+    image: family-organizer:latest
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_S3_ENDPOINT: ${NEXT_PUBLIC_S3_ENDPOINT}
+        NEXT_PUBLIC_INSTANT_API_URI: ${NEXT_PUBLIC_INSTANT_API_URI}
+        NEXT_PUBLIC_INSTANT_WEBSOCKET_URI: ${NEXT_PUBLIC_INSTANT_WEBSOCKET_URI}
+        NEXT_PUBLIC_INSTANT_APP_ID: ${NEXT_PUBLIC_INSTANT_APP_ID}
+    command: ["node", "scripts/apple-calendar-sync-worker.js"]
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
+    environment:
+      - NODE_ENV=production
+      - APPLE_CALDAV_POLL_TARGET_URL=http://family-organizer:3000
+      - CALENDAR_SYNC_CRON_SECRET=${CALENDAR_SYNC_CRON_SECRET}
+      - APPLE_CALDAV_POLL_BASE_SECONDS=${APPLE_CALDAV_POLL_BASE_SECONDS}
+      - APPLE_CALDAV_POLL_ERROR_SECONDS=${APPLE_CALDAV_POLL_ERROR_SECONDS}
+      - APPLE_CALDAV_POLL_MAX_IDLE_SECONDS=${APPLE_CALDAV_POLL_MAX_IDLE_SECONDS}
+    depends_on:
+      family-organizer:
+        condition: service_healthy
+    networks:
+      - default
+
   # --- 2. MinIO (S3 Compatible Storage) ---
   minio:
     image: minio/minio

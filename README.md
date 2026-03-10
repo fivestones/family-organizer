@@ -416,6 +416,27 @@ The worker is a good fit for:
 -   a sidecar/container process
 -   `systemd`, `pm2`, or another long-running process manager
 
+If you deploy with this repo's Docker Compose setup, the worker now runs automatically as a second service:
+
+-   app service: `family-organizer`
+-   worker service: `family-organizer-calendar-sync-worker`
+
+That means the usual deploy flow is enough:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+The worker container waits for the web app to become healthy, then starts polling `http://family-organizer:3000/api/calendar-sync/apple/run` over the internal Docker network.
+
+Helpful checks:
+
+```bash
+docker compose ps
+docker compose logs -f family-organizer-calendar-sync-worker
+```
+
 ### 7. Verify that it is working
 
 Good signs:
