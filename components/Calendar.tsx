@@ -3099,13 +3099,14 @@ const Calendar = ({
     }, []);
 
     const query = useMemo(
-        () => ({
-            calendarItems: {
-                pertainsTo: {},
-                $: {
-                    where: {
-                        or: [...monthConditions, { rrule: { $isNull: false } }, ...recurrenceReferenceMonthConditions],
-                    },
+            () => ({
+                calendarItems: {
+                    pertainsTo: {},
+                    tags: {},
+                    $: {
+                        where: {
+                            or: [...monthConditions, { rrule: { $isNull: false } }, ...recurrenceReferenceMonthConditions],
+                        },
                 },
             },
             chores: {

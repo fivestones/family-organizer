@@ -44,6 +44,20 @@ vi.mock('@instantdb/react', () => ({
                 },
             }
         ),
+        calendarTags: new Proxy(
+            {},
+            {
+                get(_target, key) {
+                    return {
+                        update(data: any) {
+                            const op = { entity: 'calendarTags', id: String(key), action: 'update', data };
+                            mocks.txOps.push(op);
+                            return op;
+                        },
+                    };
+                },
+            }
+        ),
     },
 }));
 
@@ -151,6 +165,7 @@ describe('AddEventForm', () => {
                     { id: 'mem-2', name: 'Leah' },
                     { id: 'mem-3', name: 'Noah' },
                 ],
+                calendarTags: [],
             },
         });
         mocks.txOps.length = 0;
@@ -219,6 +234,63 @@ describe('AddEventForm', () => {
             },
         ]);
         expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets imported Apple events save local tags without editing synced fields', async () => {
+        mocks.dbUseQuery.mockReturnValue({
+            isLoading: false,
+            error: null,
+            data: {
+                familyMembers: [
+                    { id: 'mem-1', name: 'Judah' },
+                ],
+                calendarTags: [{ id: 'tag-school', name: 'School', normalizedName: 'school' }],
+            },
+        });
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-imported',
+                title: 'Imported school event',
+                description: '',
+                startDate: '2026-03-15T14:30:00.000Z',
+                endDate: '2026-03-15T15:30:00.000Z',
+                isAllDay: false,
+                sourceType: 'apple-caldav',
+                sourceReadOnly: true,
+                tags: [],
+            } as any,
+        });
+        const user = userEvent.setup();
+
+        await user.type(screen.getByLabelText('Tags'), 'School, Travel');
+        await user.click(screen.getByRole('button', { name: /save tags/i }));
+
+        expect(getOps()).toEqual([
+            {
+                entity: 'calendarTags',
+                id: 'evt-new',
+                action: 'update',
+                data: expect.objectContaining({
+                    name: 'Travel',
+                    normalizedName: 'travel',
+                }),
+            },
+            {
+                entity: 'calendarItems',
+                id: 'evt-imported',
+                action: 'link',
+                data: { tags: 'tag-school' },
+            },
+            {
+                entity: 'calendarItems',
+                id: 'evt-imported',
+                action: 'link',
+                data: { tags: 'evt-new' },
+            },
+        ]);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(screen.getByLabelText('Title')).toBeDisabled();
     });
 
     it('builds custom recurrence rules with repeat-end counts', async () => {

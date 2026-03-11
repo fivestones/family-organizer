@@ -21,10 +21,23 @@ import {
 import { format, addHours, addDays, parse, parseISO } from 'date-fns';
 import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesScopeMode } from '@/components/RecurrenceScopeDialog';
 import { db } from '@/lib/db';
+import {
+    dedupeCalendarTagRecords,
+    normalizeCalendarTagKey,
+    normalizeCalendarTagName,
+    sortCalendarTagRecords,
+    splitCalendarTagDraft,
+} from '@/lib/calendar-tags';
 
 interface FamilyMember {
     id: string;
     name?: string | null;
+}
+
+interface CalendarTag {
+    id?: string;
+    name: string;
+    normalizedName?: string;
 }
 
 interface CalendarItem {
@@ -35,6 +48,7 @@ interface CalendarItem {
     endDate: string;
     isAllDay: boolean;
     pertainsTo?: FamilyMember[];
+    tags?: CalendarTag[];
     alarms?: CalendarAlarm[] | null;
     createdAt?: string;
     dtStamp?: string;
@@ -1257,9 +1271,11 @@ const AddEventForm = ({
     const [recurrenceScopeDialogAction, setRecurrenceScopeDialogAction] = useState<'edit' | 'drag' | 'delete'>('edit');
     const [recurrenceScopeDialogMode, setRecurrenceScopeDialogMode] = useState<RecurrenceSeriesScopeMode>('following');
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [selectedTags, setSelectedTags] = useState<CalendarTag[]>([]);
+    const [tagDraft, setTagDraft] = useState('');
     const memberGridRef = useRef<HTMLDivElement>(null);
     const [memberGridWidth, setMemberGridWidth] = useState(0);
-    const familyMembersQuery = db.useQuery({
+    const eventMetaQuery = db.useQuery({
         familyMembers: {
             $: {
                 order: {
@@ -1267,10 +1283,23 @@ const AddEventForm = ({
                 },
             },
         },
+        calendarTags: {},
     });
-    const familyMembers = ((familyMembersQuery.data?.familyMembers as FamilyMember[]) || []).filter((member) => Boolean(member?.id));
+    const familyMembers = ((eventMetaQuery.data?.familyMembers as FamilyMember[]) || []).filter((member) => Boolean(member?.id));
+    const availableCalendarTags = useMemo(
+        () => sortCalendarTagRecords(dedupeCalendarTagRecords(eventMetaQuery.data?.calendarTags || [])),
+        [eventMetaQuery.data?.calendarTags]
+    );
+    const availableCalendarTagByKey = useMemo(
+        () => new Map(availableCalendarTags.map((tag) => [String(tag.normalizedName || normalizeCalendarTagKey(tag.name)), tag])),
+        [availableCalendarTags]
+    );
     const selectedMasterEvent = (((selectedEvent as any)?.__masterEvent as CalendarItem | undefined) || selectedEvent) ?? null;
     const selectedMasterRrule = normalizeRrule(String(selectedMasterEvent?.rrule || ''));
+    const isImportedEvent = Boolean(
+        selectedEvent &&
+            (selectedEvent.sourceReadOnly || String(selectedEvent.sourceType || '').trim().toLowerCase() === 'apple-caldav')
+    );
     const isSelectedRecurringOverride = Boolean(
         selectedEvent &&
             selectedMasterEvent &&
@@ -1294,6 +1323,19 @@ const AddEventForm = ({
 
         return byId;
     }, [familyMembers, selectedEvent]);
+    const selectedTagKeys = useMemo(
+        () => new Set(selectedTags.map((tag) => String(tag.normalizedName || normalizeCalendarTagKey(tag.name)).trim()).filter(Boolean)),
+        [selectedTags]
+    );
+    const tagSuggestions = useMemo(() => {
+        const draftKey = normalizeCalendarTagKey(tagDraft);
+        return availableCalendarTags
+            .filter((tag) => !selectedTagKeys.has(String(tag.normalizedName || normalizeCalendarTagKey(tag.name)).trim()))
+            .filter((tag) => !draftKey || String(tag.normalizedName || '').includes(draftKey))
+            .slice(0, 8);
+    }, [availableCalendarTags, selectedTagKeys, tagDraft]);
+    const canEditImportedTags = !isSubmitting;
+    const detailsReadOnly = isImportedEvent;
 
     const recurrenceSummaryText = useMemo(
         () => recurrenceSummary(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd')),
@@ -1543,6 +1585,8 @@ const AddEventForm = ({
                 }))
             );
             setSelectedFamilyMemberIds((selectedEvent.pertainsTo || []).map((member) => member.id));
+            setSelectedTags(sortCalendarTagRecords(dedupeCalendarTagRecords(selectedEvent.tags || [])));
+            setTagDraft('');
         } else if (selectedDate) {
             const formattedDate = format(selectedDate, 'yyyy-MM-dd');
             const startDateTime = parse(defaultStartTime, 'HH:mm', new Date());
@@ -1586,6 +1630,8 @@ const AddEventForm = ({
             setRdatesEnabled(false);
             setRecurrenceRdates([]);
             setSelectedFamilyMemberIds([]);
+            setSelectedTags([]);
+            setTagDraft('');
         }
     }, [defaultStartTime, isSelectedRecurringOverride, selectedDate, selectedEvent, selectedMasterEvent]);
 
@@ -1633,6 +1679,42 @@ const AddEventForm = ({
             return previous.filter((id) => id !== memberId);
         });
     };
+
+    const addTags = useCallback((values: Array<CalendarTag | string>) => {
+        setSelectedTags((previous) =>
+            sortCalendarTagRecords(dedupeCalendarTagRecords([...(previous || []), ...values], availableCalendarTagByKey))
+        );
+        setTagDraft('');
+    }, [availableCalendarTagByKey]);
+
+    const handleTagDraftInput = useCallback((value: string) => {
+        const { committed, remaining } = splitCalendarTagDraft(value);
+        if (committed.length > 0) {
+            setSelectedTags((previous) =>
+                sortCalendarTagRecords(dedupeCalendarTagRecords([...(previous || []), ...committed], availableCalendarTagByKey))
+            );
+            setTagDraft(remaining);
+            return;
+        }
+
+        setTagDraft(value);
+    }, [availableCalendarTagByKey]);
+
+    const handleAddTagDraft = useCallback(() => {
+        const normalizedDraft = normalizeCalendarTagName(tagDraft);
+        if (!normalizedDraft) {
+            setTagDraft('');
+            return;
+        }
+
+        addTags([normalizedDraft]);
+    }, [addTags, tagDraft]);
+
+    const handleRemoveTag = useCallback((tagKey: string) => {
+        setSelectedTags((previous) =>
+            previous.filter((tag) => String(tag.normalizedName || normalizeCalendarTagKey(tag.name)).trim() !== tagKey)
+        );
+    }, []);
 
     const makeDefaultExceptionRow = useCallback((defaultDate: string): RecurrenceExceptionRow => {
         const normalizedDefault = parseExdateTokenToDateOnly(defaultDate) || format(new Date(), 'yyyy-MM-dd');
@@ -1975,6 +2057,88 @@ const AddEventForm = ({
                 setIsSubmitting(false);
             }
         };
+        const draftTagName = normalizeCalendarTagName(tagDraft);
+        const nextTags = sortCalendarTagRecords(
+            dedupeCalendarTagRecords(draftTagName ? [...selectedTags, draftTagName] : selectedTags, availableCalendarTagByKey)
+        );
+        if (draftTagName) {
+            setSelectedTags(nextTags);
+            setTagDraft('');
+        }
+        const buildTagTxOps = (targetEventId: string, previousTags: CalendarTag[], nowIso: string) => {
+            const txOps: any[] = [];
+            const previousTagIds = new Set(
+                dedupeCalendarTagRecords(previousTags || [], availableCalendarTagByKey)
+                    .map((tag) => availableCalendarTagByKey.get(String(tag.normalizedName || normalizeCalendarTagKey(tag.name)))?.id || tag.id || '')
+                    .filter(Boolean)
+            );
+            const resolvedNextTags = nextTags.map((tag) => {
+                const normalizedName = String(tag.normalizedName || normalizeCalendarTagKey(tag.name)).trim();
+                const existingTag = availableCalendarTagByKey.get(normalizedName);
+                const tagId = existingTag?.id || tag.id || id();
+
+                if (!existingTag?.id && !tag.id) {
+                    txOps.push(
+                        tx.calendarTags[tagId].update({
+                            createdAt: nowIso,
+                            name: existingTag?.name || tag.name,
+                            normalizedName,
+                            updatedAt: nowIso,
+                        })
+                    );
+                }
+
+                return {
+                    id: tagId,
+                    name: existingTag?.name || tag.name,
+                    normalizedName,
+                };
+            });
+            const nextTagIds = new Set(resolvedNextTags.map((tag) => tag.id).filter(Boolean));
+
+            for (const previousTagId of Array.from(previousTagIds)) {
+                if (!nextTagIds.has(previousTagId)) {
+                    txOps.push(tx.calendarItems[targetEventId].unlink({ tags: previousTagId }));
+                }
+            }
+
+            for (const tag of resolvedNextTags) {
+                if (tag.id && !previousTagIds.has(tag.id)) {
+                    txOps.push(tx.calendarItems[targetEventId].link({ tags: tag.id }));
+                }
+            }
+
+            return {
+                optimisticTags: resolvedNextTags,
+                txOps,
+            };
+        };
+        if (isImportedEvent && selectedEvent) {
+            const nowIso = new Date().toISOString();
+            const { optimisticTags, txOps } = buildTagTxOps(selectedEvent.id, selectedEvent.tags || [], nowIso);
+            const rollback = onOptimisticUpsert?.({
+                ...selectedEvent,
+                tags: optimisticTags,
+            } as CalendarItem);
+            onClose();
+
+            try {
+                if (txOps.length > 0) {
+                    await db.transact(txOps);
+                }
+            } catch (error) {
+                if (typeof rollback === 'function') {
+                    rollback();
+                }
+                console.error('Unable to save imported event tags:', error);
+                window.alert('Unable to save tags. Please try again.');
+                abortSubmit();
+                return;
+            }
+
+            submitLockRef.current = false;
+            return;
+        }
         let startDateObj, endDateObj;
 
         if (formData.isAllDay) {
@@ -2142,6 +2306,7 @@ const AddEventForm = ({
             id: memberId,
             name: selectedFamilyMembersById.get(memberId)?.name || null,
         }));
+        const baseTagMutation = buildTagTxOps(eventId, selectedEvent?.tags || [], nowIso);
 
         const buildMemberDiffTxOps = (targetEventId: string, previousMemberIds: Set<string>, nextIds: Set<string>) => {
             const txOps: any[] = [];
@@ -2236,6 +2401,7 @@ const AddEventForm = ({
                 ...legacyEventData,
                 ...overridePatch,
             };
+            const overrideTagMutation = buildTagTxOps(overrideId, [], nowIso);
 
             registerOptimistic({
                 ...masterEvent,
@@ -2247,10 +2413,15 @@ const AddEventForm = ({
                 ...overrideData,
                 id: overrideId,
                 pertainsTo: optimisticPertainsTo,
+                tags: overrideTagMutation.optimisticTags,
             } as CalendarItem);
             onClose();
 
-            const txOps: any[] = [tx.calendarItems[masterEvent.id].update(masterPatch), tx.calendarItems[overrideId].update(overrideData)];
+            const txOps: any[] = [
+                tx.calendarItems[masterEvent.id].update(masterPatch),
+                tx.calendarItems[overrideId].update(overrideData),
+                ...overrideTagMutation.txOps,
+            ];
             for (const memberId of Array.from(nextMemberIds)) {
                 txOps.push(tx.calendarItems[overrideId].link({ pertainsTo: memberId }));
             }
@@ -2349,6 +2520,7 @@ const AddEventForm = ({
                     ...legacyEventData,
                     ...newSeriesPatch,
                 };
+                const newSeriesTagMutation = buildTagTxOps(newSeriesId, [], nowIso);
 
                 registerOptimistic({
                     ...masterEvent,
@@ -2360,10 +2532,15 @@ const AddEventForm = ({
                     ...newSeriesData,
                     id: newSeriesId,
                     pertainsTo: optimisticPertainsTo,
+                    tags: newSeriesTagMutation.optimisticTags,
                 } as CalendarItem);
                 onClose();
 
-                const txOps: any[] = [tx.calendarItems[masterEvent.id].update(oldSeriesPatch), tx.calendarItems[newSeriesId].update(newSeriesData)];
+                const txOps: any[] = [
+                    tx.calendarItems[masterEvent.id].update(oldSeriesPatch),
+                    tx.calendarItems[newSeriesId].update(newSeriesData),
+                    ...newSeriesTagMutation.txOps,
+                ];
                 for (const memberId of Array.from(nextMemberIds)) {
                     txOps.push(tx.calendarItems[newSeriesId].link({ pertainsTo: memberId }));
                 }
@@ -2386,13 +2563,14 @@ const AddEventForm = ({
         const previousMemberIds = new Set((selectedEvent?.pertainsTo || []).map((member) => member.id));
         const buildTxOps = (payload: Record<string, any>) => {
             const txOps: any[] = [tx.calendarItems[eventId].update(payload)];
-            return [...txOps, ...buildMemberDiffTxOps(eventId, previousMemberIds, nextMemberIds)];
+            return [...txOps, ...buildMemberDiffTxOps(eventId, previousMemberIds, nextMemberIds), ...baseTagMutation.txOps];
         };
 
         registerOptimistic({
             id: eventId,
             ...eventData,
             pertainsTo: optimisticPertainsTo,
+            tags: baseTagMutation.optimisticTags,
         } as CalendarItem);
         onClose();
 
@@ -2423,12 +2601,96 @@ const AddEventForm = ({
             />
             <div>
                 <Label htmlFor="title">Title</Label>
-                <Input ref={titleInputRef} type="text" id="title" name="title" value={formData.title} onChange={handleChange} required />
+                <Input
+                    ref={titleInputRef}
+                    type="text"
+                    id="title"
+                    name="title"
+                    value={formData.title}
+                    onChange={handleChange}
+                    required
+                    disabled={detailsReadOnly || isSubmitting}
+                />
             </div>
             <div>
                 <Label htmlFor="description">Description</Label>
-                <Textarea id="description" name="description" value={formData.description} onChange={handleChange} />
+                <Textarea
+                    id="description"
+                    name="description"
+                    value={formData.description}
+                    onChange={handleChange}
+                    disabled={detailsReadOnly || isSubmitting}
+                />
             </div>
+            {isImportedEvent ? (
+                <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                    Apple-synced event details stay read-only here. Tags are local to Family Organizer and will persist across future Apple sync updates.
+                </div>
+            ) : null}
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <Label htmlFor="event-tag-input">Tags</Label>
+                    <p className="text-xs text-muted-foreground">Reusable labels for future calendar filters</p>
+                </div>
+                {selectedTags.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No tags yet. Add one or more labels to group related calendar events.</p>
+                ) : (
+                    <div className="flex flex-wrap gap-2">
+                        {selectedTags.map((tag) => {
+                            const tagKey = String(tag.normalizedName || normalizeCalendarTagKey(tag.name)).trim();
+                            return (
+                                <button
+                                    key={tagKey}
+                                    type="button"
+                                    onClick={() => handleRemoveTag(tagKey)}
+                                    disabled={!canEditImportedTags}
+                                    className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    <span>{tag.name}</span>
+                                    <span className="text-[11px] uppercase tracking-wide text-sky-700">Remove</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+                <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                        id="event-tag-input"
+                        value={tagDraft}
+                        onChange={(event) => handleTagDraftInput(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                                event.preventDefault();
+                                handleAddTagDraft();
+                            }
+                        }}
+                        placeholder="School, travel, birthday"
+                        disabled={!canEditImportedTags}
+                    />
+                    <Button type="button" variant="outline" onClick={handleAddTagDraft} disabled={!canEditImportedTags}>
+                        Add Tag
+                    </Button>
+                </div>
+                {tagSuggestions.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                        {tagSuggestions.map((tag) => (
+                            <Button
+                                key={String(tag.normalizedName || normalizeCalendarTagKey(tag.name))}
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => addTags([tag])}
+                                disabled={!canEditImportedTags}
+                                className="rounded-full"
+                            >
+                                {tag.name}
+                            </Button>
+                        ))}
+                    </div>
+                ) : null}
+                <p className="text-xs text-muted-foreground">Type a label and press Enter, click Add Tag, or separate multiple tags with commas.</p>
+            </div>
+            <fieldset disabled={detailsReadOnly || isSubmitting} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                     <Label htmlFor="status">Status</Label>
@@ -3247,9 +3509,9 @@ const AddEventForm = ({
                     <Label>Pertains To</Label>
                     <p className="text-xs text-muted-foreground">Leave unselected to apply to everyone</p>
                 </div>
-                {familyMembersQuery.isLoading ? (
+                {eventMetaQuery.isLoading ? (
                     <p className="text-xs text-muted-foreground">Loading family members...</p>
-                ) : familyMembersQuery.error ? (
+                ) : eventMetaQuery.error ? (
                     <p className="text-xs text-destructive">Could not load family members.</p>
                 ) : familyMembers.length === 0 ? (
                     <p className="text-xs text-muted-foreground">No family members available yet.</p>
@@ -3294,9 +3556,10 @@ const AddEventForm = ({
                     )}
                 </div>
             </div>
+            </fieldset>
             <div className="flex items-center justify-between gap-3">
                 <div>
-                    {selectedEvent ? (
+                    {selectedEvent && !isImportedEvent ? (
                         <Button type="button" variant="destructive" onClick={() => void handleDeleteClick()} disabled={isSubmitting}>
                             Delete Event
                         </Button>
@@ -3307,7 +3570,7 @@ const AddEventForm = ({
                         Cancel
                     </Button>
                     <Button type="submit" disabled={isSubmitting}>
-                        {isSubmitting ? 'Saving...' : formData.id ? 'Update' : 'Add'} Event
+                        {isSubmitting ? 'Saving...' : isImportedEvent ? 'Save Tags' : formData.id ? 'Update' : 'Add'} Event
                     </Button>
                 </div>
             </div>

@@ -198,6 +198,7 @@ export async function listImportedCalendarItems(accountId: string, calendarId: s
     const db = getInstantAdminDb();
     const result = await db.query({
         calendarItems: {
+            tags: {},
             $: {
                 where: {
                     sourceAccountKey: accountId,
@@ -409,6 +410,14 @@ export function listIncrementalStaleImportedItems(input: {
     });
 }
 
+export function shouldHardDeleteImportedCalendarItem(input: {
+    item: any;
+    hardDeleteMissingRows?: boolean;
+}) {
+    const hasLocalTags = Array.isArray(input.item?.tags) && input.item.tags.length > 0;
+    return input.hardDeleteMissingRows === true && !hasLocalTags;
+}
+
 export async function upsertImportedCalendarItems(input: {
     accountId: string;
     calendarId: string;
@@ -438,7 +447,7 @@ export async function upsertImportedCalendarItems(input: {
         if (!existingItem?.id || deletedExistingItemIds.has(existingItem.id)) return;
         deletedExistingItemIds.add(existingItem.id);
 
-        if (input.hardDeleteMissingRows === true) {
+        if (shouldHardDeleteImportedCalendarItem({ item: existingItem, hardDeleteMissingRows: input.hardDeleteMissingRows })) {
             txs.push(db.tx.calendarItems[existingItem.id].delete());
         } else {
             txs.push(db.tx.calendarItems[existingItem.id].update({

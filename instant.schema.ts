@@ -96,6 +96,12 @@ const _schema = i.schema({
             xProps: i.json().optional(),
             year: i.number().indexed(),
         }),
+        calendarTags: i.entity({
+            createdAt: i.string().indexed().optional(),
+            name: i.string(),
+            normalizedName: i.string().unique().indexed(),
+            updatedAt: i.string().indexed().optional(),
+        }),
         choreAssignments: i.entity({
             order: i.number(),
         }),
@@ -407,6 +413,18 @@ const _schema = i.schema({
             },
             reverse: {
                 on: 'familyMembers',
+                has: 'many',
+                label: 'calendarItems',
+            },
+        },
+        calendarItemsTags: {
+            forward: {
+                on: 'calendarItems',
+                has: 'many',
+                label: 'tags',
+            },
+            reverse: {
+                on: 'calendarTags',
                 has: 'many',
                 label: 'calendarItems',
             },

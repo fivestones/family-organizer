@@ -554,7 +554,7 @@ export default function AppleCalendarSyncSettings() {
             <CardHeader>
                 <CardTitle>Apple Calendar Sync</CardTitle>
                 <CardDescription>
-                    Import Apple Calendar events into Family Organizer. Imported events stay read-only here, and the server keeps polling Apple in the background.
+                    Import Apple Calendar events into Family Organizer. Apple-owned event details stay read-only here, while local tags remain editable and the server keeps polling Apple in the background.
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

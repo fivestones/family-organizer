@@ -125,4 +125,28 @@ describe('apple caldav repository helpers', () => {
 
         expect(staleItems.map((item) => item.id)).toEqual(['evt-override']);
     });
+
+    it('keeps tagged imported rows soft-deletable during repair passes so local tags can survive a reimport', async () => {
+        const { shouldHardDeleteImportedCalendarItem } = await import('@/lib/apple-caldav/repository');
+
+        expect(
+            shouldHardDeleteImportedCalendarItem({
+                hardDeleteMissingRows: true,
+                item: {
+                    id: 'evt-untagged',
+                    tags: [],
+                },
+            })
+        ).toBe(true);
+
+        expect(
+            shouldHardDeleteImportedCalendarItem({
+                hardDeleteMissingRows: true,
+                item: {
+                    id: 'evt-tagged',
+                    tags: [{ id: 'tag-school', name: 'School' }],
+                },
+            })
+        ).toBe(false);
+    });
 });

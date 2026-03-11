@@ -132,6 +132,7 @@ const rules = {
 
     calculatedAllowancePeriods: FAMILY_MUTABLE,
     calendarItems: PARENT_MUTABLE,
+    calendarTags: PARENT_MUTABLE,
     calendarSyncAccounts: PARENT_MUTABLE,
     calendarSyncCalendars: PARENT_MUTABLE,
     calendarSyncLocks: {

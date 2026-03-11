@@ -30,6 +30,7 @@ export interface CalendarItem {
     isAllDay: boolean;
     description?: string;
     pertainsTo?: EventFamilyMember[];
+    tags?: Array<{ id?: string; name: string; normalizedName?: string }>;
     calendarItemKind?: 'event' | 'chore';
     // Allow flexible properties for InstantDB data
     [key: string]: any;

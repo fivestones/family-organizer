@@ -22,6 +22,13 @@ import { useAppSession } from '../../src/providers/AppProviders';
 import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
+import {
+  dedupeCalendarTagRecords,
+  normalizeCalendarTagKey,
+  normalizeCalendarTagName,
+  sortCalendarTagRecords,
+  splitCalendarTagDraft,
+} from '../../../lib/calendar-tags';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DEVANAGARI_DIGITS = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
@@ -249,6 +256,8 @@ function buildInitialForm(date = new Date()) {
     updatedAt: '',
     dtStamp: '',
     lastModified: '',
+    tags: [],
+    tagDraft: '',
   };
 }
 
@@ -291,6 +300,8 @@ function formFromEvent(event) {
       updatedAt: event.updatedAt || '',
       dtStamp: event.dtStamp || '',
       lastModified: event.lastModified || '',
+      tags: dedupeCalendarTagRecords(event.tags || []),
+      tagDraft: '',
     };
   }
 
@@ -332,6 +343,8 @@ function formFromEvent(event) {
     updatedAt: event.updatedAt || '',
     dtStamp: event.dtStamp || '',
     lastModified: event.lastModified || '',
+    tags: dedupeCalendarTagRecords(event.tags || []),
+    tagDraft: '',
   };
 }
 
@@ -374,6 +387,7 @@ function normalizeCalendarItem(item) {
     sourceCalendarName: item.sourceCalendarName || '',
     sourceReadOnly: !!item.sourceReadOnly,
     sourceSyncStatus: item.sourceSyncStatus || '',
+    tags: dedupeCalendarTagRecords(item.tags || []),
   };
 }
 
@@ -428,6 +442,7 @@ export default function CalendarTab() {
     isAuthenticated && instantReady
       ? {
           calendarItems: {
+            tags: {},
             $: {
               where:
                 monthWhereConditions.length <= 1
@@ -435,6 +450,7 @@ export default function CalendarTab() {
                   : { or: monthWhereConditions },
             },
           },
+          calendarTags: {},
         }
       : null
   );
@@ -460,6 +476,25 @@ export default function CalendarTab() {
 
   const selectedDayKey = formatYmd(selectedDate);
   const selectedDayEvents = eventsByDayKey.get(selectedDayKey) || [];
+  const availableCalendarTags = useMemo(
+    () => sortCalendarTagRecords(dedupeCalendarTagRecords(calendarQuery.data?.calendarTags || [])),
+    [calendarQuery.data?.calendarTags]
+  );
+  const availableCalendarTagByKey = useMemo(
+    () => new Map(availableCalendarTags.map((tag) => [tag.normalizedName, tag])),
+    [availableCalendarTags]
+  );
+  const selectedTagKeys = useMemo(
+    () => new Set((form.tags || []).map((tag) => tag.normalizedName || normalizeCalendarTagKey(tag.name))),
+    [form.tags]
+  );
+  const tagSuggestions = useMemo(() => {
+    const draftKey = normalizeCalendarTagKey(form.tagDraft);
+    return availableCalendarTags
+      .filter((tag) => !selectedTagKeys.has(tag.normalizedName))
+      .filter((tag) => !draftKey || tag.normalizedName.includes(draftKey))
+      .slice(0, 8);
+  }, [availableCalendarTags, form.tagDraft, selectedTagKeys]);
   const editingEvent = useMemo(
     () => (editingEventId ? calendarItems.find((item) => item.id === editingEventId) || null : null),
     [calendarItems, editingEventId]
@@ -605,6 +640,46 @@ export default function CalendarTab() {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
+  function addTagsToForm(values) {
+    const nextValues = Array.isArray(values) ? values : [values];
+    setForm((prev) => ({
+      ...prev,
+      tags: sortCalendarTagRecords(dedupeCalendarTagRecords([...(prev.tags || []), ...nextValues], availableCalendarTagByKey)),
+      tagDraft: '',
+    }));
+  }
+
+  function handleTagDraftChange(value) {
+    const { committed, remaining } = splitCalendarTagDraft(value);
+    if (committed.length > 0) {
+      setForm((prev) => ({
+        ...prev,
+        tags: sortCalendarTagRecords(dedupeCalendarTagRecords([...(prev.tags || []), ...committed], availableCalendarTagByKey)),
+        tagDraft: remaining,
+      }));
+      return;
+    }
+
+    handleChange('tagDraft', value);
+  }
+
+  function handleAddTagDraft() {
+    const nextTag = normalizeCalendarTagName(form.tagDraft);
+    if (!nextTag) {
+      handleChange('tagDraft', '');
+      return;
+    }
+
+    addTagsToForm([nextTag]);
+  }
+
+  function handleRemoveTag(tagKey) {
+    setForm((prev) => ({
+      ...prev,
+      tags: (prev.tags || []).filter((tag) => tag.normalizedName !== tagKey),
+    }));
+  }
+
   async function handoffToParentLogin(actionId, actionLabel, payload = {}) {
     await requireParentAction({
       actionId,
@@ -645,11 +720,7 @@ export default function CalendarTab() {
 
   async function handleSave() {
     recordParentActivity();
-
-    if (editingEvent && isImportedEvent(editingEvent)) {
-      closeModal();
-      return;
-    }
+    const isImportedEditing = !!(editingEvent && isImportedEvent(editingEvent));
 
     if (!canEditEvents) {
       await handoffToParentLogin(
@@ -657,6 +728,80 @@ export default function CalendarTab() {
         editingEventId ? 'Edit calendar event' : 'Add calendar event',
         editingEventId ? { eventId: editingEventId, selectedDayKey } : { selectedDayKey }
       );
+      return;
+    }
+
+    const draftTagName = normalizeCalendarTagName(form.tagDraft);
+    const nextTags = sortCalendarTagRecords(
+      dedupeCalendarTagRecords(draftTagName ? [...(form.tags || []), draftTagName] : form.tags || [], availableCalendarTagByKey)
+    );
+    if (draftTagName) {
+      setForm((prev) => ({
+        ...prev,
+        tags: nextTags,
+        tagDraft: '',
+      }));
+    }
+    const nowIso = new Date().toISOString();
+    const buildTagTxOps = (targetEventId, previousTags) => {
+      const txOps = [];
+      const previousTagIds = new Set(
+        dedupeCalendarTagRecords(previousTags || [], availableCalendarTagByKey)
+          .map((tag) => availableCalendarTagByKey.get(tag.normalizedName)?.id || tag.id || '')
+          .filter(Boolean)
+      );
+      const resolvedNextTags = [];
+
+      for (const tag of nextTags) {
+        const existingTag = availableCalendarTagByKey.get(tag.normalizedName);
+        const tagId = existingTag?.id || tag.id || id();
+        resolvedNextTags.push({
+          id: tagId,
+          name: existingTag?.name || tag.name,
+          normalizedName: tag.normalizedName,
+        });
+
+        if (!existingTag?.id && !tag.id) {
+          txOps.push(
+            tx.calendarTags[tagId].update({
+              createdAt: nowIso,
+              name: tag.name,
+              normalizedName: tag.normalizedName,
+              updatedAt: nowIso,
+            })
+          );
+        }
+      }
+
+      const nextTagIds = new Set(resolvedNextTags.map((tag) => tag.id));
+
+      for (const previousTagId of Array.from(previousTagIds)) {
+        if (!nextTagIds.has(previousTagId)) {
+          txOps.push(tx.calendarItems[targetEventId].unlink({ tags: previousTagId }));
+        }
+      }
+
+      for (const tag of resolvedNextTags) {
+        if (tag.id && !previousTagIds.has(tag.id)) {
+          txOps.push(tx.calendarItems[targetEventId].link({ tags: tag.id }));
+        }
+      }
+
+      return txOps;
+    };
+
+    if (isImportedEditing) {
+      setSaving(true);
+      try {
+        const tagTxOps = buildTagTxOps(editingEvent.id, editingEvent.tags || []);
+        if (tagTxOps.length > 0) {
+          await db.transact(tagTxOps);
+        }
+        closeModal();
+      } catch (error) {
+        setSaving(false);
+        Alert.alert('Unable to save tags', error?.message || 'Please try again.');
+      }
       return;
     }
 
@@ -716,7 +861,6 @@ export default function CalendarTab() {
     }
 
     const legacyPayload = payload;
-    const nowIso = new Date().toISOString();
     const eventId = editingEventId || id();
     const previousSequence = typeof editingEvent?.sequence === 'number' ? editingEvent.sequence : 0;
     const status = String(form.status || editingEvent?.status || DEFAULT_EVENT_STATUS).trim().toLowerCase() || DEFAULT_EVENT_STATUS;
@@ -751,16 +895,17 @@ export default function CalendarTab() {
     };
 
     payload = { ...payload, ...payloadBase };
+    const tagTxOps = buildTagTxOps(eventId, editingEvent?.tags || []);
 
     setSaving(true);
     try {
-      await db.transact([tx.calendarItems[eventId].update(payload)]);
+      await db.transact([tx.calendarItems[eventId].update(payload), ...tagTxOps]);
       setSelectedDate(parseYmdLocal(form.startDate) || selectedDate);
       closeModal();
     } catch (error) {
       if (shouldRetryLegacyCalendarMutation(error)) {
         try {
-          await db.transact([tx.calendarItems[eventId].update(legacyPayload)]);
+          await db.transact([tx.calendarItems[eventId].update(legacyPayload), ...tagTxOps]);
           setSelectedDate(parseYmdLocal(form.startDate) || selectedDate);
           closeModal();
           return;
@@ -812,6 +957,10 @@ export default function CalendarTab() {
       },
     ]);
   }
+
+  const isEditingImportedEvent = !!(editingEvent && isImportedEvent(editingEvent));
+  const canEditEventDetails = canEditEvents && !saving && !isEditingImportedEvent;
+  const canEditEventTags = canEditEvents && !saving;
 
   return (
     <ScreenScaffold
@@ -1044,10 +1193,19 @@ export default function CalendarTab() {
                   </View>
                   <Text style={styles.eventMeta}>{formatEventRangeLabel(event)}</Text>
                   {!!event.description ? <Text style={styles.eventDescription}>{event.description}</Text> : null}
+                  {event.tags?.length ? (
+                    <View style={styles.eventTagRow}>
+                      {event.tags.map((tag) => (
+                        <View key={`${event.id}-${tag.normalizedName}`} style={styles.eventTag}>
+                          <Text style={styles.eventTagText}>{tag.name}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                   <Text style={styles.eventHint}>Status: {String(event.status || DEFAULT_EVENT_STATUS)}</Text>
                   {isImportedEvent(event) ? <Text style={styles.eventHint}>Apple Calendar import{event.sourceCalendarName ? ` • ${event.sourceCalendarName}` : ''}</Text> : null}
                   {!canEditEvents ? <Text style={styles.eventHint}>Read only in kid mode</Text> : null}
-                  {isImportedEvent(event) ? <Text style={styles.eventHint}>Read only sync item</Text> : null}
+                  {isImportedEvent(event) ? <Text style={styles.eventHint}>Apple details stay synced, but tags are local to Family Organizer.</Text> : null}
                 </Pressable>
               ))}
             </View>
@@ -1075,8 +1233,10 @@ export default function CalendarTab() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.modalTitle}>{editingEventId ? 'Edit Event' : 'Add Event'}</Text>
                   <Text style={styles.modalSubtitle}>
-                    {editingEvent && isImportedEvent(editingEvent)
-                      ? 'Imported Apple Calendar events are read only and update on sync.'
+                    {isEditingImportedEvent
+                      ? canEditEvents
+                        ? 'Apple details are read only here, but you can add local tags that persist across future sync updates.'
+                        : 'Apple details are read only here. Switch to parent mode to edit local tags.'
                       : canEditEvents
                         ? 'All-day events store exclusive end dates to match web semantics.'
                         : 'Read only in kid mode. Switch to parent mode to save changes.'}
@@ -1106,11 +1266,11 @@ export default function CalendarTab() {
                     testID="calendar-input-title"
                     accessibilityLabel="Calendar event title"
                     value={form.title}
-                    editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
+                    editable={canEditEventDetails}
                     onChangeText={(value) => handleChange('title', value)}
                     placeholder="Family dinner"
                     placeholderTextColor={colors.inkMuted}
-                    style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
+                    style={[styles.textInput, !canEditEventDetails && styles.inputDisabled]}
                     onFocus={recordParentActivity}
                   />
                 </View>
@@ -1121,24 +1281,96 @@ export default function CalendarTab() {
                     testID="calendar-input-description"
                     accessibilityLabel="Calendar event description"
                     value={form.description}
-                    editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
+                    editable={canEditEventDetails}
                     onChangeText={(value) => handleChange('description', value)}
                     placeholder="Optional details"
                     placeholderTextColor={colors.inkMuted}
-                    style={[styles.textInput, styles.textArea, !canEditEvents && styles.inputDisabled]}
+                    style={[styles.textInput, styles.textArea, !canEditEventDetails && styles.inputDisabled]}
                     multiline
                     textAlignVertical="top"
                     onFocus={recordParentActivity}
                   />
                 </View>
 
+                <View style={styles.fieldBlock}>
+                  <View style={styles.fieldLabelRow}>
+                    <Text style={styles.fieldLabel}>Tags</Text>
+                    <Text style={styles.fieldMeta}>Reusable labels for future filtering</Text>
+                  </View>
+                  {form.tags?.length ? (
+                    <View style={styles.editorTagRow}>
+                      {form.tags.map((tag) => (
+                        <Pressable
+                          key={tag.normalizedName}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove tag ${tag.name}`}
+                          disabled={!canEditEventTags}
+                          onPress={() => handleRemoveTag(tag.normalizedName)}
+                          style={[styles.editorTagChip, !canEditEventTags && styles.editorTagChipDisabled]}
+                        >
+                          <Text style={styles.editorTagChipText}>{tag.name}</Text>
+                          {canEditEventTags ? <Text style={styles.editorTagChipDismiss}>Remove</Text> : null}
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={styles.fieldHint}>No tags yet. Add one or more labels to keep related events easy to find later.</Text>
+                  )}
+                  <View style={styles.tagComposerRow}>
+                    <TextInput
+                      testID="calendar-input-tags"
+                      accessibilityLabel="Calendar event tags"
+                      value={form.tagDraft}
+                      editable={canEditEventTags}
+                      onChangeText={handleTagDraftChange}
+                      onSubmitEditing={handleAddTagDraft}
+                      placeholder="School, travel, birthday"
+                      placeholderTextColor={colors.inkMuted}
+                      style={[styles.textInput, styles.tagComposerInput, !canEditEventTags && styles.inputDisabled]}
+                      autoCapitalize="words"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                      blurOnSubmit={false}
+                      onFocus={recordParentActivity}
+                    />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Add tag"
+                      disabled={!canEditEventTags}
+                      onPress={handleAddTagDraft}
+                      style={[styles.tagAddButton, !canEditEventTags && styles.tagAddButtonDisabled]}
+                    >
+                      <Text style={[styles.tagAddButtonText, !canEditEventTags && styles.actionTextDisabled]}>Add</Text>
+                    </Pressable>
+                  </View>
+                  {tagSuggestions.length ? (
+                    <View style={styles.tagSuggestionRow}>
+                      {tagSuggestions.map((tag) => (
+                        <Pressable
+                          key={`tag-suggestion-${tag.normalizedName}`}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Use tag ${tag.name}`}
+                          disabled={!canEditEventTags}
+                          onPress={() => addTagsToForm([tag])}
+                          style={[styles.tagSuggestionChip, !canEditEventTags && styles.editorTagChipDisabled]}
+                        >
+                          <Text style={styles.tagSuggestionText}>{tag.name}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                  <Text style={styles.fieldHint}>
+                    Type a label and tap Add, or separate tags with commas. Imported Apple events keep these tags locally.
+                  </Text>
+                </View>
+
                 <Pressable
                   testID="calendar-toggle-all-day"
                   accessibilityRole="switch"
-                  accessibilityState={{ checked: !!form.isAllDay, disabled: !canEditEvents || saving }}
-                  disabled={!canEditEvents || saving || (editingEvent && isImportedEvent(editingEvent))}
+                  accessibilityState={{ checked: !!form.isAllDay, disabled: !canEditEventDetails }}
+                  disabled={!canEditEventDetails}
                   onPress={() => handleChange('isAllDay', !form.isAllDay)}
-                  style={[styles.switchRow, (!canEditEvents || saving) && styles.switchRowDisabled]}
+                  style={[styles.switchRow, !canEditEventDetails && styles.switchRowDisabled]}
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={styles.switchTitle}>All-day event</Text>
@@ -1149,7 +1381,7 @@ export default function CalendarTab() {
                   <Switch
                     value={!!form.isAllDay}
                     onValueChange={(value) => handleChange('isAllDay', value)}
-                    disabled={!canEditEvents || saving}
+                    disabled={!canEditEventDetails}
                     trackColor={{ false: withAlpha(colors.locked, 0.72), true: withAlpha(colors.accentCalendar, 0.42) }}
                     thumbColor={form.isAllDay ? colors.accentCalendar : colors.panelElevated}
                   />
@@ -1162,11 +1394,11 @@ export default function CalendarTab() {
                       testID="calendar-input-start-date"
                       accessibilityLabel="Event start date"
                     value={form.startDate}
-                      editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
+                      editable={canEditEventDetails}
                       onChangeText={(value) => handleChange('startDate', value)}
                       placeholder="YYYY-MM-DD"
                       placeholderTextColor={colors.inkMuted}
-                      style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
+                      style={[styles.textInput, !canEditEventDetails && styles.inputDisabled]}
                       keyboardType="numbers-and-punctuation"
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -1180,11 +1412,11 @@ export default function CalendarTab() {
                       testID="calendar-input-end-date"
                       accessibilityLabel="Event end date"
                       value={form.endDate}
-                      editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
+                      editable={canEditEventDetails}
                       onChangeText={(value) => handleChange('endDate', value)}
                       placeholder="YYYY-MM-DD"
                       placeholderTextColor={colors.inkMuted}
-                      style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
+                      style={[styles.textInput, !canEditEventDetails && styles.inputDisabled]}
                       keyboardType="numbers-and-punctuation"
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -1201,11 +1433,11 @@ export default function CalendarTab() {
                         testID="calendar-input-start-time"
                         accessibilityLabel="Event start time"
                         value={form.startTime}
-                        editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
+                        editable={canEditEventDetails}
                         onChangeText={(value) => handleChange('startTime', value)}
                         placeholder="HH:mm"
                         placeholderTextColor={colors.inkMuted}
-                        style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
+                        style={[styles.textInput, !canEditEventDetails && styles.inputDisabled]}
                         keyboardType="numbers-and-punctuation"
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -1218,11 +1450,11 @@ export default function CalendarTab() {
                         testID="calendar-input-end-time"
                         accessibilityLabel="Event end time"
                         value={form.endTime}
-                        editable={canEditEvents && !saving && !(editingEvent && isImportedEvent(editingEvent))}
+                        editable={canEditEventDetails}
                         onChangeText={(value) => handleChange('endTime', value)}
                         placeholder="HH:mm"
                         placeholderTextColor={colors.inkMuted}
-                        style={[styles.textInput, !canEditEvents && styles.inputDisabled]}
+                        style={[styles.textInput, !canEditEventDetails && styles.inputDisabled]}
                         keyboardType="numbers-and-punctuation"
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -1249,7 +1481,7 @@ export default function CalendarTab() {
                       ]}
                     >
                       <Text style={[styles.secondaryDangerText, (saving || !canEditEvents || (editingEvent && isImportedEvent(editingEvent))) && styles.actionTextDisabled]}>
-                        {editingEvent && isImportedEvent(editingEvent) ? 'Synced' : 'Delete'}
+                        {isEditingImportedEvent ? 'Apple synced' : 'Delete'}
                       </Text>
                     </Pressable>
                   ) : (
@@ -1270,15 +1502,15 @@ export default function CalendarTab() {
                       testID="calendar-save-event"
                       accessibilityRole="button"
                       accessibilityLabel="Save calendar event"
-                      disabled={saving || (editingEvent && isImportedEvent(editingEvent))}
+                      disabled={saving}
                       onPress={() => {
                         void handleSave();
                       }}
                       style={[styles.primaryButton, saving && styles.actionButtonDisabled, !canEditEvents && styles.primaryButtonLocked]}
                     >
-                      <Text style={[styles.primaryButtonText, (saving || !canEditEvents || (editingEvent && isImportedEvent(editingEvent))) && styles.actionTextDisabled]}>
-                        {editingEvent && isImportedEvent(editingEvent)
-                          ? 'Synced from Apple'
+                      <Text style={[styles.primaryButtonText, (saving || !canEditEvents) && styles.actionTextDisabled]}>
+                        {isEditingImportedEvent
+                          ? (saving ? 'Saving...' : canEditEvents ? 'Save Tags' : 'Parent Login')
                           : saving
                             ? 'Saving...'
                             : canEditEvents
@@ -1622,6 +1854,24 @@ const createStyles = (colors) =>
     fontSize: 11,
     fontWeight: '700',
   },
+  eventTagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  eventTag: {
+    borderRadius: radii.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: withAlpha(colors.accentCalendar, 0.24),
+    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
+  },
+  eventTagText: {
+    color: colors.accentCalendar,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: withAlpha(colors.ink, 0.35),
@@ -1698,6 +1948,22 @@ const createStyles = (colors) =>
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  fieldMeta: {
+    color: colors.inkMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  fieldHint: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   textInput: {
     borderWidth: 1,
     borderColor: colors.line,
@@ -1715,6 +1981,76 @@ const createStyles = (colors) =>
   inputDisabled: {
     backgroundColor: withAlpha(colors.locked, 0.16),
     color: colors.inkMuted,
+  },
+  editorTagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  editorTagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: withAlpha(colors.accentCalendar, 0.24),
+    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  editorTagChipDisabled: {
+    opacity: 0.6,
+  },
+  editorTagChipText: {
+    color: colors.accentCalendar,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  editorTagChipDismiss: {
+    color: colors.inkMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  tagComposerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  tagComposerInput: {
+    flex: 1,
+  },
+  tagAddButton: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: withAlpha(colors.accentCalendar, 0.28),
+    backgroundColor: withAlpha(colors.accentCalendar, 0.12),
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  tagAddButtonDisabled: {
+    opacity: 0.6,
+  },
+  tagAddButtonText: {
+    color: colors.accentCalendar,
+    fontWeight: '800',
+  },
+  tagSuggestionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  tagSuggestionChip: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  tagSuggestionText: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    fontWeight: '700',
   },
   switchRow: {
     flexDirection: 'row',
