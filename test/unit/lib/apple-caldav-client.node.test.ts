@@ -88,6 +88,34 @@ describe('apple caldav client', () => {
         expect(result.calendars[0].remoteCalendarId).toBe('home');
     });
 
+    it('reads calendar collection metadata for ctag/sync-token sanity checks', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(`<?xml version="1.0" encoding="utf-8"?>
+            <d:multistatus xmlns:d="DAV:" xmlns:cd="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ical="http://apple.com/ns/ical/">
+              <d:response>
+                <d:href>/12345/calendars/home/</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <d:displayname>Home</d:displayname>
+                    <cs:getctag>tag-2</cs:getctag>
+                    <d:sync-token>sync-2</d:sync-token>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+              </d:response>
+            </d:multistatus>`, { status: 207 })));
+
+        const { fetchCalendarCollectionMetadata } = await import('@/lib/apple-caldav/client');
+        const result = await fetchCalendarCollectionMetadata({
+            username: 'parent@example.com',
+            password: 'app-password',
+            calendarUrl: 'https://caldav.icloud.com/12345/calendars/home/',
+        });
+
+        expect(result.displayName).toBe('Home');
+        expect(result.ctag).toBe('tag-2');
+        expect(result.syncToken).toBe('sync-2');
+    });
+
     it('parses sync-token deltas and deleted hrefs from sync-collection responses', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(`<?xml version="1.0" encoding="utf-8"?>
             <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">

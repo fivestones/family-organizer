@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'crypto';
-import { discoverAppleCalendars, fetchCalendarEvents } from '@/lib/apple-caldav/client';
+import { discoverAppleCalendars, fetchCalendarCollectionMetadata, fetchCalendarEvents } from '@/lib/apple-caldav/client';
 import {
     APPLE_CALDAV_PROVIDER,
     getCalendarSyncActivePollMs,
@@ -365,6 +365,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
                 const forceRepair = shouldForceRepair(calendar, account, input.trigger, now);
 
                 let remoteEventsResult;
+                let collectionMetadata: any = null;
                 const shouldUseIncremental = !forceRepair && Boolean(calendar.lastSyncToken);
                 try {
                     remoteEventsResult = await fetchCalendarEvents({
@@ -375,6 +376,29 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
                         rangeEndIso: window.rangeEndIso,
                         syncToken: shouldUseIncremental ? calendar.lastSyncToken : '',
                     });
+                    if (shouldUseIncremental && remoteEventsResult.events.length === 0 && remoteEventsResult.deletedHrefs.length === 0) {
+                        collectionMetadata = await fetchCalendarCollectionMetadata({
+                            username: account.username,
+                            password,
+                            calendarUrl: calendar.remoteUrl,
+                        });
+                        const ctagChanged =
+                            Boolean(collectionMetadata?.ctag) &&
+                            String(collectionMetadata.ctag) !== String(calendar.lastCtag || '');
+                        const syncTokenChanged =
+                            Boolean(collectionMetadata?.syncToken) &&
+                            String(collectionMetadata.syncToken) !== String(calendar.lastSyncToken || '');
+
+                        if (ctagChanged || syncTokenChanged) {
+                            remoteEventsResult = await fetchCalendarEvents({
+                                username: account.username,
+                                password,
+                                calendarUrl: calendar.remoteUrl,
+                                rangeStartIso: window.rangeStartIso,
+                                rangeEndIso: window.rangeEndIso,
+                            });
+                        }
+                    }
                 } catch (error: any) {
                     if (error?.code !== 'invalid_sync_token') {
                         throw error;
@@ -440,7 +464,8 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
                 }
 
                 calendar.lastSuccessfulSyncAt = nowIso;
-                calendar.lastSyncToken = remoteEventsResult.nextSyncToken || calendar.lastSyncToken || '';
+                calendar.lastSyncToken = remoteEventsResult.nextSyncToken || collectionMetadata?.syncToken || calendar.lastSyncToken || '';
+                calendar.lastCtag = collectionMetadata?.ctag || calendar.lastCtag || '';
                 calendar.updatedAt = nowIso;
             } catch (error: any) {
                 const detail = [

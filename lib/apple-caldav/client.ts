@@ -212,6 +212,44 @@ async function listCalendarsAtHome(input: { username: string; password: string; 
     return calendars;
 }
 
+export async function fetchCalendarCollectionMetadata(input: {
+    username: string;
+    password: string;
+    calendarUrl: string;
+}) {
+    const response = await caldavRequest(input.calendarUrl, {
+        method: 'PROPFIND',
+        username: input.username,
+        password: input.password,
+        depth: '0',
+        body: `<?xml version="1.0" encoding="utf-8" ?>
+            <d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/" xmlns:cd="urn:ietf:params:xml:ns:caldav" xmlns:ical="http://apple.com/ns/ical/">
+              <d:prop>
+                <d:displayname />
+                <cs:getctag />
+                <d:sync-token />
+                <cd:calendar-description />
+                <cd:calendar-timezone />
+                <ical:calendar-color />
+              </d:prop>
+            </d:propfind>`,
+    });
+    const text = await response.text();
+    const parsed = xmlParser.parse(text);
+    const multistatus = parsed.multistatus || {};
+    const entry = allResponses(multistatus)[0] || {};
+
+    return {
+        remoteUrl: response.url || input.calendarUrl,
+        displayName: textOf(getResponseProperty(entry, 'displayname')) || '',
+        color: textOf(getResponseProperty(entry, 'calendar-color')) || '',
+        description: textOf(getResponseProperty(entry, 'calendar-description')) || '',
+        timeZone: textOf(getResponseProperty(entry, 'calendar-timezone')) || '',
+        ctag: textOf(getResponseProperty(entry, 'getctag')) || '',
+        syncToken: textOf(getResponseProperty(entry, 'sync-token')) || '',
+    };
+}
+
 async function calendarMultiGet(input: {
     username: string;
     password: string;
