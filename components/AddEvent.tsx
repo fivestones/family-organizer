@@ -86,9 +86,16 @@ interface CalendarAlarm {
     [key: string]: any;
 }
 
+export interface CalendarDraftSelection {
+    start: Date;
+    end: Date;
+    isAllDay: boolean;
+}
+
 interface AddEventFormProps {
     selectedDate: Date | null;
     selectedEvent: CalendarItem | null;
+    initialDraft?: CalendarDraftSelection | null;
     allCalendarItems?: CalendarItem[];
     onClose: () => void;
     defaultStartTime?: string;
@@ -1220,6 +1227,7 @@ function deriveAlarmDefaults(selectedEvent: CalendarItem | null) {
 const AddEventForm = ({
     selectedDate,
     selectedEvent,
+    initialDraft = null,
     allCalendarItems = [],
     onClose,
     defaultStartTime = '10:00',
@@ -1476,7 +1484,7 @@ const AddEventForm = ({
     }, [familyMembers, memberGridWidth]);
 
     useEffect(() => {
-        if (!selectedDate || selectedEvent) {
+        if ((!selectedDate && !initialDraft) || selectedEvent) {
             return;
         }
 
@@ -1487,7 +1495,7 @@ const AddEventForm = ({
         return () => {
             window.cancelAnimationFrame(raf);
         };
-    }, [selectedDate, selectedEvent]);
+    }, [initialDraft, selectedDate, selectedEvent]);
 
     useEffect(() => {
         if (selectedEvent) {
@@ -1587,10 +1595,20 @@ const AddEventForm = ({
             setSelectedFamilyMemberIds((selectedEvent.pertainsTo || []).map((member) => member.id));
             setSelectedTags(sortCalendarTagRecords(dedupeCalendarTagRecords(selectedEvent.tags || [])));
             setTagDraft('');
-        } else if (selectedDate) {
-            const formattedDate = format(selectedDate, 'yyyy-MM-dd');
-            const startDateTime = parse(defaultStartTime, 'HH:mm', new Date());
-            const endDateTime = addHours(startDateTime, 1);
+        } else if (selectedDate || initialDraft) {
+            const draftStart = initialDraft?.start ?? selectedDate;
+            const draftEnd = initialDraft?.end ?? addHours(parse(defaultStartTime, 'HH:mm', new Date()), 1);
+            const isDraftAllDay = Boolean(initialDraft?.isAllDay);
+            if (!draftStart) {
+                return;
+            }
+
+            const formattedDate = format(draftStart, 'yyyy-MM-dd');
+            const startDateTime = initialDraft?.isAllDay ? parse(defaultStartTime, 'HH:mm', new Date()) : draftStart;
+            const endDateTime = initialDraft?.isAllDay ? addHours(parse(defaultStartTime, 'HH:mm', new Date()), 1) : draftEnd;
+            const formattedEndDate = isDraftAllDay
+                ? format(addDays(draftEnd, -1), 'yyyy-MM-dd')
+                : format(draftEnd, 'yyyy-MM-dd');
 
             setFormData((prevState) => ({
                 ...prevState,
@@ -1598,10 +1616,10 @@ const AddEventForm = ({
                 title: '',
                 description: '',
                 startDate: formattedDate,
-                endDate: formattedDate,
+                endDate: formattedEndDate,
                 startTime: format(startDateTime, 'HH:mm'),
                 endTime: format(endDateTime, 'HH:mm'),
-                isAllDay: true,
+                isAllDay: isDraftAllDay,
                 status: DEFAULT_EVENT_STATUS,
                 location: '',
                 timeZone: getLocalTimeZone(),
@@ -1633,7 +1651,7 @@ const AddEventForm = ({
             setSelectedTags([]);
             setTagDraft('');
         }
-    }, [defaultStartTime, isSelectedRecurringOverride, selectedDate, selectedEvent, selectedMasterEvent]);
+    }, [defaultStartTime, initialDraft, isSelectedRecurringOverride, selectedDate, selectedEvent, selectedMasterEvent]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;

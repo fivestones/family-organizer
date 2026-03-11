@@ -224,4 +224,48 @@ describe('CalendarHeaderControls member filter summary', () => {
 
         window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
     });
+
+    it('offers day view controls and dispatches day-specific settings', async () => {
+        const receivedCommands: any[] = [];
+        const handleCommand = (event: Event) => {
+            receivedCommands.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+
+        render(<CalendarHeaderControls />);
+
+        const viewSelect = screen.getByLabelText('View') as HTMLSelectElement;
+        fireEvent.change(viewSelect, { target: { value: 'day' } });
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setViewMode',
+                        viewMode: 'day',
+                    }),
+                ])
+            );
+        });
+
+        fireEvent.change(screen.getByLabelText('Visible Days'), { target: { value: '3' } });
+        fireEvent.change(screen.getByLabelText('Hour Zoom'), { target: { value: '72' } });
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setDayVisibleDays',
+                        dayVisibleDays: 3,
+                    }),
+                    expect.objectContaining({
+                        type: 'setDayHourHeight',
+                        dayHourHeight: 72,
+                    }),
+                ])
+            );
+        });
+
+        window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+    });
 });

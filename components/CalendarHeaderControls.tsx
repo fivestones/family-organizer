@@ -12,7 +12,15 @@ import {
     CALENDAR_DAY_HEIGHT_DEFAULT,
     CALENDAR_DAY_HEIGHT_MAX,
     CALENDAR_DAY_HEIGHT_MIN,
+    CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT,
+    CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX,
+    CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN,
+    CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT,
+    CALENDAR_DAY_VIEW_VISIBLE_DAYS_MAX,
+    CALENDAR_DAY_VIEW_VISIBLE_DAYS_MIN,
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
+    CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY,
+    CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY,
     CALENDAR_SHOW_CHORES_STORAGE_KEY,
     CALENDAR_STATE_EVENT,
     CALENDAR_VISIBLE_WEEKS_MAX,
@@ -21,6 +29,8 @@ import {
     CALENDAR_YEAR_FONT_SCALE_DEFAULT,
     CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY,
     CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY,
+    clampCalendarDayHourHeight,
+    clampCalendarDayVisibleDays,
     clampCalendarYearFontScale,
     type CalendarViewMode,
     type CalendarYearMonthBasis,
@@ -50,6 +60,8 @@ export default function CalendarHeaderControls() {
     const [visibleWeeks, setVisibleWeeks] = useState(6);
     const [showChores, setShowChores] = useState(false);
     const [viewMode, setViewMode] = useState<CalendarViewMode>('monthly');
+    const [dayVisibleDays, setDayVisibleDays] = useState(CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT);
+    const [dayHourHeight, setDayHourHeight] = useState(CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT);
     const [yearMonthBasis, setYearMonthBasis] = useState<CalendarYearMonthBasis>('gregorian');
     const [yearFontScale, setYearFontScale] = useState(CALENDAR_YEAR_FONT_SCALE_DEFAULT);
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
@@ -72,8 +84,16 @@ export default function CalendarHeaderControls() {
 
         setShowChores(window.localStorage.getItem(CALENDAR_SHOW_CHORES_STORAGE_KEY) === 'true');
         const storedViewMode = window.localStorage.getItem(CALENDAR_VIEW_MODE_STORAGE_KEY);
-        if (storedViewMode === 'monthly' || storedViewMode === 'year') {
+        if (storedViewMode === 'monthly' || storedViewMode === 'year' || storedViewMode === 'day') {
             setViewMode(storedViewMode);
+        }
+        const storedDayVisibleDays = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY));
+        if (Number.isFinite(storedDayVisibleDays)) {
+            setDayVisibleDays(clampCalendarDayVisibleDays(storedDayVisibleDays));
+        }
+        const storedDayHourHeight = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY));
+        if (Number.isFinite(storedDayHourHeight)) {
+            setDayHourHeight(clampCalendarDayHourHeight(storedDayHourHeight));
         }
         const storedYearMonthBasis = window.localStorage.getItem(CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY);
         if (storedYearMonthBasis === 'gregorian' || storedYearMonthBasis === 'bs') {
@@ -103,6 +123,8 @@ export default function CalendarHeaderControls() {
             setVisibleWeeks(clampNumber(Math.round(detail.visibleWeeks), CALENDAR_VISIBLE_WEEKS_MIN, CALENDAR_VISIBLE_WEEKS_MAX));
             setShowChores(Boolean(detail.showChores));
             setViewMode(detail.viewMode);
+            setDayVisibleDays(clampCalendarDayVisibleDays(detail.dayVisibleDays));
+            setDayHourHeight(clampCalendarDayHourHeight(detail.dayHourHeight));
             setYearMonthBasis(detail.yearMonthBasis);
             setYearFontScale(clampCalendarYearFontScale(detail.yearFontScale));
             if (detail.choreFilter) {
@@ -378,13 +400,15 @@ export default function CalendarHeaderControls() {
                                 id="calendar-view-mode-header"
                                 value={viewMode}
                                 onChange={(event) => {
-                                    const next = event.target.value === 'year' ? 'year' : 'monthly';
+                                    const next =
+                                        event.target.value === 'year' ? 'year' : event.target.value === 'day' ? 'day' : 'monthly';
                                     setViewMode(next);
                                     dispatchCalendarCommand({ type: 'setViewMode', viewMode: next });
                                 }}
                                 className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
                             >
                                 <option value="monthly">Monthly</option>
+                                <option value="day">Daily</option>
                                 <option value="year">Full year</option>
                             </select>
                         </div>
@@ -441,6 +465,51 @@ export default function CalendarHeaderControls() {
                                             Shift right
                                         </Button>
                                     </div>
+                                </div>
+                            </div>
+                        ) : viewMode === 'day' ? (
+                            <div className="grid gap-4">
+                                <div className="grid gap-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <Label htmlFor="calendar-day-visible-days-header">Visible Days</Label>
+                                        <span className="text-xs text-muted-foreground">{dayVisibleDays}</span>
+                                    </div>
+                                    <input
+                                        id="calendar-day-visible-days-header"
+                                        type="range"
+                                        min={CALENDAR_DAY_VIEW_VISIBLE_DAYS_MIN}
+                                        max={CALENDAR_DAY_VIEW_VISIBLE_DAYS_MAX}
+                                        step={1}
+                                        value={dayVisibleDays}
+                                        onChange={(event) => {
+                                            const next = clampCalendarDayVisibleDays(Number(event.target.value));
+                                            setDayVisibleDays(next);
+                                            dispatchCalendarCommand({ type: 'setDayVisibleDays', dayVisibleDays: next });
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <Label htmlFor="calendar-day-hour-height-header">Hour Zoom</Label>
+                                        <span className="text-xs text-muted-foreground">{dayHourHeight}px</span>
+                                    </div>
+                                    <input
+                                        id="calendar-day-hour-height-header"
+                                        type="range"
+                                        min={CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN}
+                                        max={CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX}
+                                        step={2}
+                                        value={dayHourHeight}
+                                        onChange={(event) => {
+                                            const next = clampCalendarDayHourHeight(Number(event.target.value));
+                                            setDayHourHeight(next);
+                                            dispatchCalendarCommand({ type: 'setDayHourHeight', dayHourHeight: next });
+                                        }}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Approx. visible hours: {(Math.max(1, 620) / Math.max(1, dayHourHeight)).toFixed(1)}
+                                    </p>
                                 </div>
                             </div>
                         ) : (

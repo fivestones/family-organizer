@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
     monitorForElements: vi.fn(),
     monitorCleanup: vi.fn(),
     monitorConfig: null as any,
+    dropTargetForElements: vi.fn(),
+    dropCleanup: vi.fn(),
 }));
 
 vi.mock('next/font/local', () => ({
@@ -47,6 +49,10 @@ vi.mock('@atlaskit/pragmatic-drag-and-drop/element/adapter', () => ({
         mocks.monitorConfig = config;
         mocks.monitorForElements(config);
         return mocks.monitorCleanup;
+    },
+    dropTargetForElements: (config: any) => {
+        mocks.dropTargetForElements(config);
+        return mocks.dropCleanup;
     },
 }));
 
@@ -89,7 +95,7 @@ vi.mock('@/components/DraggableCalendarEvent', () => ({
 
 vi.mock('@/components/AddEvent', () => ({
     __esModule: true,
-    default: ({ selectedDate, selectedEvent }: any) => (
+    default: ({ selectedDate, selectedEvent, initialDraft }: any) => (
         <div
             data-testid="add-event-form"
             data-selected-date={
@@ -98,6 +104,9 @@ vi.mock('@/components/AddEvent', () => ({
                     : ''
             }
             data-selected-event-id={selectedEvent?.id ?? ''}
+            data-draft-start={initialDraft?.start instanceof Date ? initialDraft.start.toISOString() : ''}
+            data-draft-end={initialDraft?.end instanceof Date ? initialDraft.end.toISOString() : ''}
+            data-draft-all-day={initialDraft?.isAllDay ? 'true' : 'false'}
         />
     ),
 }));
@@ -194,6 +203,8 @@ describe('Calendar', () => {
         mocks.monitorForElements.mockReset();
         mocks.monitorCleanup.mockReset();
         mocks.monitorConfig = null;
+        mocks.dropTargetForElements.mockReset();
+        mocks.dropCleanup.mockReset();
         window.localStorage.clear();
     });
 
@@ -756,6 +767,134 @@ describe('Calendar', () => {
         expect(typeof ops[0].payload.updatedAt).toBe('string');
         expect(typeof ops[0].payload.lastModified).toBe('string');
         expect(typeof ops[0].payload.dtStamp).toBe('string');
+    });
+
+    it('switches to the day view and opens a timed draft from an empty slot', async () => {
+        renderCalendarWithItems([]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('day-view-header-2026-03-15')).toBeInTheDocument();
+        });
+
+        fireEvent.doubleClick(screen.getByTestId('day-view-timed-column-2026-03-15'), { clientY: 40 });
+
+        const form = screen.getByTestId('add-event-form');
+        expect(form).toHaveAttribute('data-selected-date', '2026-03-15');
+        expect(form).toHaveAttribute('data-draft-all-day', 'false');
+        expect(form.getAttribute('data-draft-start')).toContain('2026-03-15T');
+        expect(form.getAttribute('data-draft-end')).toContain('2026-03-15T');
+    });
+
+    it('reschedules a timed event to a specific day/time in the day view', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-timed',
+                title: 'Math tutoring',
+                startDate: new Date(2026, 2, 15, 9, 0, 0, 0).toISOString(),
+                endDate: new Date(2026, 2, 15, 10, 0, 0, 0).toISOString(),
+                isAllDay: false,
+            },
+        ]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+        });
+
+        const event = {
+            id: 'evt-timed',
+            title: 'Math tutoring',
+            startDate: new Date(2026, 2, 15, 9, 0, 0, 0).toISOString(),
+            endDate: new Date(2026, 2, 15, 10, 0, 0, 0).toISOString(),
+            isAllDay: false,
+        };
+
+        act(() => {
+            mocks.monitorConfig.onDrop({
+                source: { data: { type: 'calendar-event', event } },
+                location: {
+                    current: {
+                        input: { altKey: false, shiftKey: false },
+                        dropTargets: [{ data: { type: 'calendar-time-slot', dateStr: '2026-03-16', minuteOfDay: 600 } }],
+                    },
+                },
+            });
+        });
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalled();
+        });
+
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops[0]).toMatchObject({
+            entity: 'calendarItems',
+            id: 'evt-timed',
+            op: 'update',
+            payload: {
+                startDate: new Date(2026, 2, 16, 10, 0, 0, 0).toISOString(),
+                endDate: new Date(2026, 2, 16, 11, 0, 0, 0).toISOString(),
+                year: 2026,
+                month: 3,
+                dayOfMonth: 16,
+            },
+        });
+    });
+
+    it('resizes a timed event in the day view', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-resize',
+                title: 'Reading block',
+                startDate: new Date(2026, 2, 15, 9, 0, 0, 0).toISOString(),
+                endDate: new Date(2026, 2, 15, 10, 0, 0, 0).toISOString(),
+                isAllDay: false,
+            },
+        ]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByLabelText('Resize Reading block later')).toBeInTheDocument();
+        });
+
+        fireEvent.pointerDown(screen.getByLabelText('Resize Reading block later'), { clientY: 100 });
+        fireEvent.pointerMove(window, { clientY: 144 });
+        fireEvent.pointerUp(window, { clientY: 144 });
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalled();
+        });
+
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops[0]).toMatchObject({
+            entity: 'calendarItems',
+            id: 'evt-resize',
+            op: 'update',
+            payload: {
+                startDate: new Date(2026, 2, 15, 9, 0, 0, 0).toISOString(),
+                year: 2026,
+                month: 3,
+                dayOfMonth: 15,
+            },
+        });
+        expect(new Date(ops[0].payload.endDate).getTime()).toBeGreaterThan(new Date(2026, 2, 15, 10, 0, 0, 0).getTime());
     });
 
     it('ignores drops onto the same day or non-calendar targets', () => {
