@@ -348,11 +348,12 @@ export async function fetchCalendarEvents(input: {
             const multistatus = parsed.multistatus || {};
             const events = [];
             const deletedHrefs = [];
-            const hrefsNeedingMultiget = [];
+            const hrefsNeedingMultiget: string[] = [];
             const baseUrl = response.url || input.calendarUrl;
 
             for (const entry of allResponses(multistatus)) {
-                const href = buildAbsoluteUrl(baseUrl, textOf(entry.href));
+                const rawHref = textOf(entry.href);
+                const href = buildAbsoluteUrl(baseUrl, rawHref);
                 if (!href) continue;
                 if (responseHasStatus(entry, 404)) {
                     deletedHrefs.push(href);
@@ -360,7 +361,9 @@ export async function fetchCalendarEvents(input: {
                 }
                 const ics = textOf(getResponseProperty(entry, 'calendar-data')) || '';
                 if (!ics) {
-                    hrefsNeedingMultiget.push(href);
+                    if (rawHref) {
+                        hrefsNeedingMultiget.push(rawHref);
+                    }
                     continue;
                 }
                 events.push({

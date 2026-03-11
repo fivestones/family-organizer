@@ -135,7 +135,7 @@ END:VCALENDAR</c:calendar-data>
     });
 
     it('falls back to calendar-multiget when sync-collection returns changed hrefs without calendar-data', async () => {
-        vi.stubGlobal('fetch', vi.fn()
+        const fetchMock = vi.fn()
             .mockResolvedValueOnce(new Response(`<?xml version="1.0" encoding="utf-8"?>
                 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
                   <d:response>
@@ -168,7 +168,8 @@ END:VCALENDAR</c:calendar-data>
                       <d:status>HTTP/1.1 200 OK</d:status>
                     </d:propstat>
                   </d:response>
-                </d:multistatus>`, { status: 207 })));
+                </d:multistatus>`, { status: 207 }));
+        vi.stubGlobal('fetch', fetchMock);
 
         const { fetchCalendarEvents } = await import('@/lib/apple-caldav/client');
         const result = await fetchCalendarEvents({
@@ -184,6 +185,8 @@ END:VCALENDAR</c:calendar-data>
         expect(result.events).toHaveLength(1);
         expect(result.events[0].href).toBe('https://caldav.icloud.com/12345/calendars/home/event.ics');
         expect(result.nextSyncToken).toBe('sync-2');
+        const multigetRequest = fetchMock.mock.calls[1];
+        expect(multigetRequest[1]?.body).toContain('<d:href>/12345/calendars/home/event.ics</d:href>');
     });
 
     it('flags invalid sync tokens so the sync engine can fall back to a full scan', async () => {
