@@ -134,6 +134,58 @@ END:VCALENDAR</c:calendar-data>
         expect(result.nextSyncToken).toBe('sync-2');
     });
 
+    it('falls back to calendar-multiget when sync-collection returns changed hrefs without calendar-data', async () => {
+        vi.stubGlobal('fetch', vi.fn()
+            .mockResolvedValueOnce(new Response(`<?xml version="1.0" encoding="utf-8"?>
+                <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+                  <d:response>
+                    <d:href>/12345/calendars/home/event.ics</d:href>
+                    <d:propstat>
+                      <d:prop>
+                        <d:getetag>"etag-1"</d:getetag>
+                      </d:prop>
+                      <d:status>HTTP/1.1 200 OK</d:status>
+                    </d:propstat>
+                  </d:response>
+                  <d:sync-token>sync-2</d:sync-token>
+                </d:multistatus>`, { status: 207 }))
+            .mockResolvedValueOnce(new Response(`<?xml version="1.0" encoding="utf-8"?>
+                <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+                  <d:response>
+                    <d:href>/12345/calendars/home/event.ics</d:href>
+                    <d:propstat>
+                      <d:prop>
+                        <d:getetag>"etag-1"</d:getetag>
+                        <c:calendar-data>BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:test-1
+DTSTART:20260310T120000Z
+DTEND:20260310T130000Z
+SUMMARY:Test
+END:VEVENT
+END:VCALENDAR</c:calendar-data>
+                      </d:prop>
+                      <d:status>HTTP/1.1 200 OK</d:status>
+                    </d:propstat>
+                  </d:response>
+                </d:multistatus>`, { status: 207 })));
+
+        const { fetchCalendarEvents } = await import('@/lib/apple-caldav/client');
+        const result = await fetchCalendarEvents({
+            username: 'parent@example.com',
+            password: 'app-password',
+            calendarUrl: 'https://caldav.icloud.com/12345/calendars/home/',
+            rangeStartIso: '2026-03-01T00:00:00.000Z',
+            rangeEndIso: '2026-03-31T23:59:59.999Z',
+            syncToken: 'sync-1',
+        });
+
+        expect(result.mode).toBe('incremental');
+        expect(result.events).toHaveLength(1);
+        expect(result.events[0].href).toBe('https://caldav.icloud.com/12345/calendars/home/event.ics');
+        expect(result.nextSyncToken).toBe('sync-2');
+    });
+
     it('flags invalid sync tokens so the sync engine can fall back to a full scan', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('invalid sync token', { status: 409 })));
 

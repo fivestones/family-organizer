@@ -19,6 +19,7 @@ interface SyncCalendarRow {
 
 interface SyncStatus {
     configured: boolean;
+    serverNow?: string;
     account: null | {
         id: string;
         status?: string;
@@ -156,6 +157,10 @@ export default function AppleCalendarSyncSettings() {
     const [isLoading, setIsLoading] = useState(true);
     const [isPending, startTransition] = useTransition();
     const [relativeNowMs, setRelativeNowMs] = useState(() => Date.now());
+    const [serverNowAnchor, setServerNowAnchor] = useState(() => ({
+        serverNowMs: Date.now(),
+        clientReceivedMs: Date.now(),
+    }));
     const [isEditingCredentials, setIsEditingCredentials] = useState(false);
     const [form, setForm] = useState({
         username: '',
@@ -190,6 +195,13 @@ export default function AppleCalendarSyncSettings() {
                 cache: 'no-store',
                 headers: calendarSyncHeaders(),
             }));
+            const serverNowMs = new Date(nextStatus?.serverNow || '').getTime();
+            if (Number.isFinite(serverNowMs)) {
+                setServerNowAnchor({
+                    serverNowMs,
+                    clientReceivedMs: Date.now(),
+                });
+            }
             setStatus(nextStatus);
             setForm((current) => ({
                 ...current,
@@ -233,6 +245,11 @@ export default function AppleCalendarSyncSettings() {
         };
     }, []);
 
+    const referenceNowMs = useMemo(() => {
+        if (!Number.isFinite(serverNowAnchor.serverNowMs)) return relativeNowMs;
+        return serverNowAnchor.serverNowMs + Math.max(0, relativeNowMs - serverNowAnchor.clientReceivedMs);
+    }, [relativeNowMs, serverNowAnchor.clientReceivedMs, serverNowAnchor.serverNowMs]);
+
     useEffect(() => {
         if (!status?.configured) {
             setIsEditingCredentials(true);
@@ -268,7 +285,7 @@ export default function AppleCalendarSyncSettings() {
                 body: status?.account?.lastErrorMessage || status?.lastRun?.errorMessage || 'The most recent sync failed.',
             };
         }
-        if (isPollingHeartbeatOverdue(status?.polling, relativeNowMs)) {
+        if (isPollingHeartbeatOverdue(status?.polling, referenceNowMs)) {
             return {
                 tone: 'bg-amber-100 text-amber-700',
                 label: 'Polling overdue',
@@ -302,7 +319,7 @@ export default function AppleCalendarSyncSettings() {
         status?.lastRun?.status,
         status?.polling,
         status?.polling?.pollReason,
-        relativeNowMs,
+        referenceNowMs,
     ]);
 
     async function handleConnect() {
@@ -375,10 +392,18 @@ export default function AppleCalendarSyncSettings() {
                     })
                 );
                 const completedAtIso = result?.finishedAt || result?.checkedAt || new Date().toISOString();
+                const completedAtMs = new Date(completedAtIso).getTime();
+                if (Number.isFinite(completedAtMs)) {
+                    setServerNowAnchor({
+                        serverNowMs: completedAtMs,
+                        clientReceivedMs: Date.now(),
+                    });
+                }
                 setStatus((current) => {
                     if (!current?.account) return current;
                     return {
                         ...current,
+                        serverNow: completedAtIso,
                         account: {
                             ...current.account,
                             lastAttemptedSyncAt: completedAtIso,
@@ -531,16 +556,16 @@ export default function AppleCalendarSyncSettings() {
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last successful sync</p>
-                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.account?.lastSuccessfulSyncAt, relativeNowMs)}</p>
+                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.account?.lastSuccessfulSyncAt, referenceNowMs)}</p>
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last completed check</p>
-                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.polling?.lastSuccessfulPollAt, relativeNowMs)}</p>
+                            <p className="mt-2 text-sm font-medium text-slate-900">{formatDateWithRelative(status?.polling?.lastSuccessfulPollAt, referenceNowMs)}</p>
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Next poll</p>
                             <p className="mt-2 text-sm font-medium text-slate-900">
-                                {status?.configured ? formatDateWithRelative(status?.polling?.nextPollAt, relativeNowMs) : 'Waiting for connection'}
+                                {status?.configured ? formatDateWithRelative(status?.polling?.nextPollAt, referenceNowMs) : 'Waiting for connection'}
                             </p>
                             {status?.polling?.nextPollInMs != null ? (
                                 <p className="mt-1 text-xs text-slate-500">About {formatDurationMs(status.polling.nextPollInMs)}</p>
@@ -559,13 +584,13 @@ export default function AppleCalendarSyncSettings() {
                             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last run</p>
                             <p className="mt-2 text-sm font-medium capitalize text-slate-900">
                                 {runTriggerLabel(status.lastRun.trigger)}
-                                {status.lastRun.finishedAt ? ` • ${formatDateWithRelative(status.lastRun.finishedAt, relativeNowMs)}` : ''}
+                                {status.lastRun.finishedAt ? ` • ${formatDateWithRelative(status.lastRun.finishedAt, referenceNowMs)}` : ''}
                             </p>
                             <p className="mt-1 text-xs text-slate-500">
                                 {status.lastRun.status === 'success' ? 'Finished successfully' : status.lastRun.status || 'Unknown status'}
                             </p>
                             {status?.account?.lastErrorAt ? (
-                                <p className="mt-1 text-xs text-slate-500">Last error seen {formatDateWithRelative(status.account.lastErrorAt, relativeNowMs)}</p>
+                                <p className="mt-1 text-xs text-slate-500">Last error seen {formatDateWithRelative(status.account.lastErrorAt, referenceNowMs)}</p>
                             ) : null}
                         </div>
                     ) : null}

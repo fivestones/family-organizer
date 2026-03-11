@@ -27,6 +27,7 @@ describe('AppleCalendarSyncSettings', () => {
                     new Response(
                         JSON.stringify({
                             configured: true,
+                            serverNow: '2026-03-10T12:01:00.000Z',
                             account: {
                                 id: 'acct_1',
                                 username: 'parent@example.com',
@@ -51,6 +52,7 @@ describe('AppleCalendarSyncSettings', () => {
                     new Response(
                         JSON.stringify({
                             configured: true,
+                            serverNow: '2026-03-10T12:05:00.000Z',
                             account: {
                                 id: 'acct_1',
                                 username: 'parent@example.com',
@@ -75,6 +77,7 @@ describe('AppleCalendarSyncSettings', () => {
                     new Response(
                         JSON.stringify({
                             configured: true,
+                            serverNow: '2026-03-10T12:07:00.000Z',
                             account: {
                                 id: 'acct_1',
                                 username: 'parent@example.com',

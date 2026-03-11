@@ -24,6 +24,7 @@ describe('GET /api/calendar-sync/apple/status', () => {
     it('returns current sync status for authenticated devices', async () => {
         getAppleCalendarSyncStatus.mockResolvedValue({
             configured: true,
+            serverNow: '2026-03-10T12:00:00.000Z',
             account: { id: 'acct_1', username: 'parent@example.com' },
             calendars: [],
             lastRun: null,
@@ -38,6 +39,7 @@ describe('GET /api/calendar-sync/apple/status', () => {
         expect(response.status).toBe(200);
         const body = await response.json();
         expect(body.configured).toBe(true);
+        expect(body.serverNow).toBe('2026-03-10T12:00:00.000Z');
         expect(body.account.username).toBe('parent@example.com');
     });
 });

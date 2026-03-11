@@ -212,6 +212,43 @@ async function listCalendarsAtHome(input: { username: string; password: string; 
     return calendars;
 }
 
+async function calendarMultiGet(input: {
+    username: string;
+    password: string;
+    calendarUrl: string;
+    hrefs: string[];
+}) {
+    if (input.hrefs.length === 0) return [];
+
+    const response = await caldavRequest(input.calendarUrl, {
+        method: 'REPORT',
+        username: input.username,
+        password: input.password,
+        depth: '1',
+        body: `<?xml version="1.0" encoding="utf-8" ?>
+            <c:calendar-multiget xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+              <d:prop>
+                <d:getetag />
+                <c:calendar-data />
+              </d:prop>
+              ${input.hrefs.map((href) => `<d:href>${href}</d:href>`).join('')}
+            </c:calendar-multiget>`,
+    });
+
+    const body = await response.text();
+    const parsed = xmlParser.parse(body);
+    const multistatus = parsed.multistatus || {};
+    const baseUrl = response.url || input.calendarUrl;
+
+    return allResponses(multistatus)
+        .map((entry) => ({
+            href: buildAbsoluteUrl(baseUrl, textOf(entry.href)),
+            etag: textOf(getResponseProperty(entry, 'getetag')) || '',
+            ics: textOf(getResponseProperty(entry, 'calendar-data')) || '',
+        }))
+        .filter((entry) => entry.href && entry.ics);
+}
+
 export async function discoverAppleCalendars(input: {
     username: string;
     password: string;
@@ -311,6 +348,7 @@ export async function fetchCalendarEvents(input: {
             const multistatus = parsed.multistatus || {};
             const events = [];
             const deletedHrefs = [];
+            const hrefsNeedingMultiget = [];
             const baseUrl = response.url || input.calendarUrl;
 
             for (const entry of allResponses(multistatus)) {
@@ -321,12 +359,25 @@ export async function fetchCalendarEvents(input: {
                     continue;
                 }
                 const ics = textOf(getResponseProperty(entry, 'calendar-data')) || '';
-                if (!ics) continue;
+                if (!ics) {
+                    hrefsNeedingMultiget.push(href);
+                    continue;
+                }
                 events.push({
                     href,
                     etag: textOf(getResponseProperty(entry, 'getetag')) || '',
                     ics,
                 });
+            }
+
+            if (hrefsNeedingMultiget.length > 0) {
+                const multigetEvents = await calendarMultiGet({
+                    username: input.username,
+                    password: input.password,
+                    calendarUrl: input.calendarUrl,
+                    hrefs: hrefsNeedingMultiget,
+                });
+                events.push(...multigetEvents);
             }
 
             return {
