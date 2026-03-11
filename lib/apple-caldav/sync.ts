@@ -2,6 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'crypto';
 import { discoverAppleCalendars, fetchCalendarCollectionMetadata, fetchCalendarEvents } from '@/lib/apple-caldav/client';
+import { isIgnoredAppleCalendarDisplayName } from '@/lib/apple-caldav/calendar-filter';
 import {
     APPLE_CALDAV_PROVIDER,
     getCalendarSyncActivePollMs,
@@ -214,7 +215,7 @@ export async function getAppleCalendarSyncStatus() {
             polling: null,
         };
     }
-    const calendars = await listCalendarSyncCalendars(account.id);
+    const calendars = (await listCalendarSyncCalendars(account.id)).filter((calendar: any) => !isIgnoredAppleCalendarDisplayName(calendar.displayName));
     const runs = await listRecentSyncRuns(account.id, 10);
     const pollPlan = getAppleCalendarSyncPollPlan({
         trigger: 'cron',
@@ -342,7 +343,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
             account.syncWindowPastDays || getDefaultSyncWindowPastDays(),
             account.syncWindowFutureDays || getDefaultSyncWindowFutureDays()
         );
-        const existingCalendars = (await listCalendarSyncCalendars(account.id)) as any[];
+        const existingCalendars = ((await listCalendarSyncCalendars(account.id)) as any[]).filter((calendar: any) => !isIgnoredAppleCalendarDisplayName(calendar.displayName));
         const discoveryPlan = shouldRefreshAppleCalendarDiscovery({
             account,
             calendars: existingCalendars,
@@ -373,7 +374,7 @@ export async function runAppleCalendarSync(input: { accountId?: string; trigger?
         let eventsCancelled = 0;
         let eventsMarkedDeleted = 0;
 
-        for (const calendar of calendars.filter((entry: any) => entry.isEnabled && entry.remoteUrl)) {
+        for (const calendar of calendars.filter((entry: any) => entry.isEnabled && entry.remoteUrl && !isIgnoredAppleCalendarDisplayName(entry.displayName))) {
             try {
                 const forceRepair = shouldForceRepair(calendar, account, input.trigger, now);
 

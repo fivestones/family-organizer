@@ -2,6 +2,7 @@ import 'server-only';
 
 import { XMLParser } from 'fast-xml-parser';
 import { APPLE_CALDAV_BASE_URL } from '@/lib/apple-caldav/config';
+import { isIgnoredAppleCalendarDisplayName } from '@/lib/apple-caldav/calendar-filter';
 
 const xmlParser = new XMLParser({
     ignoreAttributes: false,
@@ -207,7 +208,8 @@ async function listCalendarsAtHome(input: { username: string; password: string; 
                 syncToken: textOf(getResponseProperty(entry, 'sync-token')) || '',
             };
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter((calendar: any) => !isIgnoredAppleCalendarDisplayName(calendar.displayName));
 
     return calendars;
 }
