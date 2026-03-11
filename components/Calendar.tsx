@@ -759,6 +759,20 @@ const mergeCalendarItemsWithOptimistic = (
     return Array.from(mergedById.values());
 };
 
+const shouldHideImportedCalendarItem = (item: CalendarItem) => {
+    const isAppleImported = String(item.sourceType || '').trim() === 'apple-caldav';
+    if (!isAppleImported) {
+        return false;
+    }
+
+    const sourceSyncStatus = String(item.sourceSyncStatus || '').trim().toLowerCase();
+    if (sourceSyncStatus && sourceSyncStatus !== 'active') {
+        return true;
+    }
+
+    return String(item.status || '').trim().toLowerCase() === 'cancelled';
+};
+
 const resolveMemberColors = <T extends CalendarMemberWithColor>(
     members: T[] | undefined,
     memberColorsById: Record<string, string>
@@ -3121,7 +3135,8 @@ const Calendar = ({
         if (!isLoading && !error && data) {
             setCalendarItems(
                 applyResolvedMemberColorsToCalendarItems(
-                    mergeCalendarItemsWithOptimistic(data.calendarItems as CalendarItem[], optimisticItemsById),
+                    mergeCalendarItemsWithOptimistic(data.calendarItems as CalendarItem[], optimisticItemsById)
+                        .filter((item) => !shouldHideImportedCalendarItem(item)),
                     memberColorsById
                 )
             );

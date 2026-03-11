@@ -232,6 +232,43 @@ describe('Calendar', () => {
         expect(form).toHaveAttribute('data-selected-event-id', 'evt-1');
     });
 
+    it('hides Apple-imported items after sync marks them cancelled or deleted', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-active',
+                title: 'Visible imported event',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                sourceType: 'apple-caldav',
+                sourceSyncStatus: 'active',
+            },
+            {
+                id: 'evt-deleted',
+                title: 'Deleted imported event',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                sourceType: 'apple-caldav',
+                sourceSyncStatus: 'deleted-remote',
+            },
+            {
+                id: 'evt-cancelled',
+                title: 'Cancelled imported event',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                sourceType: 'apple-caldav',
+                sourceSyncStatus: 'cancelled',
+                status: 'cancelled',
+            },
+        ]);
+
+        expect(screen.getByTestId('calendar-event-evt-active')).toBeInTheDocument();
+        expect(screen.queryByTestId('calendar-event-evt-deleted')).toBeNull();
+        expect(screen.queryByTestId('calendar-event-evt-cancelled')).toBeNull();
+    });
+
     it('clears selection when a day cell is single-clicked', () => {
         renderCalendarWithItems([
             {

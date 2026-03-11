@@ -381,6 +381,15 @@ function isImportedEvent(event) {
   return !!event?.sourceReadOnly || event?.sourceType === 'apple-caldav';
 }
 
+function shouldHideImportedEvent(event) {
+  if (!isImportedEvent(event) || event?.sourceType !== 'apple-caldav') return false;
+
+  const sourceSyncStatus = String(event?.sourceSyncStatus || '').trim().toLowerCase();
+  if (sourceSyncStatus && sourceSyncStatus !== 'active') return true;
+
+  return String(event?.status || '').trim().toLowerCase() === 'cancelled';
+}
+
 function firstParam(value) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -434,7 +443,7 @@ export default function CalendarTab() {
     () =>
       (calendarQuery.data?.calendarItems || [])
         .map(normalizeCalendarItem)
-        .filter((item) => item.sourceSyncStatus !== 'deleted-remote')
+        .filter((item) => !shouldHideImportedEvent(item))
         .sort(compareEvents),
     [calendarQuery.data?.calendarItems]
   );

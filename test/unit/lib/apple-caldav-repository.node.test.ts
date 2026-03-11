@@ -77,4 +77,52 @@ describe('apple caldav repository helpers', () => {
             )
         ).toBe(false);
     });
+
+    it('treats recurring master rows as in-window when they still generate occurrences inside the sync window', async () => {
+        const { calendarItemIntersectsWindow } = await import('@/lib/apple-caldav/repository');
+        const rangeStart = new Date('2026-03-01T00:00:00.000Z');
+        const rangeEnd = new Date('2026-03-31T23:59:59.999Z');
+
+        expect(
+            calendarItemIntersectsWindow(
+                {
+                    startDate: '2026-01-06',
+                    endDate: '2026-01-07',
+                    isAllDay: true,
+                    rrule: 'RRULE:FREQ=WEEKLY;BYDAY=TU',
+                },
+                rangeStart,
+                rangeEnd
+            )
+        ).toBe(true);
+    });
+
+    it('detects stale imported rows when an incremental Apple resource update drops an override', async () => {
+        const { listIncrementalStaleImportedItems } = await import('@/lib/apple-caldav/repository');
+
+        const staleItems = listIncrementalStaleImportedItems({
+            existingItems: [
+                {
+                    id: 'evt-master',
+                    sourceExternalId: 'apple:acct_1:cal_1:weekly-study:master',
+                    sourceRemoteUrl: 'https://caldav.icloud.com/12345/calendars/home/weekly-study.ics',
+                    sourceSyncStatus: 'active',
+                },
+                {
+                    id: 'evt-override',
+                    sourceExternalId: 'apple:acct_1:cal_1:weekly-study:20260317T120000Z',
+                    sourceRemoteUrl: 'https://caldav.icloud.com/12345/calendars/home/weekly-study.ics',
+                    sourceSyncStatus: 'active',
+                },
+            ],
+            nextItems: [
+                {
+                    sourceExternalId: 'apple:acct_1:cal_1:weekly-study:master',
+                    sourceRemoteUrl: 'https://caldav.icloud.com/12345/calendars/home/weekly-study.ics',
+                },
+            ],
+        });
+
+        expect(staleItems.map((item) => item.id)).toEqual(['evt-override']);
+    });
 });
