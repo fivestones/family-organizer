@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -164,6 +164,10 @@ export default function AppleCalendarSyncSettings() {
     const [isEditingCredentials, setIsEditingCredentials] = useState(false);
     const [credentialsDirty, setCredentialsDirty] = useState(false);
     const [calendarSelectionDirty, setCalendarSelectionDirty] = useState(false);
+    const [isSavingCalendarSelection, setIsSavingCalendarSelection] = useState(false);
+    const [savedSelectedCalendarIds, setSavedSelectedCalendarIds] = useState<string[]>([]);
+    const credentialsDirtyRef = useRef(false);
+    const calendarSelectionDirtyRef = useRef(false);
     const [form, setForm] = useState({
         username: '',
         appSpecificPassword: '',
@@ -172,6 +176,14 @@ export default function AppleCalendarSyncSettings() {
     });
 
     const selectedCount = form.selectedCalendarIds.length;
+    const savedSelectedCalendarIdsKey = useMemo(
+        () => [...savedSelectedCalendarIds].sort().join('|'),
+        [savedSelectedCalendarIds]
+    );
+    const formSelectedCalendarIdsKey = useMemo(
+        () => [...form.selectedCalendarIds].sort().join('|'),
+        [form.selectedCalendarIds]
+    );
     const calendars = useMemo(() => {
         const seen = new Set<string>();
         return (status?.calendars || [])
@@ -208,11 +220,14 @@ export default function AppleCalendarSyncSettings() {
             const nextSelectedCalendarIds = (nextStatus?.calendars || [])
                 .filter((calendar: SyncCalendarRow) => calendar.isEnabled)
                 .map((calendar: SyncCalendarRow) => calendar.remoteCalendarId);
+            if (!calendarSelectionDirtyRef.current) {
+                setSavedSelectedCalendarIds(nextSelectedCalendarIds);
+            }
             setForm((current) => ({
                 ...current,
-                username: silent && credentialsDirty ? current.username : (nextStatus?.account?.username || current.username),
-                accountLabel: silent && credentialsDirty ? current.accountLabel : (nextStatus?.account?.accountLabel || current.accountLabel),
-                selectedCalendarIds: silent && calendarSelectionDirty ? current.selectedCalendarIds : nextSelectedCalendarIds,
+                username: silent && credentialsDirtyRef.current ? current.username : (nextStatus?.account?.username || current.username),
+                accountLabel: silent && credentialsDirtyRef.current ? current.accountLabel : (nextStatus?.account?.accountLabel || current.accountLabel),
+                selectedCalendarIds: silent && calendarSelectionDirtyRef.current ? current.selectedCalendarIds : nextSelectedCalendarIds,
             }));
         } catch (error: any) {
             if (!silent) {
@@ -227,7 +242,15 @@ export default function AppleCalendarSyncSettings() {
                 setIsLoading(false);
             }
         }
-    }, [calendarSelectionDirty, credentialsDirty, toast]);
+    }, [toast]);
+
+    useEffect(() => {
+        credentialsDirtyRef.current = credentialsDirty;
+    }, [credentialsDirty]);
+
+    useEffect(() => {
+        calendarSelectionDirtyRef.current = calendarSelectionDirty;
+    }, [calendarSelectionDirty]);
 
     useEffect(() => {
         void loadStatus();
@@ -260,6 +283,7 @@ export default function AppleCalendarSyncSettings() {
             setIsEditingCredentials(true);
             setCredentialsDirty(false);
             setCalendarSelectionDirty(false);
+            setSavedSelectedCalendarIds([]);
         }
     }, [status?.configured]);
 
@@ -376,6 +400,7 @@ export default function AppleCalendarSyncSettings() {
                     })
                 );
                 setCalendarSelectionDirty(false);
+                setSavedSelectedCalendarIds(selectedCalendarIds);
                 setStatus((current) => {
                     if (!current) return current;
                     return {
@@ -397,6 +422,69 @@ export default function AppleCalendarSyncSettings() {
             }
         });
     }
+
+    useEffect(() => {
+        if (!status?.account?.id || !status?.configured) return;
+        if (!calendarSelectionDirty) return;
+        if (formSelectedCalendarIdsKey === savedSelectedCalendarIdsKey) {
+            setCalendarSelectionDirty(false);
+            return;
+        }
+
+        const timeoutId = window.setTimeout(() => {
+            setIsSavingCalendarSelection(true);
+            void (async () => {
+                try {
+                    await parseJson(
+                        await fetch('/api/calendar-sync/apple/settings', {
+                            method: 'POST',
+                            headers: calendarSyncHeaders({ 'Content-Type': 'application/json' }),
+                            body: JSON.stringify({
+                                accountId: status.account?.id,
+                                selectedCalendarIds: form.selectedCalendarIds,
+                                enabled: true,
+                            }),
+                        })
+                    );
+                    const selectedCalendarIds = [...form.selectedCalendarIds];
+                    setSavedSelectedCalendarIds(selectedCalendarIds);
+                    setCalendarSelectionDirty(false);
+                    setStatus((current) => {
+                        if (!current) return current;
+                        return {
+                            ...current,
+                            calendars: (current.calendars || []).map((calendar) => ({
+                                ...calendar,
+                                isEnabled: selectedCalendarIds.includes(calendar.remoteCalendarId),
+                            })),
+                        };
+                    });
+                    void loadStatus({ silent: true });
+                } catch (error: any) {
+                    toast({
+                        title: 'Could not save calendars',
+                        description: error?.message || 'Please try again.',
+                        variant: 'destructive',
+                    });
+                } finally {
+                    setIsSavingCalendarSelection(false);
+                }
+            })();
+        }, 500);
+
+        return () => {
+            window.clearTimeout(timeoutId);
+        };
+    }, [
+        calendarSelectionDirty,
+        form.selectedCalendarIds,
+        formSelectedCalendarIdsKey,
+        loadStatus,
+        savedSelectedCalendarIdsKey,
+        status?.account?.id,
+        status?.configured,
+        toast,
+    ]);
 
     async function handleRunSync(trigger: 'manual' | 'repair') {
         if (!status?.account?.id) return;
@@ -636,7 +724,7 @@ export default function AppleCalendarSyncSettings() {
                 <div className="space-y-3">
                     <div className="space-y-1">
                         <h3 className="text-sm font-semibold text-slate-900">Imported Calendars</h3>
-                        <p className="text-sm text-slate-600">Choose which Apple calendars appear in Family Organizer.</p>
+                        <p className="text-sm text-slate-600">Choose which Apple calendars appear in Family Organizer. Changes save automatically.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         {calendars.length === 0 ? (
@@ -674,13 +762,9 @@ export default function AppleCalendarSyncSettings() {
                             })
                         )}
                     </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                        <Button type="button" variant="outline" onClick={() => void handleSaveCalendars()} disabled={isPending || !status?.account?.id}>
-                            Save Calendars
-                        </Button>
-                        <p className="text-xs text-slate-500">
-                            {selectedCount} selected
-                        </p>
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <p>{selectedCount} selected</p>
+                        <p>{isSavingCalendarSelection ? 'Saving…' : calendarSelectionDirty ? 'Waiting to save…' : 'Saved'}</p>
                     </div>
                 </div>
             </CardContent>
