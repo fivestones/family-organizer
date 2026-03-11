@@ -141,6 +141,23 @@ async function recordAppleCalendarPollHeartbeat(account: any, atIso: string) {
     });
 }
 
+export function deriveSelectedCalendarIdsForConnect(input: {
+    existingAccount?: any;
+    existingCalendars?: any[];
+}) {
+    const existingAccount = input.existingAccount || null;
+    const existingCalendars = Array.isArray(input.existingCalendars) ? input.existingCalendars : [];
+
+    if (Array.isArray(existingAccount?.selectedCalendarIds)) {
+        return existingAccount.selectedCalendarIds.map(String).filter(Boolean);
+    }
+
+    return existingCalendars
+        .filter((calendar: any) => calendar.isEnabled)
+        .map((calendar: any) => String(calendar.remoteCalendarId || '').trim())
+        .filter(Boolean);
+}
+
 export async function connectAppleCalendarAccount(input: { username: string; appSpecificPassword: string; accountLabel?: string }) {
     const discovery = await discoverAppleCalendars({
         username: input.username,
@@ -148,26 +165,32 @@ export async function connectAppleCalendarAccount(input: { username: string; app
     });
     const encrypted = encryptCalendarCredential(input.appSpecificPassword);
     const nowIso = new Date().toISOString();
+    const existingAccounts = (await listCalendarSyncAccounts()) as any[];
+    const existingAccount = existingAccounts.find((entry: any) => entry.provider === APPLE_CALDAV_PROVIDER) || null;
+    const existingCalendars = existingAccount ? ((await listCalendarSyncCalendars(existingAccount.id)) as any[]) : [];
+    const selectedCalendarIds = deriveSelectedCalendarIdsForConnect({
+        existingAccount,
+        existingCalendars,
+    });
     const accountId = await upsertCalendarSyncAccount({
         accountLabel: input.accountLabel || 'Apple Calendar',
         appleCalendarHomeUrl: discovery.calendarHomeUrl,
         applePrincipalUrl: discovery.principalUrl,
-        createdAt: nowIso,
+        createdAt: existingAccount?.createdAt || nowIso,
         passwordCiphertext: encrypted.ciphertext,
         passwordKeyVersion: encrypted.keyVersion,
         provider: APPLE_CALDAV_PROVIDER,
         repairScanIntervalHours: getDefaultRepairScanIntervalHours(),
-        selectedCalendarIds: discovery.calendars.map((calendar: any) => calendar.remoteCalendarId),
+        selectedCalendarIds,
         status: 'active',
         syncWindowFutureDays: getDefaultSyncWindowFutureDays(),
         syncWindowPastDays: getDefaultSyncWindowPastDays(),
         updatedAt: nowIso,
         username: input.username,
     });
-    const existingCalendars = (await listCalendarSyncCalendars(accountId)) as any[];
     const calendars = mergeDiscoveredCalendars({
         id: accountId,
-        selectedCalendarIds: discovery.calendars.map((calendar: any) => calendar.remoteCalendarId),
+        selectedCalendarIds,
         status: 'active',
     }, existingCalendars, discovery.calendars, nowIso);
     await replaceCalendarSyncCalendars(accountId, persistableCalendarRows(calendars));

@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'vitest';
 
 describe('apple caldav sync discovery policy', () => {
+    it('preserves existing selected calendar ids on reconnect and defaults to none on first connect', async () => {
+        const { deriveSelectedCalendarIdsForConnect } = await import('@/lib/apple-caldav/sync');
+
+        expect(
+            deriveSelectedCalendarIdsForConnect({
+                existingAccount: {
+                    selectedCalendarIds: ['home', 'work'],
+                },
+                existingCalendars: [],
+            })
+        ).toEqual(['home', 'work']);
+
+        expect(
+            deriveSelectedCalendarIdsForConnect({
+                existingAccount: null,
+                existingCalendars: [],
+            })
+        ).toEqual([]);
+    });
+
     it('keeps normal manual syncs incremental while reserving repair runs for full rewrites', async () => {
         const { shouldForceRepair } = await import('@/lib/apple-caldav/sync');
         const baseCalendar = {
