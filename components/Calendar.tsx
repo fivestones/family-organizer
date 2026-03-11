@@ -97,6 +97,7 @@ interface CalendarProps {
     everyoneSelected?: boolean;
     selectedMemberIds?: string[];
     selectedChoreIds?: string[];
+    selectedTagIds?: string[];
     dayHeight?: number;
     eventFontScale?: number;
     commandBusEnabled?: boolean;
@@ -856,6 +857,7 @@ const Calendar = ({
     everyoneSelected: controlledEveryoneSelected,
     selectedMemberIds: controlledSelectedMemberIds,
     selectedChoreIds: controlledSelectedChoreIds,
+    selectedTagIds: controlledSelectedTagIds,
     dayHeight: controlledDayHeight,
     eventFontScale: controlledEventFontScale,
     commandBusEnabled,
@@ -915,6 +917,7 @@ const Calendar = ({
         return Number.isFinite(stored) ? clampCalendarYearFontScale(stored) : CALENDAR_YEAR_FONT_SCALE_DEFAULT;
     });
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
+    const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
     const [choreFilterConfigured, setChoreFilterConfigured] = useState(false);
     const [dayCellHeight, setDayCellHeight] = useState<number>(() => {
         if (typeof window === 'undefined' || !commandsEnabled) {
@@ -1029,6 +1032,8 @@ const Calendar = ({
         ? sanitizeControlledIds(controlledSelectedMemberIds)
         : selectedMemberIds;
     const effectiveSelectedChoreIds = choreFilterControlled ? sanitizeControlledIds(controlledSelectedChoreIds) : selectedChoreIds;
+    const tagFilterControlled = controlledSelectedTagIds !== undefined;
+    const effectiveSelectedTagIds = tagFilterControlled ? sanitizeControlledIds(controlledSelectedTagIds) : selectedTagIds;
     const effectiveMemberFilterConfigured = memberFilterControlled ? true : memberFilterConfigured;
     const effectiveChoreFilterConfigured = choreFilterControlled ? true : choreFilterConfigured;
 
@@ -2913,6 +2918,9 @@ const Calendar = ({
                 configured: effectiveChoreFilterConfigured,
                 selectedChoreIds: effectiveSelectedChoreIds,
             },
+            tagFilter: {
+                selectedTagIds: effectiveSelectedTagIds,
+            },
             memberFilter: {
                 everyoneSelected: effectiveEveryoneSelected,
                 selectedMemberIds: effectiveSelectedMemberIds,
@@ -2925,6 +2933,7 @@ const Calendar = ({
         effectiveDayCellHeight,
         effectiveEveryoneSelected,
         effectiveSelectedChoreIds,
+        effectiveSelectedTagIds,
         effectiveSelectedMemberIds,
         effectiveShowChores,
         viewMode,
@@ -2987,6 +2996,18 @@ const Calendar = ({
                 return;
             }
 
+            if (detail.type === 'setTagFilter') {
+                const sanitizedTagIds = Array.from(
+                    new Set(
+                        (Array.isArray(detail.selectedTagIds) ? detail.selectedTagIds : [])
+                            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+                            .map((value) => value.trim())
+                    )
+                );
+                setSelectedTagIds(sanitizedTagIds);
+                return;
+            }
+
             if (detail.type === 'setMemberFilter') {
                 const sanitizedMemberIds = Array.from(
                     new Set(
@@ -3023,6 +3044,9 @@ const Calendar = ({
                         configured: effectiveChoreFilterConfigured,
                         selectedChoreIds: effectiveSelectedChoreIds,
                     },
+                    tagFilter: {
+                        selectedTagIds: effectiveSelectedTagIds,
+                    },
                     memberFilter: {
                         everyoneSelected: effectiveEveryoneSelected,
                         selectedMemberIds: effectiveSelectedMemberIds,
@@ -3043,6 +3067,7 @@ const Calendar = ({
         effectiveDayCellHeight,
         effectiveEveryoneSelected,
         effectiveSelectedChoreIds,
+        effectiveSelectedTagIds,
         effectiveSelectedMemberIds,
         effectiveShowChores,
         handleQuickAddClick,
@@ -3175,6 +3200,7 @@ const Calendar = ({
         const recurrenceOverrideDayKeysByMasterId = new Map<string, Set<string>>();
         const selectedMemberIdSet = new Set(effectiveSelectedMemberIds);
         const selectedChoreIdSet = new Set(effectiveSelectedChoreIds);
+        const selectedTagIdSet = new Set(effectiveSelectedTagIds);
 
         const matchesMemberFilter = (item: CalendarItem) => {
             const pertainsToIds = (Array.isArray(item.pertainsTo) ? item.pertainsTo : [])
@@ -3240,7 +3266,24 @@ const Calendar = ({
             return selectedChoreIdSet.has(normalizedId);
         };
 
-        const calendarItemsForView = calendarItems.filter(matchesMemberFilter);
+        const matchesTagFilter = (item: CalendarItem) => {
+            if (selectedTagIdSet.size === 0) {
+                return true;
+            }
+
+            const itemTagIds = (Array.isArray(item.tags) ? item.tags : [])
+                .map((tag) => tag?.id)
+                .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+                .map((id) => id.trim());
+
+            if (itemTagIds.length === 0) {
+                return false;
+            }
+
+            return itemTagIds.some((id) => selectedTagIdSet.has(id));
+        };
+
+        const calendarItemsForView = calendarItems.filter((item) => matchesMemberFilter(item) && matchesTagFilter(item));
         const calendarItemsById = new Map(calendarItems.map((item) => [item.id, item] as const));
         const calendarItemsBySourceExternalId = new Map(
             calendarItems
@@ -3536,6 +3579,7 @@ const Calendar = ({
         effectiveEveryoneSelected,
         effectiveMemberFilterConfigured,
         effectiveSelectedChoreIds,
+        effectiveSelectedTagIds,
         effectiveSelectedMemberIds,
         effectiveShowChores,
         chores,

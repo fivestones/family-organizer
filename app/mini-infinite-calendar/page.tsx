@@ -18,7 +18,7 @@ const clampNumber = (value: number, min: number, max: number) => Math.min(max, M
 const normalizeChecked = (value: boolean | 'indeterminate') => value === true;
 
 export default function MiniInfiniteCalendarPage() {
-    const { familyMembers, familyMemberIds, chores, choreIds } = useCalendarFilterOptions();
+    const { familyMembers, familyMemberIds, chores, choreIds, tags, tagIds } = useCalendarFilterOptions();
     const today = useMemo(() => new Date(), []);
     const todayBs = useMemo(() => new NepaliDate(today), [today]);
 
@@ -33,6 +33,7 @@ export default function MiniInfiniteCalendarPage() {
     const [includeEveryoneEvents, setIncludeEveryoneEvents] = useState(true);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
+    const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
     const [eventFontScale, setEventFontScale] = useState(CALENDAR_YEAR_FONT_SCALE_DEFAULT);
 
     useEffect(() => {
@@ -58,6 +59,17 @@ export default function MiniInfiniteCalendarPage() {
             return normalized.length === previous.length ? previous : normalized;
         });
     }, [choreIds]);
+
+    useEffect(() => {
+        setSelectedTagIds((previous) => {
+            if (previous.length === 0) {
+                return previous;
+            }
+            const previousSet = new Set(previous);
+            const normalized = tagIds.filter((id) => previousSet.has(id));
+            return normalized.length === previous.length ? previous : normalized;
+        });
+    }, [tagIds]);
 
     const initialTopDate = useMemo(() => {
         if (startMode !== 'gregorian') return undefined;
@@ -310,6 +322,43 @@ export default function MiniInfiniteCalendarPage() {
                                         ))}
                                     </div>
                                 </div>
+
+                                <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 lg:col-span-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <h2 className="text-sm font-semibold text-slate-900">Tags</h2>
+                                            <p className="text-xs text-slate-500">
+                                                {selectedTagIds.length === 0
+                                                    ? 'No tag filter'
+                                                    : `${selectedTagIds.length} of ${tagIds.length || 0} selected`}
+                                            </p>
+                                        </div>
+                                        <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedTagIds([])} disabled={selectedTagIds.length === 0}>
+                                            Clear
+                                        </Button>
+                                    </div>
+                                    {tags.length === 0 ? (
+                                        <p className="text-xs text-slate-500">No calendar tags have been created yet.</p>
+                                    ) : (
+                                        <div className="max-h-48 space-y-2 overflow-auto pr-1">
+                                            {tags.map((tag) => (
+                                                <label
+                                                    key={tag.id}
+                                                    className="flex items-center gap-3 rounded-xl border border-white/70 bg-white px-3 py-2"
+                                                >
+                                                    <Checkbox
+                                                        checked={selectedTagIds.includes(tag.id)}
+                                                        onCheckedChange={() => toggleId(tag.id, selectedTagIds, setSelectedTagIds)}
+                                                    />
+                                                    <span className="text-sm text-slate-700">{tag.name || 'Untitled tag'}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <p className="text-xs leading-5 text-slate-500">
+                                        Leave all tags unchecked to show every event. When one or more tags are checked, only events matching any selected tag remain visible.
+                                    </p>
+                                </div>
                             </div>
                         </CardContent>
                     </Card>
@@ -331,6 +380,7 @@ export default function MiniInfiniteCalendarPage() {
                             everyoneSelected={includeEveryoneEvents}
                             selectedMemberIds={selectedMemberIds}
                             selectedChoreIds={selectedChoreIds}
+                            selectedTagIds={selectedTagIds}
                             eventFontScale={eventFontScale}
                         />
                     </div>

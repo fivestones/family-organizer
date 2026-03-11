@@ -22,6 +22,7 @@ export interface MiniInfiniteCalendarProps {
     everyoneSelected?: boolean;
     selectedMemberIds?: string[];
     selectedChoreIds?: string[];
+    selectedTagIds?: string[];
     eventFontScale?: number;
 }
 
@@ -37,6 +38,7 @@ export default function MiniInfiniteCalendar({
     everyoneSelected,
     selectedMemberIds,
     selectedChoreIds,
+    selectedTagIds,
     eventFontScale,
 }: MiniInfiniteCalendarProps) {
     const currentDate = useMemo(() => {
@@ -61,6 +63,7 @@ export default function MiniInfiniteCalendar({
             everyoneSelected={everyoneSelected}
             selectedMemberIds={selectedMemberIds}
             selectedChoreIds={selectedChoreIds}
+            selectedTagIds={selectedTagIds}
             eventFontScale={eventFontScale}
             commandBusEnabled={false}
         />

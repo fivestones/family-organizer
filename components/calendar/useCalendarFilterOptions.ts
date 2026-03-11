@@ -13,6 +13,11 @@ export interface CalendarFilterChoreOption {
     title?: string | null;
 }
 
+export interface CalendarFilterTagOption {
+    id: string;
+    name?: string | null;
+}
+
 export const useCalendarFilterOptions = () => {
     const query = db.useQuery({
         familyMembers: {
@@ -23,6 +28,7 @@ export const useCalendarFilterOptions = () => {
             },
         },
         chores: {},
+        calendarTags: {},
     });
 
     const familyMembers = useMemo(
@@ -48,6 +54,18 @@ export const useCalendarFilterOptions = () => {
     );
 
     const choreIds = useMemo(() => chores.map((chore) => chore.id), [chores]);
+    const tags = useMemo(
+        () =>
+            (((query.data?.calendarTags as CalendarFilterTagOption[]) || [])
+                .filter((tag) => Boolean(tag?.id))
+                .sort((left, right) => {
+                    const leftName = String(left?.name || '').trim() || 'Untitled tag';
+                    const rightName = String(right?.name || '').trim() || 'Untitled tag';
+                    return leftName.localeCompare(rightName);
+                })),
+        [query.data?.calendarTags]
+    );
+    const tagIds = useMemo(() => tags.map((tag) => tag.id), [tags]);
 
     return {
         ...query,
@@ -55,5 +73,7 @@ export const useCalendarFilterOptions = () => {
         familyMemberIds,
         chores,
         choreIds,
+        tags,
+        tagIds,
     };
 };

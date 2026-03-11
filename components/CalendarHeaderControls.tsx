@@ -54,13 +54,14 @@ export default function CalendarHeaderControls() {
     const [yearFontScale, setYearFontScale] = useState(CALENDAR_YEAR_FONT_SCALE_DEFAULT);
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
     const [choreFilterConfigured, setChoreFilterConfigured] = useState(false);
+    const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
     const [everyoneSelected, setEveryoneSelected] = useState(true);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [isChoreFilterExpanded, setIsChoreFilterExpanded] = useState(false);
     const hasInitializedMemberFilterRef = useRef(false);
 
     const filterOptionsQuery = useCalendarFilterOptions();
-    const { familyMembers, familyMemberIds, chores, choreIds } = filterOptionsQuery;
+    const { familyMembers, familyMemberIds, chores, choreIds, tags, tagIds } = filterOptionsQuery;
     const effectiveSelectedChoreIds = useMemo(
         () => (choreFilterConfigured ? selectedChoreIds : choreIds),
         [choreFilterConfigured, choreIds, selectedChoreIds]
@@ -110,6 +111,17 @@ export default function CalendarHeaderControls() {
                     Array.from(
                         new Set(
                             (Array.isArray(detail.choreFilter.selectedChoreIds) ? detail.choreFilter.selectedChoreIds : [])
+                                .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+                                .map((value) => value.trim())
+                        )
+                    )
+                );
+            }
+            if (detail.tagFilter) {
+                setSelectedTagIds(
+                    Array.from(
+                        new Set(
+                            (Array.isArray(detail.tagFilter.selectedTagIds) ? detail.tagFilter.selectedTagIds : [])
                                 .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
                                 .map((value) => value.trim())
                         )
@@ -179,6 +191,25 @@ export default function CalendarHeaderControls() {
 
     useEffect(() => {
         if (!isCalendarRoute) return;
+        if (filterOptionsQuery.isLoading) return;
+
+        const selectedSet = new Set(selectedTagIds);
+        const normalizedSelectedIds = tagIds.filter((id) => selectedSet.has(id));
+        const normalizedMatchesState =
+            normalizedSelectedIds.length === selectedTagIds.length &&
+            normalizedSelectedIds.every((id, index) => id === selectedTagIds[index]);
+
+        if (!normalizedMatchesState) {
+            setSelectedTagIds(normalizedSelectedIds);
+            dispatchCalendarCommand({
+                type: 'setTagFilter',
+                selectedTagIds: normalizedSelectedIds,
+            });
+        }
+    }, [filterOptionsQuery.isLoading, isCalendarRoute, selectedTagIds, tagIds]);
+
+    useEffect(() => {
+        if (!isCalendarRoute) return;
         if (!showChores) return;
         if (choreIds.length === 0) return;
 
@@ -244,6 +275,23 @@ export default function CalendarHeaderControls() {
         });
     };
 
+    const applyTagFilter = (nextTagIds: string[]) => {
+        const allowedIds = new Set(tagIds);
+        const dedupedTagIds = Array.from(
+            new Set(
+                nextTagIds
+                    .map((id) => String(id || '').trim())
+                    .filter((id) => id.length > 0 && allowedIds.has(id))
+            )
+        );
+
+        setSelectedTagIds(dedupedTagIds);
+        dispatchCalendarCommand({
+            type: 'setTagFilter',
+            selectedTagIds: dedupedTagIds,
+        });
+    };
+
     const memberFilterSummary = useMemo(() => {
         const selectedIdSet = new Set(selectedMemberIds);
         const selectedNames = familyMembers
@@ -292,6 +340,17 @@ export default function CalendarHeaderControls() {
 
         return `Showing ${effectiveSelectedChoreIds.length} of ${choreIds.length} chores`;
     }, [choreFilterConfigured, choreIds.length, chores.length, effectiveSelectedChoreIds.length, selectedChoreIds.length]);
+    const tagFilterSummary = useMemo(() => {
+        if (tags.length === 0) {
+            return 'No tags available yet';
+        }
+
+        if (selectedTagIds.length === 0) {
+            return 'No tag filter';
+        }
+
+        return `Showing events matching ${selectedTagIds.length} of ${tagIds.length} tags`;
+    }, [selectedTagIds.length, tagIds.length, tags.length]);
 
     if (!isCalendarRoute) {
         return null;
@@ -533,6 +592,57 @@ export default function CalendarHeaderControls() {
                                 ))}
                             </div>
                         )}
+
+                        <div className="grid gap-2 border-t border-slate-200 pt-3">
+                            <div className="space-y-1">
+                                <h4 className="text-sm font-semibold leading-none">Tags</h4>
+                                <p className="text-xs text-muted-foreground">{tagFilterSummary}</p>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={() => applyTagFilter([])}
+                                    disabled={selectedTagIds.length === 0}
+                                >
+                                    Clear
+                                </Button>
+                                <p className="text-xs text-muted-foreground">Leave all unchecked to disable tag filtering.</p>
+                            </div>
+
+                            {filterOptionsQuery.isLoading ? (
+                                <p className="text-xs text-muted-foreground">Loading tags...</p>
+                            ) : filterOptionsQuery.error ? (
+                                <p className="text-xs text-destructive">Could not load tags.</p>
+                            ) : tags.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">No calendar tags have been created yet.</p>
+                            ) : (
+                                <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
+                                    {tags.map((tag) => (
+                                        <label
+                                            key={tag.id}
+                                            htmlFor={`calendar-filter-tag-${tag.id}`}
+                                            className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
+                                        >
+                                            <Checkbox
+                                                id={`calendar-filter-tag-${tag.id}`}
+                                                checked={selectedTagIds.includes(tag.id)}
+                                                onCheckedChange={(checked) => {
+                                                    const next = normalizeChecked(checked)
+                                                        ? [...selectedTagIds, tag.id]
+                                                        : selectedTagIds.filter((id) => id !== tag.id);
+                                                    applyTagFilter(next);
+                                                }}
+                                            />
+                                            <span className="text-sm">{tag.name || 'Untitled tag'}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
 
                         {showChores ? (
                             <div className="grid gap-2 border-t border-slate-200 pt-3">

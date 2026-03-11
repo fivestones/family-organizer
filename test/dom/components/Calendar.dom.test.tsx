@@ -1421,6 +1421,88 @@ describe('Calendar', () => {
         expect(within(dayCell).queryByRole('button', { name: 'Sam Event' })).toBeNull();
     });
 
+    it('filters calendar events by any selected tag and hides untagged events while the tag filter is active', () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-untagged',
+                title: 'Untagged Event',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                tags: [],
+            },
+            {
+                id: 'evt-school',
+                title: 'School Assembly',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                tags: [{ id: 'tag-school', name: 'School' }],
+            },
+            {
+                id: 'evt-travel-school',
+                title: 'Travel Day',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                tags: [
+                    { id: 'tag-travel', name: 'Travel' },
+                    { id: 'tag-school', name: 'School' },
+                ],
+            },
+        ]);
+
+        const dayCell = screen.getByTestId('day-cell-2026-03-15');
+        expect(within(dayCell).getByRole('button', { name: 'Untagged Event' })).toBeInTheDocument();
+        expect(within(dayCell).getByRole('button', { name: 'School Assembly' })).toBeInTheDocument();
+        expect(within(dayCell).getByRole('button', { name: 'Travel Day' })).toBeInTheDocument();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: {
+                        type: 'setTagFilter',
+                        selectedTagIds: ['tag-travel'],
+                    },
+                })
+            );
+        });
+
+        expect(within(dayCell).queryByRole('button', { name: 'Untagged Event' })).toBeNull();
+        expect(within(dayCell).queryByRole('button', { name: 'School Assembly' })).toBeNull();
+        expect(within(dayCell).getByRole('button', { name: 'Travel Day' })).toBeInTheDocument();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: {
+                        type: 'setTagFilter',
+                        selectedTagIds: ['tag-travel', 'tag-school'],
+                    },
+                })
+            );
+        });
+
+        expect(within(dayCell).queryByRole('button', { name: 'Untagged Event' })).toBeNull();
+        expect(within(dayCell).getByRole('button', { name: 'School Assembly' })).toBeInTheDocument();
+        expect(within(dayCell).getByRole('button', { name: 'Travel Day' })).toBeInTheDocument();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: {
+                        type: 'setTagFilter',
+                        selectedTagIds: [],
+                    },
+                })
+            );
+        });
+
+        expect(within(dayCell).getByRole('button', { name: 'Untagged Event' })).toBeInTheDocument();
+        expect(within(dayCell).getByRole('button', { name: 'School Assembly' })).toBeInTheDocument();
+        expect(within(dayCell).getByRole('button', { name: 'Travel Day' })).toBeInTheDocument();
+    });
+
     it('includes recurring masters in the Instant query filter', () => {
         renderCalendarWithItems([]);
 

@@ -49,6 +49,7 @@ export type CalendarCommandDetail =
     | { type: 'setYearFontScale'; yearFontScale: number }
     | { type: 'shiftYearView'; direction: 'left' | 'right' }
     | { type: 'setChoreFilter'; selectedChoreIds: string[] }
+    | { type: 'setTagFilter'; selectedTagIds: string[] }
     | { type: 'setMemberFilter'; everyoneSelected: boolean; selectedMemberIds: string[] }
     | { type: 'scrollToday' }
     | { type: 'quickAdd' }
@@ -64,6 +65,9 @@ export interface CalendarStateDetail {
     choreFilter?: {
         configured: boolean;
         selectedChoreIds: string[];
+    };
+    tagFilter?: {
+        selectedTagIds: string[];
     };
     memberFilter?: {
         everyoneSelected: boolean;
