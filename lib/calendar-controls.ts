@@ -6,6 +6,7 @@ export const CALENDAR_VISIBLE_WEEKS_MAX = 10;
 export const CALENDAR_DAY_VIEW_VISIBLE_DAYS_MIN = 1;
 export const CALENDAR_DAY_VIEW_VISIBLE_DAYS_MAX = 14;
 export const CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT = 1;
+export const CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT = 1;
 export const CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN = 32;
 export const CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX = 112;
 export const CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT = 44;
@@ -14,6 +15,7 @@ export const CALENDAR_SHOW_CHORES_STORAGE_KEY = 'calendar.showChores';
 export const CALENDAR_VIEW_MODE_STORAGE_KEY = 'calendar.viewMode';
 export const CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY = 'calendar.dayViewVisibleDays';
 export const CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY = 'calendar.dayViewHourHeight';
+export const CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY = 'calendar.dayViewRowCount';
 export const CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY = 'calendar.yearMonthBasis';
 export const CALENDAR_YEAR_FONT_SCALE_MIN = 0.08;
 export const CALENDAR_YEAR_FONT_SCALE_MAX = 2;
@@ -23,6 +25,7 @@ export const clampCalendarYearFontScale = (value: number) =>
     Math.round(Math.min(CALENDAR_YEAR_FONT_SCALE_MAX, Math.max(CALENDAR_YEAR_FONT_SCALE_MIN, value)) * 100) / 100;
 export const clampCalendarDayVisibleDays = (value: number) =>
     Math.round(Math.min(CALENDAR_DAY_VIEW_VISIBLE_DAYS_MAX, Math.max(CALENDAR_DAY_VIEW_VISIBLE_DAYS_MIN, value)));
+export const clampCalendarDayRowCount = (value: number) => (value >= 2 ? 2 : 1);
 export const clampCalendarDayHourHeight = (value: number) =>
     Math.round(Math.min(CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX, Math.max(CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN, value)));
 export const getCalendarDayViewSnapMinutes = (hourHeight: number) => {
@@ -63,6 +66,7 @@ export type CalendarCommandDetail =
     | { type: 'setShowChores'; showChores: boolean }
     | { type: 'setViewMode'; viewMode: CalendarViewMode }
     | { type: 'setDayVisibleDays'; dayVisibleDays: number }
+    | { type: 'setDayRowCount'; dayRowCount: number }
     | { type: 'setDayHourHeight'; dayHourHeight: number }
     | { type: 'setYearMonthBasis'; yearMonthBasis: CalendarYearMonthBasis }
     | { type: 'setYearFontScale'; yearFontScale: number }
@@ -80,6 +84,7 @@ export interface CalendarStateDetail {
     showChores: boolean;
     viewMode: CalendarViewMode;
     dayVisibleDays: number;
+    dayRowCount: number;
     dayHourHeight: number;
     yearMonthBasis: CalendarYearMonthBasis;
     yearFontScale: number;

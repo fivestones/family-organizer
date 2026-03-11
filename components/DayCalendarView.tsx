@@ -22,6 +22,7 @@ interface DayCalendarViewProps {
     anchorDate: Date;
     renderedDays: Date[];
     visibleDayCount: number;
+    rowCount: number;
     hourHeight: number;
     containerHeight: number | null;
     displayBS: boolean;
@@ -106,6 +107,24 @@ function formatHourLabel(hour: number) {
     const meridiem = normalized >= 12 ? 'PM' : 'AM';
     const twelveHour = normalized % 12 === 0 ? 12 : normalized % 12;
     return `${twelveHour} ${meridiem}`;
+}
+
+function formatMinuteTimeLabel(minuteOfDay: number, includeMeridiem: boolean) {
+    const normalizedMinutes = clampNumber(minuteOfDay, 0, 24 * 60);
+    const totalHours = Math.floor(normalizedMinutes / 60);
+    const minutes = normalizedMinutes % 60;
+    const normalizedHour = totalHours % 24;
+    const meridiem = normalizedHour >= 12 ? 'pm' : 'am';
+    const twelveHour = normalizedHour % 12 === 0 ? 12 : normalizedHour % 12;
+    const timeLabel = minutes === 0 ? `${twelveHour}` : `${twelveHour}:${String(minutes).padStart(2, '0')}`;
+    return includeMeridiem ? `${timeLabel} ${meridiem}` : timeLabel;
+}
+
+function formatSegmentTimeRange(startMinute: number, endMinute: number) {
+    const startMeridiem = startMinute >= 12 * 60 ? 'pm' : 'am';
+    const endMeridiem = endMinute >= 12 * 60 ? 'pm' : 'am';
+    const sameMeridiem = startMeridiem === endMeridiem;
+    return `${formatMinuteTimeLabel(startMinute, !sameMeridiem)}-${formatMinuteTimeLabel(endMinute, true)}`;
 }
 
 function clampNumber(value: number, min: number, max: number) {
@@ -415,6 +434,7 @@ export default function DayCalendarView({
     anchorDate,
     renderedDays,
     visibleDayCount,
+    rowCount,
     hourHeight,
     containerHeight,
     displayBS,
@@ -428,37 +448,48 @@ export default function DayCalendarView({
     onTimedResize,
     isEventSelected,
 }: DayCalendarViewProps) {
-    const topViewportRef = useRef<HTMLDivElement>(null);
-    const bodyHorizontalViewportRef = useRef<HTMLDivElement>(null);
-    const bodyVerticalScrollRef = useRef<HTMLDivElement>(null);
+    const topViewportRefs = useRef<Array<HTMLDivElement | null>>([]);
+    const bodyHorizontalViewportRefs = useRef<Array<HTMLDivElement | null>>([]);
+    const bodyVerticalScrollRefs = useRef<Array<HTMLDivElement | null>>([]);
     const horizontalAnchorTimerRef = useRef<number | null>(null);
     const suppressAnchorSyncRef = useRef(false);
+    const horizontalSyncLockRef = useRef(false);
     const [viewportWidth, setViewportWidth] = useState(0);
-    const [verticalScrollTop, setVerticalScrollTop] = useState(0);
+    const [verticalScrollTopByRow, setVerticalScrollTopByRow] = useState<number[]>(() => Array.from({ length: rowCount }, () => 0));
     const [draftState, setDraftState] = useState<DraftState | null>(null);
     const [resizePreview, setResizePreview] = useState<{ segmentKey: string; startMs: number; endMs: number } | null>(null);
     const resizeStateRef = useRef<ResizeState | null>(null);
     const [now, setNow] = useState(() => new Date());
 
-    const snapMinutes = useMemo(() => getCalendarDayViewSnapMinutes(hourHeight), [hourHeight]);
-    const allDayLaneCap = useMemo(() => determineAllDayLaneCap(containerHeight), [containerHeight]);
+    const effectiveHourHeight = useMemo(() => Math.max(18, hourHeight / rowCount), [hourHeight, rowCount]);
+    const snapMinutes = useMemo(() => getCalendarDayViewSnapMinutes(effectiveHourHeight), [effectiveHourHeight]);
+    const rowContainerHeight = useMemo(() => Math.max(260, (containerHeight ?? 680) / rowCount), [containerHeight, rowCount]);
+    const allDayLaneCap = useMemo(() => determineAllDayLaneCap(rowContainerHeight), [rowContainerHeight]);
     const dayWidth = useMemo(() => (viewportWidth > 0 ? viewportWidth / Math.max(1, visibleDayCount) : 280), [viewportWidth, visibleDayCount]);
     const totalTrackWidth = useMemo(() => renderedDays.length * dayWidth, [dayWidth, renderedDays.length]);
-    const gridHeight = useMemo(() => 24 * hourHeight, [hourHeight]);
+    const gridHeight = useMemo(() => 24 * effectiveHourHeight, [effectiveHourHeight]);
     const allDayVisibleHeight = useMemo(() => {
         const lanesHeight = allDayLaneCap * DAY_VIEW_ALL_DAY_LANE_HEIGHT_PX + Math.max(0, allDayLaneCap - 1) * DAY_VIEW_ALL_DAY_LANE_GAP_PX;
         return lanesHeight + DAY_VIEW_ALL_DAY_OVERFLOW_HEIGHT_PX;
     }, [allDayLaneCap]);
     const timedViewportHeight = useMemo(() => {
-        const total = containerHeight ?? 680;
-        return Math.max(220, total - DAY_VIEW_HEADER_HEIGHT_PX - allDayVisibleHeight);
-    }, [allDayVisibleHeight, containerHeight]);
+        return Math.max(160, rowContainerHeight - DAY_VIEW_HEADER_HEIGHT_PX - allDayVisibleHeight);
+    }, [allDayVisibleHeight, rowContainerHeight]);
     const renderedDayMap = useMemo(
         () => new Map(renderedDays.map((day, index) => [formatDayKey(day), index] as const)),
         [renderedDays]
     );
     const visibleStartKey = formatDayKey(anchorDate);
-    const visibleEndKey = formatDayKey(addDays(anchorDate, visibleDayCount - 1));
+    const visibleEndKey = formatDayKey(addDays(anchorDate, visibleDayCount * rowCount - 1));
+    const rowDescriptors = useMemo(
+        () =>
+            Array.from({ length: rowCount }, (_unused, rowIndex) => ({
+                rowIndex,
+                rowOffset: rowIndex * visibleDayCount,
+                rowDays: renderedDays.slice(rowIndex * visibleDayCount),
+            })),
+        [renderedDays, rowCount, visibleDayCount]
+    );
 
     useEffect(() => {
         const interval = window.setInterval(() => setNow(new Date()), 60 * 1000);
@@ -466,7 +497,7 @@ export default function DayCalendarView({
     }, []);
 
     useEffect(() => {
-        const element = bodyHorizontalViewportRef.current;
+        const element = bodyHorizontalViewportRefs.current[0];
         if (!element || typeof ResizeObserver === 'undefined') {
             setViewportWidth(element?.clientWidth ?? 0);
             return;
@@ -483,29 +514,41 @@ export default function DayCalendarView({
     }, []);
 
     useLayoutEffect(() => {
-        const viewport = bodyHorizontalViewportRef.current;
-        if (!viewport || dayWidth <= 0) return;
+        const viewports = bodyHorizontalViewportRefs.current.filter(Boolean) as HTMLDivElement[];
+        if (viewports.length === 0 || dayWidth <= 0) return;
 
         suppressAnchorSyncRef.current = true;
         const nextScrollLeft = DAY_VIEW_BUFFER_DAYS * dayWidth;
-        viewport.scrollLeft = nextScrollLeft;
-        if (topViewportRef.current) {
-            topViewportRef.current.scrollLeft = nextScrollLeft;
-        }
+        viewports.forEach((viewport) => {
+            viewport.scrollLeft = nextScrollLeft;
+        });
+        topViewportRefs.current.forEach((viewport) => {
+            if (viewport) {
+                viewport.scrollLeft = nextScrollLeft;
+            }
+        });
 
         window.requestAnimationFrame(() => {
             suppressAnchorSyncRef.current = false;
         });
-    }, [anchorDate, dayWidth]);
+    }, [anchorDate, dayWidth, rowCount]);
 
     useLayoutEffect(() => {
-        const verticalScroller = bodyVerticalScrollRef.current;
-        if (!verticalScroller) return;
+        const nextTop = DAY_VIEW_DEFAULT_START_HOUR * effectiveHourHeight;
+        bodyVerticalScrollRefs.current.forEach((verticalScroller) => {
+            if (verticalScroller) {
+                verticalScroller.scrollTop = nextTop;
+            }
+        });
+        setVerticalScrollTopByRow(Array.from({ length: rowCount }, () => nextTop));
+    }, [effectiveHourHeight, rowCount, verticalResetKey]);
 
-        const nextTop = DAY_VIEW_DEFAULT_START_HOUR * hourHeight;
-        verticalScroller.scrollTop = nextTop;
-        setVerticalScrollTop(nextTop);
-    }, [hourHeight, verticalResetKey]);
+    useEffect(() => {
+        setVerticalScrollTopByRow((current) => {
+            if (current.length === rowCount) return current;
+            return Array.from({ length: rowCount }, (_unused, index) => current[index] ?? 0);
+        });
+    }, [rowCount]);
 
     useEffect(() => {
         return () => {
@@ -520,7 +563,7 @@ export default function DayCalendarView({
             const resizeState = resizeStateRef.current;
             if (!resizeState) return;
 
-            const deltaMinutes = Math.round(((event.clientY - resizeState.startClientY) / hourHeight) * (60 / resizeState.snapMinutes)) * resizeState.snapMinutes;
+            const deltaMinutes = Math.round(((event.clientY - resizeState.startClientY) / effectiveHourHeight) * (60 / resizeState.snapMinutes)) * resizeState.snapMinutes;
             if (resizeState.edge === 'start') {
                 const nextStartMs = clampNumber(
                     resizeState.originalStartMs + deltaMinutes * 60 * 1000,
@@ -583,7 +626,7 @@ export default function DayCalendarView({
             window.removeEventListener('pointerup', handleWindowPointerUp);
             window.removeEventListener('pointercancel', handleWindowPointerUp);
         };
-    }, [hourHeight, onTimedResize, resizePreview]);
+    }, [effectiveHourHeight, onTimedResize, resizePreview]);
 
     const { allDayVisibleLanes, allDayOverflowByColumn, timedSegments } = useMemo(() => {
         const renderedStart = renderedDays[0] ? startOfDayDate(renderedDays[0]) : startOfDayDate(anchorDate);
@@ -679,6 +722,8 @@ export default function DayCalendarView({
                         ...item,
                         __displayDate: dayKey,
                         __dragAnchorStartDate: new Date(segmentStartMs).toISOString(),
+                        __calendarAppearance: 'day',
+                        __calendarMetaLabel: formatSegmentTimeRange(startMinute, endMinute),
                     },
                 });
             }
@@ -707,17 +752,32 @@ export default function DayCalendarView({
         if (dayIndex == null) return null;
         return {
             dayIndex,
-            top: ((now.getHours() * 60 + now.getMinutes()) / 60) * hourHeight,
+            top: ((now.getHours() * 60 + now.getMinutes()) / 60) * effectiveHourHeight,
         };
-    }, [hourHeight, now, renderedDayMap]);
+    }, [effectiveHourHeight, now, renderedDayMap]);
 
-    const handleHorizontalScroll = () => {
-        const viewport = bodyHorizontalViewportRef.current;
+    const handleHorizontalScroll = (sourceIndex: number) => {
+        const viewport = bodyHorizontalViewportRefs.current[sourceIndex];
         if (!viewport) return;
 
-        if (topViewportRef.current) {
-            topViewportRef.current.scrollLeft = viewport.scrollLeft;
+        if (horizontalSyncLockRef.current) {
+            return;
         }
+
+        horizontalSyncLockRef.current = true;
+        bodyHorizontalViewportRefs.current.forEach((candidate, candidateIndex) => {
+            if (candidate && candidateIndex !== sourceIndex) {
+                candidate.scrollLeft = viewport.scrollLeft;
+            }
+        });
+        topViewportRefs.current.forEach((candidate) => {
+            if (candidate) {
+                candidate.scrollLeft = viewport.scrollLeft;
+            }
+        });
+        window.requestAnimationFrame(() => {
+            horizontalSyncLockRef.current = false;
+        });
 
         if (suppressAnchorSyncRef.current) {
             return;
@@ -728,7 +788,7 @@ export default function DayCalendarView({
         }
 
         horizontalAnchorTimerRef.current = window.setTimeout(() => {
-            const activeViewport = bodyHorizontalViewportRef.current;
+            const activeViewport = bodyHorizontalViewportRefs.current[sourceIndex];
             if (!activeViewport || dayWidth <= 0) return;
 
             const snappedIndex = clampNumber(
@@ -751,329 +811,370 @@ export default function DayCalendarView({
     const hourLabels = useMemo(() => Array.from({ length: 25 }, (_unused, hour) => hour), []);
     const timedHourLineBackground = useMemo(
         () => ({
-            backgroundSize: `100% ${hourHeight}px`,
+            backgroundSize: `100% ${effectiveHourHeight}px`,
         }),
-        [hourHeight]
+        [effectiveHourHeight]
     );
     const timedSubhourLineBackground = useMemo(() => {
         if (snapMinutes >= 15) return null;
         return {
-            backgroundSize: `100% ${(hourHeight * snapMinutes) / 60}px`,
+            backgroundSize: `100% ${(effectiveHourHeight * snapMinutes) / 60}px`,
         };
-    }, [hourHeight, snapMinutes]);
+    }, [effectiveHourHeight, snapMinutes]);
 
     return (
         <div className={styles.dayViewShell}>
-            <div className={styles.dayViewTopRow}>
-                <div className={styles.dayViewTimeHeaderSpacer} style={{ width: `${DAY_VIEW_HOUR_LABEL_WIDTH_PX}px` }}>
-                    <div className={styles.dayViewTimeHeaderLabel}>Daily View</div>
-                </div>
-                <div ref={topViewportRef} className={styles.dayViewHorizontalViewport}>
-                    <div className={styles.dayViewTrack} style={{ width: `${totalTrackWidth}px` }}>
-                        <div className={styles.dayViewHeaderRow} style={{ height: `${DAY_VIEW_HEADER_HEIGHT_PX}px` }}>
-                            {renderedDays.map((day) => {
-                                const dateKey = formatDayKey(day);
-                                const weekday = day.toLocaleDateString(undefined, { weekday: 'long' });
-                                const gregorian = day.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
-                                let bsLabel = '';
-                                if (displayBS) {
-                                    try {
-                                        const nepaliDate = new NepaliDate(day);
-                                        bsLabel = `${weekday} • ${nepaliDate.format('YYYY MMMM D', 'np')}`;
-                                    } catch {
-                                        bsLabel = weekday;
-                                    }
-                                }
+            {rowDescriptors.map(({ rowIndex, rowOffset, rowDays }) => {
+                const rowScrollTop = verticalScrollTopByRow[rowIndex] ?? 0;
+                const rowTrackWidth = rowDays.length * dayWidth;
+                const visibleRowEndCol = rowOffset + rowDays.length - 1;
+                const rowCurrentTimeIndicator =
+                    currentTimeIndicator &&
+                    currentTimeIndicator.dayIndex >= rowOffset &&
+                    currentTimeIndicator.dayIndex <= visibleRowEndCol
+                        ? {
+                              left: `${(currentTimeIndicator.dayIndex - rowOffset) * dayWidth}px`,
+                              top: `${currentTimeIndicator.top}px`,
+                          }
+                        : null;
 
-                                return (
-                                    <div
-                                        key={`day-header-${dateKey}`}
-                                        data-testid={`day-view-header-${dateKey}`}
-                                        className={styles.dayViewHeaderCell}
-                                        style={{ width: `${dayWidth}px` }}
-                                    >
-                                        <div className={styles.dayViewHeaderWeekday}>{weekday}</div>
-                                        <div className={styles.dayViewHeaderGregorian}>{gregorian}</div>
-                                        {displayBS ? <div className={styles.dayViewHeaderBs}>{bsLabel}</div> : null}
-                                    </div>
-                                );
-                            })}
-                        </div>
-
-                        <div
-                            className={styles.dayViewAllDayTrack}
-                            style={{ height: `${allDayVisibleHeight}px` }}
-                        >
-                            {renderedDays.map((day, index) => {
-                                const dateKey = formatDayKey(day);
-                                return (
-                                    <div
-                                        key={`all-day-cell-wrap-${dateKey}`}
-                                        className={styles.dayViewAllDayCellWrap}
-                                        style={{ width: `${dayWidth}px` }}
-                                    >
-                                        <DayViewDropAllDayCell
-                                            dateStr={dateKey}
-                                            day={day}
-                                            onClick={onBackgroundClick}
-                                            onDoubleClick={() =>
-                                                onCreateDraft({
-                                                    start: startOfDayDate(day),
-                                                    end: addDays(startOfDayDate(day), 1),
-                                                    isAllDay: true,
-                                                })
-                                            }
-                                        >
-                                            {allDayOverflowByColumn[index] > 0 ? (
-                                                <div className={styles.dayViewAllDayOverflow}>+{allDayOverflowByColumn[index]} more</div>
-                                            ) : null}
-                                        </DayViewDropAllDayCell>
-                                    </div>
-                                );
-                            })}
-
-                            <div className={styles.dayViewAllDayOverlay}>
-                                {allDayVisibleLanes.map((lane, laneIndex) => (
-                                    <div
-                                        key={`all-day-lane-${laneIndex}`}
-                                        className={styles.dayViewAllDayLane}
-                                        style={{
-                                            top: `${laneIndex * (DAY_VIEW_ALL_DAY_LANE_HEIGHT_PX + DAY_VIEW_ALL_DAY_LANE_GAP_PX)}px`,
-                                            height: `${DAY_VIEW_ALL_DAY_LANE_HEIGHT_PX}px`,
-                                        }}
-                                    >
-                                        {lane.map((segment) => (
-                                            <div
-                                                key={segment.key}
-                                                className={styles.dayViewAllDaySegment}
-                                                style={{
-                                                    left: `${segment.startCol * dayWidth}px`,
-                                                    width: `${(segment.endCol - segment.startCol + 1) * dayWidth}px`,
-                                                }}
-                                            >
-                                                <DraggableCalendarEvent
-                                                    item={segment.item}
-                                                    index={laneIndex}
-                                                    layout="span"
-                                                    selected={isEventSelected(segment.item)}
-                                                    continuesBefore={segment.continuesBefore}
-                                                    continuesAfter={segment.continuesAfter}
-                                                    draggableEnabled={segment.item.calendarItemKind !== 'chore'}
-                                                    onClick={(event) => onEventClick(event, segment.item)}
-                                                    onDoubleClick={(event) => onEventDoubleClick(event, segment.item)}
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                ))}
+                return (
+                    <div key={`day-view-row-${rowIndex}`} className={styles.dayViewRowSection}>
+                        <div className={styles.dayViewTopRow}>
+                            <div className={styles.dayViewTimeHeaderSpacer} style={{ width: `${DAY_VIEW_HOUR_LABEL_WIDTH_PX}px` }}>
+                                <div className={styles.dayViewTimeHeaderLabel}>{rowCount > 1 ? `Row ${rowIndex + 1}` : 'Daily View'}</div>
                             </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className={styles.dayViewBodyRow}>
-                <div className={styles.dayViewTimeGutter} style={{ width: `${DAY_VIEW_HOUR_LABEL_WIDTH_PX}px`, height: `${timedViewportHeight}px` }}>
-                    <div
-                        className={styles.dayViewTimeGutterInner}
-                        style={{
-                            height: `${gridHeight}px`,
-                            transform: `translateY(${-verticalScrollTop}px)`,
-                        }}
-                    >
-                        {hourLabels.map((hour) => (
                             <div
-                                key={`time-label-${hour}`}
-                                className={styles.dayViewTimeLabel}
-                                style={{ top: `${hour * hourHeight}px` }}
+                                ref={(node) => {
+                                    topViewportRefs.current[rowIndex] = node;
+                                }}
+                                className={styles.dayViewHorizontalViewport}
                             >
-                                {formatHourLabel(hour)}
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                                <div className={styles.dayViewTrack} style={{ width: `${rowTrackWidth}px` }}>
+                                    <div className={styles.dayViewHeaderRow} style={{ height: `${DAY_VIEW_HEADER_HEIGHT_PX}px` }}>
+                                        {rowDays.map((day) => {
+                                            const dateKey = formatDayKey(day);
+                                            const weekday = day.toLocaleDateString(undefined, { weekday: 'long' });
+                                            const gregorian = day.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+                                            let bsLabel = '';
+                                            if (displayBS) {
+                                                try {
+                                                    const nepaliDate = new NepaliDate(day);
+                                                    bsLabel = nepaliDate.format('YYYY MMMM D', 'np');
+                                                } catch {
+                                                    bsLabel = '';
+                                                }
+                                            }
 
-                <div
-                    ref={bodyHorizontalViewportRef}
-                    className={styles.dayViewHorizontalViewport}
-                    onScroll={handleHorizontalScroll}
-                >
-                    <div className={styles.dayViewTrack} style={{ width: `${totalTrackWidth}px` }}>
-                        <div
-                            ref={bodyVerticalScrollRef}
-                            className={styles.dayViewVerticalScroller}
-                            style={{ height: `${timedViewportHeight}px` }}
-                            onScroll={(event) => setVerticalScrollTop(event.currentTarget.scrollTop)}
-                        >
-                            <div className={styles.dayViewTimedGrid} style={{ width: `${totalTrackWidth}px`, height: `${gridHeight}px` }}>
-                                <div className={styles.dayViewHourLines} style={timedHourLineBackground} />
-                                {timedSubhourLineBackground ? (
-                                    <div className={styles.dayViewSubhourLines} style={timedSubhourLineBackground} />
-                                ) : null}
-
-                                <div className={styles.dayViewColumnsRow}>
-                                    {renderedDays.map((day, index) => (
-                                        <DayViewTimedColumn
-                                            key={`timed-column-${formatDayKey(day)}`}
-                                            date={day}
-                                            dayIndex={index}
-                                            dayWidth={dayWidth}
-                                            hourHeight={hourHeight}
-                                            verticalScrollTop={verticalScrollTop}
-                                            snapMinutes={snapMinutes}
-                                            onBackgroundClick={onBackgroundClick}
-                                            onCreateDraft={onCreateDraft}
-                                            onDraftStart={(dayKey, minute) => {
-                                                setDraftState({ dayKey, startMinute: minute, endMinute: minute });
-                                            }}
-                                            onDraftMove={(minute) => {
-                                                setDraftState((current) => (current ? { ...current, endMinute: minute } : current));
-                                            }}
-                                            onDraftEnd={() => {
-                                                setDraftState((current) => {
-                                                    if (!current) return null;
-                                                    const startMinute = Math.min(current.startMinute, current.endMinute);
-                                                    const endMinute = Math.max(current.startMinute, current.endMinute);
-                                                    const draggedMinutes = endMinute - startMinute;
-                                                    if (draggedMinutes >= Math.max(snapMinutes, DAY_VIEW_CREATION_DRAG_THRESHOLD_MINUTES)) {
-                                                        const day = renderedDays[renderedDayMap.get(current.dayKey) || 0];
-                                                        onCreateDraft({
-                                                            start: dateAtMinute(day, startMinute),
-                                                            end: dateAtMinute(day, Math.max(startMinute + snapMinutes, endMinute)),
-                                                            isAllDay: false,
-                                                        });
-                                                    }
-                                                    return null;
-                                                });
-                                            }}
-                                        >
-                                            {draftState && draftState.dayKey === formatDayKey(day) ? (
+                                            return (
                                                 <div
-                                                    className={styles.dayViewDraftBlock}
+                                                    key={`day-header-${dateKey}-row-${rowIndex}`}
+                                                    data-testid={`day-view-header-${dateKey}`}
+                                                    className={styles.dayViewHeaderCell}
+                                                    style={{ width: `${dayWidth}px` }}
+                                                >
+                                                    <div className={styles.dayViewHeaderWeekday}>{weekday}</div>
+                                                    <div className={styles.dayViewHeaderGregorian}>{gregorian}</div>
+                                                    {displayBS ? <div className={styles.dayViewHeaderBs}>{bsLabel}</div> : null}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <div className={styles.dayViewAllDayTrack} style={{ height: `${allDayVisibleHeight}px` }}>
+                                        {rowDays.map((day, localIndex) => {
+                                            const dateKey = formatDayKey(day);
+                                            const globalIndex = rowOffset + localIndex;
+                                            return (
+                                                <div
+                                                    key={`all-day-cell-wrap-${dateKey}-row-${rowIndex}`}
+                                                    className={styles.dayViewAllDayCellWrap}
+                                                    style={{ width: `${dayWidth}px` }}
+                                                >
+                                                    <DayViewDropAllDayCell
+                                                        dateStr={dateKey}
+                                                        day={day}
+                                                        onClick={onBackgroundClick}
+                                                        onDoubleClick={() =>
+                                                            onCreateDraft({
+                                                                start: startOfDayDate(day),
+                                                                end: addDays(startOfDayDate(day), 1),
+                                                                isAllDay: true,
+                                                            })
+                                                        }
+                                                    >
+                                                        {allDayOverflowByColumn[globalIndex] > 0 ? (
+                                                            <div className={styles.dayViewAllDayOverflow}>+{allDayOverflowByColumn[globalIndex]} more</div>
+                                                        ) : null}
+                                                    </DayViewDropAllDayCell>
+                                                </div>
+                                            );
+                                        })}
+
+                                        <div className={styles.dayViewAllDayOverlay}>
+                                            {allDayVisibleLanes.map((lane, laneIndex) => (
+                                                <div
+                                                    key={`all-day-lane-${laneIndex}-row-${rowIndex}`}
+                                                    className={styles.dayViewAllDayLane}
                                                     style={{
-                                                        top: `${(Math.min(draftState.startMinute, draftState.endMinute) / 60) * hourHeight}px`,
-                                                        height: `${(Math.max(snapMinutes, Math.abs(draftState.endMinute - draftState.startMinute)) / 60) * hourHeight}px`,
+                                                        top: `${laneIndex * (DAY_VIEW_ALL_DAY_LANE_HEIGHT_PX + DAY_VIEW_ALL_DAY_LANE_GAP_PX)}px`,
+                                                        height: `${DAY_VIEW_ALL_DAY_LANE_HEIGHT_PX}px`,
                                                     }}
-                                                />
-                                            ) : null}
-                                        </DayViewTimedColumn>
+                                                >
+                                                    {lane
+                                                        .filter((segment) => !(segment.endCol < rowOffset || segment.startCol > visibleRowEndCol))
+                                                        .map((segment) => {
+                                                            const localStart = Math.max(segment.startCol - rowOffset, 0);
+                                                            const localEnd = Math.min(segment.endCol - rowOffset, rowDays.length - 1);
+                                                            return (
+                                                                <div
+                                                                    key={`${segment.key}-row-${rowIndex}`}
+                                                                    className={styles.dayViewAllDaySegment}
+                                                                    style={{
+                                                                        left: `${localStart * dayWidth}px`,
+                                                                        width: `${(localEnd - localStart + 1) * dayWidth}px`,
+                                                                    }}
+                                                                >
+                                                                    <DraggableCalendarEvent
+                                                                        item={segment.item}
+                                                                        index={laneIndex}
+                                                                        layout="span"
+                                                                        selected={isEventSelected(segment.item)}
+                                                                        continuesBefore={segment.continuesBefore || segment.startCol < rowOffset}
+                                                                        continuesAfter={segment.continuesAfter || segment.endCol > visibleRowEndCol}
+                                                                        draggableEnabled={segment.item.calendarItemKind !== 'chore'}
+                                                                        onClick={(event) => onEventClick(event, segment.item)}
+                                                                        onDoubleClick={(event) => onEventDoubleClick(event, segment.item)}
+                                                                    />
+                                                                </div>
+                                                            );
+                                                        })}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className={styles.dayViewBodyRow}>
+                            <div className={styles.dayViewTimeGutter} style={{ width: `${DAY_VIEW_HOUR_LABEL_WIDTH_PX}px`, height: `${timedViewportHeight}px` }}>
+                                <div
+                                    className={styles.dayViewTimeGutterInner}
+                                    style={{
+                                        height: `${gridHeight}px`,
+                                        transform: `translateY(${-rowScrollTop}px)`,
+                                    }}
+                                >
+                                    {hourLabels.map((hour) => (
+                                        <div
+                                            key={`time-label-${hour}-row-${rowIndex}`}
+                                            className={styles.dayViewTimeLabel}
+                                            style={{ top: `${hour * effectiveHourHeight}px` }}
+                                        >
+                                            {formatHourLabel(hour)}
+                                        </div>
                                     ))}
                                 </div>
+                            </div>
 
-                                {currentTimeIndicator ? (
+                            <div
+                                ref={(node) => {
+                                    bodyHorizontalViewportRefs.current[rowIndex] = node;
+                                }}
+                                className={styles.dayViewHorizontalViewport}
+                                onScroll={() => handleHorizontalScroll(rowIndex)}
+                            >
+                                <div className={styles.dayViewTrack} style={{ width: `${rowTrackWidth}px` }}>
                                     <div
-                                        className={styles.dayViewCurrentTimeLine}
-                                        style={{
-                                            left: `${currentTimeIndicator.dayIndex * dayWidth}px`,
-                                            top: `${currentTimeIndicator.top}px`,
-                                            width: `${dayWidth}px`,
+                                        ref={(node) => {
+                                            bodyVerticalScrollRefs.current[rowIndex] = node;
                                         }}
-                                    />
-                                ) : null}
+                                        className={styles.dayViewVerticalScroller}
+                                        style={{ height: `${timedViewportHeight}px` }}
+                                        onScroll={(event) =>
+                                            setVerticalScrollTopByRow((current) => {
+                                                const next = [...current];
+                                                next[rowIndex] = event.currentTarget.scrollTop;
+                                                return next;
+                                            })
+                                        }
+                                    >
+                                        <div className={styles.dayViewTimedGrid} style={{ width: `${rowTrackWidth}px`, height: `${gridHeight}px` }}>
+                                            <div className={styles.dayViewHourLines} style={timedHourLineBackground} />
+                                            {timedSubhourLineBackground ? (
+                                                <div className={styles.dayViewSubhourLines} style={timedSubhourLineBackground} />
+                                            ) : null}
 
-                                {timedSegments.map((segment) => {
-                                    const preview =
-                                        resizePreview && resizePreview.segmentKey === segment.key && !segment.continuesBefore && !segment.continuesAfter
-                                            ? resizePreview
-                                            : null;
-                                    const displayStartMinute = preview
-                                        ? clampNumber((preview.startMs - startOfDayDate(parseISO(`${segment.dayKey}T00:00:00`)).getTime()) / 60000, 0, 24 * 60)
-                                        : segment.startMinute;
-                                    const displayEndMinute = preview
-                                        ? clampNumber((preview.endMs - startOfDayDate(parseISO(`${segment.dayKey}T00:00:00`)).getTime()) / 60000, 1, 24 * 60)
-                                        : segment.endMinute;
+                                            <div className={styles.dayViewColumnsRow}>
+                                                {rowDays.map((day, localIndex) => (
+                                                    <DayViewTimedColumn
+                                                        key={`timed-column-${formatDayKey(day)}-row-${rowIndex}`}
+                                                        date={day}
+                                                        dayIndex={rowOffset + localIndex}
+                                                        dayWidth={dayWidth}
+                                                        hourHeight={effectiveHourHeight}
+                                                        verticalScrollTop={rowScrollTop}
+                                                        snapMinutes={snapMinutes}
+                                                        onBackgroundClick={onBackgroundClick}
+                                                        onCreateDraft={onCreateDraft}
+                                                        onDraftStart={(dayKey, minute) => {
+                                                            setDraftState({ dayKey, startMinute: minute, endMinute: minute });
+                                                        }}
+                                                        onDraftMove={(minute) => {
+                                                            setDraftState((current) => (current ? { ...current, endMinute: minute } : current));
+                                                        }}
+                                                        onDraftEnd={() => {
+                                                            setDraftState((current) => {
+                                                                if (!current) return null;
+                                                                const startMinute = Math.min(current.startMinute, current.endMinute);
+                                                                const endMinute = Math.max(current.startMinute, current.endMinute);
+                                                                const draggedMinutes = endMinute - startMinute;
+                                                                if (draggedMinutes >= Math.max(snapMinutes, DAY_VIEW_CREATION_DRAG_THRESHOLD_MINUTES)) {
+                                                                    const day = renderedDays[renderedDayMap.get(current.dayKey) || 0];
+                                                                    onCreateDraft({
+                                                                        start: dateAtMinute(day, startMinute),
+                                                                        end: dateAtMinute(day, Math.max(startMinute + snapMinutes, endMinute)),
+                                                                        isAllDay: false,
+                                                                    });
+                                                                }
+                                                                return null;
+                                                            });
+                                                        }}
+                                                    >
+                                                        {draftState && draftState.dayKey === formatDayKey(day) ? (
+                                                            <div
+                                                                className={styles.dayViewDraftBlock}
+                                                                style={{
+                                                                    top: `${(Math.min(draftState.startMinute, draftState.endMinute) / 60) * effectiveHourHeight}px`,
+                                                                    height: `${(Math.max(snapMinutes, Math.abs(draftState.endMinute - draftState.startMinute)) / 60) * effectiveHourHeight}px`,
+                                                                }}
+                                                            />
+                                                        ) : null}
+                                                    </DayViewTimedColumn>
+                                                ))}
+                                            </div>
 
-                                    return (
-                                        <div
-                                            key={segment.key}
-                                            data-calendar-event-wrapper="true"
-                                            className={styles.dayViewTimedEventWrapper}
-                                            style={{
-                                                left: `${segment.dayIndex * dayWidth + (segment.columnIndex / segment.columnCount) * dayWidth}px`,
-                                                top: `${(displayStartMinute / 60) * hourHeight}px`,
-                                                width: `${dayWidth / segment.columnCount}px`,
-                                                height: `${Math.max(18, ((displayEndMinute - displayStartMinute) / 60) * hourHeight)}px`,
-                                            }}
-                                        >
-                                            {!segment.continuesBefore && !segment.continuesAfter && segment.item.calendarItemKind !== 'chore' ? (
-                                                <button
-                                                    type="button"
-                                                    aria-label={`Resize ${segment.item.title || 'event'} earlier`}
-                                                    className={styles.dayViewResizeHandle}
-                                                    onPointerDown={(event) => {
-                                                        event.stopPropagation();
-                                                        const start = parseEventStart(segment.item);
-                                                        const end = parseEventEnd(segment.item);
-                                                        if (!start || !end) return;
-                                                        const dayStart = startOfDayDate(start).getTime();
-                                                        resizeStateRef.current = {
-                                                            edge: 'start',
-                                                            segmentKey: segment.key,
-                                                            item: segment.item,
-                                                            originalStartMs: start.getTime(),
-                                                            originalEndMs: end.getTime(),
-                                                            dayStartMs: dayStart,
-                                                            dayEndMs: dayStart + 24 * 60 * 60 * 1000,
-                                                            startClientY: event.clientY,
-                                                            snapMinutes,
-                                                        };
-                                                        setResizePreview({
-                                                            segmentKey: segment.key,
-                                                            startMs: start.getTime(),
-                                                            endMs: end.getTime(),
-                                                        });
+                                            {rowCurrentTimeIndicator ? (
+                                                <div
+                                                    className={styles.dayViewCurrentTimeLine}
+                                                    style={{
+                                                        left: rowCurrentTimeIndicator.left,
+                                                        top: rowCurrentTimeIndicator.top,
+                                                        width: `${dayWidth}px`,
                                                     }}
                                                 />
                                             ) : null}
 
-                                            <DraggableCalendarEvent
-                                                item={segment.displayItem}
-                                                index={segment.columnIndex}
-                                                selected={isEventSelected(segment.item)}
-                                                draggableEnabled={segment.item.calendarItemKind !== 'chore'}
-                                                className={styles.dayViewTimedEventCard}
-                                                onClick={(event) => onEventClick(event, segment.item)}
-                                                onDoubleClick={(event) => onEventDoubleClick(event, segment.item)}
-                                            />
+                                            {timedSegments
+                                                .filter((segment) => segment.dayIndex >= rowOffset && segment.dayIndex <= visibleRowEndCol)
+                                                .map((segment) => {
+                                                    const preview =
+                                                        resizePreview && resizePreview.segmentKey === segment.key && !segment.continuesBefore && !segment.continuesAfter
+                                                            ? resizePreview
+                                                            : null;
+                                                    const displayStartMinute = preview
+                                                        ? clampNumber((preview.startMs - startOfDayDate(parseISO(`${segment.dayKey}T00:00:00`)).getTime()) / 60000, 0, 24 * 60)
+                                                        : segment.startMinute;
+                                                    const displayEndMinute = preview
+                                                        ? clampNumber((preview.endMs - startOfDayDate(parseISO(`${segment.dayKey}T00:00:00`)).getTime()) / 60000, 1, 24 * 60)
+                                                        : segment.endMinute;
+                                                    const localDayIndex = segment.dayIndex - rowOffset;
 
-                                            {!segment.continuesBefore && !segment.continuesAfter && segment.item.calendarItemKind !== 'chore' ? (
-                                                <button
-                                                    type="button"
-                                                    aria-label={`Resize ${segment.item.title || 'event'} later`}
-                                                    className={`${styles.dayViewResizeHandle} ${styles.dayViewResizeHandleBottom}`}
-                                                    onPointerDown={(event) => {
-                                                        event.stopPropagation();
-                                                        const start = parseEventStart(segment.item);
-                                                        const end = parseEventEnd(segment.item);
-                                                        if (!start || !end) return;
-                                                        const dayStart = startOfDayDate(start).getTime();
-                                                        resizeStateRef.current = {
-                                                            edge: 'end',
-                                                            segmentKey: segment.key,
-                                                            item: segment.item,
-                                                            originalStartMs: start.getTime(),
-                                                            originalEndMs: end.getTime(),
-                                                            dayStartMs: dayStart,
-                                                            dayEndMs: dayStart + 24 * 60 * 60 * 1000,
-                                                            startClientY: event.clientY,
-                                                            snapMinutes,
-                                                        };
-                                                        setResizePreview({
-                                                            segmentKey: segment.key,
-                                                            startMs: start.getTime(),
-                                                            endMs: end.getTime(),
-                                                        });
-                                                    }}
-                                                />
-                                            ) : null}
+                                                    return (
+                                                        <div
+                                                            key={`${segment.key}-row-${rowIndex}`}
+                                                            data-calendar-event-wrapper="true"
+                                                            className={styles.dayViewTimedEventWrapper}
+                                                            style={{
+                                                                left: `${localDayIndex * dayWidth + (segment.columnIndex / segment.columnCount) * dayWidth}px`,
+                                                                top: `${(displayStartMinute / 60) * effectiveHourHeight}px`,
+                                                                width: `${dayWidth / segment.columnCount}px`,
+                                                                height: `${Math.max(18, ((displayEndMinute - displayStartMinute) / 60) * effectiveHourHeight)}px`,
+                                                            }}
+                                                        >
+                                                            {!segment.continuesBefore && !segment.continuesAfter && segment.item.calendarItemKind !== 'chore' ? (
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label={`Resize ${segment.item.title || 'event'} earlier`}
+                                                                    className={styles.dayViewResizeHandle}
+                                                                    onPointerDown={(event) => {
+                                                                        event.stopPropagation();
+                                                                        const start = parseEventStart(segment.item);
+                                                                        const end = parseEventEnd(segment.item);
+                                                                        if (!start || !end) return;
+                                                                        const dayStart = startOfDayDate(start).getTime();
+                                                                        resizeStateRef.current = {
+                                                                            edge: 'start',
+                                                                            segmentKey: segment.key,
+                                                                            item: segment.item,
+                                                                            originalStartMs: start.getTime(),
+                                                                            originalEndMs: end.getTime(),
+                                                                            dayStartMs: dayStart,
+                                                                            dayEndMs: dayStart + 24 * 60 * 60 * 1000,
+                                                                            startClientY: event.clientY,
+                                                                            snapMinutes,
+                                                                        };
+                                                                        setResizePreview({
+                                                                            segmentKey: segment.key,
+                                                                            startMs: start.getTime(),
+                                                                            endMs: end.getTime(),
+                                                                        });
+                                                                    }}
+                                                                />
+                                                            ) : null}
+
+                                                            <DraggableCalendarEvent
+                                                                item={segment.displayItem}
+                                                                index={segment.columnIndex}
+                                                                selected={isEventSelected(segment.item)}
+                                                                draggableEnabled={segment.item.calendarItemKind !== 'chore'}
+                                                                className={styles.dayViewTimedEventCard}
+                                                                onClick={(event) => onEventClick(event, segment.item)}
+                                                                onDoubleClick={(event) => onEventDoubleClick(event, segment.item)}
+                                                            />
+
+                                                            {!segment.continuesBefore && !segment.continuesAfter && segment.item.calendarItemKind !== 'chore' ? (
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label={`Resize ${segment.item.title || 'event'} later`}
+                                                                    className={`${styles.dayViewResizeHandle} ${styles.dayViewResizeHandleBottom}`}
+                                                                    onPointerDown={(event) => {
+                                                                        event.stopPropagation();
+                                                                        const start = parseEventStart(segment.item);
+                                                                        const end = parseEventEnd(segment.item);
+                                                                        if (!start || !end) return;
+                                                                        const dayStart = startOfDayDate(start).getTime();
+                                                                        resizeStateRef.current = {
+                                                                            edge: 'end',
+                                                                            segmentKey: segment.key,
+                                                                            item: segment.item,
+                                                                            originalStartMs: start.getTime(),
+                                                                            originalEndMs: end.getTime(),
+                                                                            dayStartMs: dayStart,
+                                                                            dayEndMs: dayStart + 24 * 60 * 60 * 1000,
+                                                                            startClientY: event.clientY,
+                                                                            snapMinutes,
+                                                                        };
+                                                                        setResizePreview({
+                                                                            segmentKey: segment.key,
+                                                                            startMs: start.getTime(),
+                                                                            endMs: end.getTime(),
+                                                                        });
+                                                                    }}
+                                                                />
+                                                            ) : null}
+                                                        </div>
+                                                    );
+                                                })}
                                         </div>
-                                    );
-                                })}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
+                );
+            })}
         </div>
     );
 }

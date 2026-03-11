@@ -249,6 +249,7 @@ describe('CalendarHeaderControls member filter summary', () => {
         });
 
         fireEvent.change(screen.getByLabelText('Visible Days'), { target: { value: '3' } });
+        fireEvent.click(screen.getByText('Second row of days'));
         fireEvent.change(screen.getByLabelText('Hour Zoom'), { target: { value: '72' } });
 
         await waitFor(() => {
@@ -257,6 +258,10 @@ describe('CalendarHeaderControls member filter summary', () => {
                     expect.objectContaining({
                         type: 'setDayVisibleDays',
                         dayVisibleDays: 3,
+                    }),
+                    expect.objectContaining({
+                        type: 'setDayRowCount',
+                        dayRowCount: 2,
                     }),
                     expect.objectContaining({
                         type: 'setDayHourHeight',

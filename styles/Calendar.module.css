@@ -24,6 +24,18 @@
         linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
 }
 
+.dayViewRowSection {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.dayViewRowSection:last-child {
+    border-bottom: none;
+}
+
 .dayViewTopRow {
     display: flex;
     align-items: stretch;
@@ -911,6 +923,109 @@
     border-radius: 6px;
     padding: 0 4px;
     box-shadow: none;
+}
+
+.dayEventCard {
+    position: relative;
+    gap: 0;
+    min-height: 100%;
+    border: 1px solid var(--calendar-day-event-outline, rgba(29, 78, 216, 0.48));
+    border-radius: 12px;
+    background: var(--calendar-day-event-bg, linear-gradient(180deg, rgba(29, 78, 216, 0.42), rgba(29, 78, 216, 0.26)));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.12),
+        0 12px 24px -18px var(--calendar-day-event-shadow, rgba(29, 78, 216, 0.18));
+    overflow: hidden;
+    padding: 0;
+}
+
+.dayEventMemberRail {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    display: flex;
+    flex-direction: column;
+    z-index: 1;
+}
+
+.dayEventMemberRailSegment {
+    flex: 1;
+    min-height: 0;
+}
+
+.dayEventCardBody {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 100%;
+    padding: 7px 8px 7px 12px;
+}
+
+.dayEventCardTopRow {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
+
+.dayEventCardTitleBlock {
+    min-width: 0;
+    flex: 1;
+}
+
+.dayEventCardTitle {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    text-align: left;
+    color: var(--calendar-day-event-text, #F8FAFC);
+    font-size: 0.96rem;
+    font-weight: 700;
+    line-height: 1.08;
+    text-overflow: ellipsis;
+}
+
+.dayEventCardMeta {
+    margin-top: 3px;
+    text-align: left;
+    color: var(--calendar-day-event-muted, rgba(248, 250, 252, 0.82));
+    font-size: 0.74rem;
+    font-weight: 600;
+    line-height: 1.15;
+}
+
+.dayEventAvatarStack {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.dayEventAvatar {
+    width: 18px;
+    height: 18px;
+    margin-left: -4px;
+    border: 1px solid var(--calendar-day-avatar-border, rgba(255, 255, 255, 0.7));
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.2);
+}
+
+.dayEventAvatar:first-child {
+    margin-left: 0;
+}
+
+.dayEventAvatarFallback {
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--calendar-day-avatar-border, #1D4ED8);
+    font-size: 0.46rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
 }
 
 .calendarItemCarryover {

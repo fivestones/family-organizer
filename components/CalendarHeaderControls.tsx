@@ -15,6 +15,8 @@ import {
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN,
+    CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT,
+    CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_MAX,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_MIN,
@@ -30,6 +32,7 @@ import {
     CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY,
     CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY,
     clampCalendarDayHourHeight,
+    clampCalendarDayRowCount,
     clampCalendarDayVisibleDays,
     clampCalendarYearFontScale,
     type CalendarViewMode,
@@ -61,6 +64,7 @@ export default function CalendarHeaderControls() {
     const [showChores, setShowChores] = useState(false);
     const [viewMode, setViewMode] = useState<CalendarViewMode>('monthly');
     const [dayVisibleDays, setDayVisibleDays] = useState(CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT);
+    const [dayRowCount, setDayRowCount] = useState(CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT);
     const [dayHourHeight, setDayHourHeight] = useState(CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT);
     const [yearMonthBasis, setYearMonthBasis] = useState<CalendarYearMonthBasis>('gregorian');
     const [yearFontScale, setYearFontScale] = useState(CALENDAR_YEAR_FONT_SCALE_DEFAULT);
@@ -90,6 +94,10 @@ export default function CalendarHeaderControls() {
         const storedDayVisibleDays = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY));
         if (Number.isFinite(storedDayVisibleDays)) {
             setDayVisibleDays(clampCalendarDayVisibleDays(storedDayVisibleDays));
+        }
+        const storedDayRowCount = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY));
+        if (Number.isFinite(storedDayRowCount)) {
+            setDayRowCount(clampCalendarDayRowCount(storedDayRowCount));
         }
         const storedDayHourHeight = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY));
         if (Number.isFinite(storedDayHourHeight)) {
@@ -124,6 +132,7 @@ export default function CalendarHeaderControls() {
             setShowChores(Boolean(detail.showChores));
             setViewMode(detail.viewMode);
             setDayVisibleDays(clampCalendarDayVisibleDays(detail.dayVisibleDays));
+            setDayRowCount(clampCalendarDayRowCount(detail.dayRowCount));
             setDayHourHeight(clampCalendarDayHourHeight(detail.dayHourHeight));
             setYearMonthBasis(detail.yearMonthBasis);
             setYearFontScale(clampCalendarYearFontScale(detail.yearFontScale));
@@ -489,6 +498,27 @@ export default function CalendarHeaderControls() {
                                     />
                                 </div>
 
+                                <label
+                                    htmlFor="calendar-day-row-count-header"
+                                    className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2"
+                                >
+                                    <Checkbox
+                                        id="calendar-day-row-count-header"
+                                        checked={dayRowCount === 2}
+                                        onCheckedChange={(checked) => {
+                                            const next = normalizeChecked(checked) ? 2 : 1;
+                                            setDayRowCount(next);
+                                            dispatchCalendarCommand({ type: 'setDayRowCount', dayRowCount: next });
+                                        }}
+                                    />
+                                    <div className="space-y-1">
+                                        <span className="block text-sm font-medium">Second row of days</span>
+                                        <span className="block text-xs text-muted-foreground">
+                                            Show twice as many days by stacking a second day row below the first.
+                                        </span>
+                                    </div>
+                                </label>
+
                                 <div className="grid gap-2">
                                     <div className="flex items-center justify-between gap-3">
                                         <Label htmlFor="calendar-day-hour-height-header">Hour Zoom</Label>
@@ -508,7 +538,7 @@ export default function CalendarHeaderControls() {
                                         }}
                                     />
                                     <p className="text-xs text-muted-foreground">
-                                        Approx. visible hours: {(Math.max(1, 620) / Math.max(1, dayHourHeight)).toFixed(1)}
+                                        Approx. visible hours per row: {(Math.max(1, 620) / Math.max(1, dayHourHeight)).toFixed(1)}
                                     </p>
                                 </div>
                             </div>

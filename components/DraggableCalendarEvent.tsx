@@ -5,13 +5,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { cn } from '../lib/utils';
 import { CALENDAR_YEAR_FONT_SCALE_MAX, CALENDAR_YEAR_FONT_SCALE_MIN } from '../lib/calendar-controls';
-import { buildMemberColorMap, getReadableTextColor } from '../lib/family-member-colors';
+import { buildMemberColorMap, getReadableTextColor, hexToRgbaString } from '../lib/family-member-colors';
+import { getPhotoUrl } from '@/lib/photo-urls';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import styles from '../styles/Calendar.module.css'; // Import your calendar styles
 
 interface EventFamilyMember {
     id: string;
     name?: string | null;
     color?: string | null;
+    photoUrls?: any;
 }
 
 interface EventMemberIndicator {
@@ -20,6 +23,7 @@ interface EventMemberIndicator {
     initials: string;
     color: string;
     contrastSurface: string;
+    photoUrl?: string;
 }
 
 export interface CalendarItem {
@@ -96,11 +100,16 @@ export const DraggableCalendarEvent = ({
     const effectiveScale = Number.isFinite(scale)
         ? Math.min(CALENDAR_YEAR_FONT_SCALE_MAX, Math.max(CALENDAR_YEAR_FONT_SCALE_MIN, scale))
         : 1;
+    const appearance = item.__calendarAppearance === 'day' ? 'day' : 'default';
     const itemKind = item.calendarItemKind === 'chore' ? 'chore' : 'event';
     const usesChipChrome = itemKind === 'event' && (item.isAllDay || isSpanLayout);
     const isInteractive = draggableEnabled || typeof onClick === 'function';
     const descriptionText = useMemo(() => String(item.description || '').replace(/\s+/g, ' ').trim(), [item.description]);
-    const showDescriptionRow = !isSpanLayout && !isYearLayout && descriptionText.length > 0;
+    const metaText = useMemo(
+        () => String(item.__calendarMetaLabel || (appearance === 'day' ? '' : descriptionText)).replace(/\s+/g, ' ').trim(),
+        [appearance, descriptionText, item.__calendarMetaLabel]
+    );
+    const showDescriptionRow = !isSpanLayout && !isYearLayout && metaText.length > 0;
     const memberIndicators = useMemo<EventMemberIndicator[]>(() => {
         const memberColorsById = buildMemberColorMap(members);
 
@@ -122,11 +131,33 @@ export const DraggableCalendarEvent = ({
                     initials: getMemberInitials(member.name),
                     color,
                     contrastSurface: getReadableTextColor(color) === '#0F172A' ? '#000000' : '#FFFFFF',
+                    photoUrl: getPhotoUrl((member as any).photoUrls, '64'),
                 };
             })
-            .filter((member): member is EventMemberIndicator => Boolean(member));
+            .filter(Boolean) as EventMemberIndicator[];
     }, [members]);
     const usesDotIndicators = memberIndicatorStyle === 'dot';
+    const primaryMemberColor = memberIndicators[0]?.color || '#1D4ED8';
+    const readableTextColor = getReadableTextColor(primaryMemberColor);
+    const eventSurfaceStyle = useMemo(() => {
+        if (appearance !== 'day') {
+            return {
+                opacity: isDragging ? 0.4 : 1,
+                '--calendar-item-scale': String(effectiveScale),
+            } as React.CSSProperties;
+        }
+
+        return {
+            opacity: isDragging ? 0.4 : 1,
+            '--calendar-item-scale': String(effectiveScale),
+            '--calendar-day-event-primary': primaryMemberColor,
+            '--calendar-day-event-outline': hexToRgbaString(primaryMemberColor, 0.72),
+            '--calendar-day-event-bg': `linear-gradient(180deg, ${hexToRgbaString(primaryMemberColor, 0.42)}, ${hexToRgbaString(primaryMemberColor, 0.28)})`,
+            '--calendar-day-event-text': readableTextColor,
+            '--calendar-day-event-muted': readableTextColor === '#0F172A' ? 'rgba(15, 23, 42, 0.72)' : 'rgba(248, 250, 252, 0.84)',
+            '--calendar-day-event-shadow': hexToRgbaString(primaryMemberColor, 0.18),
+        } as React.CSSProperties;
+    }, [appearance, effectiveScale, isDragging, primaryMemberColor, readableTextColor]);
 
     useEffect(() => {
         if (!draggableEnabled) {
@@ -153,12 +184,8 @@ export const DraggableCalendarEvent = ({
             data-calendar-item-kind={itemKind}
             data-calendar-chip-surface={usesChipChrome ? 'chip' : 'plain'}
             data-calendar-selected={selected ? 'true' : 'false'}
-            style={
-                {
-                    opacity: isDragging ? 0.4 : 1,
-                    '--calendar-item-scale': String(effectiveScale),
-                } as React.CSSProperties
-            }
+            data-calendar-appearance={appearance}
+            style={eventSurfaceStyle}
             className={cn(
                 styles.calendarItem,
                 styles[itemKind],
@@ -173,44 +200,88 @@ export const DraggableCalendarEvent = ({
                 isSpanLayout && styles.eventSpan,
                 isSpanLayout && continuesBefore && styles.eventSpanContinuesBefore,
                 isSpanLayout && continuesAfter && styles.eventSpanContinuesAfter,
+                appearance === 'day' && styles.dayEventCard,
                 className
             )}
             onClick={onClick}
             onDoubleClick={onDoubleClick}
             title={item.title}
         >
-            <div className={cn(styles.eventHeaderRow, isSpanLayout && styles.eventHeaderRowSpan, isYearLayout && styles.eventHeaderRowYear)}>
-                {memberIndicators.length > 0 ? (
-                    <div
-                        className={cn(
-                            styles.eventAudienceRow,
-                            isSpanLayout && styles.eventAudienceRowSpan,
-                            usesDotIndicators && styles.eventAudienceRowDots
-                        )}
-                    >
-                        {memberIndicators.map((member) => (
+            {appearance === 'day' ? (
+                <>
+                    <div className={styles.dayEventMemberRail} aria-hidden="true">
+                        {(memberIndicators.length > 0 ? memberIndicators : [{ id: 'default', name: null, initials: '', color: primaryMemberColor, contrastSurface: readableTextColor }]).map((member) => (
                             <span
                                 key={member.id}
-                                title={member.name || 'Unknown member'}
-                                data-calendar-member-indicator={usesDotIndicators ? 'dot' : 'badge'}
-                                className={usesDotIndicators ? styles.eventMemberDot : styles.eventAudienceAvatar}
-                                style={
-                                    {
-                                        '--calendar-member-indicator-color': member.color,
-                                        '--calendar-member-indicator-contrast-surface': member.contrastSurface,
-                                    } as React.CSSProperties
-                                }
-                            >
-                                {usesDotIndicators ? null : member.initials}
-                            </span>
+                                className={styles.dayEventMemberRailSegment}
+                                style={{ background: member.color }}
+                            />
                         ))}
                     </div>
-                ) : null}
-                <div className={cn(styles.eventTitle, isSpanLayout && styles.eventTitleSpan, isYearLayout && styles.eventTitleYear)}>
-                    {item.title}
-                </div>
-            </div>
-            {showDescriptionRow ? <div className={styles.eventMetaText}>{descriptionText}</div> : null}
+                    <div className={styles.dayEventCardBody}>
+                        <div className={styles.dayEventCardTopRow}>
+                            <div className={styles.dayEventCardTitleBlock}>
+                                <div className={styles.dayEventCardTitle}>{item.title}</div>
+                                {showDescriptionRow ? <div className={styles.dayEventCardMeta}>{metaText}</div> : null}
+                            </div>
+                            {memberIndicators.length > 0 ? (
+                                <div className={styles.dayEventAvatarStack}>
+                                    {memberIndicators.map((member) => (
+                                        <Avatar
+                                            key={member.id}
+                                            className={styles.dayEventAvatar}
+                                            style={
+                                                {
+                                                    '--calendar-day-avatar-border': member.color,
+                                                    '--calendar-day-avatar-text': member.contrastSurface,
+                                                } as React.CSSProperties
+                                            }
+                                        >
+                                            {member.photoUrl ? <AvatarImage src={member.photoUrl} alt={member.name || 'Family member'} /> : null}
+                                            <AvatarFallback className={styles.dayEventAvatarFallback}>{member.initials}</AvatarFallback>
+                                        </Avatar>
+                                    ))}
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div className={cn(styles.eventHeaderRow, isSpanLayout && styles.eventHeaderRowSpan, isYearLayout && styles.eventHeaderRowYear)}>
+                        {memberIndicators.length > 0 ? (
+                            <div
+                                className={cn(
+                                    styles.eventAudienceRow,
+                                    isSpanLayout && styles.eventAudienceRowSpan,
+                                    usesDotIndicators && styles.eventAudienceRowDots
+                                )}
+                            >
+                                {memberIndicators.map((member) => (
+                                    <span
+                                        key={member.id}
+                                        title={member.name || 'Unknown member'}
+                                        data-calendar-member-indicator={usesDotIndicators ? 'dot' : 'badge'}
+                                        className={usesDotIndicators ? styles.eventMemberDot : styles.eventAudienceAvatar}
+                                        style={
+                                            {
+                                                '--calendar-member-indicator-color': member.color,
+                                                '--calendar-member-indicator-contrast-surface': member.contrastSurface,
+                                            } as React.CSSProperties
+                                        }
+                                    >
+                                        {usesDotIndicators ? null : member.initials}
+                                    </span>
+                                ))}
+                            </div>
+                        ) : null}
+                        <div className={cn(styles.eventTitle, isSpanLayout && styles.eventTitleSpan, isYearLayout && styles.eventTitleYear)}>
+                            {item.title}
+                        </div>
+                    </div>
+                    {showDescriptionRow ? <div className={styles.eventMetaText}>{metaText}</div> : null}
+                </>
+            )}
         </div>
     );
 };

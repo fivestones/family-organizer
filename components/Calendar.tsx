@@ -54,6 +54,8 @@ import {
     CALENDAR_DAY_HEIGHT_MIN,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY,
+    CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT,
+    CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY,
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
@@ -67,6 +69,7 @@ import {
     CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY,
     CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY,
     clampCalendarDayHourHeight,
+    clampCalendarDayRowCount,
     clampCalendarDayVisibleDays,
     clampCalendarYearFontScale,
     type CalendarViewMode,
@@ -923,6 +926,14 @@ const Calendar = ({
         const stored = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY));
         return Number.isFinite(stored) ? clampCalendarDayVisibleDays(stored) : CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT;
     });
+    const [dayRowCount, setDayRowCount] = useState<number>(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) {
+            return CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT;
+        }
+
+        const stored = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY));
+        return Number.isFinite(stored) ? clampCalendarDayRowCount(stored) : CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT;
+    });
     const [dayHourHeight, setDayHourHeight] = useState<number>(() => {
         if (typeof window === 'undefined' || !commandsEnabled) {
             return CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT;
@@ -1253,10 +1264,10 @@ const Calendar = ({
     );
     const dayRenderedDays = useMemo(
         () =>
-            Array.from({ length: dayVisibleDays + DAY_VIEW_BUFFER_DAYS * 2 }, (_unused, index) =>
+            Array.from({ length: dayVisibleDays * dayRowCount + DAY_VIEW_BUFFER_DAYS * 2 }, (_unused, index) =>
                 addDays(dayRenderedStartDate, index)
             ),
-        [dayRenderedStartDate, dayVisibleDays]
+        [dayRenderedStartDate, dayRowCount, dayVisibleDays]
     );
     const dayRenderedEndDate = dayRenderedDays[dayRenderedDays.length - 1] ?? dayRenderedStartDate;
 
@@ -3611,6 +3622,11 @@ const Calendar = ({
 
     useEffect(() => {
         if (typeof window === 'undefined' || !commandsEnabled) return;
+        window.localStorage.setItem(CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY, String(dayRowCount));
+    }, [commandsEnabled, dayRowCount]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) return;
         window.localStorage.setItem(CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY, String(dayHourHeight));
     }, [commandsEnabled, dayHourHeight]);
 
@@ -3632,6 +3648,7 @@ const Calendar = ({
             showChores: effectiveShowChores,
             viewMode,
             dayVisibleDays,
+            dayRowCount,
             dayHourHeight,
             yearMonthBasis,
             yearFontScale: effectiveYearFontScale,
@@ -3658,6 +3675,7 @@ const Calendar = ({
         effectiveSelectedMemberIds,
         effectiveShowChores,
         dayHourHeight,
+        dayRowCount,
         dayVisibleDays,
         viewMode,
         visibleWeeksEstimate,
@@ -3693,6 +3711,12 @@ const Calendar = ({
 
             if (detail.type === 'setDayVisibleDays') {
                 setDayVisibleDays(clampCalendarDayVisibleDays(detail.dayVisibleDays));
+                return;
+            }
+
+            if (detail.type === 'setDayRowCount') {
+                setDayRowCount(clampCalendarDayRowCount(detail.dayRowCount));
+                setDayViewVerticalResetKey((value) => value + 1);
                 return;
             }
 
@@ -3772,6 +3796,7 @@ const Calendar = ({
                     showChores: effectiveShowChores,
                     viewMode,
                     dayVisibleDays,
+                    dayRowCount,
                     dayHourHeight,
                     yearMonthBasis,
                     yearFontScale: effectiveYearFontScale,
@@ -3808,6 +3833,7 @@ const Calendar = ({
         handleQuickAddClick,
         handleTodayClick,
         dayHourHeight,
+        dayRowCount,
         dayVisibleDays,
         setDayHeight,
         shiftYearViewport,
@@ -4403,6 +4429,7 @@ const Calendar = ({
                             anchorDate={dayAnchorDate}
                             renderedDays={dayRenderedDays}
                             visibleDayCount={dayVisibleDays}
+                            rowCount={dayRowCount}
                             hourHeight={dayHourHeight}
                             containerHeight={scrollContainerHeight}
                             displayBS={effectiveShowBsDays}
