@@ -215,16 +215,6 @@ export async function getAppleCalendarSyncStatus() {
         };
     }
     const calendars = await listCalendarSyncCalendars(account.id);
-    const latestSeenAtMs = calendars.reduce((latest: number, calendar: any) => {
-        const parsed = new Date(calendar?.lastSeenAt || '').getTime();
-        return Number.isNaN(parsed) ? latest : Math.max(latest, parsed);
-    }, 0);
-    const visibleCalendars = calendars.filter((calendar: any) => {
-        if (calendar.isEnabled) return true;
-        const lastSeenMs = new Date(calendar?.lastSeenAt || '').getTime();
-        if (!Number.isFinite(lastSeenMs) || latestSeenAtMs <= 0) return true;
-        return latestSeenAtMs - lastSeenMs <= 60_000;
-    });
     const runs = await listRecentSyncRuns(account.id, 10);
     const pollPlan = getAppleCalendarSyncPollPlan({
         trigger: 'cron',
@@ -235,7 +225,7 @@ export async function getAppleCalendarSyncStatus() {
         configured: true,
         serverNow,
         account,
-        calendars: visibleCalendars,
+        calendars,
         lastRun: runs[0] || null,
         polling: {
             due: pollPlan.due,

@@ -126,11 +126,6 @@ function runTriggerLabel(value: string | undefined) {
     }
 }
 
-function sanitizeAppleCalendarDisplayName(value: string | undefined | null) {
-    const next = String(value || '').replace(/\s*[⚠️❗]+\s*$/, '').trim();
-    return next || String(value || 'Apple Calendar');
-}
-
 async function parseJson(response: Response) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -197,7 +192,7 @@ export default function AppleCalendarSyncSettings() {
             .sort((left, right) => {
                 const selectedDiff = Number(form.selectedCalendarIds.includes(right.remoteCalendarId)) - Number(form.selectedCalendarIds.includes(left.remoteCalendarId));
                 if (selectedDiff !== 0) return selectedDiff;
-                return sanitizeAppleCalendarDisplayName(left.displayName).localeCompare(sanitizeAppleCalendarDisplayName(right.displayName));
+                return String(left.displayName || '').localeCompare(String(right.displayName || ''));
             });
     }, [form.selectedCalendarIds, status?.calendars]);
 
@@ -710,7 +705,7 @@ export default function AppleCalendarSyncSettings() {
                 <div className="space-y-3">
                     <div className="space-y-1">
                         <h3 className="text-sm font-semibold text-slate-900">Imported Calendars</h3>
-                        <p className="text-sm text-slate-600">Choose which Apple calendars appear in Family Organizer. Changes save automatically.</p>
+                        <p className="text-sm text-slate-600">Choose which Apple calendars appear in Family Organizer. Changes save automatically. Apple names are shown exactly as Apple sends them so similar calendars can still be told apart.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         {calendars.length === 0 ? (
@@ -742,7 +737,7 @@ export default function AppleCalendarSyncSettings() {
                                                 }));
                                             }}
                                         />
-                                        <span className="truncate font-medium">{sanitizeAppleCalendarDisplayName(calendar.displayName)}</span>
+                                        <span className="truncate font-medium">{calendar.displayName}</span>
                                     </label>
                                 );
                             })
