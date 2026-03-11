@@ -1343,7 +1343,7 @@ const AddEventForm = ({
             .slice(0, 8);
     }, [availableCalendarTags, selectedTagKeys, tagDraft]);
     const canEditImportedTags = !isSubmitting;
-    const detailsReadOnly = isImportedEvent;
+    const detailsReadOnly = false;
 
     const recurrenceSummaryText = useMemo(
         () => recurrenceSummary(recurrenceUi, formData.startDate || format(new Date(), 'yyyy-MM-dd')),
@@ -2131,32 +2131,6 @@ const AddEventForm = ({
                 txOps,
             };
         };
-        if (isImportedEvent && selectedEvent) {
-            const nowIso = new Date().toISOString();
-            const { optimisticTags, txOps } = buildTagTxOps(selectedEvent.id, selectedEvent.tags || [], nowIso);
-            const rollback = onOptimisticUpsert?.({
-                ...selectedEvent,
-                tags: optimisticTags,
-            } as CalendarItem);
-            onClose();
-
-            try {
-                if (txOps.length > 0) {
-                    await db.transact(txOps);
-                }
-            } catch (error) {
-                if (typeof rollback === 'function') {
-                    rollback();
-                }
-                console.error('Unable to save imported event tags:', error);
-                window.alert('Unable to save tags. Please try again.');
-                abortSubmit();
-                return;
-            }
-
-            submitLockRef.current = false;
-            return;
-        }
         let startDateObj, endDateObj;
 
         if (formData.isAllDay) {
@@ -2642,7 +2616,7 @@ const AddEventForm = ({
             </div>
             {isImportedEvent ? (
                 <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-                    Apple-synced event details stay read-only here. Tags are local to Family Organizer and will persist across future Apple sync updates.
+                    Apple-synced events are fully editable here for now, including delete. Those changes stay local to Family Organizer until a future Apple sync rewrites them.
                 </div>
             ) : null}
             <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
@@ -3577,7 +3551,7 @@ const AddEventForm = ({
             </fieldset>
             <div className="flex items-center justify-between gap-3">
                 <div>
-                    {selectedEvent && !isImportedEvent ? (
+                    {selectedEvent ? (
                         <Button type="button" variant="destructive" onClick={() => void handleDeleteClick()} disabled={isSubmitting}>
                             Delete Event
                         </Button>
@@ -3588,7 +3562,7 @@ const AddEventForm = ({
                         Cancel
                     </Button>
                     <Button type="submit" disabled={isSubmitting}>
-                        {isSubmitting ? 'Saving...' : isImportedEvent ? 'Save Tags' : formData.id ? 'Update' : 'Add'} Event
+                        {isSubmitting ? 'Saving...' : formData.id ? 'Update' : 'Add'} Event
                     </Button>
                 </div>
             </div>

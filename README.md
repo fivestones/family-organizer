@@ -259,7 +259,7 @@ If you want to get this running yourself, here's a rough guide. It's not super p
 
 ## Apple Calendar Sync Setup
 
-The app now supports one-way Apple Calendar import via CalDAV. The Family Organizer server connects to Apple, pulls events into InstantDB, and keeps them updated on a schedule. Imported events are read-only inside the app.
+The app now supports one-way Apple Calendar import via CalDAV. The Family Organizer server connects to Apple, pulls events into InstantDB, and keeps them updated on a schedule. Imported events can be edited and deleted locally inside the app for now.
 
 ### What this sync does right now
 
@@ -267,7 +267,7 @@ The app now supports one-way Apple Calendar import via CalDAV. The Family Organi
 -   One Apple account per Family Organizer deployment.
 -   Centralized server sync. No phone or browser has to stay open after setup.
 -   Imported events appear in the normal calendar views.
--   Imported events are read-only and are marked as Apple-sourced in the UI.
+-   Imported events are marked as Apple-sourced in the UI and can be edited or deleted locally for now.
 
 ### 1. Make sure your schema and perms are current
 
@@ -355,7 +355,8 @@ What happens during connect:
 -   The first sync imports events from the configured sync window.
 -   By default that is `90` days in the past and `365` days in the future.
 -   Recurring Apple events are materialized into visible occurrences inside that window so they show up in the existing calendar views.
--   Imported events are read-only in Family Organizer.
+-   Imported events are editable and deletable in Family Organizer for now.
+-   Those changes are local only. A future two-way sync will write changes back to Apple, but today Apple remains the source of truth if the remote event changes later.
 -   If an event is cancelled or deleted in Apple Calendar, the next sync will mark the imported Family Organizer copy as cancelled/deleted-remote.
 
 ### 6. Set up the recurring server sync job
@@ -445,7 +446,7 @@ Good signs:
 -   Selected calendars are listed.
 -   `Last sync` updates after a run.
 -   Apple events appear in the normal calendar views.
--   Imported events show Apple/read-only indicators.
+-   Imported events show Apple sync indicators.
 
 If you want to check the sync endpoint directly in development:
 
@@ -461,7 +462,7 @@ From the browser, that route uses your parent auth session. From cron, use the r
 -   **The route throws an encryption error:** `CALDAV_CREDENTIAL_ENCRYPTION_KEY` is missing on the server.
 -   **Cron gets unauthorized responses:** `CALENDAR_SYNC_CRON_SECRET` does not match what the server is configured to expect.
 -   **No events show up after connecting:** make sure at least one discovered Apple calendar is enabled and run a manual sync.
--   **Events show up but cannot be edited:** that is expected for imported Apple events in v1.
+-   **Events show up but your edits disappear after Apple changes the same event:** that is expected until two-way sync is added, because Apple is still the source of truth.
 -   **Apple password changed or revoked later:** reconnect from Settings with a fresh app-specific password.
 -   **You imported the feature into a fresh Instant app and settings behave oddly:** double-check that schema and perms were pushed after pulling the latest code.
 

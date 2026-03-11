@@ -720,8 +720,6 @@ export default function CalendarTab() {
 
   async function handleSave() {
     recordParentActivity();
-    const isImportedEditing = !!(editingEvent && isImportedEvent(editingEvent));
-
     if (!canEditEvents) {
       await handoffToParentLogin(
         editingEventId ? 'calendar:edit-event' : 'calendar:add-selected-day',
@@ -789,21 +787,6 @@ export default function CalendarTab() {
 
       return txOps;
     };
-
-    if (isImportedEditing) {
-      setSaving(true);
-      try {
-        const tagTxOps = buildTagTxOps(editingEvent.id, editingEvent.tags || []);
-        if (tagTxOps.length > 0) {
-          await db.transact(tagTxOps);
-        }
-        closeModal();
-      } catch (error) {
-        setSaving(false);
-        Alert.alert('Unable to save tags', error?.message || 'Please try again.');
-      }
-      return;
-    }
 
     const title = form.title.trim();
     if (!title) {
@@ -923,10 +906,6 @@ export default function CalendarTab() {
 
   function handleDelete() {
     if (!editingEventId) return;
-    if (editingEvent && isImportedEvent(editingEvent)) {
-      closeModal();
-      return;
-    }
     recordParentActivity();
 
     if (!canEditEvents) {
@@ -959,7 +938,7 @@ export default function CalendarTab() {
   }
 
   const isEditingImportedEvent = !!(editingEvent && isImportedEvent(editingEvent));
-  const canEditEventDetails = canEditEvents && !saving && !isEditingImportedEvent;
+  const canEditEventDetails = canEditEvents && !saving;
   const canEditEventTags = canEditEvents && !saving;
 
   return (
@@ -1205,7 +1184,7 @@ export default function CalendarTab() {
                   <Text style={styles.eventHint}>Status: {String(event.status || DEFAULT_EVENT_STATUS)}</Text>
                   {isImportedEvent(event) ? <Text style={styles.eventHint}>Apple Calendar import{event.sourceCalendarName ? ` • ${event.sourceCalendarName}` : ''}</Text> : null}
                   {!canEditEvents ? <Text style={styles.eventHint}>Read only in kid mode</Text> : null}
-                  {isImportedEvent(event) ? <Text style={styles.eventHint}>Apple details stay synced, but tags are local to Family Organizer.</Text> : null}
+                  {isImportedEvent(event) ? <Text style={styles.eventHint}>Apple-synced copy. Local edits and deletes stay here for now until a future sync rewrites them.</Text> : null}
                 </Pressable>
               ))}
             </View>
@@ -1235,8 +1214,8 @@ export default function CalendarTab() {
                   <Text style={styles.modalSubtitle}>
                     {isEditingImportedEvent
                       ? canEditEvents
-                        ? 'Apple details are read only here, but you can add local tags that persist across future sync updates.'
-                        : 'Apple details are read only here. Switch to parent mode to edit local tags.'
+                        ? 'Apple-synced events are fully editable here for now, including delete. Those changes stay local to Family Organizer until a future Apple sync rewrites them.'
+                        : 'Apple-synced events can be edited and deleted in parent mode. Future Apple syncs may restore them.'
                       : canEditEvents
                         ? 'All-day events store exclusive end dates to match web semantics.'
                         : 'Read only in kid mode. Switch to parent mode to save changes.'}
@@ -1470,7 +1449,7 @@ export default function CalendarTab() {
                       testID="calendar-delete-event"
                       accessibilityRole="button"
                       accessibilityLabel="Delete calendar event"
-                      disabled={saving || (editingEvent && isImportedEvent(editingEvent))}
+                      disabled={saving}
                       onPress={() => {
                         handleDelete();
                       }}
@@ -1480,8 +1459,8 @@ export default function CalendarTab() {
                         !canEditEvents && styles.secondaryDangerLocked,
                       ]}
                     >
-                      <Text style={[styles.secondaryDangerText, (saving || !canEditEvents || (editingEvent && isImportedEvent(editingEvent))) && styles.actionTextDisabled]}>
-                        {isEditingImportedEvent ? 'Apple synced' : 'Delete'}
+                      <Text style={[styles.secondaryDangerText, (saving || !canEditEvents) && styles.actionTextDisabled]}>
+                        Delete
                       </Text>
                     </Pressable>
                   ) : (
@@ -1509,13 +1488,11 @@ export default function CalendarTab() {
                       style={[styles.primaryButton, saving && styles.actionButtonDisabled, !canEditEvents && styles.primaryButtonLocked]}
                     >
                       <Text style={[styles.primaryButtonText, (saving || !canEditEvents) && styles.actionTextDisabled]}>
-                        {isEditingImportedEvent
-                          ? (saving ? 'Saving...' : canEditEvents ? 'Save Tags' : 'Parent Login')
-                          : saving
-                            ? 'Saving...'
-                            : canEditEvents
-                              ? (editingEventId ? 'Save' : 'Create')
-                              : 'Parent Login'}
+                        {saving
+                          ? 'Saving...'
+                          : canEditEvents
+                            ? (editingEventId ? 'Save' : 'Create')
+                            : 'Parent Login'}
                       </Text>
                     </Pressable>
                   </View>

@@ -236,7 +236,7 @@ describe('AddEventForm', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    it('lets imported Apple events save local tags without editing synced fields', async () => {
+    it('lets imported Apple events update local details and tags', async () => {
         mocks.dbUseQuery.mockReturnValue({
             isLoading: false,
             error: null,
@@ -263,10 +263,28 @@ describe('AddEventForm', () => {
         });
         const user = userEvent.setup();
 
+        const titleInput = screen.getByLabelText('Title');
+        expect(titleInput).toBeEnabled();
+        await user.clear(titleInput);
+        await user.type(titleInput, 'Updated imported school event');
         await user.type(screen.getByLabelText('Tags'), 'School, Travel');
-        await user.click(screen.getByRole('button', { name: /save tags/i }));
+        await user.click(screen.getByRole('button', { name: /update event/i }));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(2);
+        });
 
         expect(getOps()).toEqual([
+            {
+                entity: 'calendarItems',
+                id: 'evt-imported',
+                action: 'update',
+                data: expect.objectContaining({
+                    title: 'Updated imported school event',
+                    startDate: '2026-03-15T14:30:00.000Z',
+                    endDate: '2026-03-15T15:30:00.000Z',
+                }),
+            },
             {
                 entity: 'calendarTags',
                 id: 'evt-new',
@@ -290,7 +308,6 @@ describe('AddEventForm', () => {
             },
         ]);
         expect(onClose).toHaveBeenCalledTimes(1);
-        expect(screen.getByLabelText('Title')).toBeDisabled();
     });
 
     it('builds custom recurrence rules with repeat-end counts', async () => {
@@ -746,6 +763,34 @@ describe('AddEventForm', () => {
         });
         const [ops] = mocks.dbTransact.mock.calls[0];
         expect(ops).toEqual([expect.objectContaining({ entity: 'calendarItems', id: 'evt-delete', action: 'delete' })]);
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('deletes an imported non-recurring event after confirmation', async () => {
+        const { onClose } = renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-imported-delete',
+                title: 'Imported one-off',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+                sourceType: 'apple-caldav',
+                sourceReadOnly: true,
+            } as any,
+        });
+        const user = userEvent.setup();
+
+        await user.click(screen.getByRole('button', { name: 'Delete Event' }));
+        expect(screen.getByTestId('alert-dialog')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        });
+        const [ops] = mocks.dbTransact.mock.calls[0];
+        expect(ops).toEqual([expect.objectContaining({ entity: 'calendarItems', id: 'evt-imported-delete', action: 'delete' })]);
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 

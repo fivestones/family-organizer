@@ -230,7 +230,7 @@ export default function SettingsScreen() {
     if (!calendarSyncStatus?.configured) {
       return {
         label: 'Not connected',
-        body: 'Connect Apple Calendar to start importing read-only events.',
+        body: 'Connect Apple Calendar to start importing Apple-synced events.',
         color: colors.inkMuted,
       };
     }
