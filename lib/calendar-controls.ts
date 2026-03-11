@@ -17,6 +17,8 @@ export const CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY = 'calendar.dayViewVisib
 export const CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY = 'calendar.dayViewHourHeight';
 export const CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY = 'calendar.dayViewRowCount';
 export const CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY = 'calendar.yearMonthBasis';
+export const CALENDAR_SHOW_GREGORIAN_CALENDAR_STORAGE_KEY = 'calendar.showGregorianCalendar';
+export const CALENDAR_SHOW_BS_CALENDAR_STORAGE_KEY = 'calendar.showBsCalendar';
 export const CALENDAR_YEAR_FONT_SCALE_MIN = 0.08;
 export const CALENDAR_YEAR_FONT_SCALE_MAX = 2;
 export const CALENDAR_YEAR_FONT_SCALE_DEFAULT = 0.84;
@@ -69,6 +71,8 @@ export type CalendarCommandDetail =
     | { type: 'setDayRowCount'; dayRowCount: number }
     | { type: 'setDayHourHeight'; dayHourHeight: number }
     | { type: 'setYearMonthBasis'; yearMonthBasis: CalendarYearMonthBasis }
+    | { type: 'setShowGregorianCalendar'; showGregorianCalendar: boolean }
+    | { type: 'setShowBsCalendar'; showBsCalendar: boolean }
     | { type: 'setYearFontScale'; yearFontScale: number }
     | { type: 'shiftYearView'; direction: 'left' | 'right' }
     | { type: 'setChoreFilter'; selectedChoreIds: string[] }
@@ -87,6 +91,8 @@ export interface CalendarStateDetail {
     dayRowCount: number;
     dayHourHeight: number;
     yearMonthBasis: CalendarYearMonthBasis;
+    showGregorianCalendar: boolean;
+    showBsCalendar: boolean;
     yearFontScale: number;
     choreFilter?: {
         configured: boolean;

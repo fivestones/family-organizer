@@ -225,6 +225,36 @@ describe('CalendarHeaderControls member filter summary', () => {
         window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
     });
 
+    it('offers Gregorian and BS label toggles for month and year views', async () => {
+        const receivedCommands: any[] = [];
+        const handleCommand = (event: Event) => {
+            receivedCommands.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+
+        render(<CalendarHeaderControls />);
+
+        fireEvent.click(document.getElementById('calendar-show-gregorian-header') as HTMLInputElement);
+        fireEvent.click(document.getElementById('calendar-show-bs-header') as HTMLInputElement);
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setShowGregorianCalendar',
+                        showGregorianCalendar: false,
+                    }),
+                    expect.objectContaining({
+                        type: 'setShowBsCalendar',
+                        showBsCalendar: false,
+                    }),
+                ])
+            );
+        });
+
+        window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+    });
+
     it('offers day view controls and dispatches day-specific settings', async () => {
         const receivedCommands: any[] = [];
         const handleCommand = (event: Event) => {

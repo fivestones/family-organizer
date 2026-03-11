@@ -1408,6 +1408,10 @@
 }
 
 .yearMonthYear {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    justify-content: space-between;
     font-size: 0.62rem;
     font-weight: 700;
     letter-spacing: 0.03em;
@@ -1415,11 +1419,28 @@
     color: rgba(15, 23, 42, 0.5);
 }
 
+.yearMonthYearSecondary {
+    margin-left: auto;
+    text-align: right;
+}
+
 .yearMonthTitle {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    justify-content: space-between;
+    flex-wrap: wrap;
     font-size: clamp(0.86rem, 1vw, 1.12rem);
     line-height: 1.05;
     color: #0f172a;
     font-weight: 700;
+}
+
+.yearMonthTitleSecondary {
+    margin-left: auto;
+    color: rgba(15, 23, 42, 0.72);
+    font-size: 0.82em;
+    text-align: right;
 }
 
 .yearMonthTable {

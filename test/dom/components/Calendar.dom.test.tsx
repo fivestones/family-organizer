@@ -4,6 +4,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CALENDAR_COMMAND_EVENT } from '@/lib/calendar-controls';
+import { formatCommonBsMonthLabel } from '@/lib/calendar-display';
 
 const mocks = vi.hoisted(() => ({
     dbUseQuery: vi.fn(),
@@ -496,6 +497,43 @@ describe('Calendar', () => {
         expect(within(firstOfMonthCell).getByText('वैशाख (Baisakh)')).toBeInTheDocument();
     });
 
+    it('falls back to Gregorian labels when both calendar label toggles are off in month view', async () => {
+        renderCalendarWithItems([], {
+            currentDate: new Date(2026, 2, 15),
+            displayBS: true,
+        });
+
+        const bsMonthLabel = formatCommonBsMonthLabel(2);
+        expect(screen.queryAllByText('March').length).toBeGreaterThan(0);
+        expect(screen.queryAllByText(bsMonthLabel).length).toBeGreaterThan(0);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowGregorianCalendar', showGregorianCalendar: false },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.queryAllByText('March')).toHaveLength(0);
+            expect(screen.queryAllByText(bsMonthLabel).length).toBeGreaterThan(0);
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowBsCalendar', showBsCalendar: false },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.queryAllByText('March').length).toBeGreaterThan(0);
+            expect(screen.queryAllByText(bsMonthLabel)).toHaveLength(0);
+        });
+    });
+
     it('switches into the full year view and renders discrete month cards', async () => {
         renderCalendarWithItems([], {
             currentDate: new Date(2026, 2, 15),
@@ -513,6 +551,52 @@ describe('Calendar', () => {
         await waitFor(() => {
             expect(screen.getByTestId('year-month-gregorian-2026-03')).toBeInTheDocument();
             expect(screen.getByTestId('year-month-gregorian-2027-02')).toBeInTheDocument();
+        });
+    });
+
+    it('switches year view month headers between Gregorian fallback and BS-only labels', async () => {
+        renderCalendarWithItems([], {
+            currentDate: new Date(2026, 2, 15),
+            displayBS: true,
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'year' },
+                })
+            );
+        });
+
+        const marchCard = await screen.findByTestId('year-month-gregorian-2026-03');
+        const bsMonthLabel = formatCommonBsMonthLabel(2);
+
+        expect(within(marchCard).getByText('March')).toBeInTheDocument();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowGregorianCalendar', showGregorianCalendar: false },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(within(marchCard).queryByText('March')).not.toBeInTheDocument();
+            expect(within(marchCard).queryAllByText(bsMonthLabel).length).toBeGreaterThan(0);
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowBsCalendar', showBsCalendar: false },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(within(marchCard).getByText('March')).toBeInTheDocument();
+            expect(within(marchCard).queryAllByText(bsMonthLabel)).toHaveLength(0);
         });
     });
 

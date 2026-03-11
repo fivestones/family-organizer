@@ -21,6 +21,8 @@ import {
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_MAX,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_MIN,
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
+    CALENDAR_SHOW_BS_CALENDAR_STORAGE_KEY,
+    CALENDAR_SHOW_GREGORIAN_CALENDAR_STORAGE_KEY,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY,
     CALENDAR_SHOW_CHORES_STORAGE_KEY,
@@ -67,6 +69,8 @@ export default function CalendarHeaderControls() {
     const [dayRowCount, setDayRowCount] = useState(CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT);
     const [dayHourHeight, setDayHourHeight] = useState(CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT);
     const [yearMonthBasis, setYearMonthBasis] = useState<CalendarYearMonthBasis>('gregorian');
+    const [showGregorianCalendar, setShowGregorianCalendar] = useState(true);
+    const [showBsCalendar, setShowBsCalendar] = useState(true);
     const [yearFontScale, setYearFontScale] = useState(CALENDAR_YEAR_FONT_SCALE_DEFAULT);
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
     const [choreFilterConfigured, setChoreFilterConfigured] = useState(false);
@@ -107,6 +111,14 @@ export default function CalendarHeaderControls() {
         if (storedYearMonthBasis === 'gregorian' || storedYearMonthBasis === 'bs') {
             setYearMonthBasis(storedYearMonthBasis);
         }
+        const storedShowGregorianCalendar = window.localStorage.getItem(CALENDAR_SHOW_GREGORIAN_CALENDAR_STORAGE_KEY);
+        if (storedShowGregorianCalendar === 'true' || storedShowGregorianCalendar === 'false') {
+            setShowGregorianCalendar(storedShowGregorianCalendar === 'true');
+        }
+        const storedShowBsCalendar = window.localStorage.getItem(CALENDAR_SHOW_BS_CALENDAR_STORAGE_KEY);
+        if (storedShowBsCalendar === 'true' || storedShowBsCalendar === 'false') {
+            setShowBsCalendar(storedShowBsCalendar === 'true');
+        }
         const storedYearFontScale = Number(window.localStorage.getItem(CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY));
         if (Number.isFinite(storedYearFontScale)) {
             setYearFontScale(clampCalendarYearFontScale(storedYearFontScale));
@@ -135,6 +147,8 @@ export default function CalendarHeaderControls() {
             setDayRowCount(clampCalendarDayRowCount(detail.dayRowCount));
             setDayHourHeight(clampCalendarDayHourHeight(detail.dayHourHeight));
             setYearMonthBasis(detail.yearMonthBasis);
+            setShowGregorianCalendar(Boolean(detail.showGregorianCalendar));
+            setShowBsCalendar(Boolean(detail.showBsCalendar));
             setYearFontScale(clampCalendarYearFontScale(detail.yearFontScale));
             if (detail.choreFilter) {
                 setChoreFilterConfigured(Boolean(detail.choreFilter.configured));
@@ -421,6 +435,51 @@ export default function CalendarHeaderControls() {
                                 <option value="year">Full year</option>
                             </select>
                         </div>
+
+                        {viewMode !== 'day' ? (
+                            <div className="grid gap-2">
+                                <span className="text-sm font-medium leading-none">Calendar Labels</span>
+                                <p className="text-xs text-muted-foreground">
+                                    Choose which calendar system labels appear in month and year views. If both are off, Gregorian stays visible.
+                                </p>
+                                <label
+                                    htmlFor="calendar-show-gregorian-header"
+                                    className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2"
+                                >
+                                    <Checkbox
+                                        id="calendar-show-gregorian-header"
+                                        checked={showGregorianCalendar}
+                                        onCheckedChange={(checked) => {
+                                            const next = normalizeChecked(checked);
+                                            setShowGregorianCalendar(next);
+                                            dispatchCalendarCommand({ type: 'setShowGregorianCalendar', showGregorianCalendar: next });
+                                        }}
+                                    />
+                                    <div className="space-y-1">
+                                        <span className="block text-sm font-medium">Gregorian days, months, and years</span>
+                                        <span className="block text-xs text-muted-foreground">Show the regular AD calendar labels.</span>
+                                    </div>
+                                </label>
+                                <label
+                                    htmlFor="calendar-show-bs-header"
+                                    className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2"
+                                >
+                                    <Checkbox
+                                        id="calendar-show-bs-header"
+                                        checked={showBsCalendar}
+                                        onCheckedChange={(checked) => {
+                                            const next = normalizeChecked(checked);
+                                            setShowBsCalendar(next);
+                                            dispatchCalendarCommand({ type: 'setShowBsCalendar', showBsCalendar: next });
+                                        }}
+                                    />
+                                    <div className="space-y-1">
+                                        <span className="block text-sm font-medium">BS days, months, and years</span>
+                                        <span className="block text-xs text-muted-foreground">Show Bikram Samvat labels alongside or instead.</span>
+                                    </div>
+                                </label>
+                            </div>
+                        ) : null}
 
                         {viewMode === 'year' ? (
                             <div className="grid gap-4">

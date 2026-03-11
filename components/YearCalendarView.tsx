@@ -44,7 +44,8 @@ interface YearCalendarViewProps {
     fontScale: number;
     shiftAnimation?: { key: number; direction: 'left' | 'right' } | null;
     trailingBufferMonth?: YearCalendarMonthDescriptor | null;
-    displayBS: boolean;
+    showGregorianCalendar: boolean;
+    showBsCalendar: boolean;
     scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
     onShiftAnimationComplete?: (shift: { key: number; direction: 'left' | 'right' }) => void;
     onDayClick: (day: Date) => void;
@@ -114,7 +115,12 @@ const getVisibleEventSlots = ({
     return Math.max(0, slots);
 };
 
-const getDayMeta = (day: Date, monthBasis: CalendarYearMonthBasis, displayBS: boolean) => {
+const getDayMeta = (
+    day: Date,
+    monthBasis: CalendarYearMonthBasis,
+    showGregorianCalendar: boolean,
+    showBsCalendar: boolean
+) => {
     const nepaliDate = new NepaliDate(day);
     const gregorianDate = getDate(day);
     const gregorianMonthIndex = getMonth(day);
@@ -122,41 +128,66 @@ const getDayMeta = (day: Date, monthBasis: CalendarYearMonthBasis, displayBS: bo
     const bsDate = nepaliDate.getDate();
     const bsMonthIndex = nepaliDate.getMonth();
     const bsYear = nepaliDate.getYear();
-
-    if (monthBasis === 'gregorian') {
-        return {
-            primaryLabel: String(gregorianDate),
-            secondaryLabel: displayBS ? toDevanagariDigits(bsDate) : '',
-            transitionMonthClassName: styles.nepaliMonthName,
-            transitionMonthLabel: formatCommonBsMonthLabel(bsMonthIndex),
-            showTransitionMonth: displayBS && bsDate === 1,
-            transitionYearClassName: styles.nepaliYearNumber,
-            transitionYearLabel: toDevanagariDigits(bsYear),
-            showTransitionYear: displayBS && bsDate === 1 && bsMonthIndex === 0,
-            firstTransitionDayClassName: styles.firstDayOfNepaliMonth,
-            firstTransitionWeekClassName: styles.firstWeekOfNepaliMonth,
-            firstTransitionYearClassName: styles.firstDayOfNepaliYear,
-            isFirstTransitionDay: bsDate === 1,
-            isFirstTransitionWeekButNotDay: bsDate >= 2 && bsDate <= 7,
-            isFirstTransitionYear: bsDate === 1 && bsMonthIndex === 0,
-        };
-    }
+    const showBothCalendars = showGregorianCalendar && showBsCalendar;
+    const showBsTransitions = monthBasis === 'gregorian' && showBsCalendar;
+    const showGregorianTransitions = monthBasis === 'bs' && showGregorianCalendar;
 
     return {
-        primaryLabel: toDevanagariDigits(bsDate),
-        secondaryLabel: String(gregorianDate),
-        transitionMonthClassName: styles.monthName,
-        transitionMonthLabel: format(day, 'MMMM'),
-        showTransitionMonth: gregorianDate === 1,
-        transitionYearClassName: styles.yearNumber,
-        transitionYearLabel: String(gregorianYear),
-        showTransitionYear: gregorianDate === 1 && gregorianMonthIndex === 0,
-        firstTransitionDayClassName: styles.firstDayOfMonth,
-        firstTransitionWeekClassName: styles.firstWeekOfMonth,
-        firstTransitionYearClassName: styles.firstDayOfYear,
-        isFirstTransitionDay: gregorianDate === 1,
-        isFirstTransitionWeekButNotDay: gregorianDate >= 2 && gregorianDate <= 7,
-        isFirstTransitionYear: gregorianDate === 1 && gregorianMonthIndex === 0,
+        primaryLabel:
+            showBothCalendars
+                ? monthBasis === 'gregorian'
+                    ? String(gregorianDate)
+                    : toDevanagariDigits(bsDate)
+                : showBsCalendar
+                  ? toDevanagariDigits(bsDate)
+                  : String(gregorianDate),
+        secondaryLabel:
+            showBothCalendars
+                ? monthBasis === 'gregorian'
+                    ? toDevanagariDigits(bsDate)
+                    : String(gregorianDate)
+                : '',
+        transitionMonthClassName: showBsTransitions ? styles.nepaliMonthName : styles.monthName,
+        transitionMonthLabel: showBsTransitions ? formatCommonBsMonthLabel(bsMonthIndex) : format(day, 'MMMM'),
+        showTransitionMonth: showBsTransitions ? bsDate === 1 : showGregorianTransitions ? gregorianDate === 1 : false,
+        transitionYearClassName: showBsTransitions ? styles.nepaliYearNumber : styles.yearNumber,
+        transitionYearLabel: showBsTransitions ? toDevanagariDigits(bsYear) : String(gregorianYear),
+        showTransitionYear: showBsTransitions
+            ? bsDate === 1 && bsMonthIndex === 0
+            : showGregorianTransitions
+              ? gregorianDate === 1 && gregorianMonthIndex === 0
+              : false,
+        firstTransitionDayClassName: showBsTransitions ? styles.firstDayOfNepaliMonth : styles.firstDayOfMonth,
+        firstTransitionWeekClassName: showBsTransitions ? styles.firstWeekOfNepaliMonth : styles.firstWeekOfMonth,
+        firstTransitionYearClassName: showBsTransitions ? styles.firstDayOfNepaliYear : styles.firstDayOfYear,
+        isFirstTransitionDay: showBsTransitions ? bsDate === 1 : gregorianDate === 1,
+        isFirstTransitionWeekButNotDay: showBsTransitions ? bsDate >= 2 && bsDate <= 7 : gregorianDate >= 2 && gregorianDate <= 7,
+        isFirstTransitionYear: showBsTransitions ? bsDate === 1 && bsMonthIndex === 0 : gregorianDate === 1 && gregorianMonthIndex === 0,
+    };
+};
+
+const getYearMonthHeaderMeta = ({
+    month,
+    showGregorianCalendar,
+    showBsCalendar,
+}: {
+    month: YearCalendarMonthDescriptor;
+    showGregorianCalendar: boolean;
+    showBsCalendar: boolean;
+}) => {
+    const gregorianTitle = format(month.startDate, 'MMMM');
+    const gregorianYear = format(month.startDate, 'yyyy');
+    const bsStartDate = new NepaliDate(month.startDate);
+    const bsTitle = formatCommonBsMonthLabel(bsStartDate.getMonth());
+    const bsYear = toDevanagariDigits(bsStartDate.getYear());
+    const showBothCalendars = showGregorianCalendar && showBsCalendar;
+    const useGregorianPrimary = showBothCalendars ? month.basis === 'gregorian' : showGregorianCalendar || !showBsCalendar;
+
+    return {
+        titlePrimary: useGregorianPrimary ? gregorianTitle : bsTitle,
+        titleSecondary: showBothCalendars ? (useGregorianPrimary ? bsTitle : gregorianTitle) : '',
+        yearPrimary: useGregorianPrimary ? gregorianYear : bsYear,
+        yearSecondary: showBothCalendars ? (useGregorianPrimary ? bsYear : gregorianYear) : '',
     };
 };
 
@@ -222,7 +253,8 @@ export default function YearCalendarView({
     fontScale,
     shiftAnimation,
     trailingBufferMonth,
-    displayBS,
+    showGregorianCalendar,
+    showBsCalendar,
     scrollContainerRef,
     onShiftAnimationComplete,
     onDayClick,
@@ -491,6 +523,8 @@ export default function YearCalendarView({
             return <div key={slotKey} className={styles.yearMonthSlotPlaceholder} aria-hidden="true" />;
         }
 
+        const headerMeta = getYearMonthHeaderMeta({ month, showGregorianCalendar, showBsCalendar });
+
         return (
             <div
                 key={slotKey}
@@ -501,8 +535,16 @@ export default function YearCalendarView({
                 aria-hidden={interactive ? undefined : true}
             >
                 <div className={styles.yearMonthHeader}>
-                    {month.showYearLabel ? <div className={styles.yearMonthYear}>{month.yearLabel}</div> : null}
-                    <div className={styles.yearMonthTitle}>{month.title}</div>
+                    {month.showYearLabel ? (
+                        <div className={styles.yearMonthYear}>
+                            <span>{headerMeta.yearPrimary}</span>
+                            {headerMeta.yearSecondary ? <span className={styles.yearMonthYearSecondary}>{headerMeta.yearSecondary}</span> : null}
+                        </div>
+                    ) : null}
+                    <div className={styles.yearMonthTitle}>
+                        <span>{headerMeta.titlePrimary}</span>
+                        {headerMeta.titleSecondary ? <span className={styles.yearMonthTitleSecondary}>{headerMeta.titleSecondary}</span> : null}
+                    </div>
                 </div>
 
                 <table className={styles.yearMonthTable}>
@@ -529,7 +571,7 @@ export default function YearCalendarView({
                                     {week.map((day, dayIndex) => {
                                         const dayKey = format(day, 'yyyy-MM-dd');
                                         const inMonth = yearCalendarDateBelongsToMonth(day, month);
-                                        const dayMeta = getDayMeta(day, monthBasis, displayBS);
+                                        const dayMeta = getDayMeta(day, monthBasis, showGregorianCalendar, showBsCalendar);
                                         const dayItems = dayItemsByDate.get(dayKey) || [];
                                         const rawReservedHeight = weekSpanReservedHeightsByCol[dayIndex] || 0;
                                         const reservedHeight = rawReservedHeight > 0 ? rawReservedHeight + eventGapPx : 0;
