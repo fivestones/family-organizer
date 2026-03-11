@@ -4,7 +4,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CALENDAR_COMMAND_EVENT } from '@/lib/calendar-controls';
-import { formatCommonBsMonthLabel } from '@/lib/calendar-display';
+import { formatCommonBsMonthCompactLabel, formatCommonBsMonthLabel } from '@/lib/calendar-display';
 
 const mocks = vi.hoisted(() => ({
     dbUseQuery: vi.fn(),
@@ -25,8 +25,13 @@ vi.mock('nepali-date-converter', () => ({
     __esModule: true,
     default: class FakeNepaliDate {
         private d: Date;
-        constructor(date: Date) {
-            this.d = date instanceof Date ? date : new Date(date);
+        constructor(yearOrDate: Date | number, month?: number, day?: number) {
+            if (yearOrDate instanceof Date || month == null) {
+                this.d = yearOrDate instanceof Date ? new Date(yearOrDate) : new Date(yearOrDate);
+                return;
+            }
+
+            this.d = new Date(Number(yearOrDate) - 57, Number(month), Number(day ?? 1));
         }
         getYear() {
             return this.d.getFullYear() + 57;
@@ -36,6 +41,15 @@ vi.mock('nepali-date-converter', () => ({
         }
         getDate() {
             return this.d.getDate();
+        }
+        setMonth(value: number) {
+            this.d.setMonth(value);
+        }
+        setDate(value: number) {
+            this.d.setDate(value);
+        }
+        toJsDate() {
+            return new Date(this.d);
         }
         format(token: string) {
             if (token === 'YYYY') return String(this.getYear());
@@ -534,6 +548,32 @@ describe('Calendar', () => {
         });
     });
 
+    it('keeps inline BS month split markers in monthly view even when the year-view toggle is off', async () => {
+        renderCalendarWithItems([], {
+            currentDate: new Date(2026, 2, 15),
+            displayBS: true,
+        });
+
+        const inlineBsLabel = formatCommonBsMonthLabel(2);
+        const firstOfMonthCell = screen.getByTestId('day-cell-2026-03-01');
+        expect(within(firstOfMonthCell).getByText(inlineBsLabel)).toBeInTheDocument();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowInlineNonBasisMonthBreaks', showInlineNonBasisMonthBreaks: false },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(within(firstOfMonthCell).getByText(inlineBsLabel)).toBeInTheDocument();
+            const stickyMonthLabel = document.querySelector('[class*="stickyMonthNepali"]');
+            expect(stickyMonthLabel?.textContent || '').toContain('(');
+            expect((stickyMonthLabel?.textContent || '').trim().length).toBeGreaterThan(0);
+        });
+    });
+
     it('switches into the full year view and renders discrete month cards', async () => {
         renderCalendarWithItems([], {
             currentDate: new Date(2026, 2, 15),
@@ -554,7 +594,7 @@ describe('Calendar', () => {
         });
     });
 
-    it('switches year view month headers between Gregorian fallback and BS-only labels', async () => {
+    it('moves the non-basis month label into the year-view header when inline breaks are off', async () => {
         renderCalendarWithItems([], {
             currentDate: new Date(2026, 2, 15),
             displayBS: true,
@@ -569,9 +609,41 @@ describe('Calendar', () => {
         });
 
         const marchCard = await screen.findByTestId('year-month-gregorian-2026-03');
-        const bsMonthLabel = formatCommonBsMonthLabel(2);
+        const compactBsLabel = formatCommonBsMonthCompactLabel(2);
 
         expect(within(marchCard).getByText('March')).toBeInTheDocument();
+        expect(screen.getByTestId('day-cell-2026-03-01').className).toContain('firstDayOfNepaliMonth');
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowInlineNonBasisMonthBreaks', showInlineNonBasisMonthBreaks: false },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(within(marchCard).getByText('March')).toBeInTheDocument();
+            expect(within(marchCard).queryAllByText(compactBsLabel).length).toBeGreaterThan(0);
+            expect(screen.getByTestId('day-cell-2026-03-01').className).not.toContain('firstDayOfNepaliMonth');
+        });
+    });
+
+    it('auto-switches the year-view basis and removes split markers when only one calendar is visible', async () => {
+        renderCalendarWithItems([], {
+            currentDate: new Date(2026, 2, 15),
+            displayBS: true,
+        });
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'year' },
+                })
+            );
+        });
+
+        await screen.findByTestId('year-month-gregorian-2026-03');
 
         act(() => {
             window.dispatchEvent(
@@ -581,12 +653,18 @@ describe('Calendar', () => {
             );
         });
 
-        await waitFor(() => {
-            expect(within(marchCard).queryByText('March')).not.toBeInTheDocument();
-            expect(within(marchCard).queryAllByText(bsMonthLabel).length).toBeGreaterThan(0);
-        });
+        const bsCard = await screen.findByTestId('year-month-bs-2083-03');
+        expect(screen.queryByTestId('year-month-gregorian-2026-03')).toBeNull();
+        expect(within(bsCard).getByText(formatCommonBsMonthCompactLabel(2))).toBeInTheDocument();
+        expect(screen.getByTestId('day-cell-2026-03-01').className).not.toContain('firstDayOfMonth');
+        expect(screen.getByTestId('day-cell-2026-03-01').className).not.toContain('firstDayOfNepaliMonth');
 
         act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowGregorianCalendar', showGregorianCalendar: true },
+                })
+            );
             window.dispatchEvent(
                 new CustomEvent(CALENDAR_COMMAND_EVENT, {
                     detail: { type: 'setShowBsCalendar', showBsCalendar: false },
@@ -594,10 +672,11 @@ describe('Calendar', () => {
             );
         });
 
-        await waitFor(() => {
-            expect(within(marchCard).getByText('March')).toBeInTheDocument();
-            expect(within(marchCard).queryAllByText(bsMonthLabel)).toHaveLength(0);
-        });
+        const gregorianCard = await screen.findByTestId('year-month-gregorian-2026-03');
+        expect(screen.queryByTestId('year-month-bs-2083-03')).toBeNull();
+        expect(within(gregorianCard).getByText('March')).toBeInTheDocument();
+        expect(screen.getByTestId('day-cell-2026-03-01').className).not.toContain('firstDayOfMonth');
+        expect(screen.getByTestId('day-cell-2026-03-01').className).not.toContain('firstDayOfNepaliMonth');
     });
 
     it('shifts the year view by one month when the shift command is dispatched', async () => {

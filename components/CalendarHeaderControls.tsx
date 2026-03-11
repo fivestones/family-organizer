@@ -23,6 +23,7 @@ import {
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
     CALENDAR_SHOW_BS_CALENDAR_STORAGE_KEY,
     CALENDAR_SHOW_GREGORIAN_CALENDAR_STORAGE_KEY,
+    CALENDAR_SHOW_INLINE_NON_BASIS_MONTH_BREAKS_STORAGE_KEY,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY,
     CALENDAR_SHOW_CHORES_STORAGE_KEY,
@@ -71,6 +72,7 @@ export default function CalendarHeaderControls() {
     const [yearMonthBasis, setYearMonthBasis] = useState<CalendarYearMonthBasis>('gregorian');
     const [showGregorianCalendar, setShowGregorianCalendar] = useState(true);
     const [showBsCalendar, setShowBsCalendar] = useState(true);
+    const [showInlineNonBasisMonthBreaks, setShowInlineNonBasisMonthBreaks] = useState(true);
     const [yearFontScale, setYearFontScale] = useState(CALENDAR_YEAR_FONT_SCALE_DEFAULT);
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
     const [choreFilterConfigured, setChoreFilterConfigured] = useState(false);
@@ -119,6 +121,10 @@ export default function CalendarHeaderControls() {
         if (storedShowBsCalendar === 'true' || storedShowBsCalendar === 'false') {
             setShowBsCalendar(storedShowBsCalendar === 'true');
         }
+        const storedShowInlineNonBasisMonthBreaks = window.localStorage.getItem(CALENDAR_SHOW_INLINE_NON_BASIS_MONTH_BREAKS_STORAGE_KEY);
+        if (storedShowInlineNonBasisMonthBreaks === 'true' || storedShowInlineNonBasisMonthBreaks === 'false') {
+            setShowInlineNonBasisMonthBreaks(storedShowInlineNonBasisMonthBreaks === 'true');
+        }
         const storedYearFontScale = Number(window.localStorage.getItem(CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY));
         if (Number.isFinite(storedYearFontScale)) {
             setYearFontScale(clampCalendarYearFontScale(storedYearFontScale));
@@ -149,6 +155,7 @@ export default function CalendarHeaderControls() {
             setYearMonthBasis(detail.yearMonthBasis);
             setShowGregorianCalendar(Boolean(detail.showGregorianCalendar));
             setShowBsCalendar(Boolean(detail.showBsCalendar));
+            setShowInlineNonBasisMonthBreaks(Boolean(detail.showInlineNonBasisMonthBreaks));
             setYearFontScale(clampCalendarYearFontScale(detail.yearFontScale));
             if (detail.choreFilter) {
                 setChoreFilterConfigured(Boolean(detail.choreFilter.configured));
@@ -396,6 +403,7 @@ export default function CalendarHeaderControls() {
 
         return `Showing events matching ${selectedTagIds.length} of ${tagIds.length} tags`;
     }, [selectedTagIds.length, tagIds.length, tags.length]);
+    const canChooseYearMonthBasis = showGregorianCalendar && showBsCalendar;
 
     if (!isCalendarRoute) {
         return null;
@@ -483,22 +491,50 @@ export default function CalendarHeaderControls() {
 
                         {viewMode === 'year' ? (
                             <div className="grid gap-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="calendar-year-month-basis-header">Year View Month Basis</Label>
-                                    <select
-                                        id="calendar-year-month-basis-header"
-                                        value={yearMonthBasis}
-                                        onChange={(event) => {
-                                            const next = event.target.value === 'bs' ? 'bs' : 'gregorian';
-                                            setYearMonthBasis(next);
-                                            dispatchCalendarCommand({ type: 'setYearMonthBasis', yearMonthBasis: next });
-                                        }}
-                                        className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                                {canChooseYearMonthBasis ? (
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="calendar-year-month-basis-header">Year View Month Basis</Label>
+                                        <select
+                                            id="calendar-year-month-basis-header"
+                                            value={yearMonthBasis}
+                                            onChange={(event) => {
+                                                const next = event.target.value === 'bs' ? 'bs' : 'gregorian';
+                                                setYearMonthBasis(next);
+                                                dispatchCalendarCommand({ type: 'setYearMonthBasis', yearMonthBasis: next });
+                                            }}
+                                            className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                                        >
+                                            <option value="gregorian">Gregorian months</option>
+                                            <option value="bs">BS months</option>
+                                        </select>
+                                    </div>
+                                ) : null}
+
+                                {canChooseYearMonthBasis ? (
+                                    <label
+                                        htmlFor="calendar-show-inline-non-basis-breaks-header"
+                                        className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-2"
                                     >
-                                        <option value="gregorian">Gregorian months</option>
-                                        <option value="bs">BS months</option>
-                                    </select>
-                                </div>
+                                        <Checkbox
+                                            id="calendar-show-inline-non-basis-breaks-header"
+                                            checked={showInlineNonBasisMonthBreaks}
+                                            onCheckedChange={(checked) => {
+                                                const next = normalizeChecked(checked);
+                                                setShowInlineNonBasisMonthBreaks(next);
+                                                dispatchCalendarCommand({
+                                                    type: 'setShowInlineNonBasisMonthBreaks',
+                                                    showInlineNonBasisMonthBreaks: next,
+                                                });
+                                            }}
+                                        />
+                                        <div className="space-y-1">
+                                            <span className="block text-sm font-medium">Show non-basis month breaks inline</span>
+                                            <span className="block text-xs text-muted-foreground">
+                                                In year view, keep the non-basis calendar&apos;s split lines and inline month markers inside the grid.
+                                            </span>
+                                        </div>
+                                    </label>
+                                ) : null}
 
                                 <CalendarEventFontScaleControl
                                     id="calendar-year-font-scale-header"

@@ -61,6 +61,7 @@ import {
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
     CALENDAR_SHOW_BS_CALENDAR_STORAGE_KEY,
     CALENDAR_SHOW_GREGORIAN_CALENDAR_STORAGE_KEY,
+    CALENDAR_SHOW_INLINE_NON_BASIS_MONTH_BREAKS_STORAGE_KEY,
     CALENDAR_MINI_VISIBLE_WEEKS,
     CALENDAR_SHOW_CHORES_STORAGE_KEY,
     CALENDAR_STATE_EVENT,
@@ -980,6 +981,16 @@ const Calendar = ({
         if (stored === 'true') return true;
         return Boolean(displayBS);
     });
+    const [showInlineNonBasisMonthBreaks, setShowInlineNonBasisMonthBreaks] = useState<boolean>(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) {
+            return true;
+        }
+
+        const stored = window.localStorage.getItem(CALENDAR_SHOW_INLINE_NON_BASIS_MONTH_BREAKS_STORAGE_KEY);
+        if (stored === 'false') return false;
+        if (stored === 'true') return true;
+        return true;
+    });
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
     const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
     const [choreFilterConfigured, setChoreFilterConfigured] = useState(false);
@@ -1075,6 +1086,10 @@ const Calendar = ({
     const showGregorianCalendarSetting = typeof showGregorianDays === 'boolean' ? showGregorianDays : showGregorianCalendar;
     const effectiveShowBsCalendar = showBsCalendarSetting;
     const effectiveShowGregorianCalendar = Boolean(showGregorianCalendarSetting || !effectiveShowBsCalendar);
+    const effectiveShowBothCalendars = effectiveShowGregorianCalendar && effectiveShowBsCalendar;
+    const effectiveShowInlineNonBasisMonthBreaks = effectiveShowBothCalendars && showInlineNonBasisMonthBreaks;
+    const effectiveYearMonthBasis = effectiveShowBothCalendars ? yearMonthBasis : effectiveShowBsCalendar ? 'bs' : 'gregorian';
+    const showMonthlyBsInlineBreaks = effectiveShowBsCalendar;
     const effectiveYearFontScale =
         controlledEventFontScale == null ? yearFontScale : clampCalendarYearFontScale(controlledEventFontScale);
     const effectiveDayCellHeight = useMemo(() => {
@@ -1239,44 +1254,44 @@ const Calendar = ({
         () =>
             buildYearCalendarMonthDescriptors({
                 currentDate: effectiveCurrentDate,
-                basis: yearMonthBasis,
+                basis: effectiveYearMonthBasis,
                 startOffset: yearRangeStartOffset,
                 endOffset: yearRangeEndOffset,
             }),
-        [effectiveCurrentDate, yearMonthBasis, yearRangeEndOffset, yearRangeStartOffset]
+        [effectiveCurrentDate, effectiveYearMonthBasis, yearRangeEndOffset, yearRangeStartOffset]
     );
 
     const yearLeadingBufferMonth = useMemo(
         () =>
             buildYearCalendarMonthDescriptors({
                 currentDate: effectiveCurrentDate,
-                basis: yearMonthBasis,
+                basis: effectiveYearMonthBasis,
                 startOffset: yearRangeStartOffset - 1,
                 endOffset: yearRangeStartOffset - 1,
             })[0] ?? null,
-        [effectiveCurrentDate, yearMonthBasis, yearRangeStartOffset]
+        [effectiveCurrentDate, effectiveYearMonthBasis, yearRangeStartOffset]
     );
 
     const yearTrailingBufferMonth = useMemo(
         () =>
             buildYearCalendarMonthDescriptors({
                 currentDate: effectiveCurrentDate,
-                basis: yearMonthBasis,
+                basis: effectiveYearMonthBasis,
                 startOffset: yearRangeEndOffset + 1,
                 endOffset: yearRangeEndOffset + 1,
             })[0] ?? null,
-        [effectiveCurrentDate, yearMonthBasis, yearRangeEndOffset]
+        [effectiveCurrentDate, effectiveYearMonthBasis, yearRangeEndOffset]
     );
 
     const yearLayoutReferenceMonths = useMemo(
         () =>
             buildYearCalendarMonthDescriptors({
                 currentDate: effectiveCurrentDate,
-                basis: yearMonthBasis,
+                basis: effectiveYearMonthBasis,
                 startOffset: 0,
                 endOffset: 11,
             }),
-        [effectiveCurrentDate, yearMonthBasis]
+        [effectiveCurrentDate, effectiveYearMonthBasis]
     );
 
     const yearLayout = useMemo(
@@ -3383,7 +3398,7 @@ const Calendar = ({
         setYearRangeEndOffset(23);
         setYearShiftAnimation(null);
         pendingYearScrollToMonthOffsetRef.current = 0;
-    }, [isMiniInfinite, viewMode, yearMonthBasis]);
+    }, [effectiveYearMonthBasis, isMiniInfinite, viewMode]);
 
     const transitionToMonth = useCallback((nextMonth: MonthLabel) => {
         const current = monthLabelRef.current;
@@ -3681,6 +3696,14 @@ const Calendar = ({
     }, [commandsEnabled, showBsCalendar]);
 
     useEffect(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) return;
+        window.localStorage.setItem(
+            CALENDAR_SHOW_INLINE_NON_BASIS_MONTH_BREAKS_STORAGE_KEY,
+            showInlineNonBasisMonthBreaks ? 'true' : 'false'
+        );
+    }, [commandsEnabled, showInlineNonBasisMonthBreaks]);
+
+    useEffect(() => {
         if (!commandsEnabled) return;
         const detail: CalendarStateDetail = {
             dayHeight: effectiveDayCellHeight,
@@ -3690,9 +3713,10 @@ const Calendar = ({
             dayVisibleDays,
             dayRowCount,
             dayHourHeight,
-            yearMonthBasis,
+            yearMonthBasis: effectiveYearMonthBasis,
             showGregorianCalendar: showGregorianCalendarSetting,
             showBsCalendar: showBsCalendarSetting,
+            showInlineNonBasisMonthBreaks,
             yearFontScale: effectiveYearFontScale,
             choreFilter: {
                 configured: effectiveChoreFilterConfigured,
@@ -3719,12 +3743,13 @@ const Calendar = ({
         dayHourHeight,
         dayRowCount,
         dayVisibleDays,
+        effectiveYearMonthBasis,
         showBsCalendarSetting,
         showGregorianCalendarSetting,
+        showInlineNonBasisMonthBreaks,
         viewMode,
         visibleWeeksEstimate,
         effectiveYearFontScale,
-        yearMonthBasis,
     ]);
 
     useEffect(() => {
@@ -3781,6 +3806,11 @@ const Calendar = ({
 
             if (detail.type === 'setShowBsCalendar') {
                 setShowBsCalendar(Boolean(detail.showBsCalendar));
+                return;
+            }
+
+            if (detail.type === 'setShowInlineNonBasisMonthBreaks') {
+                setShowInlineNonBasisMonthBreaks(Boolean(detail.showInlineNonBasisMonthBreaks));
                 return;
             }
 
@@ -3852,9 +3882,10 @@ const Calendar = ({
                     dayVisibleDays,
                     dayRowCount,
                     dayHourHeight,
-                    yearMonthBasis,
+                    yearMonthBasis: effectiveYearMonthBasis,
                     showGregorianCalendar: showGregorianCalendarSetting,
                     showBsCalendar: showBsCalendarSetting,
+                    showInlineNonBasisMonthBreaks,
                     yearFontScale: effectiveYearFontScale,
                     choreFilter: {
                         configured: effectiveChoreFilterConfigured,
@@ -3891,14 +3922,15 @@ const Calendar = ({
         dayHourHeight,
         dayRowCount,
         dayVisibleDays,
+        effectiveYearMonthBasis,
         showBsCalendarSetting,
         showGregorianCalendarSetting,
+        showInlineNonBasisMonthBreaks,
         setDayHeight,
         shiftYearViewport,
         visibleWeeksEstimate,
         viewMode,
         effectiveYearFontScale,
-        yearMonthBasis,
     ]);
 
     useEffect(() => {
@@ -4512,7 +4544,7 @@ const Calendar = ({
                         <YearCalendarView
                             months={yearMonths}
                             leadingBufferMonth={yearLeadingBufferMonth}
-                            monthBasis={yearMonthBasis}
+                            monthBasis={effectiveYearMonthBasis}
                             dayItemsByDate={dayItemsByDate}
                             weekSpanLanesByWeek={weekSpanLanesByWeek}
                             columns={yearLayout.columns}
@@ -4523,6 +4555,7 @@ const Calendar = ({
                             trailingBufferMonth={yearTrailingBufferMonth}
                             showGregorianCalendar={effectiveShowGregorianCalendar}
                             showBsCalendar={effectiveShowBsCalendar}
+                            showInlineNonBasisMonthBreaks={effectiveShowInlineNonBasisMonthBreaks}
                             scrollContainerRef={scrollContainerRef}
                             onShiftAnimationComplete={handleYearShiftAnimationComplete}
                             onDayClick={handleDayClick}
@@ -4620,17 +4653,17 @@ const Calendar = ({
                                                         }
 
                                                         shouldDisplayNepaliYear =
-                                                            effectiveShowBsCalendar &&
+                                                            showMonthlyBsInlineBreaks &&
                                                             ((dayIndex === 0 && weekIndex === 0) || isFirstDayOfNepaliYear);
 
-                                                        if (effectiveShowGregorianCalendar && effectiveShowBsCalendar && shouldDisplayYear && shouldDisplayNepaliYear) {
+                                                        if (effectiveShowGregorianCalendar && showMonthlyBsInlineBreaks && shouldDisplayYear && shouldDisplayNepaliYear) {
                                                             shouldDisplayBothYears = true;
                                                             shouldDisplayYear = false;
                                                             shouldDisplayNepaliYear = false;
                                                         }
 
                                                         const displayMonthName = effectiveShowGregorianCalendar && isFirstDayOfMonth;
-                                                        const displayNepaliMonthName = effectiveShowBsCalendar && isFirstDayOfNepaliMonth;
+                                                        const displayNepaliMonthName = showMonthlyBsInlineBreaks && isFirstDayOfNepaliMonth;
                                                         const dayItems = dayItemsByDate.get(dateStr) || [];
                                                         const dayLabelParts = [
                                                             effectiveShowGregorianCalendar ? format(day, 'd') : '',
@@ -4652,9 +4685,9 @@ const Calendar = ({
                                                                 } ${
                                                                     effectiveShowGregorianCalendar && isFirstWeekOfMonthButNotFirstDay ? styles.firstWeekOfMonth : ''
                                                                 } ${
-                                                                    effectiveShowBsCalendar && isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''
-                                                                } ${effectiveShowBsCalendar && isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''} ${
-                                                                    effectiveShowBsCalendar && isFirstWeekOfNepaliMonthButNotFirstDay
+                                                                    showMonthlyBsInlineBreaks && isFirstDayOfNepaliYear ? styles.firstDayOfNepaliYear : ''
+                                                                } ${showMonthlyBsInlineBreaks && isFirstDayOfNepaliMonth ? styles.firstDayOfNepaliMonth : ''} ${
+                                                                    showMonthlyBsInlineBreaks && isFirstWeekOfNepaliMonthButNotFirstDay
                                                                         ? styles.firstWeekOfNepaliMonth
                                                                         : ''
                                                                 }`}

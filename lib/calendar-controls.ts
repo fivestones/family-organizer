@@ -19,6 +19,7 @@ export const CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY = 'calendar.dayViewRowCount
 export const CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY = 'calendar.yearMonthBasis';
 export const CALENDAR_SHOW_GREGORIAN_CALENDAR_STORAGE_KEY = 'calendar.showGregorianCalendar';
 export const CALENDAR_SHOW_BS_CALENDAR_STORAGE_KEY = 'calendar.showBsCalendar';
+export const CALENDAR_SHOW_INLINE_NON_BASIS_MONTH_BREAKS_STORAGE_KEY = 'calendar.showInlineNonBasisMonthBreaks';
 export const CALENDAR_YEAR_FONT_SCALE_MIN = 0.08;
 export const CALENDAR_YEAR_FONT_SCALE_MAX = 2;
 export const CALENDAR_YEAR_FONT_SCALE_DEFAULT = 0.84;
@@ -73,6 +74,7 @@ export type CalendarCommandDetail =
     | { type: 'setYearMonthBasis'; yearMonthBasis: CalendarYearMonthBasis }
     | { type: 'setShowGregorianCalendar'; showGregorianCalendar: boolean }
     | { type: 'setShowBsCalendar'; showBsCalendar: boolean }
+    | { type: 'setShowInlineNonBasisMonthBreaks'; showInlineNonBasisMonthBreaks: boolean }
     | { type: 'setYearFontScale'; yearFontScale: number }
     | { type: 'shiftYearView'; direction: 'left' | 'right' }
     | { type: 'setChoreFilter'; selectedChoreIds: string[] }
@@ -93,6 +95,7 @@ export interface CalendarStateDetail {
     yearMonthBasis: CalendarYearMonthBasis;
     showGregorianCalendar: boolean;
     showBsCalendar: boolean;
+    showInlineNonBasisMonthBreaks: boolean;
     yearFontScale: number;
     choreFilter?: {
         configured: boolean;

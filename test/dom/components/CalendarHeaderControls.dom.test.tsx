@@ -234,6 +234,18 @@ describe('CalendarHeaderControls member filter summary', () => {
 
         render(<CalendarHeaderControls />);
 
+        fireEvent.change(screen.getByLabelText('View'), { target: { value: 'year' } });
+        expect(screen.getByLabelText('Year View Month Basis')).toBeInTheDocument();
+        expect(document.getElementById('calendar-show-inline-non-basis-breaks-header')).not.toBeNull();
+        fireEvent.click(document.getElementById('calendar-show-gregorian-header') as HTMLInputElement);
+
+        await waitFor(() => {
+            expect(screen.queryByLabelText('Year View Month Basis')).toBeNull();
+            expect(document.getElementById('calendar-show-inline-non-basis-breaks-header')).toBeNull();
+        });
+
+        fireEvent.click(document.getElementById('calendar-show-gregorian-header') as HTMLInputElement);
+        fireEvent.click(document.getElementById('calendar-show-inline-non-basis-breaks-header') as HTMLInputElement);
         fireEvent.click(document.getElementById('calendar-show-gregorian-header') as HTMLInputElement);
         fireEvent.click(document.getElementById('calendar-show-bs-header') as HTMLInputElement);
 
@@ -247,6 +259,10 @@ describe('CalendarHeaderControls member filter summary', () => {
                     expect.objectContaining({
                         type: 'setShowBsCalendar',
                         showBsCalendar: false,
+                    }),
+                    expect.objectContaining({
+                        type: 'setShowInlineNonBasisMonthBreaks',
+                        showInlineNonBasisMonthBreaks: false,
                     }),
                 ])
             );

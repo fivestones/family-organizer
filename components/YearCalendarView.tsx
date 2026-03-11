@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useLayoutEffect, useMemo, useRef } from 'react';
-import { format, getDate, getMonth } from 'date-fns';
+import { addDays, format, getDate, getMonth } from 'date-fns';
 import NepaliDate from 'nepali-date-converter';
 import { DroppableDayCell } from '@/components/DroppableDayCell';
 import CalendarWeekSpanOverlay, {
@@ -10,7 +10,13 @@ import CalendarWeekSpanOverlay, {
 } from '@/components/CalendarWeekSpanOverlay';
 import { DraggableCalendarEvent, type CalendarItem } from '@/components/DraggableCalendarEvent';
 import styles from '@/styles/Calendar.module.css';
-import { formatCommonBsMonthLabel, toDevanagariDigits } from '@/lib/calendar-display';
+import {
+    formatCommonBsMonthCompactLabel,
+    formatCommonBsMonthLabel,
+    getBsSpanMeta,
+    getGregorianSpanMeta,
+    toDevanagariDigits,
+} from '@/lib/calendar-display';
 import {
     CALENDAR_YEAR_FONT_SCALE_MAX,
     CALENDAR_YEAR_FONT_SCALE_MIN,
@@ -46,6 +52,7 @@ interface YearCalendarViewProps {
     trailingBufferMonth?: YearCalendarMonthDescriptor | null;
     showGregorianCalendar: boolean;
     showBsCalendar: boolean;
+    showInlineNonBasisMonthBreaks: boolean;
     scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
     onShiftAnimationComplete?: (shift: { key: number; direction: 'left' | 'right' }) => void;
     onDayClick: (day: Date) => void;
@@ -119,7 +126,8 @@ const getDayMeta = (
     day: Date,
     monthBasis: CalendarYearMonthBasis,
     showGregorianCalendar: boolean,
-    showBsCalendar: boolean
+    showBsCalendar: boolean,
+    showInlineNonBasisMonthBreaks: boolean
 ) => {
     const nepaliDate = new NepaliDate(day);
     const gregorianDate = getDate(day);
@@ -129,8 +137,15 @@ const getDayMeta = (
     const bsMonthIndex = nepaliDate.getMonth();
     const bsYear = nepaliDate.getYear();
     const showBothCalendars = showGregorianCalendar && showBsCalendar;
-    const showBsTransitions = monthBasis === 'gregorian' && showBsCalendar;
-    const showGregorianTransitions = monthBasis === 'bs' && showGregorianCalendar;
+    const showNonBasisTransitions = showBothCalendars && showInlineNonBasisMonthBreaks;
+    const showBsTransitions = showNonBasisTransitions && monthBasis === 'gregorian';
+    const showGregorianTransitions = showNonBasisTransitions && monthBasis === 'bs';
+    const isFirstBsTransitionDay = showBsTransitions && bsDate === 1;
+    const isFirstBsTransitionWeekButNotDay = showBsTransitions && bsDate >= 2 && bsDate <= 7;
+    const isFirstBsTransitionYear = showBsTransitions && bsDate === 1 && bsMonthIndex === 0;
+    const isFirstGregorianTransitionDay = showGregorianTransitions && gregorianDate === 1;
+    const isFirstGregorianTransitionWeekButNotDay = showGregorianTransitions && gregorianDate >= 2 && gregorianDate <= 7;
+    const isFirstGregorianTransitionYear = showGregorianTransitions && gregorianDate === 1 && gregorianMonthIndex === 0;
 
     return {
         primaryLabel:
@@ -160,9 +175,9 @@ const getDayMeta = (
         firstTransitionDayClassName: showBsTransitions ? styles.firstDayOfNepaliMonth : styles.firstDayOfMonth,
         firstTransitionWeekClassName: showBsTransitions ? styles.firstWeekOfNepaliMonth : styles.firstWeekOfMonth,
         firstTransitionYearClassName: showBsTransitions ? styles.firstDayOfNepaliYear : styles.firstDayOfYear,
-        isFirstTransitionDay: showBsTransitions ? bsDate === 1 : gregorianDate === 1,
-        isFirstTransitionWeekButNotDay: showBsTransitions ? bsDate >= 2 && bsDate <= 7 : gregorianDate >= 2 && gregorianDate <= 7,
-        isFirstTransitionYear: showBsTransitions ? bsDate === 1 && bsMonthIndex === 0 : gregorianDate === 1 && gregorianMonthIndex === 0,
+        isFirstTransitionDay: showBsTransitions ? isFirstBsTransitionDay : isFirstGregorianTransitionDay,
+        isFirstTransitionWeekButNotDay: showBsTransitions ? isFirstBsTransitionWeekButNotDay : isFirstGregorianTransitionWeekButNotDay,
+        isFirstTransitionYear: showBsTransitions ? isFirstBsTransitionYear : isFirstGregorianTransitionYear,
     };
 };
 
@@ -170,24 +185,35 @@ const getYearMonthHeaderMeta = ({
     month,
     showGregorianCalendar,
     showBsCalendar,
+    showInlineNonBasisMonthBreaks,
 }: {
     month: YearCalendarMonthDescriptor;
     showGregorianCalendar: boolean;
     showBsCalendar: boolean;
+    showInlineNonBasisMonthBreaks: boolean;
 }) => {
-    const gregorianTitle = format(month.startDate, 'MMMM');
-    const gregorianYear = format(month.startDate, 'yyyy');
     const bsStartDate = new NepaliDate(month.startDate);
-    const bsTitle = formatCommonBsMonthLabel(bsStartDate.getMonth());
-    const bsYear = toDevanagariDigits(bsStartDate.getYear());
+    const endInclusive = addDays(month.endDateExclusive, -1);
+    const gregorianSingle = {
+        monthLabel: format(month.startDate, 'MMMM'),
+        yearLabel: format(month.startDate, 'yyyy'),
+    };
+    const gregorianSpan = getGregorianSpanMeta(month.startDate, endInclusive);
+    const bsSingle = {
+        monthLabel: formatCommonBsMonthCompactLabel(bsStartDate.getMonth()),
+        yearLabel: toDevanagariDigits(bsStartDate.getYear()),
+    };
+    const bsSpan = getBsSpanMeta(month.startDate, endInclusive);
     const showBothCalendars = showGregorianCalendar && showBsCalendar;
     const useGregorianPrimary = showBothCalendars ? month.basis === 'gregorian' : showGregorianCalendar || !showBsCalendar;
+    const secondaryGregorian = showInlineNonBasisMonthBreaks ? gregorianSingle : gregorianSpan;
+    const secondaryBs = showInlineNonBasisMonthBreaks ? bsSingle : bsSpan;
 
     return {
-        titlePrimary: useGregorianPrimary ? gregorianTitle : bsTitle,
-        titleSecondary: showBothCalendars ? (useGregorianPrimary ? bsTitle : gregorianTitle) : '',
-        yearPrimary: useGregorianPrimary ? gregorianYear : bsYear,
-        yearSecondary: showBothCalendars ? (useGregorianPrimary ? bsYear : gregorianYear) : '',
+        titlePrimary: useGregorianPrimary ? gregorianSingle.monthLabel : bsSingle.monthLabel,
+        titleSecondary: showBothCalendars ? (useGregorianPrimary ? secondaryBs.monthLabel : secondaryGregorian.monthLabel) : '',
+        yearPrimary: useGregorianPrimary ? gregorianSingle.yearLabel : bsSingle.yearLabel,
+        yearSecondary: showBothCalendars ? (useGregorianPrimary ? secondaryBs.yearLabel : secondaryGregorian.yearLabel) : '',
     };
 };
 
@@ -255,6 +281,7 @@ export default function YearCalendarView({
     trailingBufferMonth,
     showGregorianCalendar,
     showBsCalendar,
+    showInlineNonBasisMonthBreaks,
     scrollContainerRef,
     onShiftAnimationComplete,
     onDayClick,
@@ -523,7 +550,12 @@ export default function YearCalendarView({
             return <div key={slotKey} className={styles.yearMonthSlotPlaceholder} aria-hidden="true" />;
         }
 
-        const headerMeta = getYearMonthHeaderMeta({ month, showGregorianCalendar, showBsCalendar });
+        const headerMeta = getYearMonthHeaderMeta({
+            month,
+            showGregorianCalendar,
+            showBsCalendar,
+            showInlineNonBasisMonthBreaks,
+        });
 
         return (
             <div
@@ -571,7 +603,13 @@ export default function YearCalendarView({
                                     {week.map((day, dayIndex) => {
                                         const dayKey = format(day, 'yyyy-MM-dd');
                                         const inMonth = yearCalendarDateBelongsToMonth(day, month);
-                                        const dayMeta = getDayMeta(day, monthBasis, showGregorianCalendar, showBsCalendar);
+                                        const dayMeta = getDayMeta(
+                                            day,
+                                            monthBasis,
+                                            showGregorianCalendar,
+                                            showBsCalendar,
+                                            showInlineNonBasisMonthBreaks
+                                        );
                                         const dayItems = dayItemsByDate.get(dayKey) || [];
                                         const rawReservedHeight = weekSpanReservedHeightsByCol[dayIndex] || 0;
                                         const reservedHeight = rawReservedHeight > 0 ? rawReservedHeight + eventGapPx : 0;

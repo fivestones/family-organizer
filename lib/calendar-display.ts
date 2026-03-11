@@ -1,3 +1,4 @@
+import { format } from 'date-fns';
 import NepaliDate from 'nepali-date-converter';
 
 export const NEPALI_MONTHS_COMMON_ROMAN = [
@@ -39,6 +40,40 @@ export const formatCommonBsMonthLabel = (monthIndex: number) => {
     const devanagari = NEPALI_MONTHS_COMMON_DEVANAGARI[monthIndex] ?? '';
     const roman = NEPALI_MONTHS_COMMON_ROMAN[monthIndex] ?? '';
     return `${devanagari} (${roman})`.trim();
+};
+
+export const formatCommonBsMonthCompactLabel = (monthIndex: number) => {
+    const devanagari = NEPALI_MONTHS_COMMON_DEVANAGARI[monthIndex] ?? '';
+    const roman = NEPALI_MONTHS_COMMON_ROMAN[monthIndex] ?? '';
+    return `${devanagari} ${roman}`.trim();
+};
+
+export const getBsSpanMeta = (startInclusive: Date, endInclusive: Date) => {
+    const start = new NepaliDate(startInclusive);
+    const end = new NepaliDate(endInclusive);
+    const startMonthLabel = formatCommonBsMonthCompactLabel(start.getMonth());
+    const endMonthLabel = formatCommonBsMonthCompactLabel(end.getMonth());
+    const startYearLabel = toDevanagariDigits(start.getYear());
+    const endYearLabel = toDevanagariDigits(end.getYear());
+    const sameMonth = start.getYear() === end.getYear() && start.getMonth() === end.getMonth();
+
+    return {
+        monthLabel: sameMonth ? startMonthLabel : `${startMonthLabel} - ${endMonthLabel}`,
+        yearLabel: startYearLabel === endYearLabel ? startYearLabel : `${startYearLabel} - ${endYearLabel}`,
+    };
+};
+
+export const getGregorianSpanMeta = (startInclusive: Date, endInclusive: Date) => {
+    const startMonthLabel = format(startInclusive, 'MMMM');
+    const endMonthLabel = format(endInclusive, 'MMMM');
+    const startYearLabel = format(startInclusive, 'yyyy');
+    const endYearLabel = format(endInclusive, 'yyyy');
+    const sameMonth = startMonthLabel === endMonthLabel && startYearLabel === endYearLabel;
+
+    return {
+        monthLabel: sameMonth ? startMonthLabel : `${startMonthLabel} - ${endMonthLabel}`,
+        yearLabel: startYearLabel === endYearLabel ? startYearLabel : `${startYearLabel} - ${endYearLabel}`,
+    };
 };
 
 export const getBsMonthMeta = (value: Date) => {
