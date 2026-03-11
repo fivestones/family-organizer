@@ -162,6 +162,8 @@ export default function AppleCalendarSyncSettings() {
         clientReceivedMs: Date.now(),
     }));
     const [isEditingCredentials, setIsEditingCredentials] = useState(false);
+    const [credentialsDirty, setCredentialsDirty] = useState(false);
+    const [calendarSelectionDirty, setCalendarSelectionDirty] = useState(false);
     const [form, setForm] = useState({
         username: '',
         appSpecificPassword: '',
@@ -203,11 +205,14 @@ export default function AppleCalendarSyncSettings() {
                 });
             }
             setStatus(nextStatus);
+            const nextSelectedCalendarIds = (nextStatus?.calendars || [])
+                .filter((calendar: SyncCalendarRow) => calendar.isEnabled)
+                .map((calendar: SyncCalendarRow) => calendar.remoteCalendarId);
             setForm((current) => ({
                 ...current,
-                username: nextStatus?.account?.username || current.username,
-                accountLabel: nextStatus?.account?.accountLabel || current.accountLabel,
-                selectedCalendarIds: (nextStatus?.calendars || []).filter((calendar: SyncCalendarRow) => calendar.isEnabled).map((calendar: SyncCalendarRow) => calendar.remoteCalendarId),
+                username: silent && credentialsDirty ? current.username : (nextStatus?.account?.username || current.username),
+                accountLabel: silent && credentialsDirty ? current.accountLabel : (nextStatus?.account?.accountLabel || current.accountLabel),
+                selectedCalendarIds: silent && calendarSelectionDirty ? current.selectedCalendarIds : nextSelectedCalendarIds,
             }));
         } catch (error: any) {
             if (!silent) {
@@ -222,7 +227,7 @@ export default function AppleCalendarSyncSettings() {
                 setIsLoading(false);
             }
         }
-    }, [toast]);
+    }, [calendarSelectionDirty, credentialsDirty, toast]);
 
     useEffect(() => {
         void loadStatus();
@@ -253,6 +258,8 @@ export default function AppleCalendarSyncSettings() {
     useEffect(() => {
         if (!status?.configured) {
             setIsEditingCredentials(true);
+            setCredentialsDirty(false);
+            setCalendarSelectionDirty(false);
         }
     }, [status?.configured]);
 
@@ -338,6 +345,8 @@ export default function AppleCalendarSyncSettings() {
                 );
                 setForm((current) => ({ ...current, appSpecificPassword: '' }));
                 setIsEditingCredentials(false);
+                setCredentialsDirty(false);
+                setCalendarSelectionDirty(false);
                 await loadStatus();
                 toast({ title: 'Apple Calendar credentials saved' });
             } catch (error: any) {
@@ -354,19 +363,31 @@ export default function AppleCalendarSyncSettings() {
         if (!status?.account?.id) return;
         startTransition(async () => {
             try {
+                const selectedCalendarIds = [...form.selectedCalendarIds];
                 await parseJson(
                     await fetch('/api/calendar-sync/apple/settings', {
                         method: 'POST',
                         headers: calendarSyncHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({
                             accountId: status.account?.id,
-                            selectedCalendarIds: form.selectedCalendarIds,
+                            selectedCalendarIds,
                             enabled: true,
                         }),
                     })
                 );
-                await loadStatus();
+                setCalendarSelectionDirty(false);
+                setStatus((current) => {
+                    if (!current) return current;
+                    return {
+                        ...current,
+                        calendars: (current.calendars || []).map((calendar) => ({
+                            ...calendar,
+                            isEnabled: selectedCalendarIds.includes(calendar.remoteCalendarId),
+                        })),
+                    };
+                });
                 toast({ title: 'Calendar selection saved' });
+                void loadStatus({ silent: true });
             } catch (error: any) {
                 toast({
                     title: 'Could not save calendars',
@@ -503,7 +524,10 @@ export default function AppleCalendarSyncSettings() {
                                     autoCapitalize="none"
                                     autoCorrect="off"
                                     value={form.username}
-                                    onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
+                                    onChange={(event) => {
+                                        setCredentialsDirty(true);
+                                        setForm((current) => ({ ...current, username: event.target.value }));
+                                    }}
                                     placeholder="parent@example.com"
                                 />
                             </div>
@@ -515,14 +539,21 @@ export default function AppleCalendarSyncSettings() {
                                     autoCapitalize="none"
                                     autoCorrect="off"
                                     value={form.appSpecificPassword}
-                                    onChange={(event) => setForm((current) => ({ ...current, appSpecificPassword: event.target.value }))}
+                                    onChange={(event) => {
+                                        setCredentialsDirty(true);
+                                        setForm((current) => ({ ...current, appSpecificPassword: event.target.value }));
+                                    }}
                                     placeholder="xxxx-xxxx-xxxx-xxxx"
                                 />
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-3">
                             {status?.configured ? (
-                                <Button type="button" variant="outline" onClick={() => setIsEditingCredentials(false)} disabled={isPending}>
+                                <Button type="button" variant="outline" onClick={() => {
+                                    setCredentialsDirty(false);
+                                    setIsEditingCredentials(false);
+                                    void loadStatus({ silent: true });
+                                }} disabled={isPending}>
                                     Cancel
                                 </Button>
                             ) : null}
@@ -628,6 +659,7 @@ export default function AppleCalendarSyncSettings() {
                                         <Checkbox
                                             checked={checked}
                                             onCheckedChange={(nextChecked) => {
+                                                setCalendarSelectionDirty(true);
                                                 setForm((current) => ({
                                                     ...current,
                                                     selectedCalendarIds: nextChecked

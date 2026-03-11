@@ -147,4 +147,5 @@ describe('AppleCalendarSyncSettings', () => {
         const repairRequest = runCallsAfterRepair[1][1];
         expect(JSON.parse(repairRequest.body)).toMatchObject({ trigger: 'repair' });
     });
+
 });

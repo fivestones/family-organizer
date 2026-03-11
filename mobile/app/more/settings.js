@@ -138,6 +138,8 @@ export default function SettingsScreen() {
   const [calendarSyncLoading, setCalendarSyncLoading] = useState(false);
   const [calendarSyncError, setCalendarSyncError] = useState('');
   const [calendarSyncSaving, setCalendarSyncSaving] = useState(false);
+  const [calendarSyncCredentialsDirty, setCalendarSyncCredentialsDirty] = useState(false);
+  const [calendarSyncSelectionDirty, setCalendarSyncSelectionDirty] = useState(false);
   const [calendarSyncForm, setCalendarSyncForm] = useState({
     username: '',
     appSpecificPassword: '',
@@ -182,11 +184,12 @@ export default function SettingsScreen() {
         const nextStatus = await getAppleCalendarSyncStatus();
         if (cancelled) return;
         setCalendarSyncStatus(nextStatus);
+        const nextSelectedCalendarIds = (nextStatus?.calendars || []).filter((calendar) => calendar.isEnabled).map((calendar) => calendar.remoteCalendarId);
         setCalendarSyncForm((current) => ({
           ...current,
-          username: nextStatus?.account?.username || current.username,
-          accountLabel: nextStatus?.account?.accountLabel || current.accountLabel,
-          selectedCalendarIds: (nextStatus?.calendars || []).filter((calendar) => calendar.isEnabled).map((calendar) => calendar.remoteCalendarId),
+          username: silent && calendarSyncCredentialsDirty ? current.username : (nextStatus?.account?.username || current.username),
+          accountLabel: silent && calendarSyncCredentialsDirty ? current.accountLabel : (nextStatus?.account?.accountLabel || current.accountLabel),
+          selectedCalendarIds: silent && calendarSyncSelectionDirty ? current.selectedCalendarIds : nextSelectedCalendarIds,
         }));
       } catch (nextError) {
         if (cancelled || silent) return;
@@ -204,7 +207,7 @@ export default function SettingsScreen() {
       cancelled = true;
       clearInterval(intervalId);
     };
-  }, [canManageUnits]);
+  }, [calendarSyncCredentialsDirty, calendarSyncSelectionDirty, canManageUnits]);
 
   const settingsQuery = db.useQuery(
     isAuthenticated && instantReady && principalType === 'parent'
@@ -351,11 +354,12 @@ export default function SettingsScreen() {
   async function refreshCalendarSyncStatus() {
     const nextStatus = await getAppleCalendarSyncStatus();
     setCalendarSyncStatus(nextStatus);
+    const nextSelectedCalendarIds = (nextStatus?.calendars || []).filter((calendar) => calendar.isEnabled).map((calendar) => calendar.remoteCalendarId);
     setCalendarSyncForm((current) => ({
       ...current,
       username: nextStatus?.account?.username || current.username,
       accountLabel: nextStatus?.account?.accountLabel || current.accountLabel,
-      selectedCalendarIds: (nextStatus?.calendars || []).filter((calendar) => calendar.isEnabled).map((calendar) => calendar.remoteCalendarId),
+      selectedCalendarIds: nextSelectedCalendarIds,
     }));
   }
 
@@ -364,6 +368,8 @@ export default function SettingsScreen() {
     setCalendarSyncError('');
     try {
       await connectAppleCalendarSync(calendarSyncForm);
+      setCalendarSyncCredentialsDirty(false);
+      setCalendarSyncSelectionDirty(false);
       setCalendarSyncForm((current) => ({ ...current, appSpecificPassword: '' }));
       await refreshCalendarSyncStatus();
     } catch (nextError) {
@@ -378,12 +384,24 @@ export default function SettingsScreen() {
     setCalendarSyncSaving(true);
     setCalendarSyncError('');
     try {
+      const selectedCalendarIds = [...calendarSyncForm.selectedCalendarIds];
       await updateAppleCalendarSyncSettings({
         accountId: calendarSyncStatus.account.id,
-        selectedCalendarIds: calendarSyncForm.selectedCalendarIds,
+        selectedCalendarIds,
         enabled: true,
       });
-      await refreshCalendarSyncStatus();
+      setCalendarSyncSelectionDirty(false);
+      setCalendarSyncStatus((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          calendars: (current.calendars || []).map((calendar) => ({
+            ...calendar,
+            isEnabled: selectedCalendarIds.includes(calendar.remoteCalendarId),
+          })),
+        };
+      });
+      void refreshCalendarSyncStatus();
     } catch (nextError) {
       setCalendarSyncError(nextError?.message || 'Unable to save Apple Calendar sync settings.');
     } finally {
@@ -552,7 +570,10 @@ export default function SettingsScreen() {
               <Text style={styles.fieldLabel}>Apple ID Email</Text>
               <TextInput
                 value={calendarSyncForm.username}
-                onChangeText={(value) => setCalendarSyncForm((current) => ({ ...current, username: value }))}
+                onChangeText={(value) => {
+                  setCalendarSyncCredentialsDirty(true);
+                  setCalendarSyncForm((current) => ({ ...current, username: value }));
+                }}
                 placeholder="parent@example.com"
                 placeholderTextColor={colors.inkMuted}
                 autoCapitalize="none"
@@ -566,7 +587,10 @@ export default function SettingsScreen() {
               <Text style={styles.fieldLabel}>App-Specific Password</Text>
               <TextInput
                 value={calendarSyncForm.appSpecificPassword}
-                onChangeText={(value) => setCalendarSyncForm((current) => ({ ...current, appSpecificPassword: value }))}
+                onChangeText={(value) => {
+                  setCalendarSyncCredentialsDirty(true);
+                  setCalendarSyncForm((current) => ({ ...current, appSpecificPassword: value }));
+                }}
                 placeholder="xxxx-xxxx-xxxx-xxxx"
                 placeholderTextColor={colors.inkMuted}
                 autoCapitalize="none"
@@ -628,6 +652,7 @@ export default function SettingsScreen() {
                         key={calendar.id || calendar.remoteCalendarId}
                         style={[styles.choiceChip, selected && styles.choiceChipSelected]}
                         onPress={() => {
+                          setCalendarSyncSelectionDirty(true);
                           setCalendarSyncForm((current) => {
                             const selectedIds = current.selectedCalendarIds.includes(calendar.remoteCalendarId)
                               ? current.selectedCalendarIds.filter((item) => item !== calendar.remoteCalendarId)
