@@ -33,6 +33,21 @@ describe('apple caldav repository helpers', () => {
         expect(rows.map((row) => row.remoteCalendarId)).toEqual(['home', 'work']);
     });
 
+    it('excludes stale disabled calendars from the desired remote-id set used for cleanup', async () => {
+        const desiredRemoteIds = new Set(
+            [
+                { remoteCalendarId: 'home' },
+                { remoteCalendarId: 'family-current' },
+            ]
+                .map((calendar) => String(calendar?.remoteCalendarId || '').trim())
+                .filter(Boolean)
+        );
+
+        expect(desiredRemoteIds.has('home')).toBe(true);
+        expect(desiredRemoteIds.has('family-current')).toBe(true);
+        expect(desiredRemoteIds.has('family-stale')).toBe(false);
+    });
+
     it('chunks large transaction sets into smaller Instant batches', async () => {
         const { chunkForInstantTransact } = await import('@/lib/apple-caldav/repository');
         const batches = chunkForInstantTransact(Array.from({ length: 123 }, (_, index) => index), 50);

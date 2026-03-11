@@ -168,6 +168,7 @@ export default function AppleCalendarSyncSettings() {
     const [savedSelectedCalendarIds, setSavedSelectedCalendarIds] = useState<string[]>([]);
     const credentialsDirtyRef = useRef(false);
     const calendarSelectionDirtyRef = useRef(false);
+    const calendarSelectionSaveSeqRef = useRef(0);
     const [form, setForm] = useState({
         username: '',
         appSpecificPassword: '',
@@ -423,68 +424,53 @@ export default function AppleCalendarSyncSettings() {
         });
     }
 
-    useEffect(() => {
-        if (!status?.account?.id || !status?.configured) return;
-        if (!calendarSelectionDirty) return;
-        if (formSelectedCalendarIdsKey === savedSelectedCalendarIdsKey) {
-            setCalendarSelectionDirty(false);
-            return;
-        }
-
-        const timeoutId = window.setTimeout(() => {
-            setIsSavingCalendarSelection(true);
-            void (async () => {
-                try {
-                    await parseJson(
-                        await fetch('/api/calendar-sync/apple/settings', {
-                            method: 'POST',
-                            headers: calendarSyncHeaders({ 'Content-Type': 'application/json' }),
-                            body: JSON.stringify({
-                                accountId: status.account?.id,
-                                selectedCalendarIds: form.selectedCalendarIds,
-                                enabled: true,
-                            }),
-                        })
-                    );
-                    const selectedCalendarIds = [...form.selectedCalendarIds];
-                    setSavedSelectedCalendarIds(selectedCalendarIds);
-                    setCalendarSelectionDirty(false);
-                    setStatus((current) => {
-                        if (!current) return current;
-                        return {
-                            ...current,
-                            calendars: (current.calendars || []).map((calendar) => ({
-                                ...calendar,
-                                isEnabled: selectedCalendarIds.includes(calendar.remoteCalendarId),
-                            })),
-                        };
-                    });
-                    void loadStatus({ silent: true });
-                } catch (error: any) {
-                    toast({
-                        title: 'Could not save calendars',
-                        description: error?.message || 'Please try again.',
-                        variant: 'destructive',
-                    });
-                } finally {
+    const persistCalendarSelection = useCallback((selectedCalendarIds: string[]) => {
+        if (!status?.account?.id) return;
+        const saveSeq = calendarSelectionSaveSeqRef.current + 1;
+        calendarSelectionSaveSeqRef.current = saveSeq;
+        setIsSavingCalendarSelection(true);
+        setCalendarSelectionDirty(true);
+        void (async () => {
+            try {
+                await parseJson(
+                    await fetch('/api/calendar-sync/apple/settings', {
+                        method: 'POST',
+                        headers: calendarSyncHeaders({ 'Content-Type': 'application/json' }),
+                        body: JSON.stringify({
+                            accountId: status.account?.id,
+                            selectedCalendarIds,
+                            enabled: true,
+                        }),
+                    })
+                );
+                if (calendarSelectionSaveSeqRef.current !== saveSeq) return;
+                setSavedSelectedCalendarIds(selectedCalendarIds);
+                setCalendarSelectionDirty(false);
+                setStatus((current) => {
+                    if (!current) return current;
+                    return {
+                        ...current,
+                        calendars: (current.calendars || []).map((calendar) => ({
+                            ...calendar,
+                            isEnabled: selectedCalendarIds.includes(calendar.remoteCalendarId),
+                        })),
+                    };
+                });
+                void loadStatus({ silent: true });
+            } catch (error: any) {
+                if (calendarSelectionSaveSeqRef.current !== saveSeq) return;
+                toast({
+                    title: 'Could not save calendars',
+                    description: error?.message || 'Please try again.',
+                    variant: 'destructive',
+                });
+            } finally {
+                if (calendarSelectionSaveSeqRef.current === saveSeq) {
                     setIsSavingCalendarSelection(false);
                 }
-            })();
-        }, 500);
-
-        return () => {
-            window.clearTimeout(timeoutId);
-        };
-    }, [
-        calendarSelectionDirty,
-        form.selectedCalendarIds,
-        formSelectedCalendarIdsKey,
-        loadStatus,
-        savedSelectedCalendarIdsKey,
-        status?.account?.id,
-        status?.configured,
-        toast,
-    ]);
+            }
+        })();
+    }, [loadStatus, status?.account?.id, toast]);
 
     async function handleRunSync(trigger: 'manual' | 'repair') {
         if (!status?.account?.id) return;

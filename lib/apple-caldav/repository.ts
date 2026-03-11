@@ -116,6 +116,11 @@ export async function replaceCalendarSyncCalendars(accountId: string, calendars:
 
     const existingByRemoteId = new Map<string, any>();
     const duplicateIdsToDelete: string[] = [];
+    const desiredRemoteIds = new Set(
+        calendars
+            .map((calendar) => String(calendar?.remoteCalendarId || '').trim())
+            .filter(Boolean)
+    );
     for (const [remoteCalendarId, group] of Array.from(groupedExisting.entries())) {
         const ranked = [...group].sort(compareCalendarSyncCalendarRows);
         existingByRemoteId.set(remoteCalendarId, ranked[0]);
@@ -128,7 +133,11 @@ export async function replaceCalendarSyncCalendars(accountId: string, calendars:
             ...calendar,
         });
     });
+    const staleDisabledIdsToDelete = Array.from(existingByRemoteId.values())
+        .filter((item: any) => !desiredRemoteIds.has(String(item?.remoteCalendarId || '').trim()) && !item?.isEnabled)
+        .map((item: any) => item.id);
     txs.push(...duplicateIdsToDelete.map((rowId) => db.tx.calendarSyncCalendars[rowId].delete()));
+    txs.push(...staleDisabledIdsToDelete.map((rowId) => db.tx.calendarSyncCalendars[rowId].delete()));
     if (txs.length > 0) {
         await transactInBatches(db, txs);
     }
