@@ -310,6 +310,31 @@ describe('AddEventForm', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
+    it('shows the original event timezone in inputs and summary when it differs from local time', async () => {
+        renderForm({
+            selectedDate: null,
+            selectedEvent: {
+                id: 'evt-zoned',
+                title: "Mandy's bible study",
+                description: '',
+                startDate: '2026-04-01T14:00:00.000Z',
+                endDate: '2026-04-01T15:30:00.000Z',
+                isAllDay: false,
+                timeZone: 'America/Los_Angeles',
+                rrule: 'RRULE:FREQ=WEEKLY',
+                pertainsTo: [{ id: 'mem-1', name: 'Judah' }],
+            } as any,
+        });
+
+        expect(screen.getByLabelText('Start Time')).toHaveValue('07:00');
+        expect(screen.getByLabelText('End Time')).toHaveValue('08:30');
+        expect(screen.getByText("Mandy's bible study")).toBeInTheDocument();
+        expect(screen.getByText(/Repeats weekly/i)).toBeInTheDocument();
+        expect(screen.getByText(/Pertains to Judah/i)).toBeInTheDocument();
+        expect(screen.getByText(/No alerts/i)).toBeInTheDocument();
+        expect(screen.getByText(/\(PDT\)/i)).toBeInTheDocument();
+    });
+
     it('builds custom recurrence rules with repeat-end counts', async () => {
         renderForm();
         const user = userEvent.setup();

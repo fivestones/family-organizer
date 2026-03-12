@@ -51,10 +51,12 @@
 }
 
 .dayViewTimeHeaderLabel {
-    font-size: 0.72rem;
-    font-weight: 700;
+    font-size: 0.92rem;
+    font-weight: 800;
     letter-spacing: 0.12em;
+    line-height: 1.2;
     text-transform: uppercase;
+    white-space: pre-line;
     color: rgba(15, 23, 42, 0.62);
 }
 
@@ -101,7 +103,7 @@
 
 .dayViewHeaderGregorian {
     margin-top: 4px;
-    font-size: 0.95rem;
+    font-size: 1rem;
     font-weight: 700;
     line-height: 1.1;
     color: #0f172a;
@@ -161,6 +163,29 @@
     bottom: 0;
     padding: 0 2px;
     pointer-events: auto;
+}
+
+.dayViewAllDayEventCard .dayEventCardTitle {
+    font-size: calc(0.96rem * var(--calendar-item-scale, 1));
+    line-height: 1.08;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+}
+
+.dayViewAllDayEventCard .dayEventCardBody {
+    padding-top: calc(4px * var(--calendar-item-scale, 1));
+    padding-bottom: calc(4px * var(--calendar-item-scale, 1));
+    overflow: visible;
+}
+
+.dayViewAllDayEventCard .dayEventMemberRail {
+    top: calc(5px * var(--calendar-item-scale, 1));
+    bottom: calc(5px * var(--calendar-item-scale, 1));
+}
+
+.dayViewAllDayEventCard {
+    overflow: visible;
 }
 
 .dayViewBodyRow {
@@ -942,7 +967,7 @@
     gap: 0;
     min-height: 100%;
     border: 1px solid var(--calendar-day-event-outline, rgba(29, 78, 216, 0.48));
-    border-radius: 12px;
+    border-radius: 8px;
     background: var(--calendar-day-event-bg, linear-gradient(180deg, rgba(29, 78, 216, 0.42), rgba(29, 78, 216, 0.26)));
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.12),
@@ -953,13 +978,15 @@
 
 .dayEventMemberRail {
     position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 5px;
+    left: calc(6px * var(--calendar-item-scale, 1));
+    top: calc(8px * var(--calendar-item-scale, 1));
+    bottom: calc(8px * var(--calendar-item-scale, 1));
+    width: max(3px, calc(4px * var(--calendar-item-scale, 1)));
     display: flex;
     flex-direction: column;
     z-index: 1;
+    border-radius: 999px;
+    overflow: hidden;
 }
 
 .dayEventMemberRailSegment {
@@ -975,7 +1002,7 @@
     gap: 4px;
     min-height: 100%;
     padding: calc(7px * var(--calendar-item-scale, 1)) calc(8px * var(--calendar-item-scale, 1))
-        calc(7px * var(--calendar-item-scale, 1)) calc(12px * var(--calendar-item-scale, 1));
+        calc(7px * var(--calendar-item-scale, 1)) calc(16px * var(--calendar-item-scale, 1));
 }
 
 .dayEventCardTopRow {
@@ -1053,7 +1080,9 @@
     overflow: hidden;
     text-align: left;
     color: var(--calendar-chip-title, #14532d);
+    font-size: calc(0.72rem * var(--calendar-item-scale, 1));
     font-weight: 600;
+    line-height: 1.08;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1091,7 +1120,7 @@
     white-space: nowrap;
     text-align: left;
     color: var(--calendar-chip-meta, rgba(20, 83, 45, 0.86));
-    font-size: 0.56rem;
+    font-size: calc(0.56rem * var(--calendar-item-scale, 1));
     line-height: 1;
     padding-left: 1px;
 }
@@ -1158,10 +1187,11 @@
     flex-direction: row;
     align-items: center;
     gap: 6px;
-    min-height: 16px;
-    height: 16px;
+    min-height: 100%;
+    height: 100%;
     margin-top: 0;
-    padding: 1px 6px 2px;
+    padding: calc(1px * var(--calendar-item-scale, 1)) calc(6px * var(--calendar-item-scale, 1))
+        calc(2px * var(--calendar-item-scale, 1));
     border-color: var(--calendar-span-border, #6ee7b7);
     background: var(--calendar-span-bg, linear-gradient(135deg, #ecfdf5, #bbf7d0 55%, #86efac));
     border-radius: 999px;

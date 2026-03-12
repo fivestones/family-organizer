@@ -133,6 +133,60 @@ interface EventFormData {
     alarmRepeatUntilAcknowledged: boolean;
 }
 
+function buildCreateDraftSourceKey(selectedDate: Date | null, initialDraft: CalendarDraftSelection | null) {
+    if (initialDraft?.start && initialDraft?.end) {
+        return `draft:${initialDraft.start.toISOString()}:${initialDraft.end.toISOString()}:${initialDraft.isAllDay ? 'all-day' : 'timed'}`;
+    }
+    if (selectedDate) {
+        return `date:${selectedDate.toISOString()}`;
+    }
+    return 'create:none';
+}
+
+function buildCreateEventFormData(
+    selectedDate: Date | null,
+    initialDraft: CalendarDraftSelection | null,
+    defaultStartTime: string
+): EventFormData {
+    const draftStart = initialDraft?.start ?? selectedDate ?? new Date();
+    const isDraftAllDay = initialDraft ? Boolean(initialDraft.isAllDay) : true;
+    const draftEnd = initialDraft?.end ?? (isDraftAllDay ? addDays(startOfDayDate(draftStart), 1) : addHours(draftStart, 1));
+    const formattedDate = format(draftStart, 'yyyy-MM-dd');
+    const startDateTime = isDraftAllDay ? parse(defaultStartTime, 'HH:mm', draftStart) : draftStart;
+    const endDateTime = isDraftAllDay ? addHours(parse(defaultStartTime, 'HH:mm', draftStart), 1) : draftEnd;
+    const formattedEndDate = isDraftAllDay ? format(addDays(draftEnd, -1), 'yyyy-MM-dd') : format(draftEnd, 'yyyy-MM-dd');
+
+    return {
+        id: '',
+        title: '',
+        description: '',
+        startDate: formattedDate,
+        endDate: formattedEndDate,
+        startTime: format(startDateTime, 'HH:mm'),
+        endTime: format(endDateTime, 'HH:mm'),
+        isAllDay: isDraftAllDay,
+        status: DEFAULT_EVENT_STATUS,
+        location: '',
+        timeZone: getLocalTimeZone(),
+        rrule: '',
+        rdatesCsv: '',
+        exdatesCsv: '',
+        recurrenceId: '',
+        recurringEventId: '',
+        recurrenceIdRange: '',
+        travelDurationBeforeMinutes: '',
+        travelDurationAfterMinutes: '',
+        alarmEnabled: false,
+        alarmAction: DEFAULT_ALARM_ACTION,
+        alarmTriggerMode: DEFAULT_ALARM_TRIGGER_MODE,
+        alarmTriggerMinutesBefore: '15',
+        alarmTriggerAt: '',
+        alarmRepeatCount: '',
+        alarmRepeatDurationMinutes: '',
+        alarmRepeatUntilAcknowledged: false,
+    };
+}
+
 const DEFAULT_EVENT_STATUS = 'confirmed';
 const DEFAULT_ALARM_ACTION = 'display';
 const DEFAULT_ALARM_TRIGGER_MODE = 'relative';
@@ -814,6 +868,148 @@ function getLocalTimeZone(): string {
     }
 }
 
+function isValidTimeZone(value: string) {
+    try {
+        Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function resolveTimeZone(value: string | null | undefined) {
+    const trimmed = String(value || '').trim();
+    if (trimmed && isValidTimeZone(trimmed)) {
+        return trimmed;
+    }
+    return getLocalTimeZone();
+}
+
+function getDateTimePartsInTimeZone(value: Date, timeZone: string) {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+    });
+    const parts = formatter.formatToParts(value);
+    const getPart = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value || 0);
+
+    return {
+        year: getPart('year'),
+        month: getPart('month'),
+        day: getPart('day'),
+        hour: getPart('hour'),
+        minute: getPart('minute'),
+        second: getPart('second'),
+    };
+}
+
+function formatDateInputInTimeZone(value: Date, timeZone: string) {
+    const parts = getDateTimePartsInTimeZone(value, timeZone);
+    return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
+function formatTimeInputInTimeZone(value: Date, timeZone: string) {
+    const parts = getDateTimePartsInTimeZone(value, timeZone);
+    return `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`;
+}
+
+function formatHumanDateInTimeZone(value: Date, timeZone: string) {
+    return new Intl.DateTimeFormat(undefined, {
+        timeZone,
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+    }).format(value);
+}
+
+function formatClockInTimeZone(value: Date, timeZone: string) {
+    return new Intl.DateTimeFormat(undefined, {
+        timeZone,
+        hour: 'numeric',
+        minute: '2-digit',
+    })
+        .format(value)
+        .replace(/\s?(AM|PM)$/i, (match) => match.toLowerCase());
+}
+
+function getTimeZoneShortLabel(value: Date, timeZone: string) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        timeZoneName: 'short',
+    }).formatToParts(value);
+    return parts.find((part) => part.type === 'timeZoneName')?.value || timeZone;
+}
+
+function formatTimeRangeInTimeZone(start: Date, end: Date, timeZone: string, includeZoneLabel = false) {
+    const timeRange = `from ${formatClockInTimeZone(start, timeZone)} to ${formatClockInTimeZone(end, timeZone)}`;
+    if (!includeZoneLabel) {
+        return timeRange;
+    }
+    return `${timeRange} (${getTimeZoneShortLabel(start, timeZone)})`;
+}
+
+function parseZonedDateTime(dateValue: string, timeValue: string, timeZone: string): Date | null {
+    if (!dateValue || !timeValue) return null;
+    const [year, month, day] = dateValue.split('-').map(Number);
+    const [hour, minute] = timeValue.split(':').map(Number);
+    if (
+        !Number.isFinite(year) ||
+        !Number.isFinite(month) ||
+        !Number.isFinite(day) ||
+        !Number.isFinite(hour) ||
+        !Number.isFinite(minute)
+    ) {
+        return null;
+    }
+
+    let guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+    for (let index = 0; index < 4; index += 1) {
+        const parts = getDateTimePartsInTimeZone(guess, timeZone);
+        const desiredUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+        const actualUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+        const diffMs = desiredUtc - actualUtc;
+        if (diffMs === 0) {
+            return guess;
+        }
+        guess = new Date(guess.getTime() + diffMs);
+    }
+
+    return guess;
+}
+
+function summarizeRecurrenceForEvent(summary: string, mode: RepeatMode) {
+    if (mode === 'never') return 'Does not repeat';
+    if (mode === 'daily') return 'Repeats daily';
+    if (mode === 'weekly') return 'Repeats weekly';
+    if (mode === 'biweekly') return 'Repeats every 2 weeks';
+    if (mode === 'monthly') return 'Repeats monthly';
+    if (mode === 'yearly') return 'Repeats yearly';
+    return `Repeats: ${summary}`;
+}
+
+function summarizeAlert(formData: EventFormData) {
+    if (!formData.alarmEnabled) return 'No alerts';
+    if (formData.alarmTriggerMode === 'relative') {
+        const minutes = Number(formData.alarmTriggerMinutesBefore || 0);
+        if (Number.isFinite(minutes) && minutes > 0) {
+            return `Alert ${minutes} minute${minutes === 1 ? '' : 's'} before start`;
+        }
+        return 'Alert at start time';
+    }
+    return formData.alarmTriggerAt ? 'Alert at a specific date and time' : 'Alert enabled';
+}
+
+function startOfDayDate(value: Date) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
 function normalizeRrule(value: string): string {
     const trimmed = value.trim();
     if (!trimmed) return '';
@@ -1233,35 +1429,7 @@ const AddEventForm = ({
     defaultStartTime = '10:00',
     onOptimisticUpsert,
 }: AddEventFormProps) => {
-    const [formData, setFormData] = useState<EventFormData>({
-        id: '',
-        title: '',
-        description: '',
-        startDate: '',
-        endDate: '',
-        startTime: defaultStartTime,
-        endTime: '',
-        isAllDay: true,
-        status: DEFAULT_EVENT_STATUS,
-        location: '',
-        timeZone: getLocalTimeZone(),
-        rrule: '',
-        rdatesCsv: '',
-        exdatesCsv: '',
-        recurrenceId: '',
-        recurringEventId: '',
-        recurrenceIdRange: '',
-        travelDurationBeforeMinutes: '',
-        travelDurationAfterMinutes: '',
-        alarmEnabled: false,
-        alarmAction: DEFAULT_ALARM_ACTION,
-        alarmTriggerMode: DEFAULT_ALARM_TRIGGER_MODE,
-        alarmTriggerMinutesBefore: '15',
-        alarmTriggerAt: '',
-        alarmRepeatCount: '',
-        alarmRepeatDurationMinutes: '',
-        alarmRepeatUntilAcknowledged: false,
-    });
+    const [formData, setFormData] = useState<EventFormData>(() => buildCreateEventFormData(selectedDate, initialDraft, defaultStartTime));
     const titleInputRef = useRef<HTMLInputElement>(null);
     const submitLockRef = useRef(false);
     const isMountedRef = useRef(true);
@@ -1269,7 +1437,9 @@ const AddEventForm = ({
     const recurrenceRdateIdRef = useRef(1);
     const recurrenceScopeResolverRef = useRef<((scope: RecurrenceEditScope) => void) | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [recurrenceUi, setRecurrenceUi] = useState<RecurrenceUiState>(() => getDefaultRecurrenceUiState(format(new Date(), 'yyyy-MM-dd')));
+    const [recurrenceUi, setRecurrenceUi] = useState<RecurrenceUiState>(() =>
+        getDefaultRecurrenceUiState(buildCreateEventFormData(selectedDate, initialDraft, defaultStartTime).startDate)
+    );
     const [exceptionsEnabled, setExceptionsEnabled] = useState(false);
     const [recurrenceExceptions, setRecurrenceExceptions] = useState<RecurrenceExceptionRow[]>([]);
     const [rdatesEnabled, setRdatesEnabled] = useState(false);
@@ -1282,6 +1452,7 @@ const AddEventForm = ({
     const [selectedTags, setSelectedTags] = useState<CalendarTag[]>([]);
     const [tagDraft, setTagDraft] = useState('');
     const memberGridRef = useRef<HTMLDivElement>(null);
+    const lastLoadedSourceRef = useRef(selectedEvent ? '' : buildCreateDraftSourceKey(selectedDate, initialDraft));
     const [memberGridWidth, setMemberGridWidth] = useState(0);
     const eventMetaQuery = db.useQuery({
         familyMembers: {
@@ -1380,6 +1551,63 @@ const AddEventForm = ({
             ? 'Ends on a specific date'
             : `Ends on ${parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
     }, [recurrenceUi]);
+    const localTimeZone = useMemo(() => getLocalTimeZone(), []);
+    const effectiveEventTimeZone = useMemo(() => resolveTimeZone(formData.timeZone), [formData.timeZone]);
+    const summaryLines = useMemo(() => {
+        const lines: string[] = [];
+        const startInstant = formData.isAllDay
+            ? parseISO(`${formData.startDate || format(new Date(), 'yyyy-MM-dd')}T00:00:00`)
+            : parseZonedDateTime(formData.startDate, formData.startTime, effectiveEventTimeZone);
+        const endInstant = formData.isAllDay
+            ? parseISO(`${formData.endDate || formData.startDate || format(new Date(), 'yyyy-MM-dd')}T00:00:00`)
+            : parseZonedDateTime(formData.endDate, formData.endTime, effectiveEventTimeZone);
+
+        if (startInstant && !Number.isNaN(startInstant.getTime())) {
+            const localDateEnd = endInstant && !Number.isNaN(endInstant.getTime()) ? endInstant : startInstant;
+            const sameLocalDay = formatDateInputInTimeZone(startInstant, localTimeZone) === formatDateInputInTimeZone(localDateEnd, localTimeZone);
+            lines.push(
+                sameLocalDay
+                    ? formatHumanDateInTimeZone(startInstant, localTimeZone)
+                    : `${formatHumanDateInTimeZone(startInstant, localTimeZone)} - ${formatHumanDateInTimeZone(localDateEnd, localTimeZone)}`
+            );
+        }
+
+        if (!formData.isAllDay && startInstant && endInstant && !Number.isNaN(startInstant.getTime()) && !Number.isNaN(endInstant.getTime())) {
+            lines.push(formatTimeRangeInTimeZone(startInstant, endInstant, localTimeZone));
+            if (effectiveEventTimeZone !== localTimeZone) {
+                lines.push(formatTimeRangeInTimeZone(startInstant, endInstant, effectiveEventTimeZone, true));
+            }
+        } else if (formData.isAllDay) {
+            lines.push('All day');
+        }
+
+        lines.push(summarizeRecurrenceForEvent(recurrenceSummaryText, recurrenceUi.mode));
+
+        if (selectedFamilyMemberIds.length === 0) {
+            lines.push('Pertains to everyone');
+        } else {
+            const names = selectedFamilyMemberIds
+                .map((memberId) => selectedFamilyMembersById.get(memberId)?.name || 'Unknown member')
+                .filter(Boolean);
+            lines.push(`Pertains to ${humanJoin(names)}`);
+        }
+
+        lines.push(summarizeAlert(formData));
+        return lines;
+    }, [
+        effectiveEventTimeZone,
+        formData.alarmEnabled,
+        formData.endDate,
+        formData.endTime,
+        formData.isAllDay,
+        formData.startDate,
+        formData.startTime,
+        localTimeZone,
+        recurrenceSummaryText,
+        recurrenceUi.mode,
+        selectedFamilyMemberIds,
+        selectedFamilyMembersById,
+    ]);
 
     const requestRecurrenceScope = useCallback(
         (action: 'edit' | 'drag' | 'delete', scopeMode: RecurrenceSeriesScopeMode = 'following') => {
@@ -1499,19 +1727,37 @@ const AddEventForm = ({
 
     useEffect(() => {
         if (selectedEvent) {
+            const selectedSourceKey = `event:${selectedEvent.id}:${String(selectedEvent.updatedAt || selectedEvent.lastModified || selectedEvent.startDate || '')}`;
+            if (lastLoadedSourceRef.current === selectedSourceKey) {
+                return;
+            }
+            lastLoadedSourceRef.current = selectedSourceKey;
             const recurrenceSourceEvent = isSelectedRecurringOverride && selectedMasterEvent ? selectedMasterEvent : selectedEvent;
-            const startDate = selectedEvent.isAllDay ? selectedEvent.startDate : format(parseISO(selectedEvent.startDate), 'yyyy-MM-dd');
+            const eventTimeZone = resolveTimeZone(selectedEvent.timeZone || getLocalTimeZone());
+            const startInstant = parseISO(selectedEvent.startDate);
+            const endInstantForInputs = parseISO(selectedEvent.endDate);
+            const startDate =
+                selectedEvent.isAllDay || Number.isNaN(startInstant.getTime())
+                    ? selectedEvent.startDate
+                    : formatDateInputInTimeZone(startInstant, eventTimeZone);
             const exclusiveEndDate = selectedEvent.isAllDay ? parseISO(selectedEvent.endDate) : null;
             const endDate =
                 selectedEvent.isAllDay && exclusiveEndDate && !Number.isNaN(exclusiveEndDate.getTime())
                     ? format(addDays(exclusiveEndDate, -1), 'yyyy-MM-dd')
                     : selectedEvent.isAllDay
                       ? selectedEvent.startDate
-                      : format(parseISO(selectedEvent.endDate), 'yyyy-MM-dd');
-            const startTime = selectedEvent.isAllDay ? defaultStartTime : format(parseISO(selectedEvent.startDate), 'HH:mm');
+                      : Number.isNaN(endInstantForInputs.getTime())
+                        ? format(parseISO(selectedEvent.endDate), 'yyyy-MM-dd')
+                        : formatDateInputInTimeZone(endInstantForInputs, eventTimeZone);
+            const startTime =
+                selectedEvent.isAllDay || Number.isNaN(startInstant.getTime())
+                    ? defaultStartTime
+                    : formatTimeInputInTimeZone(startInstant, eventTimeZone);
             const endTime = selectedEvent.isAllDay
                 ? format(addHours(parse(defaultStartTime, 'HH:mm', new Date()), 1), 'HH:mm')
-                : format(parseISO(selectedEvent.endDate), 'HH:mm');
+                : Number.isNaN(endInstantForInputs.getTime())
+                  ? format(parseISO(selectedEvent.endDate), 'HH:mm')
+                  : formatTimeInputInTimeZone(endInstantForInputs, eventTimeZone);
             const alarmDefaults = deriveAlarmDefaults(selectedEvent);
             const loadedExdateTokens = normalizeDateOnlyList([
                 ...(Array.isArray(recurrenceSourceEvent.exdates) ? recurrenceSourceEvent.exdates.map((entry) => String(entry)) : []),
@@ -1553,7 +1799,7 @@ const AddEventForm = ({
                 isAllDay: selectedEvent.isAllDay,
                 status: String(selectedEvent.status || DEFAULT_EVENT_STATUS),
                 location: String(selectedEvent.location || ''),
-                timeZone: String(selectedEvent.timeZone || getLocalTimeZone()),
+                timeZone: eventTimeZone,
                 rrule: String(recurrenceSourceEvent.rrule || ''),
                 rdatesCsv: Array.isArray(recurrenceSourceEvent.rdates) ? recurrenceSourceEvent.rdates.join(', ') : '',
                 exdatesCsv: loadedExdateTokens.join(', '),
@@ -1596,51 +1842,14 @@ const AddEventForm = ({
             setSelectedTags(sortCalendarTagRecords(dedupeCalendarTagRecords(selectedEvent.tags || [])));
             setTagDraft('');
         } else if (selectedDate || initialDraft) {
-            const draftStart = initialDraft?.start ?? selectedDate;
-            const draftEnd = initialDraft?.end ?? addHours(parse(defaultStartTime, 'HH:mm', new Date()), 1);
-            const isDraftAllDay = Boolean(initialDraft?.isAllDay);
-            if (!draftStart) {
+            const createSourceKey = buildCreateDraftSourceKey(selectedDate, initialDraft);
+            if (lastLoadedSourceRef.current === createSourceKey) {
                 return;
             }
-
-            const formattedDate = format(draftStart, 'yyyy-MM-dd');
-            const startDateTime = initialDraft?.isAllDay ? parse(defaultStartTime, 'HH:mm', new Date()) : draftStart;
-            const endDateTime = initialDraft?.isAllDay ? addHours(parse(defaultStartTime, 'HH:mm', new Date()), 1) : draftEnd;
-            const formattedEndDate = isDraftAllDay
-                ? format(addDays(draftEnd, -1), 'yyyy-MM-dd')
-                : format(draftEnd, 'yyyy-MM-dd');
-
-            setFormData((prevState) => ({
-                ...prevState,
-                id: '',
-                title: '',
-                description: '',
-                startDate: formattedDate,
-                endDate: formattedEndDate,
-                startTime: format(startDateTime, 'HH:mm'),
-                endTime: format(endDateTime, 'HH:mm'),
-                isAllDay: isDraftAllDay,
-                status: DEFAULT_EVENT_STATUS,
-                location: '',
-                timeZone: getLocalTimeZone(),
-                rrule: '',
-                rdatesCsv: '',
-                exdatesCsv: '',
-                recurrenceId: '',
-                recurringEventId: '',
-                recurrenceIdRange: '',
-                travelDurationBeforeMinutes: '',
-                travelDurationAfterMinutes: '',
-                alarmEnabled: false,
-                alarmAction: DEFAULT_ALARM_ACTION,
-                alarmTriggerMode: DEFAULT_ALARM_TRIGGER_MODE,
-                alarmTriggerMinutesBefore: '15',
-                alarmTriggerAt: '',
-                alarmRepeatCount: '',
-                alarmRepeatDurationMinutes: '',
-                alarmRepeatUntilAcknowledged: false,
-            }));
-            setRecurrenceUi(getDefaultRecurrenceUiState(formattedDate));
+            lastLoadedSourceRef.current = createSourceKey;
+            const nextFormState = buildCreateEventFormData(selectedDate, initialDraft, defaultStartTime);
+            setFormData(nextFormState);
+            setRecurrenceUi(getDefaultRecurrenceUiState(nextFormState.startDate));
             recurrenceExceptionIdRef.current = 1;
             recurrenceRdateIdRef.current = 1;
             setExceptionsEnabled(false);
@@ -2139,9 +2348,9 @@ const AddEventForm = ({
             endDateObj = parseISO(`${formData.endDate}T00:00:00`);
             endDateObj = addDays(endDateObj, 1); // End date is exclusive
         } else {
-            // For timed events, use the user's local timezone
-            startDateObj = parseISO(`${formData.startDate}T${formData.startTime}:00`);
-            endDateObj = parseISO(`${formData.endDate}T${formData.endTime}:00`);
+            // Timed event inputs are interpreted in the event's configured timezone.
+            startDateObj = parseZonedDateTime(formData.startDate, formData.startTime, effectiveEventTimeZone);
+            endDateObj = parseZonedDateTime(formData.endDate, formData.endTime, effectiveEventTimeZone);
         }
 
         if (Number.isNaN(startDateObj.getTime()) || Number.isNaN(endDateObj.getTime()) || endDateObj.getTime() <= startDateObj.getTime()) {
@@ -2592,6 +2801,16 @@ const AddEventForm = ({
                 onSelect={resolveRecurrenceScope}
             />
             <div>
+                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                    <p className="text-base font-semibold text-slate-900">{formData.title.trim() || 'Untitled event'}</p>
+                    <div className="mt-2 space-y-1">
+                        {summaryLines.map((line) => (
+                            <p key={line} className="text-sm text-slate-600">
+                                {line}
+                            </p>
+                        ))}
+                    </div>
+                </div>
                 <Label htmlFor="title">Title</Label>
                 <Input
                     ref={titleInputRef}

@@ -983,13 +983,50 @@ describe('Calendar', () => {
         });
 
         await waitFor(() => {
-            expect(screen.getByText('Row 1')).toBeInTheDocument();
-            expect(screen.getByText('Row 2')).toBeInTheDocument();
+            expect(screen.getByText('March 2026')).toBeInTheDocument();
         });
         expect(screen.getAllByTestId('day-view-header-2026-03-15').length).toBeGreaterThan(0);
         expect(screen.getAllByTestId('day-view-header-2026-03-18').length).toBeGreaterThan(0);
         expect(screen.getByTestId('day-view-vertical-scroller-0')).toBeInTheDocument();
         expect(screen.getByTestId('day-view-vertical-scroller-1')).toBeInTheDocument();
+    });
+
+    it('renders a multi-day all-day event as one chip per visible row segment instead of one chip per day', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-multi-day',
+                title: '10 day event',
+                startDate: '2026-03-12',
+                endDate: '2026-03-22',
+                isAllDay: true,
+            },
+        ]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+        });
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayVisibleDays', dayVisibleDays: 3 },
+                })
+            );
+        });
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayRowCount', dayRowCount: 2 },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getAllByTestId('calendar-event-evt-multi-day')).toHaveLength(2);
+        });
     });
 
     it('reschedules a timed event to a specific day/time in the day view', async () => {
