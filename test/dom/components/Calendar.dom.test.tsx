@@ -957,6 +957,41 @@ describe('Calendar', () => {
         expect(form.getAttribute('data-draft-end')).toContain('2026-03-15T');
     });
 
+    it('renders two stacked day rows without crashing when the second row option is enabled', async () => {
+        renderCalendarWithItems([]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+        });
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayVisibleDays', dayVisibleDays: 3 },
+                })
+            );
+        });
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayRowCount', dayRowCount: 2 },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText('Row 1')).toBeInTheDocument();
+            expect(screen.getByText('Row 2')).toBeInTheDocument();
+        });
+        expect(screen.getAllByTestId('day-view-header-2026-03-15').length).toBeGreaterThan(0);
+        expect(screen.getAllByTestId('day-view-header-2026-03-18').length).toBeGreaterThan(0);
+        expect(screen.getByTestId('day-view-vertical-scroller-0')).toBeInTheDocument();
+        expect(screen.getByTestId('day-view-vertical-scroller-1')).toBeInTheDocument();
+    });
+
     it('reschedules a timed event to a specific day/time in the day view', async () => {
         renderCalendarWithItems([
             {

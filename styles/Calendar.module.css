@@ -974,7 +974,8 @@
     flex-direction: column;
     gap: 4px;
     min-height: 100%;
-    padding: 7px 8px 7px 12px;
+    padding: calc(7px * var(--calendar-item-scale, 1)) calc(8px * var(--calendar-item-scale, 1))
+        calc(7px * var(--calendar-item-scale, 1)) calc(12px * var(--calendar-item-scale, 1));
 }
 
 .dayEventCardTopRow {
@@ -997,7 +998,7 @@
     overflow: hidden;
     text-align: left;
     color: var(--calendar-day-event-text, #F8FAFC);
-    font-size: 0.96rem;
+    font-size: calc(0.96rem * var(--calendar-item-scale, 1));
     font-weight: 700;
     line-height: 1.08;
     text-overflow: ellipsis;
@@ -1007,7 +1008,7 @@
     margin-top: 3px;
     text-align: left;
     color: var(--calendar-day-event-muted, rgba(248, 250, 252, 0.82));
-    font-size: 0.74rem;
+    font-size: calc(0.74rem * var(--calendar-item-scale, 1));
     font-weight: 600;
     line-height: 1.15;
 }
@@ -1021,8 +1022,8 @@
 }
 
 .dayEventAvatar {
-    width: 18px;
-    height: 18px;
+    width: max(10px, calc(18px * var(--calendar-item-scale, 1)));
+    height: max(10px, calc(18px * var(--calendar-item-scale, 1)));
     margin-left: -4px;
     border: 1px solid var(--calendar-day-avatar-border, rgba(255, 255, 255, 0.7));
     box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.2);
@@ -1035,7 +1036,7 @@
 .dayEventAvatarFallback {
     background: rgba(255, 255, 255, 0.92);
     color: var(--calendar-day-avatar-border, #1D4ED8);
-    font-size: 0.46rem;
+    font-size: max(0.3rem, calc(0.46rem * var(--calendar-item-scale, 1)));
     font-weight: 800;
     letter-spacing: 0.01em;
 }

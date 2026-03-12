@@ -59,6 +59,8 @@ import {
     CALENDAR_DAY_HEIGHT_DEFAULT,
     CALENDAR_DAY_HEIGHT_MAX,
     CALENDAR_DAY_HEIGHT_MIN,
+    CALENDAR_DAY_VIEW_FONT_SCALE_DEFAULT,
+    CALENDAR_DAY_VIEW_FONT_SCALE_STORAGE_KEY,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY,
     CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT,
@@ -83,6 +85,7 @@ import {
     createEmptyCalendarDateRangeFilter,
     createEmptyCalendarTagExpression,
     type CalendarAgendaDisplaySettings,
+    clampCalendarDayFontScale,
     clampCalendarDayHourHeight,
     clampCalendarDayRowCount,
     clampCalendarDayVisibleDays,
@@ -1037,6 +1040,14 @@ const Calendar = ({
 
         const stored = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY));
         return Number.isFinite(stored) ? clampCalendarDayHourHeight(stored) : CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT;
+    });
+    const [dayFontScale, setDayFontScale] = useState<number>(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) {
+            return CALENDAR_DAY_VIEW_FONT_SCALE_DEFAULT;
+        }
+
+        const stored = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_FONT_SCALE_STORAGE_KEY));
+        return Number.isFinite(stored) ? clampCalendarDayFontScale(stored) : CALENDAR_DAY_VIEW_FONT_SCALE_DEFAULT;
     });
     const [yearMonthBasis, setYearMonthBasis] = useState<CalendarYearMonthBasis>(() => {
         if (typeof window === 'undefined' || !commandsEnabled) {
@@ -4001,6 +4012,11 @@ const Calendar = ({
 
     useEffect(() => {
         if (typeof window === 'undefined' || !commandsEnabled) return;
+        window.localStorage.setItem(CALENDAR_DAY_VIEW_FONT_SCALE_STORAGE_KEY, String(dayFontScale));
+    }, [commandsEnabled, dayFontScale]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) return;
         window.localStorage.setItem(CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY, yearMonthBasis);
     }, [commandsEnabled, yearMonthBasis]);
 
@@ -4052,6 +4068,7 @@ const Calendar = ({
             dayVisibleDays,
             dayRowCount,
             dayHourHeight,
+            dayFontScale,
             yearMonthBasis: effectiveYearMonthBasis,
             showGregorianCalendar: showGregorianCalendarSetting,
             showBsCalendar: showBsCalendarSetting,
@@ -4081,6 +4098,7 @@ const Calendar = ({
         effectiveShowChores,
         effectivePersistentFilters,
         effectiveTagExpression,
+        dayFontScale,
         dayHourHeight,
         dayRowCount,
         dayVisibleDays,
@@ -4186,6 +4204,11 @@ const Calendar = ({
                 return;
             }
 
+            if (detail.type === 'setDayFontScale') {
+                setDayFontScale(clampCalendarDayFontScale(detail.dayFontScale));
+                return;
+            }
+
             if (detail.type === 'setYearMonthBasis') {
                 setYearMonthBasis(detail.yearMonthBasis === 'bs' ? 'bs' : 'gregorian');
                 return;
@@ -4265,6 +4288,7 @@ const Calendar = ({
                     dayVisibleDays,
                     dayRowCount,
                     dayHourHeight,
+                    dayFontScale,
                     yearMonthBasis: effectiveYearMonthBasis,
                     showGregorianCalendar: showGregorianCalendarSetting,
                     showBsCalendar: showBsCalendarSetting,
@@ -4304,6 +4328,7 @@ const Calendar = ({
         handleTodayClick,
         effectivePersistentFilters,
         effectiveTagExpression,
+        dayFontScale,
         dayHourHeight,
         dayRowCount,
         dayVisibleDays,
@@ -5255,6 +5280,7 @@ const Calendar = ({
                                         visibleDayCount={dayVisibleDays}
                                         rowCount={dayRowCount}
                                         hourHeight={dayHourHeight}
+                                        fontScale={dayFontScale}
                                         containerHeight={scrollContainerHeight}
                                         displayBS={effectiveShowBsCalendar}
                                         items={dayViewItems}

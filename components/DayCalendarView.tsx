@@ -24,6 +24,7 @@ interface DayCalendarViewProps {
     visibleDayCount: number;
     rowCount: number;
     hourHeight: number;
+    fontScale: number;
     containerHeight: number | null;
     displayBS: boolean;
     items: CalendarItem[];
@@ -441,6 +442,7 @@ export default function DayCalendarView({
     visibleDayCount,
     rowCount,
     hourHeight,
+    fontScale,
     containerHeight,
     displayBS,
     items,
@@ -827,11 +829,12 @@ export default function DayCalendarView({
         horizontalAnchorTimerRef.current = window.setTimeout(() => {
             const activeViewport = bodyHorizontalViewportRefs.current[sourceIndex];
             if (!activeViewport || dayWidth <= 0) return;
+            const maxAnchorIndex = Math.max(0, renderedDays.length - visibleDayCount * rowCount);
 
             const snappedIndex = clampNumber(
                 Math.round(activeViewport.scrollLeft / dayWidth),
                 0,
-                Math.max(0, renderedDays.length - visibleDayCount)
+                maxAnchorIndex
             );
             const snappedLeft = snappedIndex * dayWidth;
             if (Math.abs(activeViewport.scrollLeft - snappedLeft) > 1) {
@@ -976,6 +979,7 @@ export default function DayCalendarView({
                                                                         item={segment.item}
                                                                         index={laneIndex}
                                                                         layout="span"
+                                                                        scale={fontScale}
                                                                         selected={isEventSelected(segment.item)}
                                                                         continuesBefore={segment.continuesBefore || segment.startCol < rowOffset}
                                                                         continuesAfter={segment.continuesAfter || segment.endCol > visibleRowEndCol}
@@ -1030,13 +1034,14 @@ export default function DayCalendarView({
                                         data-testid={`day-view-vertical-scroller-${rowIndex}`}
                                         className={styles.dayViewVerticalScroller}
                                         style={{ height: `${timedViewportHeight}px` }}
-                                        onScroll={(event) =>
+                                        onScroll={(event) => {
+                                            const nextScrollTop = event.currentTarget.scrollTop;
                                             setVerticalScrollTopByRow((current) => {
                                                 const next = [...current];
-                                                next[rowIndex] = event.currentTarget.scrollTop;
+                                                next[rowIndex] = nextScrollTop;
                                                 return next;
-                                            })
-                                        }
+                                            });
+                                        }}
                                     >
                                         <div className={styles.dayViewTimedGrid} style={{ width: `${rowTrackWidth}px`, height: `${gridHeight}px` }}>
                                             <div className={styles.dayViewHourLines} style={timedHourLineBackground} />
@@ -1165,6 +1170,7 @@ export default function DayCalendarView({
                                                             <DraggableCalendarEvent
                                                                 item={segment.displayItem}
                                                                 index={segment.columnIndex}
+                                                                scale={fontScale}
                                                                 selected={isEventSelected(segment.item)}
                                                                 draggableEnabled={segment.item.calendarItemKind !== 'chore'}
                                                                 className={styles.dayViewTimedEventCard}

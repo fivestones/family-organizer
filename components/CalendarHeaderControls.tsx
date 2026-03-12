@@ -24,6 +24,10 @@ import {
     CALENDAR_DAY_HEIGHT_MAX,
     CALENDAR_DAY_HEIGHT_MIN,
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
+    CALENDAR_DAY_VIEW_FONT_SCALE_DEFAULT,
+    CALENDAR_DAY_VIEW_FONT_SCALE_MAX,
+    CALENDAR_DAY_VIEW_FONT_SCALE_MIN,
+    CALENDAR_DAY_VIEW_FONT_SCALE_STORAGE_KEY,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN,
@@ -46,6 +50,7 @@ import {
     CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY,
     CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY,
     clampCalendarAgendaFontScale,
+    clampCalendarDayFontScale,
     clampCalendarDayHourHeight,
     clampCalendarDayRowCount,
     clampCalendarDayVisibleDays,
@@ -156,6 +161,7 @@ export default function CalendarHeaderControls() {
     const [dayVisibleDays, setDayVisibleDays] = useState(CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT);
     const [dayRowCount, setDayRowCount] = useState(CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT);
     const [dayHourHeight, setDayHourHeight] = useState(CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT);
+    const [dayFontScale, setDayFontScale] = useState(CALENDAR_DAY_VIEW_FONT_SCALE_DEFAULT);
     const [yearMonthBasis, setYearMonthBasis] = useState<CalendarYearMonthBasis>('gregorian');
     const [showGregorianCalendar, setShowGregorianCalendar] = useState(true);
     const [showBsCalendar, setShowBsCalendar] = useState(true);
@@ -209,6 +215,10 @@ export default function CalendarHeaderControls() {
         const storedDayHourHeight = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY));
         if (Number.isFinite(storedDayHourHeight)) {
             setDayHourHeight(clampCalendarDayHourHeight(storedDayHourHeight));
+        }
+        const storedDayFontScale = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_FONT_SCALE_STORAGE_KEY));
+        if (Number.isFinite(storedDayFontScale)) {
+            setDayFontScale(clampCalendarDayFontScale(storedDayFontScale));
         }
 
         const storedYearMonthBasis = window.localStorage.getItem(CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY);
@@ -275,6 +285,7 @@ export default function CalendarHeaderControls() {
             setDayVisibleDays(clampCalendarDayVisibleDays(detail.dayVisibleDays));
             setDayRowCount(clampCalendarDayRowCount(detail.dayRowCount));
             setDayHourHeight(clampCalendarDayHourHeight(detail.dayHourHeight));
+            setDayFontScale(clampCalendarDayFontScale(detail.dayFontScale));
             setYearMonthBasis(detail.yearMonthBasis);
             setShowGregorianCalendar(Boolean(detail.showGregorianCalendar));
             setShowBsCalendar(Boolean(detail.showBsCalendar));
@@ -737,6 +748,26 @@ export default function CalendarHeaderControls() {
                                             const next = clampCalendarDayHourHeight(Number(event.target.value));
                                             setDayHourHeight(next);
                                             dispatchCalendarCommand({ type: 'setDayHourHeight', dayHourHeight: next });
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <Label htmlFor="calendar-day-font-scale-header">Event Font Size</Label>
+                                        <span className="text-xs text-muted-foreground">{dayFontScale.toFixed(2)}x</span>
+                                    </div>
+                                    <input
+                                        id="calendar-day-font-scale-header"
+                                        type="range"
+                                        min={CALENDAR_DAY_VIEW_FONT_SCALE_MIN}
+                                        max={CALENDAR_DAY_VIEW_FONT_SCALE_MAX}
+                                        step={0.01}
+                                        value={dayFontScale}
+                                        onChange={(event) => {
+                                            const next = clampCalendarDayFontScale(Number(event.target.value));
+                                            setDayFontScale(next);
+                                            dispatchCalendarCommand({ type: 'setDayFontScale', dayFontScale: next });
                                         }}
                                     />
                                 </div>

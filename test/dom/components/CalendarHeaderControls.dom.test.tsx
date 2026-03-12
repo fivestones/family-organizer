@@ -301,6 +301,7 @@ describe('CalendarHeaderControls member filter summary', () => {
         fireEvent.change(screen.getByLabelText('Visible Days'), { target: { value: '3' } });
         fireEvent.click(screen.getByText('Second row of days'));
         fireEvent.change(screen.getByLabelText('Hour Zoom'), { target: { value: '72' } });
+        fireEvent.change(screen.getByLabelText('Event Font Size'), { target: { value: '0.55' } });
 
         await waitFor(() => {
             expect(receivedCommands).toEqual(
@@ -316,6 +317,10 @@ describe('CalendarHeaderControls member filter summary', () => {
                     expect.objectContaining({
                         type: 'setDayHourHeight',
                         dayHourHeight: 72,
+                    }),
+                    expect.objectContaining({
+                        type: 'setDayFontScale',
+                        dayFontScale: 0.55,
                     }),
                 ])
             );
