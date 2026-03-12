@@ -97,6 +97,7 @@ vi.mock('@/components/DraggableCalendarEvent', () => ({
                 data-calendar-item-kind={item.calendarItemKind || 'event'}
                 data-calendar-chip-surface={usesChipChrome ? 'chip' : 'plain'}
                 data-calendar-selected={selected ? 'true' : 'false'}
+                data-calendar-search-state={item.__liveSearchState || 'normal'}
                 data-member-colors={(item.pertainsTo || []).map((member: any) => member?.color || '').join(',')}
                 data-member-indicator-style={memberIndicatorStyle || 'badge'}
                 onClick={(e) => onClick?.(e)}
@@ -1803,6 +1804,132 @@ describe('Calendar', () => {
         expect(within(dayCell).getByRole('button', { name: 'Untagged Event' })).toBeInTheDocument();
         expect(within(dayCell).getByRole('button', { name: 'School Assembly' })).toBeInTheDocument();
         expect(within(dayCell).getByRole('button', { name: 'Travel Day' })).toBeInTheDocument();
+    });
+
+    it('renders the agenda view grouped by date and respects persistent text filters', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-school',
+                title: 'School pickup',
+                startDate: '2026-03-15T14:00:00.000Z',
+                endDate: '2026-03-15T14:30:00.000Z',
+                isAllDay: false,
+            },
+            {
+                id: 'evt-dentist',
+                title: 'Dentist checkup',
+                startDate: '2026-03-17T09:00:00.000Z',
+                endDate: '2026-03-17T09:30:00.000Z',
+                isAllDay: false,
+            },
+        ]);
+
+        act(() => {
+            window.dispatchEvent(new CustomEvent(CALENDAR_COMMAND_EVENT, { detail: { type: 'setViewMode', viewMode: 'agenda' } }));
+        });
+
+        const agenda = await screen.findByTestId('calendar-agenda-main');
+        expect(within(agenda).getByText('Sunday, March 15, 2026')).toBeInTheDocument();
+        expect(within(agenda).getByText('Tuesday, March 17, 2026')).toBeInTheDocument();
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setPersistentTextFilter', textQuery: 'Dentist' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(within(agenda).queryByText('School pickup')).toBeNull();
+            expect(within(agenda).getByText('Dentist checkup')).toBeInTheDocument();
+        });
+    });
+
+    it('shows live search results in the rail and decorates visible items as match or dim', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-school',
+                title: 'School pickup',
+                startDate: '2026-03-15T14:00:00.000Z',
+                endDate: '2026-03-15T14:30:00.000Z',
+                isAllDay: false,
+            },
+            {
+                id: 'evt-travel',
+                title: 'Travel day',
+                startDate: '2026-03-15T16:00:00.000Z',
+                endDate: '2026-03-15T18:00:00.000Z',
+                isAllDay: false,
+            },
+        ]);
+
+        act(() => {
+            window.dispatchEvent(new CustomEvent(CALENDAR_COMMAND_EVENT, { detail: { type: 'setSearchOpen', isOpen: true } }));
+            window.dispatchEvent(new CustomEvent(CALENDAR_COMMAND_EVENT, { detail: { type: 'setSearchQuery', query: 'travel' } }));
+        });
+
+        const results = await screen.findByTestId('calendar-search-results');
+        const dayCell = screen.getByTestId('day-cell-2026-03-15');
+
+        await waitFor(() => {
+            expect(within(dayCell).getByTestId('calendar-event-evt-travel')).toHaveAttribute('data-calendar-search-state', 'match');
+            expect(within(dayCell).getByTestId('calendar-event-evt-school')).toHaveAttribute('data-calendar-search-state', 'dim');
+            expect(within(results).getByText('Travel day')).toBeInTheDocument();
+            expect(within(results).queryByText('School pickup')).toBeNull();
+        });
+    });
+
+    it('jumps to the closest hit in day view and opens details on shift-click from search results', async () => {
+        const originalScrollTo = HTMLElement.prototype.scrollTo;
+        HTMLElement.prototype.scrollTo = function scrollToMock(options?: any) {
+            if (options && typeof options === 'object') {
+                if (typeof options.top === 'number') {
+                    this.scrollTop = options.top;
+                }
+                if (typeof options.left === 'number') {
+                    this.scrollLeft = options.left;
+                }
+            }
+        };
+
+        try {
+            renderCalendarWithItems([
+                {
+                    id: 'evt-dentist',
+                    title: 'Dentist checkup',
+                    startDate: '2026-03-15T18:30:00',
+                    endDate: '2026-03-15T19:15:00',
+                    isAllDay: false,
+                },
+            ]);
+
+            act(() => {
+                window.dispatchEvent(new CustomEvent(CALENDAR_COMMAND_EVENT, { detail: { type: 'setViewMode', viewMode: 'day' } }));
+                window.dispatchEvent(new CustomEvent(CALENDAR_COMMAND_EVENT, { detail: { type: 'setSearchOpen', isOpen: true } }));
+                window.dispatchEvent(new CustomEvent(CALENDAR_COMMAND_EVENT, { detail: { type: 'setSearchQuery', query: 'dentist' } }));
+            });
+
+            const scroller = await screen.findByTestId('day-view-vertical-scroller-0');
+            const initialTop = scroller.scrollTop;
+            const resultButton = within(screen.getByTestId('calendar-search-results')).getByRole('button', {
+                name: /dentist checkup/i,
+            });
+
+            fireEvent.click(resultButton);
+
+            await waitFor(() => {
+                expect(scroller.scrollTop).toBeGreaterThan(initialTop);
+            });
+
+            fireEvent.click(resultButton, { shiftKey: true });
+
+            await waitFor(() => {
+                expect(screen.getByTestId('add-event-form')).toHaveAttribute('data-selected-event-id', 'evt-dentist');
+            });
+        } finally {
+            HTMLElement.prototype.scrollTo = originalScrollTo;
+        }
     });
 
     it('includes recurring masters in the Instant query filter', () => {

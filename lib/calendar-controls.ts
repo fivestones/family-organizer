@@ -20,12 +20,22 @@ export const CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY = 'calendar.yearMonthBasis';
 export const CALENDAR_SHOW_GREGORIAN_CALENDAR_STORAGE_KEY = 'calendar.showGregorianCalendar';
 export const CALENDAR_SHOW_BS_CALENDAR_STORAGE_KEY = 'calendar.showBsCalendar';
 export const CALENDAR_SHOW_INLINE_NON_BASIS_MONTH_BREAKS_STORAGE_KEY = 'calendar.showInlineNonBasisMonthBreaks';
+export const CALENDAR_AGENDA_FONT_SCALE_MIN = 0.82;
+export const CALENDAR_AGENDA_FONT_SCALE_MAX = 1.35;
+export const CALENDAR_AGENDA_FONT_SCALE_DEFAULT = 1;
+export const CALENDAR_AGENDA_FONT_SCALE_STORAGE_KEY = 'calendar.agendaFontScale';
+export const CALENDAR_AGENDA_SHOW_TAGS_STORAGE_KEY = 'calendar.agendaShowTags';
+export const CALENDAR_AGENDA_SHOW_DESCRIPTION_STORAGE_KEY = 'calendar.agendaShowDescription';
+export const CALENDAR_AGENDA_SHOW_LOCATION_STORAGE_KEY = 'calendar.agendaShowLocation';
+export const CALENDAR_AGENDA_SHOW_METADATA_STORAGE_KEY = 'calendar.agendaShowMetadata';
 export const CALENDAR_YEAR_FONT_SCALE_MIN = 0.08;
 export const CALENDAR_YEAR_FONT_SCALE_MAX = 2;
 export const CALENDAR_YEAR_FONT_SCALE_DEFAULT = 0.84;
 export const CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY = 'calendar.yearFontScale';
 export const clampCalendarYearFontScale = (value: number) =>
     Math.round(Math.min(CALENDAR_YEAR_FONT_SCALE_MAX, Math.max(CALENDAR_YEAR_FONT_SCALE_MIN, value)) * 100) / 100;
+export const clampCalendarAgendaFontScale = (value: number) =>
+    Math.round(Math.min(CALENDAR_AGENDA_FONT_SCALE_MAX, Math.max(CALENDAR_AGENDA_FONT_SCALE_MIN, value)) * 100) / 100;
 export const clampCalendarDayVisibleDays = (value: number) =>
     Math.round(Math.min(CALENDAR_DAY_VIEW_VISIBLE_DAYS_MAX, Math.max(CALENDAR_DAY_VIEW_VISIBLE_DAYS_MIN, value)));
 export const clampCalendarDayRowCount = (value: number) => (value >= 2 ? 2 : 1);
@@ -60,14 +70,77 @@ export const CALENDAR_MINI_VISIBLE_WEEKS = 5;
 export const CALENDAR_COMMAND_EVENT = 'calendar:command';
 export const CALENDAR_STATE_EVENT = 'calendar:state';
 
-export type CalendarViewMode = 'monthly' | 'year' | 'day';
+export type CalendarViewMode = 'monthly' | 'year' | 'day' | 'agenda';
 export type CalendarYearMonthBasis = 'gregorian' | 'bs';
+export type CalendarFilterDateRangeMode = 'any' | 'before' | 'after' | 'between';
+
+export interface CalendarFilterDateRange {
+    mode: CalendarFilterDateRangeMode;
+    startDate: string;
+    endDate: string;
+}
+
+export interface CalendarTagExpression {
+    anyOf: string[][];
+    exclude: string[];
+}
+
+export interface CalendarAgendaDisplaySettings {
+    fontScale: number;
+    showTags: boolean;
+    showDescription: boolean;
+    showLocation: boolean;
+    showMetadata: boolean;
+}
+
+export interface CalendarLiveSearchState {
+    isOpen: boolean;
+    query: string;
+}
+
+export interface CalendarPersistentFilters {
+    textQuery: string;
+    dateRange: CalendarFilterDateRange;
+    tagExpression: CalendarTagExpression;
+}
+
+export const createEmptyCalendarDateRangeFilter = (): CalendarFilterDateRange => ({
+    mode: 'any',
+    startDate: '',
+    endDate: '',
+});
+
+export const createEmptyCalendarTagExpression = (): CalendarTagExpression => ({
+    anyOf: [],
+    exclude: [],
+});
+
+export const createDefaultCalendarAgendaDisplaySettings = (): CalendarAgendaDisplaySettings => ({
+    fontScale: CALENDAR_AGENDA_FONT_SCALE_DEFAULT,
+    showTags: true,
+    showDescription: true,
+    showLocation: true,
+    showMetadata: true,
+});
+
+export const createDefaultCalendarPersistentFilters = (): CalendarPersistentFilters => ({
+    textQuery: '',
+    dateRange: createEmptyCalendarDateRangeFilter(),
+    tagExpression: createEmptyCalendarTagExpression(),
+});
 
 export type CalendarCommandDetail =
     | { type: 'setDayHeight'; dayHeight: number }
     | { type: 'setVisibleWeeks'; visibleWeeks: number }
     | { type: 'setShowChores'; showChores: boolean }
     | { type: 'setViewMode'; viewMode: CalendarViewMode }
+    | { type: 'setSearchOpen'; isOpen: boolean }
+    | { type: 'setSearchQuery'; query: string }
+    | { type: 'setPersistentTextFilter'; textQuery: string }
+    | { type: 'setPersistentDateRange'; dateRange: CalendarFilterDateRange }
+    | { type: 'setTagExpressionFilter'; tagExpression: CalendarTagExpression }
+    | { type: 'setTagFilter'; selectedTagIds: string[] }
+    | { type: 'setAgendaDisplay'; agendaDisplay: Partial<CalendarAgendaDisplaySettings> }
     | { type: 'setDayVisibleDays'; dayVisibleDays: number }
     | { type: 'setDayRowCount'; dayRowCount: number }
     | { type: 'setDayHourHeight'; dayHourHeight: number }
@@ -89,6 +162,9 @@ export interface CalendarStateDetail {
     visibleWeeks: number;
     showChores: boolean;
     viewMode: CalendarViewMode;
+    search: CalendarLiveSearchState;
+    filters: CalendarPersistentFilters;
+    agendaDisplay: CalendarAgendaDisplaySettings;
     dayVisibleDays: number;
     dayRowCount: number;
     dayHourHeight: number;
@@ -103,6 +179,7 @@ export interface CalendarStateDetail {
     };
     tagFilter?: {
         selectedTagIds: string[];
+        tagExpression: CalendarTagExpression;
     };
     memberFilter?: {
         everyoneSelected: boolean;

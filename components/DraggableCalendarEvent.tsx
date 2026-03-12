@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { draggable } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { cn } from '../lib/utils';
 import { CALENDAR_YEAR_FONT_SCALE_MAX, CALENDAR_YEAR_FONT_SCALE_MIN } from '../lib/calendar-controls';
+import { buildCalendarOccurrenceKey } from '@/lib/calendar-search';
 import { buildMemberColorMap, getReadableTextColor, hexToRgbaString } from '../lib/family-member-colors';
 import { getPhotoUrl } from '@/lib/photo-urls';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -104,6 +105,8 @@ export const DraggableCalendarEvent = ({
     const itemKind = item.calendarItemKind === 'chore' ? 'chore' : 'event';
     const usesChipChrome = itemKind === 'event' && (item.isAllDay || isSpanLayout);
     const isInteractive = draggableEnabled || typeof onClick === 'function';
+    const occurrenceKey = useMemo(() => buildCalendarOccurrenceKey(item), [item]);
+    const searchState = item.__liveSearchState === 'match' || item.__liveSearchState === 'dim' ? item.__liveSearchState : 'normal';
     const descriptionText = useMemo(() => String(item.description || '').replace(/\s+/g, ' ').trim(), [item.description]);
     const metaText = useMemo(
         () => String(item.__calendarMetaLabel || (appearance === 'day' ? '' : descriptionText)).replace(/\s+/g, ' ').trim(),
@@ -184,7 +187,9 @@ export const DraggableCalendarEvent = ({
             data-calendar-item-kind={itemKind}
             data-calendar-chip-surface={usesChipChrome ? 'chip' : 'plain'}
             data-calendar-selected={selected ? 'true' : 'false'}
+            data-calendar-occurrence-key={occurrenceKey}
             data-calendar-appearance={appearance}
+            data-calendar-search-state={searchState}
             style={eventSurfaceStyle}
             className={cn(
                 styles.calendarItem,
@@ -197,6 +202,8 @@ export const DraggableCalendarEvent = ({
                 isYearLayout && styles.calendarItemYear,
                 selected && styles.calendarItemSelected,
                 selected && !usesChipChrome && styles.calendarItemPlainSelected,
+                searchState === 'match' && styles.calendarItemSearchMatch,
+                searchState === 'dim' && styles.calendarItemSearchDim,
                 isSpanLayout && styles.eventSpan,
                 isSpanLayout && continuesBefore && styles.eventSpanContinuesBefore,
                 isSpanLayout && continuesAfter && styles.eventSpanContinuesAfter,

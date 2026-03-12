@@ -925,6 +925,18 @@
     box-shadow: none;
 }
 
+.calendarItemSearchMatch {
+    box-shadow:
+        0 0 0 1px rgba(14, 165, 233, 0.18),
+        0 0 0 2px rgba(14, 165, 233, 0.38),
+        0 10px 24px -18px rgba(14, 165, 233, 0.42);
+}
+
+.calendarItemSearchDim {
+    opacity: 0.42;
+    filter: saturate(0.55);
+}
+
 .dayEventCard {
     position: relative;
     gap: 0;

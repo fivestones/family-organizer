@@ -28,6 +28,11 @@ interface DayCalendarViewProps {
     displayBS: boolean;
     items: CalendarItem[];
     verticalResetKey: number;
+    scrollRequest?: {
+        nonce: number;
+        dateKey: string;
+        minute: number | null;
+    } | null;
     onAnchorDateChange: (date: Date) => void;
     onBackgroundClick: () => void;
     onCreateDraft: (draft: CalendarDraftSelection) => void;
@@ -440,6 +445,7 @@ export default function DayCalendarView({
     displayBS,
     items,
     verticalResetKey,
+    scrollRequest,
     onAnchorDateChange,
     onBackgroundClick,
     onCreateDraft,
@@ -549,6 +555,37 @@ export default function DayCalendarView({
             return Array.from({ length: rowCount }, (_unused, index) => current[index] ?? 0);
         });
     }, [rowCount]);
+
+    useEffect(() => {
+        if (!scrollRequest || dayWidth <= 0) return;
+
+        const dayIndex = renderedDayMap.get(scrollRequest.dateKey);
+        if (dayIndex == null) return;
+
+        const anchorIndex = renderedDayMap.get(visibleStartKey) ?? 0;
+        const relativeVisibleIndex = Math.max(0, dayIndex - anchorIndex);
+        const rowIndex = Math.min(rowCount - 1, Math.floor(relativeVisibleIndex / visibleDayCount));
+        const rowOffset = rowIndex * visibleDayCount;
+        const targetLeft = Math.max(0, (dayIndex - rowOffset) * dayWidth);
+        const bodyViewport = bodyHorizontalViewportRefs.current[rowIndex];
+        const topViewport = topViewportRefs.current[rowIndex];
+        if (bodyViewport) {
+            bodyViewport.scrollTo({ left: targetLeft, behavior: 'smooth' });
+        }
+        if (topViewport) {
+            topViewport.scrollTo({ left: targetLeft, behavior: 'smooth' });
+        }
+
+        const minute = scrollRequest.minute == null ? 0 : scrollRequest.minute;
+        const nextTop = Math.max(0, (minute / 60) * effectiveHourHeight - timedViewportHeight * 0.28);
+        const verticalScroller = bodyVerticalScrollRefs.current[rowIndex];
+        if (verticalScroller) {
+            verticalScroller.scrollTo({ top: nextTop, behavior: 'smooth' });
+        }
+        setVerticalScrollTopByRow((current) =>
+            Array.from({ length: rowCount }, (_unused, index) => (index === rowIndex ? nextTop : current[index] ?? 0))
+        );
+    }, [dayWidth, effectiveHourHeight, renderedDayMap, rowCount, scrollRequest, timedViewportHeight, visibleDayCount, visibleStartKey]);
 
     useEffect(() => {
         return () => {
@@ -990,6 +1027,7 @@ export default function DayCalendarView({
                                         ref={(node) => {
                                             bodyVerticalScrollRefs.current[rowIndex] = node;
                                         }}
+                                        data-testid={`day-view-vertical-scroller-${rowIndex}`}
                                         className={styles.dayViewVerticalScroller}
                                         style={{ height: `${timedViewportHeight}px` }}
                                         onScroll={(event) =>

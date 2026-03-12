@@ -54,6 +54,10 @@ describe('CalendarHeaderControls member filter summary', () => {
                     { id: 'chore-trash', title: 'Take out trash' },
                     { id: 'chore-dishes', title: 'Wash dishes' },
                 ],
+                calendarTags: [
+                    { id: 'tag-school', name: 'School' },
+                    { id: 'tag-travel', name: 'Travel' },
+                ],
             },
         });
     });
@@ -312,6 +316,105 @@ describe('CalendarHeaderControls member filter summary', () => {
                     expect.objectContaining({
                         type: 'setDayHourHeight',
                         dayHourHeight: 72,
+                    }),
+                ])
+            );
+        });
+
+        window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+    });
+
+    it('supports agenda view settings and dispatches agenda-specific display updates', async () => {
+        const receivedCommands: any[] = [];
+        const handleCommand = (event: Event) => {
+            receivedCommands.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+
+        render(<CalendarHeaderControls />);
+
+        fireEvent.change(screen.getByLabelText('View'), { target: { value: 'agenda' } });
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setViewMode',
+                        viewMode: 'agenda',
+                    }),
+                ])
+            );
+        });
+
+        fireEvent.change(screen.getByLabelText('Text size'), { target: { value: '1.2' } });
+        fireEvent.click(screen.getByText('Show tags'));
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setAgendaDisplay',
+                        agendaDisplay: expect.objectContaining({
+                            fontScale: 1.2,
+                        }),
+                    }),
+                    expect.objectContaining({
+                        type: 'setAgendaDisplay',
+                        agendaDisplay: expect.objectContaining({
+                            showTags: false,
+                        }),
+                    }),
+                ])
+            );
+        });
+
+        window.removeEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+    });
+
+    it('dispatches live search, date range, and tag expression filter commands', async () => {
+        const receivedCommands: any[] = [];
+        const handleCommand = (event: Event) => {
+            receivedCommands.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_COMMAND_EVENT, handleCommand);
+
+        render(<CalendarHeaderControls />);
+
+        fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'school' } });
+        fireEvent.change(screen.getByLabelText('Persistent search filter'), { target: { value: 'pickup' } });
+        fireEvent.change(screen.getByLabelText('Date range mode'), { target: { value: 'between' } });
+        fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-03-15' } });
+        fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-03-20' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Add OR group' }));
+
+        const firstTagGroup = await screen.findByTestId('calendar-tag-group-0');
+        fireEvent.click(within(firstTagGroup).getByLabelText('Travel'));
+
+        await waitFor(() => {
+            expect(receivedCommands).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'setSearchQuery',
+                        query: 'school',
+                    }),
+                    expect.objectContaining({
+                        type: 'setPersistentTextFilter',
+                        textQuery: 'pickup',
+                    }),
+                    expect.objectContaining({
+                        type: 'setPersistentDateRange',
+                        dateRange: expect.objectContaining({
+                            mode: 'between',
+                            startDate: '2026-03-15',
+                            endDate: '2026-03-20',
+                        }),
+                    }),
+                    expect.objectContaining({
+                        type: 'setTagExpressionFilter',
+                        tagExpression: {
+                            anyOf: [['tag-travel']],
+                            exclude: [],
+                        },
                     }),
                 ])
             );
