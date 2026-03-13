@@ -85,7 +85,7 @@ export const HISTORY_DOMAIN_LABELS: Record<HistoryDomain, string> = {
 
 export const HISTORY_SOURCE_APPLE_SYNC = 'apple_sync';
 export const HISTORY_ACTOR_APPLE_SYNC = 'apple_sync';
-export const HISTORY_MESSAGE_THREAD_FAMILY_ID = 'family-thread';
+export const HISTORY_MESSAGE_THREAD_FAMILY_ID = '00000000-0000-4000-8000-000000000001';
 export const HISTORY_MESSAGE_EDIT_WINDOW_MS = 5 * 60 * 1000;
 
 export function buildHistoryEventTransactions(params: BuildHistoryEventTransactionsParams) {
