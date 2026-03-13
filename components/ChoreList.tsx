@@ -14,7 +14,7 @@ import { getTasksForDate, Task, isSeriesActiveForDate } from '@/lib/task-schedul
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 import { useToast } from '@/components/ui/use-toast';
 import { getTaskSeriesProgress, hasScheduledChildren } from '@/lib/task-series-progress';
-import { getPresignedUploadUrl } from '@/app/actions';
+import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { buildTaskProgressUpdateTransactions } from '@/lib/task-progress-mutations';
 import { getTaskBucketCounts, getTaskLastActiveState, isActionableTask, isTaskDone } from '@/lib/task-progress';
 import Link from 'next/link';
@@ -157,34 +157,7 @@ function ChoreList({
         return `/tasks?${params.toString()}#chore-${choreId}`;
     };
 
-    const uploadProgressFiles = async (files: File[]) => {
-        const uploadedAttachments: Array<{ id: string; name: string; type: string; url: string }> = [];
-
-        for (const file of files) {
-            const { url, fields, key } = await getPresignedUploadUrl(file.type || 'application/octet-stream', file.name);
-            const formData = new FormData();
-            Object.entries(fields).forEach(([fieldKey, fieldValue]) => formData.append(fieldKey, fieldValue as string));
-            formData.append('file', file);
-
-            const uploadResponse = await fetch(url, {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (uploadResponse.status >= 400) {
-                throw new Error(`Upload failed for ${file.name}`);
-            }
-
-            uploadedAttachments.push({
-                id: id(),
-                name: file.name,
-                type: file.type || 'application/octet-stream',
-                url: key,
-            });
-        }
-
-        return uploadedAttachments;
-    };
+    const uploadProgressFiles = async (files: File[]) => uploadFilesToS3(files, id);
 
     const handleEditChore = (chore) => {
         // +++ CHECK AUTH +++
@@ -228,7 +201,7 @@ function ChoreList({
 
     // --- Task Series Logic Helpers ---
 
-    const handleTaskToggle = async (taskId: string, currentStatus: boolean, allTasks: Task[], chore: any) => {
+    const handleTaskToggle = async (taskId: string, currentStatus: boolean, allTasks: Task[], chore: any, series?: any) => {
         if (!currentUser?.id) {
             toast({ title: 'Login Required', description: 'Choose a family member before updating task status.', variant: 'destructive' });
             return;
@@ -246,6 +219,9 @@ function ChoreList({
             nextState,
             selectedDateKey: formattedSelectedDate,
             actorFamilyMemberId: currentUser.id,
+            taskSeriesId: series?.id || null,
+            choreId: chore.id,
+            affectedFamilyMemberIds: series?.ownerId ? [series.ownerId] : [],
             schedule: {
                 startDate: chore.startDate,
                 rrule: chore.rrule || null,
@@ -276,7 +252,8 @@ function ChoreList({
             restoreTiming?: 'now' | 'next_scheduled' | null;
         },
         allTasks: Task[],
-        chore: any
+        chore: any,
+        series?: any
     ) => {
         if (!currentUser?.id) {
             toast({ title: 'Login Required', description: 'Choose a family member before updating task status.', variant: 'destructive' });
@@ -295,6 +272,9 @@ function ChoreList({
                 note: input.note,
                 actorFamilyMemberId: currentUser.id,
                 restoreTiming: input.restoreTiming || null,
+                taskSeriesId: series?.id || null,
+                choreId: chore.id,
+                affectedFamilyMemberIds: series?.ownerId ? [series.ownerId] : [],
                 schedule: {
                     startDate: chore.startDate,
                     rrule: chore.rrule || null,
@@ -316,14 +296,15 @@ function ChoreList({
         }
     };
 
-    const handleTaskPreviewToggle = async (task: Task, allTasks: Task[], chore: any) => {
+    const handleTaskPreviewToggle = async (task: Task, allTasks: Task[], chore: any, series?: any) => {
         await handleTaskUpdate(
             task.id,
             {
                 nextState: isTaskDone(task) ? 'not_started' : 'done',
             },
             allTasks,
-            chore
+            chore,
+            series
         );
     };
 
@@ -402,6 +383,9 @@ function ChoreList({
                 nextState: 'done',
                 selectedDateKey: formattedSelectedDate,
                 actorFamilyMemberId: currentUser.id,
+                taskSeriesId: targetSeries?.id || null,
+                choreId,
+                affectedFamilyMemberIds: memberId ? [memberId] : [],
                 schedule: {
                     startDate: chore.startDate,
                     rrule: chore.rrule || null,
@@ -691,6 +675,7 @@ function ChoreList({
 
                                 return {
                                     series,
+                                    ownerId,
                                     ownerName,
                                     allTasks,
                                     tasks,
@@ -699,6 +684,7 @@ function ChoreList({
                             })
                             .filter(Boolean) as Array<{
                             series: any;
+                            ownerId?: string;
                             ownerName?: string;
                             allTasks: Task[];
                             tasks: Task[];
@@ -709,7 +695,7 @@ function ChoreList({
 
                         return (
                             <div className="flex flex-col gap-2 mt-2 w-full pl-2">
-                                {renderableSeries.map(({ series, ownerName, allTasks, tasks }) => {
+                                {renderableSeries.map(({ series, ownerId, ownerName, allTasks, tasks }) => {
                                     const seriesToggleKey = `${chore.id}:${series.id}`;
                                     const actionableTasks = tasks.filter((task) => isActionableTask(task, allTasks));
                                     const previewTasks = actionableTasks.slice(0, 2);
@@ -760,7 +746,7 @@ function ChoreList({
                                                                         checked={isTaskDone(task)}
                                                                         disabled={isPastDate}
                                                                         onChange={() => {
-                                                                            void handleTaskPreviewToggle(task, allTasks, chore);
+                                                                            void handleTaskPreviewToggle(task, allTasks, chore, { id: series.id, ownerId });
                                                                         }}
                                                                         className="h-4 w-4 rounded border border-slate-300"
                                                                     />
@@ -803,8 +789,8 @@ function ChoreList({
                                             <TaskSeriesChecklist
                                                 tasks={visibleTasks}
                                                 allTasks={allTasks}
-                                            onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks, chore)}
-                                            onTaskUpdate={(taskId, input) => handleTaskUpdate(taskId, input, allTasks, chore)}
+                                                onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks, chore, { id: series.id, ownerId })}
+                                                onTaskUpdate={(taskId, input) => handleTaskUpdate(taskId, input, allTasks, chore, { id: series.id, ownerId })}
                                             canWriteTaskProgress={!!currentUser}
                                             onRequireTaskAuth={() =>
                                                 toast({

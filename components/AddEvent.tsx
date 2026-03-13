@@ -20,7 +20,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { format, addHours, addDays, parse, parseISO } from 'date-fns';
 import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesScopeMode } from '@/components/RecurrenceScopeDialog';
+import { useOptionalAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/db';
+import { buildHistoryEventTransactions } from '@/lib/history-events';
 import {
     dedupeCalendarTagRecords,
     normalizeCalendarTagKey,
@@ -1429,6 +1431,7 @@ const AddEventForm = ({
     defaultStartTime = '10:00',
     onOptimisticUpsert,
 }: AddEventFormProps) => {
+    const currentUser = useOptionalAuth()?.currentUser || null;
     const [formData, setFormData] = useState<EventFormData>(() => buildCreateEventFormData(selectedDate, initialDraft, defaultStartTime));
     const titleInputRef = useRef<HTMLInputElement>(null);
     const submitLockRef = useRef(false);
@@ -1513,6 +1516,38 @@ const AddEventForm = ({
             .filter((tag) => !draftKey || String(tag.normalizedName || '').includes(draftKey))
             .slice(0, 8);
     }, [availableCalendarTags, selectedTagKeys, tagDraft]);
+    const appendCalendarHistoryTransactions = useCallback(
+        (
+            txOps: any[],
+            input: {
+                occurredAt: string;
+                actionType: string;
+                summary: string;
+                calendarItemId?: string | null;
+                affectedMemberIds?: Iterable<string>;
+                title?: string;
+            }
+        ) => {
+            if (!currentUser?.id) return txOps;
+            const historyEvent = buildHistoryEventTransactions({
+                tx,
+                createId: id,
+                occurredAt: input.occurredAt,
+                domain: 'calendar',
+                actionType: input.actionType,
+                summary: input.summary,
+                source: 'manual',
+                actorFamilyMemberId: currentUser.id,
+                affectedFamilyMemberIds: Array.from(new Set(Array.from(input.affectedMemberIds || []).filter(Boolean))),
+                calendarItemId: input.calendarItemId || null,
+                metadata: {
+                    title: input.title || null,
+                },
+            });
+            return [...txOps, ...historyEvent.transactions];
+        },
+        [currentUser?.id]
+    );
     const canEditImportedTags = !isSubmitting;
     const detailsReadOnly = false;
 
@@ -2047,10 +2082,20 @@ const AddEventForm = ({
             const masterId = String(masterEvent?.id || selectedEvent.id);
             const masterLinkKeys = getRecurringSeriesLinkKeys(masterEvent);
             const hasRecurringContext = Boolean(masterRrule || String(selectedEvent.recurringEventId || '').trim());
+            const selectedAffectedIds = new Set((selectedEvent?.pertainsTo || []).map((member) => member.id));
 
             if (!hasRecurringContext) {
                 try {
-                    await db.transact([tx.calendarItems[selectedEvent.id].delete()]);
+                    await db.transact(
+                        appendCalendarHistoryTransactions([tx.calendarItems[selectedEvent.id].delete()], {
+                            occurredAt: nowIso,
+                            actionType: 'calendar_event_deleted',
+                            summary: `Deleted event "${selectedEvent.title || 'Untitled event'}"`,
+                            calendarItemId: selectedEvent.id,
+                            affectedMemberIds: selectedAffectedIds,
+                            title: selectedEvent.title || 'Untitled event',
+                        })
+                    );
                     onClose();
                 } catch (error) {
                     console.error('Unable to delete event:', error);
@@ -2080,7 +2125,16 @@ const AddEventForm = ({
                     return;
                 }
                 try {
-                    await db.transact([tx.calendarItems[selectedEvent.id].delete()]);
+                    await db.transact(
+                        appendCalendarHistoryTransactions([tx.calendarItems[selectedEvent.id].delete()], {
+                            occurredAt: nowIso,
+                            actionType: 'calendar_event_deleted',
+                            summary: `Deleted event "${selectedEvent.title || 'Untitled event'}"`,
+                            calendarItemId: selectedEvent.id,
+                            affectedMemberIds: selectedAffectedIds,
+                            title: selectedEvent.title || 'Untitled event',
+                        })
+                    );
                     onClose();
                 } catch (error) {
                     console.error('Unable to delete recurrence override:', error);
@@ -2240,7 +2294,16 @@ const AddEventForm = ({
             }
 
             try {
-                await db.transact(txOps);
+                await db.transact(
+                    appendCalendarHistoryTransactions(txOps, {
+                        occurredAt: nowIso,
+                        actionType: 'calendar_event_deleted',
+                        summary: `Deleted event "${selectedEvent.title || 'Untitled event'}"`,
+                        calendarItemId: selectedEvent.id,
+                        affectedMemberIds: selectedAffectedIds,
+                        title: selectedEvent.title || 'Untitled event',
+                    })
+                );
                 onClose();
             } catch (error) {
                 console.error('Unable to delete recurring event:', error);
@@ -2628,7 +2691,16 @@ const AddEventForm = ({
             }
 
             try {
-                await db.transact(txOps);
+                await db.transact(
+                    appendCalendarHistoryTransactions(txOps, {
+                        occurredAt: nowIso,
+                        actionType: 'calendar_event_updated',
+                        summary: `Updated event "${formData.title || 'Untitled event'}"`,
+                        calendarItemId: overrideId,
+                        affectedMemberIds: nextMemberIds,
+                        title: formData.title || 'Untitled event',
+                    })
+                );
             } catch (error) {
                 rollbackAllOptimistic();
                 console.error('Unable to save single recurring exception:', error);
@@ -2747,7 +2819,16 @@ const AddEventForm = ({
                 }
 
                 try {
-                    await db.transact(txOps);
+                    await db.transact(
+                        appendCalendarHistoryTransactions(txOps, {
+                            occurredAt: nowIso,
+                            actionType: 'calendar_event_updated',
+                            summary: `Updated following events for "${formData.title || 'Untitled event'}"`,
+                            calendarItemId: newSeriesId,
+                            affectedMemberIds: nextMemberIds,
+                            title: formData.title || 'Untitled event',
+                        })
+                    );
                 } catch (error) {
                     rollbackAllOptimistic();
                     console.error('Unable to split recurring event series:', error);
@@ -2764,7 +2845,17 @@ const AddEventForm = ({
         const previousMemberIds = new Set((selectedEvent?.pertainsTo || []).map((member) => member.id));
         const buildTxOps = (payload: Record<string, any>) => {
             const txOps: any[] = [tx.calendarItems[eventId].update(payload)];
-            return [...txOps, ...buildMemberDiffTxOps(eventId, previousMemberIds, nextMemberIds), ...baseTagMutation.txOps];
+            return appendCalendarHistoryTransactions(
+                [...txOps, ...buildMemberDiffTxOps(eventId, previousMemberIds, nextMemberIds), ...baseTagMutation.txOps],
+                {
+                    occurredAt: nowIso,
+                    actionType: selectedEvent ? 'calendar_event_updated' : 'calendar_event_created',
+                    summary: `${selectedEvent ? 'Updated' : 'Created'} event "${formData.title || 'Untitled event'}"`,
+                    calendarItemId: eventId,
+                    affectedMemberIds: nextMemberIds,
+                    title: formData.title || 'Untitled event',
+                }
+            );
         };
 
         registerOptimistic({

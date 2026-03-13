@@ -222,6 +222,52 @@ const _schema = i.schema({
             viewShowChoreDescriptions: i.boolean().optional(),
             viewShowTaskDetails: i.boolean().optional(),
         }),
+        historyEventAttachments: i.entity({
+            createdAt: i.string().indexed(),
+            name: i.string(),
+            type: i.string(),
+            updatedAt: i.string().indexed(),
+            url: i.string(),
+        }),
+        historyEvents: i.entity({
+            actionType: i.string().indexed(),
+            actorFamilyMemberId: i.string().indexed().optional(),
+            allowanceTransactionId: i.string().indexed().optional(),
+            calendarItemId: i.string().indexed().optional(),
+            choreId: i.string().indexed().optional(),
+            domain: i.string().indexed(),
+            messageId: i.string().indexed().optional(),
+            messageThreadId: i.string().indexed().optional(),
+            metadata: i.json().optional(),
+            occurredAt: i.string().indexed(),
+            restoreTiming: i.string().optional(),
+            scheduledForDate: i.string().indexed().optional(),
+            source: i.string().indexed().optional(),
+            summary: i.string(),
+            taskId: i.string().indexed().optional(),
+            taskSeriesId: i.string().indexed().optional(),
+        }),
+        messageAttachments: i.entity({
+            createdAt: i.string().indexed(),
+            name: i.string(),
+            type: i.string(),
+            updatedAt: i.string().indexed(),
+            url: i.string(),
+        }),
+        messageThreads: i.entity({
+            createdAt: i.string().indexed(),
+            threadType: i.string().indexed(),
+            title: i.string(),
+            updatedAt: i.string().indexed(),
+        }),
+        messages: i.entity({
+            authorFamilyMemberId: i.string().indexed().optional(),
+            body: i.string(),
+            createdAt: i.string().indexed(),
+            editableUntil: i.string().indexed().optional(),
+            editedAt: i.string().indexed().optional(),
+            updatedAt: i.string().indexed(),
+        }),
         settings: i.entity({
             name: i.string(),
             value: i.string(),
@@ -484,6 +530,42 @@ const _schema = i.schema({
                 label: 'completedBy',
             },
         },
+        familyMembersActedHistoryEvents: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'actedHistoryEvents',
+            },
+            reverse: {
+                on: 'historyEvents',
+                has: 'one',
+                label: 'actor',
+            },
+        },
+        familyMembersAffectedHistoryEvents: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'affectedHistoryEvents',
+            },
+            reverse: {
+                on: 'historyEvents',
+                has: 'many',
+                label: 'affectedFamilyMembers',
+            },
+        },
+        familyMembersAuthoredMessages: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'authoredMessages',
+            },
+            reverse: {
+                on: 'messages',
+                has: 'one',
+                label: 'author',
+            },
+        },
         familyMembersTaskProgressEntries: {
             forward: {
                 on: 'familyMembers',
@@ -494,6 +576,54 @@ const _schema = i.schema({
                 on: 'taskProgressEntries',
                 has: 'one',
                 label: 'actor',
+            },
+        },
+        historyEventsAttachments: {
+            forward: {
+                on: 'historyEvents',
+                has: 'many',
+                label: 'attachments',
+            },
+            reverse: {
+                on: 'historyEventAttachments',
+                has: 'one',
+                label: 'event',
+            },
+        },
+        historyEventsMessage: {
+            forward: {
+                on: 'historyEvents',
+                has: 'one',
+                label: 'message',
+            },
+            reverse: {
+                on: 'messages',
+                has: 'one',
+                label: 'historyEvent',
+            },
+        },
+        messageThreadsMessages: {
+            forward: {
+                on: 'messageThreads',
+                has: 'many',
+                label: 'messages',
+            },
+            reverse: {
+                on: 'messages',
+                has: 'one',
+                label: 'thread',
+            },
+        },
+        messagesAttachments: {
+            forward: {
+                on: 'messages',
+                has: 'many',
+                label: 'attachments',
+            },
+            reverse: {
+                on: 'messageAttachments',
+                has: 'one',
+                label: 'message',
             },
         },
         tasksAttachments: {

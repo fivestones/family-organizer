@@ -20,8 +20,10 @@ const NAV_LINKS = [
     { href: '/tasks', label: 'Tasks' },
     { href: '/task-series', label: 'Task Series' },
     { href: '/calendar', label: 'Calendar' },
+    { href: '/messages', label: 'Messages' },
     { href: '/familyMemberDetail', label: 'Finance' },
     { href: '/allowance-distribution', label: 'Allowance Distribution' },
+    { href: '/history', label: 'History' },
     { href: '/settings', label: 'Settings' },
 ] as const;
 

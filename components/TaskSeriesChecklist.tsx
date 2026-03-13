@@ -139,6 +139,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const [composerState, setComposerState] = useState<TaskWorkflowState>('not_started');
     const [composerNote, setComposerNote] = useState('');
     const [composerFiles, setComposerFiles] = useState<File[]>([]);
+    const [composerRestoreTiming, setComposerRestoreTiming] = useState<TaskRestoreTiming | null>(null);
     const [isSubmittingComposer, setIsSubmittingComposer] = useState(false);
     const [pendingRestore, setPendingRestore] = useState<{ taskId: string; nextState: TaskWorkflowState } | null>(null);
 
@@ -230,6 +231,10 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const hasAnyBucketedTasks = bucketOrder.some((state) => bucketedTasks[state].length > 0);
     const hasAnyVisibleContent = visibleNodes.length > 0 || hasAnyBucketedTasks;
     const composerTask = composerTaskId ? allTasks.find((task) => task.id === composerTaskId) || null : null;
+    const composerTaskCurrentState = composerTask ? getTaskWorkflowState(composerTask) : null;
+    const canRestoreFromComposer =
+        composerTaskCurrentState === 'blocked' || composerTaskCurrentState === 'skipped' || composerTaskCurrentState === 'needs_review';
+    const restoreTargetState = composerTask ? getTaskLastActiveState(composerTask) : null;
 
     if (!hasAnyVisibleContent || actionableCount === 0) return null;
 
@@ -247,6 +252,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         setComposerState(getTaskWorkflowState(task));
         setComposerNote('');
         setComposerFiles([]);
+        setComposerRestoreTiming(null);
     };
 
     const closeComposer = () => {
@@ -254,6 +260,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         setComposerTaskId(null);
         setComposerNote('');
         setComposerFiles([]);
+        setComposerRestoreTiming(null);
     };
 
     const handleComposerFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -281,7 +288,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         if (!composerTask || !onTaskUpdate) return;
         const currentState = getTaskWorkflowState(composerTask);
         const trimmedNote = composerNote.trim();
-        const hasPayload = composerState !== currentState || trimmedNote.length > 0 || composerFiles.length > 0;
+        const hasPayload = composerState !== currentState || trimmedNote.length > 0 || composerFiles.length > 0 || !!composerRestoreTiming;
         if (!hasPayload) return;
 
         setIsSubmittingComposer(true);
@@ -290,11 +297,12 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                 nextState: composerState,
                 note: trimmedNote,
                 files: composerFiles,
-                restoreTiming: null,
+                restoreTiming: composerRestoreTiming,
             });
             setComposerTaskId(null);
             setComposerNote('');
             setComposerFiles([]);
+            setComposerRestoreTiming(null);
         } finally {
             setIsSubmittingComposer(false);
         }
@@ -313,6 +321,22 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
             setIsSubmittingComposer(false);
         }
     };
+
+    useEffect(() => {
+        if (!composerTask) return;
+        const nextStateIsActive = composerState === 'not_started' || composerState === 'in_progress';
+
+        if (!canRestoreFromComposer || !nextStateIsActive) {
+            if (composerRestoreTiming) {
+                setComposerRestoreTiming(null);
+            }
+            return;
+        }
+
+        if (!composerRestoreTiming) {
+            setComposerRestoreTiming('now');
+        }
+    }, [canRestoreFromComposer, composerRestoreTiming, composerState, composerTask]);
 
     const renderReferenceDetails = (task: Task) => {
         const hasNotes = !!task.notes?.trim();
@@ -645,6 +669,52 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                     />
                                 </div>
                             </div>
+
+                            {composerTask && canRestoreFromComposer && restoreTargetState ? (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                                    <div className="text-sm font-medium text-amber-900">Restore with context</div>
+                                    <p className="mt-1 text-xs text-amber-800">
+                                        Restore from here if you want to attach notes or files as part of the restore event.
+                                    </p>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                                setComposerState(restoreTargetState);
+                                                setComposerRestoreTiming('now');
+                                            }}
+                                        >
+                                            Restore now
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                                setComposerState(restoreTargetState);
+                                                setComposerRestoreTiming('next_scheduled');
+                                            }}
+                                        >
+                                            Restore next scheduled day
+                                        </Button>
+                                    </div>
+                                    {composerState === restoreTargetState ? (
+                                        <div className="mt-3 space-y-2">
+                                            <label className="text-sm font-medium text-slate-700">Restore timing</label>
+                                            <select
+                                                value={composerRestoreTiming || 'now'}
+                                                onChange={(event) => setComposerRestoreTiming(event.target.value as TaskRestoreTiming)}
+                                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                            >
+                                                <option value="now">Return now</option>
+                                                <option value="next_scheduled">Return on the next scheduled day</option>
+                                            </select>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ) : null}
 
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">

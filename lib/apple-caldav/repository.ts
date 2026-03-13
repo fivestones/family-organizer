@@ -3,6 +3,7 @@ import 'server-only';
 import { id } from '@instantdb/admin';
 import { RRule } from 'rrule';
 import { getInstantAdminDb } from '@/lib/instant-admin';
+import { buildHistoryEventTransactions } from '@/lib/history-events';
 
 const INSTANT_TRANSACTION_BATCH_SIZE = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -457,6 +458,23 @@ export async function upsertImportedCalendarItems(input: {
             }));
         }
 
+        const historyEvent = buildHistoryEventTransactions({
+            tx: db.tx,
+            createId: id,
+            occurredAt: input.nowIso,
+            domain: 'calendar',
+            actionType: 'calendar_event_deleted',
+            summary: `Deleted event "${String(existingItem.title || 'Untitled event')}"`,
+            source: 'apple_sync',
+            calendarItemId: existingItem.id,
+            metadata: {
+                title: String(existingItem.title || 'Untitled event'),
+                sourceCalendarId: input.calendarId,
+                sourceAccountId: input.accountId,
+            },
+        });
+        txs.push(...historyEvent.transactions);
+
         eventsMarkedDeleted += 1;
     };
 
@@ -474,11 +492,28 @@ export async function upsertImportedCalendarItems(input: {
             }));
             continue;
         }
-        txs.push(db.tx.calendarItems[existingItem?.id || id()].update({
+        const targetItemId = existingItem?.id || id();
+        txs.push(db.tx.calendarItems[targetItemId].update({
             ...item,
             sourceRemoteCtag: input.ctag || item.sourceRemoteCtag || '',
             sourceCalendarName: input.calendarName,
         }));
+        const historyEvent = buildHistoryEventTransactions({
+            tx: db.tx,
+            createId: id,
+            occurredAt: input.nowIso,
+            domain: 'calendar',
+            actionType: existingItem ? 'calendar_event_updated' : 'calendar_event_created',
+            summary: `${existingItem ? 'Updated' : 'Imported'} event "${String(item.title || 'Untitled event')}"`,
+            source: 'apple_sync',
+            calendarItemId: targetItemId,
+            metadata: {
+                title: String(item.title || 'Untitled event'),
+                sourceCalendarId: input.calendarId,
+                sourceAccountId: input.accountId,
+            },
+        });
+        txs.push(...historyEvent.transactions);
         if (item.status === 'cancelled' || item.sourceSyncStatus === 'cancelled') {
             eventsCancelled += 1;
         }
@@ -540,11 +575,32 @@ export async function markImportedCalendarItemsDeletedByRemoteUrls(input: {
 
     await transactInBatches(
         db,
-        targets.map((item: any) => db.tx.calendarItems[item.id].update({
-            sourceSyncStatus: 'deleted-remote',
-            status: 'cancelled',
-            sourceLastSeenAt: input.nowIso,
-        }))
+        targets.flatMap((item: any) => {
+            const historyEvent = buildHistoryEventTransactions({
+                tx: db.tx,
+                createId: id,
+                occurredAt: input.nowIso,
+                domain: 'calendar',
+                actionType: 'calendar_event_deleted',
+                summary: `Deleted event "${String(item.title || 'Untitled event')}"`,
+                source: 'apple_sync',
+                calendarItemId: item.id,
+                metadata: {
+                    title: String(item.title || 'Untitled event'),
+                    sourceCalendarId: input.calendarId,
+                    sourceAccountId: input.accountId,
+                },
+            });
+
+            return [
+                db.tx.calendarItems[item.id].update({
+                    sourceSyncStatus: 'deleted-remote',
+                    status: 'cancelled',
+                    sourceLastSeenAt: input.nowIso,
+                }),
+                ...historyEvent.transactions,
+            ];
+        })
     );
 
     return { eventsMarkedDeleted: targets.length };

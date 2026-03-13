@@ -30,6 +30,7 @@ import type { ChorePauseState, ChoreSchedulePatch } from '@/lib/chore-schedule';
 // **** NEW: Import types and utility ****
 import { UnitDefinition, Envelope, computeAllApplicableCurrencyCodes } from '@/lib/currency-utils'; // Import computeMonetaryCurrencies
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
+import { buildHistoryEventTransactions } from '@/lib/history-events';
 
 // +++ NEW IMPORTS +++
 import { useAuth } from '@/components/AuthProvider';
@@ -427,13 +428,33 @@ function ChoresTracker({
         try {
             if (existingCompletion) {
                 // Update existing completion
+                const nowIso = new Date().toISOString();
+                const historyEvent = buildHistoryEventTransactions({
+                    tx,
+                    createId: id,
+                    occurredAt: nowIso,
+                    domain: 'chores',
+                    actionType: existingCompletion.completed ? 'chore_marked_undone' : 'chore_marked_done',
+                    summary: `${existingCompletion.completed ? 'Marked' : 'Completed'} "${chore.title}" ${existingCompletion.completed ? 'not done' : 'done'}`,
+                    source: 'manual',
+                    actorFamilyMemberId: executorId || familyMemberId,
+                    affectedFamilyMemberIds: [familyMemberId],
+                    choreId,
+                    scheduledForDate: formattedDate,
+                    metadata: {
+                        choreTitle: chore.title,
+                        completed: !existingCompletion.completed,
+                        dateDue: formattedDate,
+                    },
+                });
                 db.transact([
                     tx.choreCompletions[existingCompletion.id].update({
                         completed: !existingCompletion.completed,
                         dateCompleted: !existingCompletion.completed
-                            ? new Date().toISOString() // Use ISO string
+                            ? nowIso // Use ISO string
                             : null,
                     }),
+                    ...historyEvent.transactions,
                 ]);
                 toast({
                     title: 'Chore Updated',
@@ -442,10 +463,11 @@ function ChoresTracker({
             } else {
                 // Create new completion
                 const newCompletionId = id();
+                const nowIso = new Date().toISOString();
                 const transactions: any[] = [
                     tx.choreCompletions[newCompletionId].update({
                         dateDue: formattedDate,
-                        dateCompleted: new Date().toISOString(), // Set completion time
+                        dateCompleted: nowIso, // Set completion time
                         completed: true,
                         allowanceAwarded: false, // Set allowanceAwarded to false for new completions
                     }),
@@ -459,6 +481,26 @@ function ChoresTracker({
                 if (executorId) {
                     transactions.push(tx.familyMembers[executorId].link({ markedCompletions: newCompletionId }));
                 }
+
+                const historyEvent = buildHistoryEventTransactions({
+                    tx,
+                    createId: id,
+                    occurredAt: nowIso,
+                    domain: 'chores',
+                    actionType: 'chore_marked_done',
+                    summary: `Completed "${chore.title}"`,
+                    source: 'manual',
+                    actorFamilyMemberId: executorId || familyMemberId,
+                    affectedFamilyMemberIds: [familyMemberId],
+                    choreId,
+                    scheduledForDate: formattedDate,
+                    metadata: {
+                        choreTitle: chore.title,
+                        completed: true,
+                        dateDue: formattedDate,
+                    },
+                });
+                transactions.push(...historyEvent.transactions);
 
                 db.transact(transactions);
                 toast({ title: 'Chore Marked Done' });
@@ -695,6 +737,14 @@ function ChoresTracker({
     const selectedMemberName = familyMembers.find((m) => m.id === selectedMember)?.name;
     const pageHeading =
         selectedMember === 'All' ? `All ${pageTitle}` : `${selectedMemberName || 'Selected Member'}'s ${pageTitle}`;
+    const tasksHistoryHref = (() => {
+        const params = new URLSearchParams();
+        params.set('domain', 'tasks');
+        if (selectedMember !== 'All') {
+            params.set('member', selectedMember);
+        }
+        return `/history?${params.toString()}`;
+    })();
 
     // +++ Persistence for View Settings +++
     // We assume 'currentUser' is available and synced with familyMembers in the DB.
@@ -872,11 +922,18 @@ function ChoresTracker({
                                 </Dialog>
 
                                 {pageMode === 'tasks' && isParent ? (
-                                    <Link href="/task-series">
-                                        <Button variant="outline" size="sm">
-                                            <ListTodo className="mr-2 h-4 w-4" /> Manage Series
-                                        </Button>
-                                    </Link>
+                                    <>
+                                        <Link href="/task-series">
+                                            <Button variant="outline" size="sm">
+                                                <ListTodo className="mr-2 h-4 w-4" /> Manage Series
+                                            </Button>
+                                        </Link>
+                                        <Link href={tasksHistoryHref}>
+                                            <Button variant="outline" size="sm">
+                                                <ListTodo className="mr-2 h-4 w-4" /> View History
+                                            </Button>
+                                        </Link>
+                                    </>
                                 ) : null}
                             </div>
                         </div>

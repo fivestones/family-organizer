@@ -65,6 +65,38 @@ const FAMILY_READ_PARENT_WRITE = {
     },
 } as const;
 
+const FAMILY_IMMUTABLE_LOG = {
+    bind: {
+        isParent: IS_PARENT,
+        isKid: IS_KID,
+        isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+    },
+    allow: {
+        view: 'isFamilyPrincipal',
+        create: 'isFamilyPrincipal',
+        update: 'false',
+        delete: 'false',
+        link: { $default: 'isFamilyPrincipal' },
+        unlink: { $default: 'false' },
+    },
+} as const;
+
+const FAMILY_CREATE_UPDATE = {
+    bind: {
+        isParent: IS_PARENT,
+        isKid: IS_KID,
+        isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+    },
+    allow: {
+        view: 'isFamilyPrincipal',
+        create: 'isFamilyPrincipal',
+        update: 'isFamilyPrincipal',
+        delete: 'false',
+        link: { $default: 'isFamilyPrincipal' },
+        unlink: { $default: 'isFamilyPrincipal' },
+    },
+} as const;
+
 const rules = {
     // Safety net: any future entity is family-readable but not writable until explicitly added.
     $default: DENY_BY_DEFAULT,
@@ -179,6 +211,8 @@ const rules = {
     chores: PARENT_MUTABLE,
     deviceSessions: PARENT_MUTABLE,
     exchangeRates: FAMILY_MUTABLE,
+    historyEventAttachments: FAMILY_IMMUTABLE_LOG,
+    historyEvents: FAMILY_IMMUTABLE_LOG,
 
     familyMembers: {
         bind: {
@@ -203,6 +237,9 @@ const rules = {
         },
     },
 
+    messageAttachments: FAMILY_IMMUTABLE_LOG,
+    messages: FAMILY_CREATE_UPDATE,
+    messageThreads: FAMILY_CREATE_UPDATE,
     settings: PARENT_MUTABLE,
     taskAttachments: FAMILY_MUTABLE,
     taskProgressAttachments: FAMILY_MUTABLE,

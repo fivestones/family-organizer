@@ -1,5 +1,6 @@
 import { tx, id } from '@instantdb/react';
 import { db as instantDb } from '@/lib/db';
+import { buildHistoryEventTransactions } from '@/lib/history-events';
 
 const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 
@@ -16,6 +17,63 @@ async function getAllowanceTransactionAuditFields(): Promise<{ createdBy: string
         createdBy: authUser.id,
         ...(selectedFamilyMemberId ? { createdByFamilyMemberId: selectedFamilyMemberId } : {}),
     };
+}
+
+function getLinkedFamilyMember(value: Envelope['familyMember'] | { id?: string; name?: string } | null | undefined) {
+    if (!value) return null;
+    if (Array.isArray(value)) {
+        return value[0] || null;
+    }
+    return value || null;
+}
+
+function formatHistoryAmount(amount: number, currency: string) {
+    const absoluteAmount = Math.abs(amount);
+    const upperCaseCurrency = String(currency || '').toUpperCase();
+
+    try {
+        return new Intl.NumberFormat(undefined, {
+            style: 'currency',
+            currency: upperCaseCurrency,
+        }).format(absoluteAmount);
+    } catch (_error) {
+        return `${absoluteAmount.toLocaleString()} ${upperCaseCurrency}`;
+    }
+}
+
+async function getEnvelopeContextMap(db: any, envelopeIds: string[]) {
+    const uniqueEnvelopeIds = Array.from(new Set(envelopeIds.filter(Boolean)));
+    const contextMap = new Map<string, { id: string; name?: string; memberId?: string; memberName?: string }>();
+
+    if (uniqueEnvelopeIds.length === 0) {
+        return contextMap;
+    }
+
+    const result = await db.queryOnce({
+        allowanceEnvelopes: {
+            $: {
+                where: {
+                    id: {
+                        $in: uniqueEnvelopeIds,
+                    },
+                },
+            },
+            familyMember: {},
+        },
+    });
+
+    const envelopes = result.data?.allowanceEnvelopes || [];
+    for (const envelope of envelopes) {
+        const familyMember = getLinkedFamilyMember(envelope.familyMember);
+        contextMap.set(envelope.id, {
+            id: envelope.id,
+            name: envelope.name,
+            memberId: familyMember?.id,
+            memberName: familyMember?.name,
+        });
+    }
+
+    return contextMap;
 }
 
 // --- Type Definitions ---
@@ -318,6 +376,23 @@ export const createInitialSavingsEnvelope = async (db: any, familyMemberId: stri
     const auditFields = await getAllowanceTransactionAuditFields();
     const newEnvelopeId = id();
     const initTxId = id();
+    const nowIso = new Date().toISOString();
+    const historyEvent = buildHistoryEventTransactions({
+        tx,
+        createId: id,
+        occurredAt: nowIso,
+        domain: 'finance',
+        actionType: 'envelope_created',
+        summary: 'Created envelope "Savings"',
+        source: 'manual',
+        actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
+        affectedFamilyMemberIds: [familyMemberId],
+        allowanceTransactionId: initTxId,
+        metadata: {
+            envelopeId: newEnvelopeId,
+            envelopeName: 'Savings',
+        },
+    });
 
     await db.transact([
         tx.allowanceEnvelopes[newEnvelopeId].update({
@@ -337,11 +412,12 @@ export const createInitialSavingsEnvelope = async (db: any, familyMemberId: stri
             currency: 'USD',
             transactionType: 'init',
             description: 'Envelope Created',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            createdAt: nowIso,
+            updatedAt: nowIso,
             envelope: newEnvelopeId
         }),
-        tx.allowanceEnvelopes[newEnvelopeId].link({ transactions: initTxId })
+        tx.allowanceEnvelopes[newEnvelopeId].link({ transactions: initTxId }),
+        ...historyEvent.transactions,
     ]);
     console.log(`Created initial Savings envelope ${newEnvelopeId} for member ${familyMemberId}`);
     return newEnvelopeId;
@@ -374,6 +450,26 @@ export const createAdditionalEnvelope = async (
     const auditFields = await getAllowanceTransactionAuditFields();
     const newEnvelopeId = id();
     const initTxId = id();
+    const nowIso = new Date().toISOString();
+    const historyEvent = buildHistoryEventTransactions({
+        tx,
+        createId: id,
+        occurredAt: nowIso,
+        domain: 'finance',
+        actionType: 'envelope_created',
+        summary: `Created envelope "${name.trim()}"`,
+        source: 'manual',
+        actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
+        affectedFamilyMemberIds: [familyMemberId],
+        allowanceTransactionId: initTxId,
+        metadata: {
+            envelopeId: newEnvelopeId,
+            envelopeName: name.trim(),
+            isDefault,
+            goalAmount: goalAmount ?? null,
+            goalCurrency: goalCurrency ?? null,
+        },
+    });
 
     await db.transact([
         tx.allowanceEnvelopes[newEnvelopeId].update({
@@ -392,11 +488,12 @@ export const createAdditionalEnvelope = async (
             currency: 'USD',
             transactionType: 'init',
             description: 'Envelope Created',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            createdAt: nowIso,
+            updatedAt: nowIso,
             envelope: newEnvelopeId
         }),
-        tx.allowanceEnvelopes[newEnvelopeId].link({ transactions: initTxId })
+        tx.allowanceEnvelopes[newEnvelopeId].link({ transactions: initTxId }),
+        ...historyEvent.transactions,
     ]);
     console.log(`Created envelope ${newEnvelopeId} with name '${name}', isDefault=${isDefault}, goal=${goalCurrency || ''} ${goalAmount || ''}`);
     return newEnvelopeId; // Return the new ID
@@ -476,6 +573,9 @@ export const depositToSpecificEnvelope = async (
 ): Promise<void> => {
     if (amount <= 0) throw new Error('Deposit amount must be positive.');
     const auditFields = await getAllowanceTransactionAuditFields();
+    const nowIso = new Date().toISOString();
+    const envelopeContextMap = await getEnvelopeContextMap(db, [envelopeId]);
+    const envelopeContext = envelopeContextMap.get(envelopeId);
 
     // Logic now uses passed 'currentBalances' instead of querying
     const balances = currentBalances || {};
@@ -483,6 +583,25 @@ export const depositToSpecificEnvelope = async (
     const newBalance = (balances[upperCaseCurrency] || 0) + amount;
     const updatedBalances = { ...balances, [upperCaseCurrency]: newBalance };
     const transactionId = id();
+    const historyEvent = buildHistoryEventTransactions({
+        tx,
+        createId: id,
+        occurredAt: nowIso,
+        domain: 'finance',
+        actionType: 'envelope_deposit',
+        summary: `Deposited ${formatHistoryAmount(amount, upperCaseCurrency)} to ${envelopeContext?.name || 'envelope'}`,
+        source: 'manual',
+        actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
+        affectedFamilyMemberIds: envelopeContext?.memberId ? [envelopeContext.memberId] : [],
+        allowanceTransactionId: transactionId,
+        metadata: {
+            amount,
+            currency: upperCaseCurrency,
+            description,
+            envelopeId,
+            envelopeName: envelopeContext?.name || null,
+        },
+    });
 
     await db.transact([
         tx.allowanceEnvelopes[envelopeId].update({ balances: updatedBalances }),
@@ -494,11 +613,12 @@ export const depositToSpecificEnvelope = async (
             envelope: envelopeId,
             destinationEnvelope: envelopeId, // For deposits, source is external, destination is the envelope
             description: description,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            createdAt: nowIso,
+            updatedAt: nowIso,
         }),
         // Ensure transaction is linked back to envelope
         tx.allowanceEnvelopes[envelopeId].link({ transactions: transactionId }),
+        ...historyEvent.transactions,
     ]);
     console.log(`Deposited ${upperCaseCurrency} ${amount} to envelope ${envelopeId}`);
 };
@@ -540,6 +660,30 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
     const transferDesc = `Transfer from ${fromEnvelope.name} to ${toEnvelope.name}`;
     const transactionIdOut = id();
     const transactionIdIn = id();
+    const nowIso = new Date().toISOString();
+    const fromMember = getLinkedFamilyMember(fromEnvelope.familyMember);
+    const toMember = getLinkedFamilyMember(toEnvelope.familyMember);
+    const historyEvent = buildHistoryEventTransactions({
+        tx,
+        createId: id,
+        occurredAt: nowIso,
+        domain: 'finance',
+        actionType: 'envelope_transfer',
+        summary: `Transferred ${formatHistoryAmount(amount, upperCaseCurrency)} from ${fromEnvelope.name} to ${toEnvelope.name}`,
+        source: 'manual',
+        actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
+        affectedFamilyMemberIds: [fromMember?.id, toMember?.id],
+        allowanceTransactionId: transactionIdOut,
+        metadata: {
+            amount,
+            currency: upperCaseCurrency,
+            fromEnvelopeId: fromEnvelope.id,
+            fromEnvelopeName: fromEnvelope.name,
+            toEnvelopeId: toEnvelope.id,
+            toEnvelopeName: toEnvelope.name,
+            description: transferDesc,
+        },
+    });
 
     await db.transact([
         tx.allowanceEnvelopes[fromEnvelope.id].update({ balances: updatedFromBalances }),
@@ -554,8 +698,8 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
             sourceEnvelope: fromEnvelope.id,
             destinationEnvelope: toEnvelope.id,
             description: transferDesc,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            createdAt: nowIso,
+            updatedAt: nowIso,
         }),
         // Incoming Transaction Record
         tx.allowanceTransactions[transactionIdIn].update({
@@ -567,12 +711,13 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
             sourceEnvelope: fromEnvelope.id,
             destinationEnvelope: toEnvelope.id,
             description: transferDesc,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            createdAt: nowIso,
+            updatedAt: nowIso,
         }),
         // Link transactions to envelopes
         tx.allowanceEnvelopes[fromEnvelope.id].link({ outgoingTransfers: transactionIdOut, transactions: transactionIdOut }),
         tx.allowanceEnvelopes[toEnvelope.id].link({ incomingTransfers: transactionIdIn, transactions: transactionIdIn }),
+        ...historyEvent.transactions,
     ]);
     console.log(`Transferred ${upperCaseCurrency} ${amount} from ${fromEnvelope.id} to ${toEnvelope.id}`);
 };
@@ -611,6 +756,7 @@ export const deleteEnvelope = async (
     const balancesToDelete = envelopeToDelete.balances || {};
     const transactions: any[] = [];
     const auditFields = await getAllowanceTransactionAuditFields();
+    const nowIso = new Date().toISOString();
     const targetBalances = targetEnvelope.balances || {};
     const updatedTargetBalances = { ...targetBalances };
 
@@ -636,8 +782,8 @@ export const deleteEnvelope = async (
                     sourceEnvelope: envelopeToDeleteId,
                     destinationEnvelope: transferToEnvelopeId,
                     description: transferDesc,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
+                    createdAt: nowIso,
+                    updatedAt: nowIso,
                 })
             );
             // Incoming to target envelope
@@ -651,14 +797,36 @@ export const deleteEnvelope = async (
                     sourceEnvelope: envelopeToDeleteId,
                     destinationEnvelope: transferToEnvelopeId,
                     description: transferDesc,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
+                    createdAt: nowIso,
+                    updatedAt: nowIso,
                 })
             );
             // Link incoming transaction to target envelope
             transactions.push(tx.allowanceEnvelopes[transferToEnvelopeId].link({ incomingTransfers: transactionIdIn, transactions: transactionIdIn }));
         }
     }
+
+    const deletedMember = getLinkedFamilyMember(envelopeToDelete.familyMember);
+    const targetMember = getLinkedFamilyMember(targetEnvelope.familyMember);
+    const historyEvent = buildHistoryEventTransactions({
+        tx,
+        createId: id,
+        occurredAt: nowIso,
+        domain: 'finance',
+        actionType: 'envelope_deleted',
+        summary: `Deleted envelope "${envelopeToDelete.name}"`,
+        source: 'manual',
+        actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
+        affectedFamilyMemberIds: [deletedMember?.id, targetMember?.id],
+        metadata: {
+            deletedEnvelopeId: envelopeToDeleteId,
+            deletedEnvelopeName: envelopeToDelete.name,
+            transferToEnvelopeId,
+            transferToEnvelopeName: targetEnvelope.name,
+            newDefaultEnvelopeId: newDefaultEnvelopeId || null,
+        },
+    });
+    transactions.push(...historyEvent.transactions);
     // Update target envelope balance
     transactions.push(tx.allowanceEnvelopes[transferToEnvelopeId].update({ balances: updatedTargetBalances }));
 
@@ -698,6 +866,28 @@ export const updateEnvelope = async (
     // Removed validation: if (goalCurrency && (goalAmount === null || goalAmount === undefined)) throw new Error("Goal amount must be specified if goal currency is set.");
 
     console.log(`Updating envelope ${envelopeId}: name='${trimmedName}', isDefault=${isDefault}, goal=${goalCurrency || ''} ${goalAmount || ''}`);
+    const nowIso = new Date().toISOString();
+    const auditFields = await getAllowanceTransactionAuditFields();
+    const envelopeContextMap = await getEnvelopeContextMap(db, [envelopeId]);
+    const envelopeContext = envelopeContextMap.get(envelopeId);
+    const historyEvent = buildHistoryEventTransactions({
+        tx,
+        createId: id,
+        occurredAt: nowIso,
+        domain: 'finance',
+        actionType: 'envelope_updated',
+        summary: `Updated envelope "${trimmedName}"`,
+        source: 'manual',
+        actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
+        affectedFamilyMemberIds: envelopeContext?.memberId ? [envelopeContext.memberId] : [],
+        metadata: {
+            envelopeId,
+            envelopeName: trimmedName,
+            isDefault,
+            goalAmount: goalAmount ?? null,
+            goalCurrency: goalCurrency ?? null,
+        },
+    });
     await db.transact([
         tx.allowanceEnvelopes[envelopeId].update({
             name: trimmedName,
@@ -706,6 +896,7 @@ export const updateEnvelope = async (
             goalAmount: goalAmount ?? null,
             goalCurrency: goalCurrency ?? null,
         }),
+        ...historyEvent.transactions,
     ]);
     console.log('Envelope update transaction successful.');
 };
@@ -730,6 +921,7 @@ export const withdrawFromEnvelope = async (
     if (amount <= 0) throw new Error('Withdrawal amount must be positive.');
     if (!envelope?.id || !envelope.balances) throw new Error('Invalid envelope data provided.');
     const auditFields = await getAllowanceTransactionAuditFields();
+    const nowIso = new Date().toISOString();
 
     const upperCaseCurrency = currency.toUpperCase();
     const currentBalance = envelope.balances[upperCaseCurrency] || 0;
@@ -758,8 +950,28 @@ export const withdrawFromEnvelope = async (
         // sourceEnvelope: envelope.id, // Could arguably be source
         // destinationEnvelope: null, // No destination
         description: description,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+    });
+    const envelopeMember = getLinkedFamilyMember(envelope.familyMember);
+    const historyEvent = buildHistoryEventTransactions({
+        tx,
+        createId: id,
+        occurredAt: nowIso,
+        domain: 'finance',
+        actionType: 'envelope_withdrawal',
+        summary: `Withdrew ${formatHistoryAmount(amount, upperCaseCurrency)} from ${envelope.name}`,
+        source: 'manual',
+        actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
+        affectedFamilyMemberIds: envelopeMember?.id ? [envelopeMember.id] : [],
+        allowanceTransactionId: transactionId,
+        metadata: {
+            amount,
+            currency: upperCaseCurrency,
+            description,
+            envelopeId: envelope.id,
+            envelopeName: envelope.name,
+        },
     });
 
     // Perform transaction
@@ -768,6 +980,7 @@ export const withdrawFromEnvelope = async (
         withdrawalTransaction,
         // Link transaction back to envelope
         tx.allowanceEnvelopes[envelope.id].link({ transactions: transactionId }),
+        ...historyEvent.transactions,
     ]);
 
     console.log(`Withdrew ${upperCaseCurrency} ${amount} from envelope ${envelope.id}`);
@@ -852,6 +1065,32 @@ export const transferFundsToPerson = async (
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     });
+    const nowIso = new Date().toISOString();
+    const sourceMember = getLinkedFamilyMember(sourceEnvelope.familyMember);
+    const destinationMember = getLinkedFamilyMember(destinationEnvelope.familyMember);
+    const historyEvent = buildHistoryEventTransactions({
+        tx,
+        createId: id,
+        occurredAt: nowIso,
+        domain: 'finance',
+        actionType: 'person_transfer',
+        summary: `Transferred ${formatHistoryAmount(amount, upperCaseCurrency)} from ${senderName} to ${recipientName}`,
+        source: 'manual',
+        actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
+        affectedFamilyMemberIds: [sourceMember?.id, destinationMember?.id],
+        allowanceTransactionId: transactionIdOut,
+        metadata: {
+            amount,
+            currency: upperCaseCurrency,
+            description: transferDesc,
+            sourceEnvelopeId: sourceEnvelope.id,
+            sourceEnvelopeName: sourceEnvelope.name,
+            destinationEnvelopeId: destinationEnvelope.id,
+            destinationEnvelopeName: destinationEnvelope.name,
+            sourceMemberId: sourceMember?.id || null,
+            destinationMemberId: destinationMember?.id || null,
+        },
+    });
 
     // Perform transaction
     await db.transact([
@@ -865,6 +1104,7 @@ export const transferFundsToPerson = async (
         // Link transactions back
         tx.allowanceEnvelopes[sourceEnvelope.id].link({ outgoingTransfers: transactionIdOut, transactions: transactionIdOut }),
         tx.allowanceEnvelopes[destinationEnvelope.id].link({ incomingTransfers: transactionIdIn, transactions: transactionIdIn }),
+        ...historyEvent.transactions,
     ]);
 
     console.log(`Transferred ${upperCaseCurrency} ${amount} from envelope ${sourceEnvelope.id} to ${destinationEnvelope.id}`);

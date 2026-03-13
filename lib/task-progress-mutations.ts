@@ -1,8 +1,10 @@
 import { getNextChoreOccurrence } from '@/lib/chore-schedule';
+import { buildHistoryEventTransactions } from '@/lib/history-events';
 import {
     getTaskLastActiveState,
     getTaskParentId,
     getTaskWorkflowState,
+    getTaskStatusLabel,
     isTaskDone,
     isTaskWorkflowState,
     type TaskActiveState,
@@ -12,6 +14,7 @@ import {
 
 export interface TaskMutationTaskLike {
     id: string;
+    text?: string | null;
     isCompleted?: boolean | null;
     completedAt?: Date | string | null;
     completedOnDate?: string | null;
@@ -46,6 +49,9 @@ export interface BuildTaskProgressUpdateTransactionsParams {
     referenceDate?: Date | null;
     createId: () => string;
     attachments?: TaskProgressAttachmentInput[];
+    taskSeriesId?: string | null;
+    choreId?: string | null;
+    affectedFamilyMemberIds?: string[];
 }
 
 function toDateKey(value: Date | string): string {
@@ -196,6 +202,41 @@ export function buildTaskProgressUpdateTransactions(params: BuildTaskProgressUpd
             transactions.push(params.tx.taskProgressEntries[progressEntryId].link({ attachments: attachment.id }));
         }
     }
+
+    const taskLabel = String(targetTask.text || '').trim() || 'Task';
+    const summary =
+        params.restoreTiming && (params.nextState === 'not_started' || params.nextState === 'in_progress')
+            ? `Restored "${taskLabel}" to ${getTaskStatusLabel(params.nextState)}`
+            : params.nextState === 'done'
+              ? `Marked "${taskLabel}" done`
+              : currentState === params.nextState
+                ? `Updated "${taskLabel}"`
+                : `Moved "${taskLabel}" to ${getTaskStatusLabel(params.nextState)}`;
+
+    const historyEvent = buildHistoryEventTransactions({
+        tx: params.tx,
+        createId: params.createId,
+        occurredAt: now.toISOString(),
+        domain: 'tasks',
+        actionType: params.restoreTiming ? 'task_restored' : 'task_progress_updated',
+        summary,
+        source: 'manual',
+        actorFamilyMemberId: params.actorFamilyMemberId || null,
+        affectedFamilyMemberIds: params.affectedFamilyMemberIds || [],
+        taskSeriesId: params.taskSeriesId || null,
+        taskId: params.taskId,
+        choreId: params.choreId || null,
+        scheduledForDate: params.selectedDateKey,
+        restoreTiming: params.restoreTiming || null,
+        metadata: {
+            fromState: currentState,
+            toState: params.nextState,
+            note: trimmedNote,
+            taskText: taskLabel,
+        },
+        attachments: params.attachments || [],
+    });
+    transactions.push(...historyEvent.transactions);
 
     syncAncestorChildCompletionState({
         tx: params.tx,

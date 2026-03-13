@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useEditor, EditorContent, JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { id, tx } from '@instantdb/react';
@@ -15,9 +16,11 @@ import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/ad
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/components/AuthProvider';
 import TaskItemExtension, { TaskDateContext } from './TaskItem';
 import { TaskDetailsPopover } from './TaskDetailsPopover';
 import { cn } from '@/lib/utils';
+import { buildHistoryEventTransactions } from '@/lib/history-events';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
 interface Task {
@@ -68,6 +71,7 @@ const getSingleId = (relation: any): string | null => {
 
 const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId, onClose, className }) => {
     const { toast } = useToast();
+    const { currentUser } = useAuth();
 
     // If initialSeriesId is present, we know it exists in DB
     const [hasPersisted, setHasPersisted] = useState<boolean>(!!initialSeriesId);
@@ -134,6 +138,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     // Keep a ref of seriesData so debouncedSave can access the *current* DB state
     // to know what to unlink without needing to be recreated on every render.
     const seriesDataRef = useRef(seriesData);
+    const lastHistoryEventAtRef = useRef(0);
     useEffect(() => {
         seriesDataRef.current = seriesData;
     }, [seriesData]);
@@ -655,6 +660,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
         const transactions: any[] = [];
         const currentIds = new Set<string>();
+        let taskStructureChanged = !hasPersisted;
 
         // Stack to track hierarchy: Array of { id, level }
         const stack: { id: string; level: number }[] = [];
@@ -671,6 +677,15 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
             currentIds.add(taskId);
             const existingTaskInDb = dbTasks.find((t) => t.id === taskId);
+            if (
+                !existingTaskInDb ||
+                String(existingTaskInDb.text || '') !== textContent ||
+                (existingTaskInDb.order || 0) !== index ||
+                (existingTaskInDb.indentationLevel || 0) !== currentLevel ||
+                Boolean(existingTaskInDb.isDayBreak) !== isDayBreak
+            ) {
+                taskStructureChanged = true;
+            }
 
             // --- Determine "Leaf" vs "Parent" Status for childTasksComplete ---
             // Look ahead to the next node. If it is deeper, this node is a Parent.
@@ -718,6 +733,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             if (parent) {
                 // Should have a parent
                 if (existingParentId !== parent.id) {
+                    taskStructureChanged = true;
                     // It changed (or didn't exist).
                     // If it had a different parent before, we should technically unlink it,
                     // but InstantDB 'link' with 'has: one' (forward) usually overwrites or merges.
@@ -730,6 +746,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             } else {
                 // Should NOT have a parent (root level)
                 if (existingParentId) {
+                    taskStructureChanged = true;
                     transactions.push(tx.tasks[taskId].unlink({ parentTask: existingParentId }));
                 }
             }
@@ -741,6 +758,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         // 2. Handle Deletions
         // Find tasks in DB that are NOT in the current editor content
         const tasksToDelete = dbTasks.filter((t) => !currentIds.has(t.id));
+        if (tasksToDelete.length > 0) {
+            taskStructureChanged = true;
+        }
         tasksToDelete.forEach((t) => {
             transactions.push(tx.tasks[t.id].delete());
             transactions.push(tx.taskSeries[seriesId].unlink({ tasks: t.id }));
@@ -754,6 +774,17 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             description,
             updatedAt: now,
         };
+        const existingFamilyMemberId = getSingleId(seriesDataRef.current?.familyMember);
+        const existingScheduledActivityId = getSingleId(seriesDataRef.current?.scheduledActivity);
+        const metadataChanged =
+            String(seriesDataRef.current?.name || '') !== taskSeriesName ||
+            String(seriesDataRef.current?.description || '') !== description ||
+            String(existingFamilyMemberId || '') !== String(familyMemberId || '') ||
+            String(existingScheduledActivityId || '') !== String(scheduledActivityId || '') ||
+            String(seriesDataRef.current?.startDate ? startOfDay(ensureDate(seriesDataRef.current.startDate) || new Date()).toISOString() : '') !==
+                String(startDate ? startOfDay(startDate).toISOString() : '') ||
+            String(seriesDataRef.current?.targetEndDate ? startOfDay(ensureDate(seriesDataRef.current.targetEndDate) || new Date()).toISOString() : '') !==
+                String(targetEndDate ? startOfDay(targetEndDate).toISOString() : '');
 
         // Dates: InstantDB expects Date objects for i.date()
         if (startDate) {
@@ -799,6 +830,36 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                         scheduledActivity: idToUnlink,
                     })
                 );
+            }
+        }
+
+        if (currentUser?.id && (taskStructureChanged || metadataChanged)) {
+            const nowMs = now.getTime();
+            if (nowMs - lastHistoryEventAtRef.current > 60_000) {
+                const historyEvent = buildHistoryEventTransactions({
+                    tx,
+                    createId: id,
+                    occurredAt: now.toISOString(),
+                    domain: 'tasks',
+                    actionType: !hasPersisted ? 'task_series_created' : 'task_series_updated',
+                    summary: !hasPersisted
+                        ? `Created task series "${taskSeriesName || 'Untitled'}"`
+                        : taskStructureChanged
+                          ? `Updated task series "${taskSeriesName || 'Untitled'}" structure`
+                          : `Updated task series "${taskSeriesName || 'Untitled'}"`,
+                    source: 'manual',
+                    actorFamilyMemberId: currentUser.id,
+                    affectedFamilyMemberIds: familyMemberId ? [familyMemberId] : [],
+                    taskSeriesId: seriesId,
+                    metadata: {
+                        taskCount: currentIds.size,
+                        metadataChanged,
+                        taskStructureChanged,
+                        seriesName: taskSeriesName || 'Untitled',
+                    },
+                });
+                transactions.push(...historyEvent.transactions);
+                lastHistoryEventAtRef.current = nowMs;
             }
         }
 
@@ -867,7 +928,14 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         // Default is 'max-w-4xl' (good for page), but can be overridden by 'className' prop (good for modal).
         <div className={cn('mx-auto p-6 space-y-6', className || 'max-w-4xl')}>
             <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold">Task Series Editor</h1>
+                <div className="flex items-center gap-3">
+                    <h1 className="text-2xl font-bold">Task Series Editor</h1>
+                    {hasPersisted ? (
+                        <Link href={`/history?domain=tasks&taskSeriesId=${seriesId}`}>
+                            <Button variant="outline" size="sm">View History</Button>
+                        </Link>
+                    ) : null}
+                </div>
                 <div className="text-sm text-muted-foreground">{isSaving ? 'Saving...' : 'Saved'}</div>
             </div>
 
