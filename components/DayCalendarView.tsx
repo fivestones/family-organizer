@@ -158,6 +158,118 @@ function buildGregorianHeaderLabel(start: Date, end: Date) {
 
     return `${start.toLocaleDateString(undefined, { month: 'short' })} ${start.getFullYear()} - ${end.toLocaleDateString(undefined, { month: 'short' })} ${end.getFullYear()}`;
 }
+function formatClockTimeLabel(value: Date) {
+    return format(value, value.getMinutes() === 0 ? 'h a' : 'h:mm a').toLowerCase();
+}
+
+function getBsYear(value: Date) {
+    try {
+        return new NepaliDate(value).getYear();
+    } catch {
+        return null;
+    }
+}
+
+function formatBsDateLabel(value: Date, includeYear: boolean) {
+    try {
+        const nepaliDate = new NepaliDate(value);
+        const monthLabel = `${NEPALI_MONTHS_COMMON_DEVANAGARI[nepaliDate.getMonth()] || ''} ${
+            NEPALI_MONTHS_COMMON_ROMAN[nepaliDate.getMonth()] || ''
+        }`.trim();
+        const dayLabel = toDevanagariDigits(nepaliDate.getDate());
+        const yearLabel = includeYear ? ` ${toDevanagariDigits(nepaliDate.getYear())}` : '';
+        return `${monthLabel} ${dayLabel}${yearLabel}`.trim();
+    } catch {
+        return '';
+    }
+}
+
+function formatDayViewEndpointDateLabel(
+    value: Date,
+    {
+        showGregorianCalendar,
+        showBsCalendar,
+        includeGregorianYear,
+        includeBsYear,
+    }: {
+        showGregorianCalendar: boolean;
+        showBsCalendar: boolean;
+        includeGregorianYear: boolean;
+        includeBsYear: boolean;
+    }
+) {
+    const parts: string[] = [];
+
+    if (showGregorianCalendar) {
+        parts.push(format(value, includeGregorianYear ? 'MMMM d, yyyy' : 'MMMM d'));
+    }
+    if (showBsCalendar) {
+        const bsLabel = formatBsDateLabel(value, includeBsYear);
+        if (bsLabel) {
+            parts.push(bsLabel);
+        }
+    }
+
+    if (parts.length === 0) {
+        parts.push(format(value, includeGregorianYear ? 'MMMM d, yyyy' : 'MMMM d'));
+    }
+
+    return parts.join(' ');
+}
+
+function formatTimedEventMetaLabel({
+    start,
+    end,
+    segmentDay,
+    showGregorianCalendar,
+    showBsCalendar,
+}: {
+    start: Date;
+    end: Date;
+    segmentDay: Date;
+    showGregorianCalendar: boolean;
+    showBsCalendar: boolean;
+}) {
+    const firstVisibleDay = startOfDayDate(start);
+    const lastVisibleDay = startOfDayDate(new Date(end.getTime() - 1));
+    const segmentDayStart = startOfDayDate(segmentDay);
+
+    if (firstVisibleDay.getTime() === lastVisibleDay.getTime()) {
+        const startMinute = start.getHours() * 60 + start.getMinutes();
+        const endMinute = end.getHours() * 60 + end.getMinutes();
+        return formatSegmentTimeRange(startMinute, endMinute);
+    }
+
+    const includeGregorianYear = start.getFullYear() !== end.getFullYear();
+    const startBsYear = getBsYear(start);
+    const endBsYear = getBsYear(end);
+    const includeBsYear = startBsYear != null && endBsYear != null && startBsYear !== endBsYear;
+    const startDateLabel = formatDayViewEndpointDateLabel(start, {
+        showGregorianCalendar,
+        showBsCalendar,
+        includeGregorianYear,
+        includeBsYear,
+    });
+    const endDateLabel = formatDayViewEndpointDateLabel(end, {
+        showGregorianCalendar,
+        showBsCalendar,
+        includeGregorianYear,
+        includeBsYear,
+    });
+    const startTimeLabel = formatClockTimeLabel(start);
+    const endTimeLabel = formatClockTimeLabel(end);
+
+    if (segmentDayStart.getTime() === firstVisibleDay.getTime()) {
+        return `${startTimeLabel} - ${endDateLabel} at ${endTimeLabel}`;
+    }
+
+    if (segmentDayStart.getTime() === lastVisibleDay.getTime()) {
+        return `${startDateLabel} at ${startTimeLabel} - ${endTimeLabel} today`;
+    }
+
+    return `${startDateLabel} at ${startTimeLabel} - ${endDateLabel} at ${endTimeLabel}`;
+}
+
 
 function buildBsHeaderLabel(start: Date, end: Date) {
     try {
@@ -802,7 +914,13 @@ export default function DayCalendarView({
                         __displayDate: dayKey,
                         __dragAnchorStartDate: new Date(segmentStartMs).toISOString(),
                         __calendarAppearance: 'day',
-                        __calendarMetaLabel: formatSegmentTimeRange(startMinute, endMinute),
+                        __calendarMetaLabel: formatTimedEventMetaLabel({
+                            start,
+                            end,
+                            segmentDay: dayCursor,
+                            showGregorianCalendar: effectiveShowGregorianCalendar,
+                            showBsCalendar: effectiveShowBsCalendar,
+                        }),
                     },
                 });
             }
@@ -823,7 +941,17 @@ export default function DayCalendarView({
                     allDayOverflowByColumn: overflowByColumn,
                     timedSegments: layoutTimedSegmentsByDay(timedBaseSegments),
                 };
-    }, [allDayLaneCap, anchorDate, items, renderedDayMap, renderedDays, visibleEndKey, visibleStartKey]);
+    }, [
+        allDayLaneCap,
+        anchorDate,
+        effectiveShowBsCalendar,
+        effectiveShowGregorianCalendar,
+        items,
+        renderedDayMap,
+        renderedDays,
+        visibleEndKey,
+        visibleStartKey,
+    ]);
 
     const currentTimeIndicator = useMemo(() => {
         const todayKey = formatDayKey(now);

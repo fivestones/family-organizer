@@ -4,7 +4,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CALENDAR_COMMAND_EVENT } from '@/lib/calendar-controls';
-import { formatCommonBsMonthCompactLabel, formatCommonBsMonthLabel } from '@/lib/calendar-display';
+import { formatCommonBsMonthCompactLabel, formatCommonBsMonthLabel, toDevanagariDigits } from '@/lib/calendar-display';
 
 const mocks = vi.hoisted(() => ({
     dbUseQuery: vi.fn(),
@@ -100,6 +100,8 @@ vi.mock('@/components/DraggableCalendarEvent', () => ({
                 data-calendar-search-state={item.__liveSearchState || 'normal'}
                 data-member-colors={(item.pertainsTo || []).map((member: any) => member?.color || '').join(',')}
                 data-member-indicator-style={memberIndicatorStyle || 'badge'}
+                data-display-date={item.__displayDate || ''}
+                data-calendar-meta-label={item.__calendarMetaLabel || ''}
                 onClick={(e) => onClick?.(e)}
                 onDoubleClick={(e) => onDoubleClick?.(e)}
             >
@@ -209,6 +211,14 @@ function renderCalendarWithData(
 
 function renderCalendarWithItems(items: any[], props?: Partial<React.ComponentProps<typeof Calendar>>) {
     renderCalendarWithData({ calendarItems: items }, props);
+}
+
+function getRenderedEventOnDay(itemId: string, dateKey: string) {
+    return (
+        screen
+            .getAllByTestId(`calendar-event-${itemId}`)
+            .find((element) => element.getAttribute('data-display-date') === dateKey) ?? null
+    );
 }
 
 describe('Calendar', () => {
@@ -1027,6 +1037,152 @@ describe('Calendar', () => {
         await waitFor(() => {
             expect(screen.getAllByTestId('calendar-event-evt-multi-day')).toHaveLength(2);
         });
+    });
+
+    it('shows contextual Gregorian subtitles for multi-day timed events in day view', async () => {
+        renderCalendarWithItems(
+            [
+                {
+                    id: 'evt-multi-day-timed',
+                    title: 'Spring trip',
+                    startDate: '2026-04-09T08:00:00',
+                    endDate: '2026-04-13T17:00:00',
+                    isAllDay: false,
+                },
+            ],
+            {
+                currentDate: new Date(2026, 3, 9),
+            }
+        );
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayVisibleDays', dayVisibleDays: 5 },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(getRenderedEventOnDay('evt-multi-day-timed', '2026-04-09')).not.toBeNull();
+            expect(getRenderedEventOnDay('evt-multi-day-timed', '2026-04-11')).not.toBeNull();
+            expect(getRenderedEventOnDay('evt-multi-day-timed', '2026-04-13')).not.toBeNull();
+        });
+
+        expect(getRenderedEventOnDay('evt-multi-day-timed', '2026-04-09')).toHaveAttribute(
+            'data-calendar-meta-label',
+            '8 am - April 13 at 5 pm'
+        );
+        expect(getRenderedEventOnDay('evt-multi-day-timed', '2026-04-11')).toHaveAttribute(
+            'data-calendar-meta-label',
+            'April 9 at 8 am - April 13 at 5 pm'
+        );
+        expect(getRenderedEventOnDay('evt-multi-day-timed', '2026-04-13')).toHaveAttribute(
+            'data-calendar-meta-label',
+            'April 9 at 8 am - 5 pm today'
+        );
+    });
+
+    it('shows combined and BS-only subtitles for multi-day timed events when BS labels are enabled', async () => {
+        const bsMonthLabel = formatCommonBsMonthCompactLabel(3);
+
+        renderCalendarWithItems(
+            [
+                {
+                    id: 'evt-multi-day-bs',
+                    title: 'Spring trip',
+                    startDate: '2026-04-09T08:00:00',
+                    endDate: '2026-04-13T17:00:00',
+                    isAllDay: false,
+                },
+            ],
+            {
+                currentDate: new Date(2026, 3, 9),
+                displayBS: true,
+            }
+        );
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayVisibleDays', dayVisibleDays: 5 },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(getRenderedEventOnDay('evt-multi-day-bs', '2026-04-11')).not.toBeNull();
+        });
+
+        expect(getRenderedEventOnDay('evt-multi-day-bs', '2026-04-11')).toHaveAttribute(
+            'data-calendar-meta-label',
+            `April 9 ${bsMonthLabel} ${toDevanagariDigits(9)} at 8 am - April 13 ${bsMonthLabel} ${toDevanagariDigits(13)} at 5 pm`
+        );
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setShowGregorianCalendar', showGregorianCalendar: false },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(getRenderedEventOnDay('evt-multi-day-bs', '2026-04-11')).toHaveAttribute(
+                'data-calendar-meta-label',
+                `${bsMonthLabel} ${toDevanagariDigits(9)} at 8 am - ${bsMonthLabel} ${toDevanagariDigits(13)} at 5 pm`
+            );
+        });
+    });
+
+    it('includes the year in day-view subtitles when a timed event crosses a Gregorian year boundary', async () => {
+        renderCalendarWithItems(
+            [
+                {
+                    id: 'evt-year-break',
+                    title: 'New Year camp',
+                    startDate: '2026-12-31T23:00:00',
+                    endDate: '2027-01-02T01:00:00',
+                    isAllDay: false,
+                },
+            ],
+            {
+                currentDate: new Date(2026, 11, 31),
+            }
+        );
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayVisibleDays', dayVisibleDays: 3 },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(getRenderedEventOnDay('evt-year-break', '2027-01-01')).not.toBeNull();
+        });
+
+        expect(getRenderedEventOnDay('evt-year-break', '2027-01-01')).toHaveAttribute(
+            'data-calendar-meta-label',
+            'December 31, 2026 at 11 pm - January 2, 2027 at 1 am'
+        );
+    });
     });
 
     it('reschedules a timed event to a specific day/time in the day view', async () => {
