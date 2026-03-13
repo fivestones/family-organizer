@@ -205,6 +205,8 @@ const rules = {
 
     settings: PARENT_MUTABLE,
     taskAttachments: FAMILY_MUTABLE,
+    taskProgressAttachments: FAMILY_MUTABLE,
+    taskProgressEntries: FAMILY_MUTABLE,
     tasks: FAMILY_MUTABLE,
     taskSeries: PARENT_MUTABLE,
     timeOfDayDefinitions: PARENT_MUTABLE,

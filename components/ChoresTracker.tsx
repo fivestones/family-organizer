@@ -166,6 +166,10 @@ function ChoresTracker() {
                     parentTask: {},
                     // +++ NEW: Fetch notes and attachments for metadata display +++
                     attachments: {},
+                    progressEntries: {
+                        attachments: {},
+                        actor: {},
+                    },
                     // Note: notes is a direct field, so it comes automatically with the entity
                 },
                 familyMember: {},

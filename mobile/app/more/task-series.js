@@ -7,6 +7,7 @@ import { useAppTheme } from '../../src/theme/ThemeProvider';
 import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/SubscreenScaffold';
 import { clearPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
+import { isActionableTask, isTaskDone } from '../../../lib/task-progress';
 
 const STATUS_FILTERS = ['all', 'draft', 'pending', 'in_progress', 'archived'];
 
@@ -90,8 +91,8 @@ export default function TaskSeriesScreen() {
 
     for (const series of seriesList) {
       const tasks = series.tasks || [];
-      const nonDayBreakTasks = tasks.filter((task) => !task.isDayBreak);
-      const completedTasks = nonDayBreakTasks.filter((task) => task.isCompleted).length;
+      const actionableTasks = tasks.filter((task) => isActionableTask(task, tasks));
+      const completedTasks = actionableTasks.filter((task) => isTaskDone(task)).length;
       const assignee = firstRef(series.familyMember);
       const scheduledActivity = firstRef(series.scheduledActivity);
       const effectiveStartDate = series.startDate || scheduledActivity?.startDate || null;
@@ -101,7 +102,7 @@ export default function TaskSeriesScreen() {
         series,
         assignee,
         scheduledActivity,
-        totalTasks: nonDayBreakTasks.length,
+        totalTasks: actionableTasks.length,
         completedTasks,
         effectiveStartDate,
         lastScheduledDate,
@@ -155,7 +156,7 @@ export default function TaskSeriesScreen() {
           scheduledActivityName: info.scheduledActivity?.title || 'No linked chore',
           updatedAt: series.updatedAt,
           targetEndDate: series.targetEndDate,
-          totalTasks: info.totalTasks,
+        totalTasks: info.totalTasks,
           completedTasks: info.completedTasks,
           progress,
           status,

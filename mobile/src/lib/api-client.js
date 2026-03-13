@@ -96,6 +96,18 @@ export async function getPresignedFileUrl(fileKey) {
   return data.url;
 }
 
+export async function createMobilePresignedUpload({ filename, contentType, scope = 'task-attachment' }) {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/files/presign`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({ filename, contentType, scope }),
+  });
+  return parseJson(response);
+}
+
 export async function getAppleCalendarSyncStatus() {
   const response = await fetch(`${getApiBaseUrl()}/api/calendar-sync/apple/status`, {
     headers: {

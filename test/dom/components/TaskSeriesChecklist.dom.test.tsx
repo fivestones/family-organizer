@@ -95,7 +95,7 @@ describe('TaskSeriesChecklist', () => {
         vi.unstubAllGlobals();
     });
 
-    it('auto-completes visible header/context rows in interactive mode', () => {
+    it('shows header/context rows without auto-completing them in interactive mode', () => {
         const onToggle = vi.fn();
         const allTasks = [
             task({ id: 'parent', text: 'Kitchen Cleanup', order: 1, isCompleted: false }),
@@ -113,8 +113,8 @@ describe('TaskSeriesChecklist', () => {
             />
         );
 
-        expect(onToggle).toHaveBeenCalledWith('parent', false);
-        expect(onToggle).toHaveBeenCalledTimes(1);
+        expect(onToggle).not.toHaveBeenCalled();
+        expect(screen.getAllByText(/kitchen cleanup/i)).toHaveLength(2);
     });
 
     it('does not auto-complete headers in read-only mode and disables task checkboxes', () => {
@@ -163,11 +163,11 @@ describe('TaskSeriesChecklist', () => {
         // Notes appear in the always-rendered popover, but the metadata details section should be hidden
         const metadataSection = () => container.querySelector('.text-gray-700.whitespace-pre-wrap');
         expect(metadataSection()).not.toBeInTheDocument();
-        expect(screen.getByText(/view details/i)).toBeInTheDocument();
+        expect(screen.getByText(/view task details/i)).toBeInTheDocument();
 
-        await user.click(screen.getByText(/view details/i));
+        await user.click(screen.getByText(/view task details/i));
         expect(metadataSection()).toBeInTheDocument();
-        expect(screen.getByText(/hide details/i)).toBeInTheDocument();
+        expect(screen.getByText(/hide task details/i)).toBeInTheDocument();
     });
 
     it('shows metadata details immediately when global showDetails is enabled', () => {

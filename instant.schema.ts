@@ -233,6 +233,22 @@ const _schema = i.schema({
             updatedAt: i.date(),
             url: i.string(),
         }),
+        taskProgressAttachments: i.entity({
+            createdAt: i.string().indexed(),
+            name: i.string(),
+            type: i.string(),
+            updatedAt: i.string().indexed(),
+            url: i.string(),
+        }),
+        taskProgressEntries: i.entity({
+            actorFamilyMemberId: i.string().indexed().optional(),
+            createdAt: i.string().indexed(),
+            fromState: i.string().indexed(),
+            note: i.string().optional(),
+            restoreTiming: i.string().optional(),
+            scheduledForDate: i.string().indexed(),
+            toState: i.string().indexed(),
+        }),
         tasks: i.entity({
             createdAt: i.date().optional(),
             indentationLevel: i.number().optional(),
@@ -241,12 +257,15 @@ const _schema = i.schema({
             completedAt: i.date().optional(),
             completedOnDate: i.string().optional().indexed(),
             childTasksComplete: i.boolean().optional(),
+            deferredUntilDate: i.string().optional().indexed(),
+            lastActiveState: i.string().optional(),
             notes: i.string().optional(),
             order: i.number(),
             overrideWorkAhead: i.boolean().optional(),
             specificTime: i.string().optional(),
             text: i.string(),
             updatedAt: i.date().optional(),
+            workflowState: i.string().optional().indexed(),
         }),
         taskSeries: i.entity({
             breakDelayUnit: i.string().optional(),
@@ -465,6 +484,18 @@ const _schema = i.schema({
                 label: 'completedBy',
             },
         },
+        familyMembersTaskProgressEntries: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'taskProgressEntries',
+            },
+            reverse: {
+                on: 'taskProgressEntries',
+                has: 'one',
+                label: 'actor',
+            },
+        },
         tasksAttachments: {
             forward: {
                 on: 'tasks',
@@ -475,6 +506,30 @@ const _schema = i.schema({
                 on: 'taskAttachments',
                 has: 'one',
                 label: 'task',
+            },
+        },
+        taskProgressEntriesAttachments: {
+            forward: {
+                on: 'taskProgressEntries',
+                has: 'many',
+                label: 'attachments',
+            },
+            reverse: {
+                on: 'taskProgressAttachments',
+                has: 'one',
+                label: 'entry',
+            },
+        },
+        taskProgressEntriesTask: {
+            forward: {
+                on: 'taskProgressEntries',
+                has: 'one',
+                label: 'task',
+            },
+            reverse: {
+                on: 'tasks',
+                has: 'many',
+                label: 'progressEntries',
             },
         },
         tasksParentTask: {

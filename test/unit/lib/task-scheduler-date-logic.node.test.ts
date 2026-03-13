@@ -198,7 +198,7 @@ describe('task-scheduler date logic', () => {
 
         const txs = getRecursiveTaskCompletionTransactions('child', true, tasks, '2026-03-10') as any[];
 
-        expect(txs).toHaveLength(2);
+        expect(txs).toHaveLength(3);
         expect(txs[0]).toMatchObject({
             entity: 'tasks',
             id: 'child',
@@ -210,6 +210,14 @@ describe('task-scheduler date logic', () => {
         expect(txs[0].payload.completedAt).toBeInstanceOf(Date);
         expect(txs[0].payload.completedAt.toISOString()).toBe('2026-03-10T09:15:00.000Z');
         expect(txs[1]).toMatchObject({
+            entity: 'taskProgressEntries',
+            payload: expect.objectContaining({
+                fromState: 'not_started',
+                toState: 'done',
+                scheduledForDate: '2026-03-10',
+            }),
+        });
+        expect(txs[2]).toMatchObject({
             entity: 'tasks',
             id: 'parent',
             payload: { childTasksComplete: true },
@@ -238,11 +246,17 @@ describe('task-scheduler date logic', () => {
 
         const txs = getRecursiveTaskCompletionTransactions('child-1', true, tasks, '2026-03-10') as any[];
 
-        expect(txs).toHaveLength(1);
+        expect(txs).toHaveLength(2);
         expect(txs[0]).toMatchObject({
             entity: 'tasks',
             id: 'child-1',
             payload: expect.objectContaining({ isCompleted: true }),
+        });
+        expect(txs[1]).toMatchObject({
+            entity: 'taskProgressEntries',
+            payload: expect.objectContaining({
+                toState: 'done',
+            }),
         });
     });
 
@@ -265,7 +279,7 @@ describe('task-scheduler date logic', () => {
 
         const txs = getRecursiveTaskCompletionTransactions('child', false, tasks, '2026-03-10') as any[];
 
-        expect(txs).toHaveLength(2);
+        expect(txs).toHaveLength(3);
         expect(txs[0]).toMatchObject({
             entity: 'tasks',
             id: 'child',
@@ -276,6 +290,13 @@ describe('task-scheduler date logic', () => {
             },
         });
         expect(txs[1]).toMatchObject({
+            entity: 'taskProgressEntries',
+            payload: expect.objectContaining({
+                fromState: 'done',
+                toState: 'not_started',
+            }),
+        });
+        expect(txs[2]).toMatchObject({
             entity: 'tasks',
             id: 'parent',
             payload: { childTasksComplete: false },

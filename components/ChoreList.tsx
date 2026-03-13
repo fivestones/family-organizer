@@ -9,11 +9,14 @@ import { choreOccursOnDate } from '@/lib/chore-schedule';
 import { format } from 'date-fns';
 import ToggleableAvatar from '@/components/ui/ToggleableAvatar';
 import DetailedChoreForm from './DetailedChoreForm';
-import { tx } from '@instantdb/react';
-import { getTasksForDate, Task, getRecursiveTaskCompletionTransactions, isSeriesActiveForDate } from '@/lib/task-scheduler'; // Added getRecursiveTaskCompletionTransactions and isSeriesActiveForDate
+import { id, tx } from '@instantdb/react';
+import { getTasksForDate, Task, isSeriesActiveForDate } from '@/lib/task-scheduler';
 import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 import { useToast } from '@/components/ui/use-toast';
 import { getTaskSeriesProgress, hasScheduledChildren } from '@/lib/task-series-progress';
+import { getPresignedUploadUrl } from '@/app/actions';
+import { buildTaskProgressUpdateTransactions } from '@/lib/task-progress-mutations';
+import { getTaskBucketCounts, getTaskLastActiveState, isTaskDone } from '@/lib/task-progress';
 
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({
@@ -64,6 +67,16 @@ function ChoreList({
 
     // +++ NEW HOOK +++
     const { toast } = useToast();
+    const familyMemberNamesById = React.useMemo(
+        () =>
+            (familyMembers || []).reduce((accumulator: Record<string, string>, member: any) => {
+                if (member?.id && member?.name) {
+                    accumulator[member.id] = member.name;
+                }
+                return accumulator;
+            }, {}),
+        [familyMembers]
+    );
 
     useEffect(() => {
         if (selectedMember === 'All') {
@@ -122,6 +135,35 @@ function ChoreList({
 
     const formattedSelectedDate = safeSelectedDate.toISOString().slice(0, 10); // Use safeSelectedDate
 
+    const uploadProgressFiles = async (files: File[]) => {
+        const uploadedAttachments: Array<{ id: string; name: string; type: string; url: string }> = [];
+
+        for (const file of files) {
+            const { url, fields, key } = await getPresignedUploadUrl(file.type || 'application/octet-stream', file.name);
+            const formData = new FormData();
+            Object.entries(fields).forEach(([fieldKey, fieldValue]) => formData.append(fieldKey, fieldValue as string));
+            formData.append('file', file);
+
+            const uploadResponse = await fetch(url, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (uploadResponse.status >= 400) {
+                throw new Error(`Upload failed for ${file.name}`);
+            }
+
+            uploadedAttachments.push({
+                id: id(),
+                name: file.name,
+                type: file.type || 'application/octet-stream',
+                url: key,
+            });
+        }
+
+        return uploadedAttachments;
+    };
+
     const handleEditChore = (chore) => {
         // +++ CHECK AUTH +++
         if (!canEditChores) {
@@ -164,10 +206,92 @@ function ChoreList({
 
     // --- Task Series Logic Helpers ---
 
-    const handleTaskToggle = (taskId: string, currentStatus: boolean, allTasks: Task[]) => {
-        // FIX: Pass formattedSelectedDate (YYYY-MM-DD) to lock the completion to the viewed day
-        const transactions = getRecursiveTaskCompletionTransactions(taskId, !currentStatus, allTasks, formattedSelectedDate);
-        db.transact(transactions);
+    const handleTaskToggle = async (taskId: string, currentStatus: boolean, allTasks: Task[], chore: any) => {
+        if (!currentUser?.id) {
+            toast({ title: 'Login Required', description: 'Choose a family member before updating task status.', variant: 'destructive' });
+            return;
+        }
+
+        const targetTask = allTasks.find((task) => task.id === taskId);
+        if (!targetTask) return;
+
+        const nextState = currentStatus ? getTaskLastActiveState(targetTask) : 'done';
+        const transactions = buildTaskProgressUpdateTransactions({
+            tx,
+            createId: id,
+            taskId,
+            allTasks,
+            nextState,
+            selectedDateKey: formattedSelectedDate,
+            actorFamilyMemberId: currentUser.id,
+            schedule: {
+                startDate: chore.startDate,
+                rrule: chore.rrule || null,
+                exdates: chore.exdates || null,
+            },
+            referenceDate: safeSelectedDate,
+        });
+
+        if (transactions.length === 0) return;
+
+        try {
+            await db.transact(transactions);
+        } catch (error: any) {
+            toast({
+                title: 'Task update failed',
+                description: error?.message || 'Please try again.',
+                variant: 'destructive',
+            });
+        }
+    };
+
+    const handleTaskUpdate = async (
+        taskId: string,
+        input: {
+            nextState: any;
+            note?: string;
+            files?: File[];
+            restoreTiming?: 'now' | 'next_scheduled' | null;
+        },
+        allTasks: Task[],
+        chore: any
+    ) => {
+        if (!currentUser?.id) {
+            toast({ title: 'Login Required', description: 'Choose a family member before updating task status.', variant: 'destructive' });
+            return;
+        }
+
+        try {
+            const uploadedAttachments = input.files?.length ? await uploadProgressFiles(input.files) : [];
+            const transactions = buildTaskProgressUpdateTransactions({
+                tx,
+                createId: id,
+                taskId,
+                allTasks,
+                nextState: input.nextState,
+                selectedDateKey: formattedSelectedDate,
+                note: input.note,
+                actorFamilyMemberId: currentUser.id,
+                restoreTiming: input.restoreTiming || null,
+                schedule: {
+                    startDate: chore.startDate,
+                    rrule: chore.rrule || null,
+                    exdates: chore.exdates || null,
+                },
+                referenceDate: safeSelectedDate,
+                attachments: uploadedAttachments,
+            });
+
+            if (transactions.length === 0) return;
+
+            await db.transact(transactions);
+        } catch (error: any) {
+            toast({
+                title: 'Task update failed',
+                description: error?.message || 'Please try again.',
+                variant: 'destructive',
+            });
+        }
     };
 
     // Updated: Accepts allTasks to properly identify parent/header relationships
@@ -224,13 +348,33 @@ function ChoreList({
         if (!pendingCompletion) return;
 
         const { choreId, memberId, incompleteTaskIds } = pendingCompletion;
+        const chore = chores.find((candidate) => candidate.id === choreId);
+        if (!chore || !currentUser?.id) {
+            setPendingCompletion(null);
+            return;
+        }
 
-        // FIX: Update batch transaction to include completedOnDate
-        const transactions = incompleteTaskIds.map((tid) =>
-            tx.tasks[tid].update({
-                isCompleted: true,
-                completedAt: new Date(),
-                completedOnDate: formattedSelectedDate, // <--- SAVE IT HERE TOO
+        const targetSeries = chore.taskSeries?.find((series: any) => {
+            const owner = series.familyMember?.[0] || series.familyMember;
+            return owner?.id === memberId || !owner?.id;
+        });
+        const allTasks: Task[] = targetSeries?.tasks || [];
+
+        const transactions = incompleteTaskIds.flatMap((taskId) =>
+            buildTaskProgressUpdateTransactions({
+                tx,
+                createId: id,
+                taskId,
+                allTasks,
+                nextState: 'done',
+                selectedDateKey: formattedSelectedDate,
+                actorFamilyMemberId: currentUser.id,
+                schedule: {
+                    startDate: chore.startDate,
+                    rrule: chore.rrule || null,
+                    exdates: chore.exdates || null,
+                },
+                referenceDate: safeSelectedDate,
             })
         );
 
@@ -507,12 +651,14 @@ function ChoreList({
                                     series.startDate, // Use the Series specific start date
                                     chore.exdates || null
                                 );
+                                const bucketCounts = getTaskBucketCounts(allTasks);
+                                const hasBucketedTasks = Object.values(bucketCounts).some((count) => count > 0);
 
                                 // 4. Check if Up-For-Grabs logic disables this
                                 //    (Only applies if specific user logic is active)
                                 const isUpForGrabsDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && ownerId && ownerId !== completerIdActual;
 
-                                if (tasks.length === 0 || isUpForGrabsDisabled) return null;
+                                if ((!tasks.length && !hasBucketedTasks) || isUpForGrabsDisabled) return null;
 
                                 const seriesToggleKey = `${chore.id}:${series.id}`;
                                 const hasMoreThanTwoTasks = tasks.length > 2;
@@ -556,10 +702,13 @@ function ChoreList({
                                         <TaskSeriesChecklist
                                             tasks={visibleTasks}
                                             allTasks={allTasks}
-                                            onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks)}
+                                            onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks, chore)}
+                                            onTaskUpdate={(taskId, input) => handleTaskUpdate(taskId, input, allTasks, chore)}
+                                            familyMemberNamesById={familyMemberNamesById}
                                             isReadOnly={isPastDate}
                                             selectedMember={selectedMember} // <--- PASS DOWN FOR TOGGLE LOGIC
                                             showDetails={showDetails} // <--- Pass controlled prop (GLOBAL SETTING)
+                                            isParentReviewer={canEditChores}
                                         />
 
                                         {hasMoreThanTwoTasks && (

@@ -23,6 +23,7 @@ import {
 import { Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
+import { isActionableTask, isTaskDone } from '@/lib/task-progress';
 
 type Status = 'draft' | 'pending' | 'in_progress' | 'archived';
 
@@ -79,9 +80,9 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
         // --- First pass: compute progress & scheduling info ---
         for (const s of seriesList) {
             const tasks = s.tasks || [];
-            const nonDayBreakTasks = tasks.filter((t: any) => !t.isDayBreak);
-            const totalTasks = nonDayBreakTasks.length;
-            const completedTasks = nonDayBreakTasks.filter((t: any) => t.isCompleted).length;
+            const actionableTasks = tasks.filter((t: any) => isActionableTask(t, tasks));
+            const totalTasks = actionableTasks.length;
+            const completedTasks = actionableTasks.filter((t: any) => isTaskDone(t)).length;
 
             const hasAssignee = !!s.familyMember;
             const hasScheduledActivity = !!s.scheduledActivity;
@@ -364,6 +365,10 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                     // Reset completion
                     isCompleted: false,
                     completedAt: null,
+                    completedOnDate: null,
+                    workflowState: 'not_started',
+                    lastActiveState: 'not_started',
+                    deferredUntilDate: null,
                     createdAt: now,
                     updatedAt: now,
                 };

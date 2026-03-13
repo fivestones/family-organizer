@@ -26,7 +26,10 @@ interface Task {
     indentationLevel?: number;
     order?: number | null;
     isDayBreak?: boolean | null;
-    // ... other DB fields (notes, attachments, etc)
+    isCompleted?: boolean | null;
+    workflowState?: string | null;
+    lastActiveState?: string | null;
+    deferredUntilDate?: string | null;
     parentTask?: { id: string }[]; // Added to track existing parent
 }
 
@@ -667,6 +670,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             const textContent = isDayBreak ? '' : node.content?.[0]?.text || '';
 
             currentIds.add(taskId);
+            const existingTaskInDb = dbTasks.find((t) => t.id === taskId);
 
             // --- Determine "Leaf" vs "Parent" Status for childTasksComplete ---
             // Look ahead to the next node. If it is deeper, this node is a Parent.
@@ -687,6 +691,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 // If it's a leaf, the subtree is complete (it has no children).
                 // If it's a parent, assume incomplete (wait for children to be checked).
                 childTasksComplete: !isParent,
+                workflowState: existingTaskInDb?.workflowState ?? (existingTaskInDb?.isCompleted ? 'done' : 'not_started'),
+                lastActiveState: existingTaskInDb?.lastActiveState ?? 'not_started',
+                deferredUntilDate: existingTaskInDb?.deferredUntilDate ?? null,
             };
 
             // Upsert task
@@ -706,7 +713,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
             // 2. Determine if we need to update the parent relationship
             // Check the current DB state for this task's parent
-            const existingTaskInDb = dbTasks.find((t) => t.id === taskId);
             const existingParentId = existingTaskInDb?.parentTask?.[0]?.id;
 
             if (parent) {
