@@ -41,8 +41,8 @@ describe('MainNav', () => {
     const widthByTestId: Record<string, number> = {
         'main-nav-measure-dashboard': 96,
         'main-nav-measure-chores': 82,
+        'main-nav-measure-tasks': 78,
         'main-nav-measure-calendar': 92,
-        'main-nav-measure-task-series': 104,
         'main-nav-measure-finance': 84,
         'main-nav-measure-allowance-distribution': 162,
         'main-nav-measure-settings': 88,
@@ -131,13 +131,13 @@ describe('MainNav', () => {
 
         expect(screen.getByTestId('main-nav-link-dashboard')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-link-chores')).toBeInTheDocument();
-        expect(screen.getByTestId('main-nav-link-calendar')).toBeInTheDocument();
-        expect(screen.queryByTestId('main-nav-link-task-series')).toBeNull();
+        expect(screen.getByTestId('main-nav-link-tasks')).toBeInTheDocument();
+        expect(screen.queryByTestId('main-nav-link-calendar')).toBeNull();
         expect(screen.getByTestId('main-nav-overflow-trigger')).toBeInTheDocument();
-        expect(screen.getByTestId('main-nav-overflow-item-task-series')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-overflow-item-calendar')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-overflow-item-settings')).toBeInTheDocument();
 
-        fireEvent.click(screen.getByTestId('main-nav-overflow-item-task-series'));
-        expect(mocks.push).toHaveBeenCalledWith('/task-series');
+        fireEvent.click(screen.getByTestId('main-nav-overflow-item-calendar'));
+        expect(mocks.push).toHaveBeenCalledWith('/calendar');
     });
 });

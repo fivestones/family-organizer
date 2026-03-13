@@ -520,8 +520,8 @@ export default function WebFamilyDashboard() {
                                 <Link href="/chores" className="rounded-full border border-slate-300 px-2.5 py-1 text-slate-700 hover:bg-slate-100">
                                     Chores
                                 </Link>
-                                <Link href="/task-series" className="rounded-full border border-slate-300 px-2.5 py-1 text-slate-700 hover:bg-slate-100">
-                                    Task Series
+                                <Link href="/tasks" className="rounded-full border border-slate-300 px-2.5 py-1 text-slate-700 hover:bg-slate-100">
+                                    Tasks
                                 </Link>
                                 <Link href="/calendar" className="rounded-full border border-slate-300 px-2.5 py-1 text-slate-700 hover:bg-slate-100">
                                     Calendar

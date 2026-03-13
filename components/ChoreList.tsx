@@ -16,7 +16,9 @@ import { useToast } from '@/components/ui/use-toast';
 import { getTaskSeriesProgress, hasScheduledChildren } from '@/lib/task-series-progress';
 import { getPresignedUploadUrl } from '@/app/actions';
 import { buildTaskProgressUpdateTransactions } from '@/lib/task-progress-mutations';
-import { getTaskBucketCounts, getTaskLastActiveState, isTaskDone } from '@/lib/task-progress';
+import { getTaskBucketCounts, getTaskLastActiveState, isActionableTask, isTaskDone } from '@/lib/task-progress';
+import Link from 'next/link';
+import { cn } from '@/lib/utils';
 
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({
@@ -37,6 +39,8 @@ function ChoreList({
     canEditChores,
     showChoreDescriptions, // View Setting
     showTaskDetails, // View Setting
+    pageMode = 'chores',
+    focusedChoreId = null,
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
     const [expandedTaskSeriesByMember, setExpandedTaskSeriesByMember] = useState<Record<string, Record<string, boolean>>>({});
@@ -77,6 +81,16 @@ function ChoreList({
             }, {}),
         [familyMembers]
     );
+
+    useEffect(() => {
+        if (!focusedChoreId) return;
+        const frame = window.requestAnimationFrame(() => {
+            const element = document.getElementById(`chore-${focusedChoreId}`);
+            element?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
+
+        return () => window.cancelAnimationFrame(frame);
+    }, [focusedChoreId, chores.length]);
 
     useEffect(() => {
         if (selectedMember === 'All') {
@@ -134,6 +148,14 @@ function ChoreList({
     });
 
     const formattedSelectedDate = safeSelectedDate.toISOString().slice(0, 10); // Use safeSelectedDate
+
+    const buildTasksHref = (choreId: string) => {
+        const params = new URLSearchParams();
+        params.set('date', formattedSelectedDate);
+        params.set('member', selectedMember);
+        params.set('choreId', choreId);
+        return `/tasks?${params.toString()}#chore-${choreId}`;
+    };
 
     const uploadProgressFiles = async (files: File[]) => {
         const uploadedAttachments: Array<{ id: string; name: string; type: string; url: string }> = [];
@@ -292,6 +314,17 @@ function ChoreList({
                 variant: 'destructive',
             });
         }
+    };
+
+    const handleTaskPreviewToggle = async (task: Task, allTasks: Task[], chore: any) => {
+        await handleTaskUpdate(
+            task.id,
+            {
+                nextState: isTaskDone(task) ? 'not_started' : 'done',
+            },
+            allTasks,
+            chore
+        );
     };
 
     // Updated: Accepts allTasks to properly identify parent/header relationships
@@ -551,8 +584,17 @@ function ChoreList({
                                         Up for Grabs
                                     </span>
                                 )}
+                                {hasTaskSeries && pageMode === 'chores' && (
+                                    <Link
+                                        href={buildTasksHref(chore.id)}
+                                        className="text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full whitespace-nowrap hover:bg-sky-200 transition-colors"
+                                    >
+                                        Tasks
+                                    </Link>
+                                )}
                                 {/* Updated: Render Label for each Active Task Series */}
-                                {chore.taskSeries?.map((series: any) => {
+                                {pageMode === 'tasks' &&
+                                    chore.taskSeries?.map((series: any) => {
                                     // 1. Identify Owner
                                     const rawOwner = series.familyMember?.[0] || series.familyMember;
                                     const ownerId = rawOwner?.id;
@@ -616,118 +658,198 @@ function ChoreList({
                     );
 
                     // --- COMPONENT EXTRACTION: Render Task Series ---
-                    const renderTaskSeries = () => (
-                        <div className="flex flex-col gap-2 mt-2 w-full pl-2">
-                            {chore.taskSeries?.map((series: any) => {
-                                // 1. Identify the owner of this specific series
-                                // Handle both object (single link) and array (InstantDB relation) formats
+                    const renderTaskSeries = () => {
+                        const renderableSeries = (chore.taskSeries || [])
+                            .map((series: any) => {
                                 const rawOwner = series.familyMember?.[0] || series.familyMember;
                                 const ownerId = rawOwner?.id;
                                 const ownerName = rawOwner?.name;
 
-                                // 2. Filter Logic: Should we show this series?
-
-                                // A. If the series is assigned to a specific person,
-                                //    only show it if that person is currently assigned to the chore TODAY.
-                                //    (This hides "Bob's Series" on days where only Alice is on rotation).
                                 if (ownerId) {
                                     const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
                                     if (!isOwnerAssignedToday) return null;
                                 }
 
-                                // B. Apply the global "Selected Member" filter
-                                //    If a specific person is picked in the sidebar, hide everyone else's series.
                                 if (selectedMember !== 'All' && ownerId && ownerId !== selectedMember) {
                                     return null;
                                 }
 
-                                // 3. Calculate Tasks for this specific series
                                 const allTasks = series.tasks || [];
                                 const tasks = getTasksForDate(
                                     allTasks,
-                                    chore.rrule, // Use the Chore's recurrence
-                                    chore.startDate, // Use the Chore's start date
+                                    chore.rrule,
+                                    chore.startDate,
                                     safeSelectedDate,
-                                    series.startDate, // Use the Series specific start date
+                                    series.startDate,
                                     chore.exdates || null
                                 );
                                 const bucketCounts = getTaskBucketCounts(allTasks);
                                 const hasBucketedTasks = Object.values(bucketCounts).some((count) => count > 0);
-
-                                // 4. Check if Up-For-Grabs logic disables this
-                                //    (Only applies if specific user logic is active)
                                 const isUpForGrabsDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && ownerId && ownerId !== completerIdActual;
 
                                 if ((!tasks.length && !hasBucketedTasks) || isUpForGrabsDisabled) return null;
 
-                                const seriesToggleKey = `${chore.id}:${series.id}`;
-                                const hasMoreThanTwoTasks = tasks.length > 2;
-                                const memberKey = selectedMember === 'All' ? 'All' : selectedMember;
-                                const isExpanded = !hasMoreThanTwoTasks
-                                    ? true
-                                    : selectedMember === 'All'
-                                      ? (expandedTaskSeriesInAllView[seriesToggleKey] ?? false)
-                                      : (expandedTaskSeriesByMember[memberKey]?.[seriesToggleKey] ?? true);
-                                const visibleTasks = hasMoreThanTwoTasks && !isExpanded ? tasks.slice(0, 2) : tasks;
+                                return {
+                                    series,
+                                    ownerName,
+                                    allTasks,
+                                    tasks,
+                                    hasBucketedTasks,
+                                };
+                            })
+                            .filter(Boolean) as Array<{
+                            series: any;
+                            ownerName?: string;
+                            allTasks: Task[];
+                            tasks: Task[];
+                            hasBucketedTasks: boolean;
+                        }>;
 
-                                const handleTaskSeriesVisibilityToggle = () => {
-                                    if (!hasMoreThanTwoTasks) return;
-                                    if (selectedMember === 'All') {
-                                        setExpandedTaskSeriesInAllView((prev) => ({
+                        if (renderableSeries.length === 0) return null;
+
+                        return (
+                            <div className="flex flex-col gap-2 mt-2 w-full pl-2">
+                                {renderableSeries.map(({ series, ownerName, allTasks, tasks }) => {
+                                    const seriesToggleKey = `${chore.id}:${series.id}`;
+                                    const actionableTasks = tasks.filter((task) => isActionableTask(task, allTasks));
+                                    const previewTasks = actionableTasks.slice(0, 2);
+                                    const remainingCount = Math.max(0, actionableTasks.length - previewTasks.length);
+                                    const memberKey = selectedMember === 'All' ? 'All' : selectedMember;
+                                    const hasMoreThanTwoTasks = tasks.length > 2;
+                                    const isExpanded = !hasMoreThanTwoTasks
+                                        ? true
+                                        : selectedMember === 'All'
+                                          ? (expandedTaskSeriesInAllView[seriesToggleKey] ?? false)
+                                          : (expandedTaskSeriesByMember[memberKey]?.[seriesToggleKey] ?? true);
+                                    const visibleTasks = hasMoreThanTwoTasks && !isExpanded ? tasks.slice(0, 2) : tasks;
+
+                                    const handleTaskSeriesVisibilityToggle = () => {
+                                        if (!hasMoreThanTwoTasks) return;
+                                        if (selectedMember === 'All') {
+                                            setExpandedTaskSeriesInAllView((prev) => ({
+                                                ...prev,
+                                                [seriesToggleKey]: !isExpanded,
+                                            }));
+                                            return;
+                                        }
+
+                                        setExpandedTaskSeriesByMember((prev) => ({
                                             ...prev,
-                                            [seriesToggleKey]: !isExpanded,
+                                            [memberKey]: {
+                                                ...(prev[memberKey] || {}),
+                                                [seriesToggleKey]: !isExpanded,
+                                            },
                                         }));
-                                        return;
+                                    };
+
+                                    if (pageMode === 'chores') {
+                                        return (
+                                            <div key={series.id} className="border-t pt-2 mt-1 first:border-t-0 first:mt-0">
+                                                {selectedMember === 'All' && ownerName && assignedMembers.length > 1 && (
+                                                    <div className="mb-1 pl-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                                        {ownerName}'s Tasks
+                                                    </div>
+                                                )}
+                                                <div className="rounded-lg border border-sky-100 bg-white/80 p-2">
+                                                    {previewTasks.length > 0 ? (
+                                                        <div className="space-y-2">
+                                                            {previewTasks.map((task) => (
+                                                                <div key={task.id} className="flex items-center gap-3">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={isTaskDone(task)}
+                                                                        disabled={isPastDate}
+                                                                        onChange={() => {
+                                                                            void handleTaskPreviewToggle(task, allTasks, chore);
+                                                                        }}
+                                                                        className="h-4 w-4 rounded border border-slate-300"
+                                                                    />
+                                                                    <Link
+                                                                        href={buildTasksHref(chore.id)}
+                                                                        className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700 hover:text-sky-700 hover:underline"
+                                                                    >
+                                                                        {task.text}
+                                                                    </Link>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-xs text-muted-foreground">Open tasks for the full task-series view.</div>
+                                                    )}
+
+                                                    <div className="mt-3 flex items-center gap-3 text-[11px] font-medium">
+                                                        <Link href={buildTasksHref(chore.id)} className="text-sky-700 hover:text-sky-800 hover:underline">
+                                                            Open Tasks
+                                                        </Link>
+                                                        {remainingCount > 0 && (
+                                                            <Link href={buildTasksHref(chore.id)} className="text-sky-700 hover:text-sky-800 hover:underline">
+                                                                {remainingCount}+ more
+                                                            </Link>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
                                     }
 
-                                    setExpandedTaskSeriesByMember((prev) => ({
-                                        ...prev,
-                                        [memberKey]: {
-                                            ...(prev[memberKey] || {}),
-                                            [seriesToggleKey]: !isExpanded,
-                                        },
-                                    }));
-                                };
+                                    return (
+                                        <div key={series.id} className="border-t pt-2 mt-1 first:border-t-0 first:mt-0">
+                                            {selectedMember === 'All' && ownerName && assignedMembers.length > 1 && (
+                                                <div className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wider pl-1">
+                                                    {ownerName}'s Checklist
+                                                </div>
+                                            )}
 
-                                return (
-                                    <div key={series.id} className="border-t pt-2 mt-1 first:border-t-0 first:mt-0">
-                                        {/* Header: Only show if we are in 'All' view to distinguish lists */}
-                                        {/* FIX: Only show header if multiple people are assigned to the chore AND it's a personal list */}
-                                        {selectedMember === 'All' && ownerName && assignedMembers.length > 1 && (
-                                            <div className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wider pl-1">
-                                                {ownerName}'s Checklist
-                                            </div>
-                                        )}
-
-                                        <TaskSeriesChecklist
-                                            tasks={visibleTasks}
-                                            allTasks={allTasks}
+                                            <TaskSeriesChecklist
+                                                tasks={visibleTasks}
+                                                allTasks={allTasks}
                                             onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks, chore)}
                                             onTaskUpdate={(taskId, input) => handleTaskUpdate(taskId, input, allTasks, chore)}
+                                            canWriteTaskProgress={!!currentUser}
+                                            onRequireTaskAuth={() =>
+                                                toast({
+                                                    title: 'Login Required',
+                                                    description: 'Please log in before starting or updating task progress.',
+                                                    variant: 'destructive',
+                                                })
+                                            }
                                             familyMemberNamesById={familyMemberNamesById}
                                             isReadOnly={isPastDate}
-                                            selectedMember={selectedMember} // <--- PASS DOWN FOR TOGGLE LOGIC
-                                            showDetails={showDetails} // <--- Pass controlled prop (GLOBAL SETTING)
-                                            isParentReviewer={canEditChores}
-                                        />
+                                            selectedMember={selectedMember}
+                                            showDetails={showDetails}
+                                                isParentReviewer={canEditChores}
+                                            />
 
-                                        {hasMoreThanTwoTasks && (
-                                            <button
-                                                type="button"
-                                                className="mt-1 ml-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                                                onClick={handleTaskSeriesVisibilityToggle}
-                                            >
-                                                {isExpanded ? 'hide tasks' : 'view more'}
-                                            </button>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    );
+                                            {hasMoreThanTwoTasks && (
+                                                <button
+                                                    type="button"
+                                                    className="mt-1 ml-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                                                    onClick={handleTaskSeriesVisibilityToggle}
+                                                >
+                                                    {isExpanded ? 'hide tasks' : 'view more'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    };
+
+                    const taskSeriesContent = renderTaskSeries();
+                    if (pageMode === 'tasks' && !taskSeriesContent) {
+                        return null;
+                    }
 
                     return (
-                        <li key={chore.id} className="mb-2 p-2 bg-gray-50 rounded flex flex-col">
+                        <li
+                            key={chore.id}
+                            id={`chore-${chore.id}`}
+                            className={cn(
+                                'mb-2 flex flex-col rounded bg-gray-50 p-2',
+                                focusedChoreId === chore.id && 'ring-2 ring-sky-300 ring-offset-2 ring-offset-background'
+                            )}
+                        >
                             {/* --- DESKTOP VIEW (Hidden on Mobile) --- */}
                             <div className="hidden md:flex items-center">
                                 <div className="flex space-x-2 mr-4">{renderAvatars()}</div>
@@ -763,7 +885,7 @@ function ChoreList({
                             )}
 
                             {/* --- Task Series (Shared across views, just rendered below) --- */}
-                            {renderTaskSeries()}
+                            {taskSeriesContent}
                         </li>
                     );
                 })}

@@ -34,6 +34,8 @@ interface Props {
     allTasks: Task[];
     onToggle: (taskId: string, currentStatus: boolean) => void;
     onTaskUpdate?: (taskId: string, input: TaskChecklistUpdateInput) => Promise<void> | void;
+    canWriteTaskProgress?: boolean;
+    onRequireTaskAuth?: () => void;
     familyMemberNamesById?: Record<string, string>;
     isReadOnly?: boolean;
     selectedMember: string | null | 'All';
@@ -115,6 +117,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     allTasks,
     onToggle,
     onTaskUpdate,
+    canWriteTaskProgress = true,
+    onRequireTaskAuth,
     familyMemberNamesById,
     isReadOnly,
     showDetails,
@@ -376,6 +380,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         const isHeader = hasScheduledChildren(task.id, scheduledIds, allTasks) || !scheduledIds.has(task.id);
         const currentState = getTaskWorkflowState(task);
         const canMutate = !isReadOnly;
+        const canOpenComposer = canMutate && canWriteTaskProgress;
         const parentId = getParentId(task);
         let subtitle = null;
         let breadcrumbs = '';
@@ -446,12 +451,30 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => onTaskUpdate?.(task.id, { nextState: 'in_progress' })}
+                                    onClick={() => {
+                                        if (!canWriteTaskProgress) {
+                                            onRequireTaskAuth?.();
+                                            return;
+                                        }
+                                        onTaskUpdate?.(task.id, { nextState: 'in_progress' });
+                                    }}
                                 >
                                     Start
                                 </Button>
                             ) : null}
-                            <Button type="button" variant="outline" size="sm" onClick={() => openComposer(task)} disabled={!onTaskUpdate}>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    if (!canWriteTaskProgress) {
+                                        onRequireTaskAuth?.();
+                                        return;
+                                    }
+                                    openComposer(task);
+                                }}
+                                disabled={!onTaskUpdate && canOpenComposer}
+                            >
                                 Update
                             </Button>
                             <Button type="button" size="sm" onClick={() => onToggle(task.id, false)}>
@@ -494,7 +517,19 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                     </div>
                     {!isReadOnly ? (
                         <div className="flex flex-wrap justify-end gap-2">
-                            <Button type="button" variant="outline" size="sm" onClick={() => openComposer(task)} disabled={!onTaskUpdate}>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    if (!canWriteTaskProgress) {
+                                        onRequireTaskAuth?.();
+                                        return;
+                                    }
+                                    openComposer(task);
+                                }}
+                                disabled={!onTaskUpdate && canWriteTaskProgress}
+                            >
                                 Update
                             </Button>
                             {state === 'done' ? (

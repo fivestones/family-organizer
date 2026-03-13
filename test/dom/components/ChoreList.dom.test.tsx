@@ -72,6 +72,15 @@ vi.mock('@/components/DetailedChoreForm', () => ({
     default: ({ initialChore }: any) => <div data-testid="detailed-chore-form">Editing {initialChore?.title}</div>,
 }));
 
+vi.mock('next/link', () => ({
+    __esModule: true,
+    default: ({ href, children, ...props }: any) => (
+        <a href={typeof href === 'string' ? href : '#'} {...props}>
+            {children}
+        </a>
+    ),
+}));
+
 vi.mock('@/components/TaskSeriesChecklist', () => ({
     TaskSeriesChecklist: () => <div data-testid="task-series-checklist" />,
 }));
@@ -251,5 +260,46 @@ describe('ChoreList', () => {
 
         await user.click(screen.getByRole('button', { name: /^delete$/i }));
         expect(props.deleteChore).toHaveBeenCalledWith('chore-parent');
+    });
+
+    it('shows a simplified task preview in chores mode and links into the tasks page', () => {
+        choreListMocks.getTasksForDate.mockReturnValue([
+            { id: 'task-1', text: 'Read chapter 1', order: 1, isDayBreak: false, isCompleted: false },
+            { id: 'task-2', text: 'Answer questions', order: 2, isDayBreak: false, isCompleted: false, notes: 'Should stay hidden in preview' },
+            { id: 'task-3', text: 'Write summary', order: 3, isDayBreak: false, isCompleted: false },
+        ]);
+
+        renderChoreList({
+            pageMode: 'chores',
+            chores: [
+                makeChore({
+                    id: 'chore-1',
+                    title: 'Language Arts',
+                    taskSeries: [
+                        {
+                            id: 'series-1',
+                            name: 'ELA',
+                            tasks: [
+                                { id: 'task-1', text: 'Read chapter 1', order: 1, isDayBreak: false, isCompleted: false },
+                                { id: 'task-2', text: 'Answer questions', order: 2, isDayBreak: false, isCompleted: false, notes: 'Should stay hidden in preview' },
+                                { id: 'task-3', text: 'Write summary', order: 3, isDayBreak: false, isCompleted: false },
+                            ],
+                        },
+                    ],
+                }),
+            ],
+        });
+
+        expect(screen.getByText('Read chapter 1')).toBeInTheDocument();
+        expect(screen.getByText('Answer questions')).toBeInTheDocument();
+        expect(screen.queryByText('Write summary')).not.toBeInTheDocument();
+        expect(screen.queryByText(/should stay hidden in preview/i)).not.toBeInTheDocument();
+
+        const openTasksLink = screen.getByRole('link', { name: /open tasks/i });
+        expect(openTasksLink).toHaveAttribute('href', '/tasks?date=2026-04-02&member=All&choreId=chore-1#chore-chore-1');
+        expect(screen.getByRole('link', { name: /1\+ more/i })).toHaveAttribute(
+            'href',
+            '/tasks?date=2026-04-02&member=All&choreId=chore-1#chore-chore-1'
+        );
     });
 });

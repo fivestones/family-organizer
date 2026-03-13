@@ -197,6 +197,36 @@ describe('TaskSeriesChecklist', () => {
         expect(screen.queryByText(/view details/i)).not.toBeInTheDocument();
     });
 
+    it('blocks update actions before opening the composer when task progress auth is unavailable', async () => {
+        const user = userEvent.setup();
+        const onRequireTaskAuth = vi.fn();
+        const onToggle = vi.fn();
+        const activeTask = task({
+            id: 'task-auth',
+            text: 'Practice piano',
+            order: 1,
+        });
+
+        render(
+            <TaskSeriesChecklist
+                tasks={[activeTask] as any}
+                allTasks={[activeTask] as any}
+                onToggle={onToggle}
+                onTaskUpdate={vi.fn()}
+                canWriteTaskProgress={false}
+                onRequireTaskAuth={onRequireTaskAuth}
+                isReadOnly={false}
+                selectedMember="kid-a"
+                showDetails={false}
+            />
+        );
+
+        await user.click(screen.getByRole('button', { name: /update/i }));
+
+        expect(onRequireTaskAuth).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('dialog', { name: /task progress update/i })).not.toBeInTheDocument();
+    });
+
     it('opens a text attachment preview modal and loads full text content', async () => {
         const user = userEvent.setup();
         const onToggle = vi.fn();

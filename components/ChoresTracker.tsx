@@ -118,8 +118,20 @@ interface ChoreCompletion {
 // The local schema was missing 'tasks' and 'taskSeries', causing the Save Failed error.
 // We now use the imported `db` which uses the full `instant.schema.ts`.
 
-function ChoresTracker() {
-    const [selectedMember, setSelectedMember] = useState<string>('All');
+interface ChoresTrackerProps {
+    pageMode?: 'chores' | 'tasks';
+    initialSelectedMember?: string | null;
+    initialSelectedDate?: string | null;
+    focusedChoreId?: string | null;
+}
+
+function ChoresTracker({
+    pageMode = 'chores',
+    initialSelectedMember = null,
+    initialSelectedDate = null,
+    focusedChoreId = null,
+}: ChoresTrackerProps) {
+    const [selectedMember, setSelectedMember] = useState<string>(initialSelectedMember || 'All');
     const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
     // --- Remove state for simple add form ---
     // const [newChoreTitle, setNewChoreTitle] = useState<string>('');
@@ -127,6 +139,12 @@ function ChoresTracker() {
     const [isDetailedChoreModalOpen, setIsDetailedChoreModalOpen] = useState(false);
     const [editingTaskSeriesId, setEditingTaskSeriesId] = useState<string | null>(null);
     const [selectedDate, setSelectedDate] = useState<Date>(() => {
+        if (initialSelectedDate) {
+            const parsed = new Date(`${initialSelectedDate}T00:00:00Z`);
+            if (!Number.isNaN(parsed.getTime())) {
+                return parsed;
+            }
+        }
         const now = new Date();
         return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     });
@@ -139,6 +157,20 @@ function ChoresTracker() {
     // +++ NEW: Get Auth +++
     const { currentUser } = useAuth();
     const { isParentMode } = useParentMode();
+
+    React.useEffect(() => {
+        if (initialSelectedMember) {
+            setSelectedMember(initialSelectedMember);
+        }
+    }, [initialSelectedMember]);
+
+    React.useEffect(() => {
+        if (!initialSelectedDate) return;
+        const parsed = new Date(`${initialSelectedDate}T00:00:00Z`);
+        if (!Number.isNaN(parsed.getTime())) {
+            setSelectedDate(parsed);
+        }
+    }, [initialSelectedDate]);
 
     // **** UPDATED QUERY: Fetch members + linked envelopes, chores, and unit definitions ****
     const { isLoading, error, data } = db.useQuery({
@@ -643,6 +675,9 @@ function ChoresTracker() {
             console.warn('Skipping invalid chore object:', chore);
             return false;
         }
+        if (pageMode === 'tasks' && (!chore.taskSeries || chore.taskSeries.length === 0)) {
+            return false;
+        }
         const assignedMembers = getAssignedMembersForChoreOnDate(chore, selectedDate);
         if (selectedMember === 'All') {
             // Show if anyone is assigned on this date
@@ -656,6 +691,10 @@ function ChoresTracker() {
     // +++ Logic for Add Button +++
     const isParent = isParentMode;
     const canAddChore = isParent;
+    const pageTitle = pageMode === 'tasks' ? 'Tasks' : 'Chores';
+    const selectedMemberName = familyMembers.find((m) => m.id === selectedMember)?.name;
+    const pageHeading =
+        selectedMember === 'All' ? `All ${pageTitle}` : `${selectedMemberName || 'Selected Member'}'s ${pageTitle}`;
 
     // +++ Persistence for View Settings +++
     // We assume 'currentUser' is available and synced with familyMembers in the DB.
@@ -707,12 +746,20 @@ function ChoresTracker() {
                     {/* Header Removed (Menu title) */}
 
                     {/* 1. Top Buttons Grid */}
-                    <div className="grid grid-cols-3 gap-3 mb-2 shrink-0">
+                    <div className="grid grid-cols-4 gap-3 mb-2 shrink-0">
                         {/* Chores Button */}
-                        <Link href="/" onClick={() => setIsMobileMenuOpen(false)}>
+                        <Link href="/chores" onClick={() => setIsMobileMenuOpen(false)}>
                             <Button variant="outline" className="w-full flex flex-col h-auto py-3 gap-1 hover:bg-accent/50">
                                 <CheckSquare className="h-6 w-6 text-primary" />
                                 <span className="text-xs font-medium">Chores</span>
+                            </Button>
+                        </Link>
+
+                        {/* Tasks Button */}
+                        <Link href="/tasks" onClick={() => setIsMobileMenuOpen(false)}>
+                            <Button variant="outline" className="w-full flex flex-col h-auto py-3 gap-1 hover:bg-accent/50">
+                                <ListTodo className="h-6 w-6 text-blue-600" />
+                                <span className="text-xs font-medium">Tasks</span>
                             </Button>
                         </Link>
 
@@ -790,11 +837,9 @@ function ChoresTracker() {
                         </Button>
 
                         <div className="flex flex-col gap-2">
-                            <h2 className="text-lg md:text-xl font-bold whitespace-nowrap">
-                                {selectedMember === 'All' ? 'All Chores' : `${familyMembers.find((m) => m.id === selectedMember)?.name}'s Chores`}
-                            </h2>
+                            <h2 className="text-lg md:text-xl font-bold whitespace-nowrap">{pageHeading}</h2>
 
-                            <div className="flex-shrink-0">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
                                     {/* +++ Use RestrictedButton Trigger Logic +++ */}
                                     {canAddChore ? (
@@ -825,6 +870,14 @@ function ChoresTracker() {
                                         />
                                     </DialogContent>
                                 </Dialog>
+
+                                {pageMode === 'tasks' && isParent ? (
+                                    <Link href="/task-series">
+                                        <Button variant="outline" size="sm">
+                                            <ListTodo className="mr-2 h-4 w-4" /> Manage Series
+                                        </Button>
+                                    </Link>
+                                ) : null}
                             </div>
                         </div>
                     </div>
@@ -919,6 +972,8 @@ function ChoresTracker() {
                                 canEditChores={isParent} // Only parents can edit/delete
                                 showChoreDescriptions={showChoreDescriptions}
                                 showTaskDetails={showTaskDetails}
+                                pageMode={pageMode}
+                                focusedChoreId={focusedChoreId}
                             />
                             {/* Optional: Add back allowance balance display if needed */}
                             {/* {selectedMember !== 'All' && ( ... allowance display ... )} */}

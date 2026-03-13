@@ -403,4 +403,50 @@ describe('ChoresTracker', () => {
         expect(addChoreRestricted).toHaveAttribute('data-restricted', 'true');
         expect(addChoreRestricted).toHaveAttribute('data-restriction-message', 'Only parents can add chores.');
     });
+
+    it('supports tasks page mode with initial member/date focus props', async () => {
+        choreTrackerMocks.dbState.data = makeData({
+            chores: [
+                {
+                    id: 'task-chore',
+                    title: 'Tasked Chore',
+                    startDate: '2026-04-03',
+                    done: false,
+                    rrule: null,
+                    assignees: [{ id: 'kid-b', name: 'Blair' }],
+                    rotationType: 'none',
+                    completions: [],
+                    taskSeries: [{ id: 'series-1', name: 'Series 1', tasks: [] }],
+                },
+                {
+                    id: 'plain-chore',
+                    title: 'Plain Chore',
+                    startDate: '2026-04-03',
+                    done: false,
+                    rrule: null,
+                    assignees: [{ id: 'kid-b', name: 'Blair' }],
+                    rotationType: 'none',
+                    completions: [],
+                    taskSeries: [],
+                },
+            ],
+        });
+
+        render(
+            <ChoresTracker
+                pageMode="tasks"
+                initialSelectedMember="kid-b"
+                initialSelectedDate="2026-04-03"
+                focusedChoreId="task-chore"
+            />
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText("Blair's Tasks")).toBeInTheDocument();
+        });
+        expect(choreTrackerMocks.lastChoreListProps.pageMode).toBe('tasks');
+        expect(choreTrackerMocks.lastChoreListProps.focusedChoreId).toBe('task-chore');
+        expect(screen.getByTestId('chore-list-chores')).toHaveTextContent('Tasked Chore');
+        expect(screen.getByTestId('chore-list-chores')).not.toHaveTextContent('Plain Chore');
+    });
 });

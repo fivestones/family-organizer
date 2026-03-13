@@ -17,8 +17,8 @@ const NAV_LINK_GAP_PX = 8;
 const NAV_LINKS = [
     { href: '/', label: 'Dashboard' },
     { href: '/chores', label: 'Chores' },
+    { href: '/tasks', label: 'Tasks' },
     { href: '/calendar', label: 'Calendar' },
-    { href: '/task-series', label: 'Task Series' },
     { href: '/familyMemberDetail', label: 'Finance' },
     { href: '/allowance-distribution', label: 'Allowance Distribution' },
     { href: '/settings', label: 'Settings' },
