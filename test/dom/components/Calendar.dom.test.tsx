@@ -3,7 +3,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CALENDAR_COMMAND_EVENT } from '@/lib/calendar-controls';
+import { CALENDAR_COMMAND_EVENT, CALENDAR_STATE_EVENT } from '@/lib/calendar-controls';
 import { formatCommonBsMonthCompactLabel, formatCommonBsMonthLabel, toDevanagariDigits } from '@/lib/calendar-display';
 
 const mocks = vi.hoisted(() => ({
@@ -966,6 +966,12 @@ describe('Calendar', () => {
     });
 
     it('renders two stacked day rows without crashing when the second row option is enabled', async () => {
+        const receivedStates: any[] = [];
+        const handleState = (event: Event) => {
+            receivedStates.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_STATE_EVENT, handleState);
+
         renderCalendarWithItems([]);
 
         act(() => {
@@ -991,12 +997,64 @@ describe('Calendar', () => {
         });
 
         await waitFor(() => {
-            expect(screen.getByText('March 2026')).toBeInTheDocument();
+            expect(receivedStates.at(-1)?.currentPeriodLabel?.title).toBe('March 2026');
         });
         expect(screen.getAllByTestId('day-view-header-2026-03-15').length).toBeGreaterThan(0);
         expect(screen.getAllByTestId('day-view-header-2026-03-18').length).toBeGreaterThan(0);
         expect(screen.getByTestId('day-view-vertical-scroller-0')).toBeInTheDocument();
         expect(screen.getByTestId('day-view-vertical-scroller-1')).toBeInTheDocument();
+
+        window.removeEventListener(CALENDAR_STATE_EVENT, handleState);
+    });
+
+    it('publishes a year-range header label through calendar state in year view', async () => {
+        const receivedStates: any[] = [];
+        const handleState = (event: Event) => {
+            receivedStates.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_STATE_EVENT, handleState);
+
+        renderCalendarWithItems([]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'year' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(receivedStates.at(-1)?.viewMode).toBe('year');
+            expect(receivedStates.at(-1)?.currentPeriodLabel?.title).toBe('2025 - 2028');
+        });
+
+        window.removeEventListener(CALENDAR_STATE_EVENT, handleState);
+    });
+
+    it('publishes an agenda-range header label through calendar state in agenda view', async () => {
+        const receivedStates: any[] = [];
+        const handleState = (event: Event) => {
+            receivedStates.push((event as CustomEvent).detail);
+        };
+        window.addEventListener(CALENDAR_STATE_EVENT, handleState);
+
+        renderCalendarWithItems([]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'agenda' },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(receivedStates.at(-1)?.viewMode).toBe('agenda');
+            expect(receivedStates.at(-1)?.currentPeriodLabel?.title).toBe('March - July 2026');
+        });
+
+        window.removeEventListener(CALENDAR_STATE_EVENT, handleState);
     });
 
     it('renders a multi-day all-day event as one chip per visible row segment instead of one chip per day', async () => {
@@ -1035,6 +1093,28 @@ describe('Calendar', () => {
         await waitFor(() => {
             expect(screen.getAllByTestId('calendar-event-evt-multi-day')).toHaveLength(2);
         });
+    });
+
+    it('keeps the day-view hour gutter perfectly aligned with vertical scrolling', async () => {
+        renderCalendarWithItems([]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+        });
+
+        const scroller = await screen.findByTestId('day-view-vertical-scroller-0');
+        const gutterInner = await screen.findByTestId('day-view-time-gutter-inner-0');
+
+        act(() => {
+            scroller.scrollTop = 420;
+            fireEvent.scroll(scroller);
+        });
+
+        expect((gutterInner as HTMLElement).style.transform).toBe('translate3d(0, -420px, 0)');
     });
 
     it('shows contextual Gregorian subtitles for multi-day timed events in day view', async () => {

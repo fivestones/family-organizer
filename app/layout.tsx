@@ -125,18 +125,17 @@ export default function RootLayout({
                 <InstantFamilySessionProvider>
                     <AuthProvider>
                         {/* +++ Global Header +++ */}
-                        <header className="flex items-center justify-between px-6 py-3 border-b bg-card">
-                            <div className="flex items-center gap-6">
-                                <Link href="/" className="text-xl font-bold tracking-tight hover:opacity-80 transition-opacity">
+                        <header className="flex items-center justify-between gap-3 border-b bg-card px-4 py-3 sm:px-6">
+                            <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-6">
+                                <Link
+                                    href="/"
+                                    className="shrink-0 whitespace-nowrap text-lg font-bold tracking-tight transition-opacity hover:opacity-80 sm:text-xl"
+                                >
                                     Family Organizer
                                 </Link>
-                                {/* +++ Swapped inline nav for the new Client Component +++ */}
-                                {/* +++ FIX: Wrap MainNav in hidden md:block to explicitly hide on mobile +++ */}
-                                <div className="hidden md:block">
-                                    <MainNav />
-                                </div>
+                                <MainNav className="min-w-0 flex-1" />
                             </div>
-                            <div className="flex items-center gap-3">
+                            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                                 <CalendarHeaderControls />
                                 <SyncStatusBadge />
                                 <NavbarDate />

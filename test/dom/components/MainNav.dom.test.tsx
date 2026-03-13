@@ -1,68 +1,143 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-    pathnameState: {
-        pathname: '/',
-    },
+    pathname: '/calendar',
+    push: vi.fn(),
+    resizeObservers: [] as Array<{ callback: ResizeObserverCallback }>,
 }));
 
 vi.mock('next/navigation', () => ({
-    usePathname: () => mocks.pathnameState.pathname,
+    usePathname: () => mocks.pathname,
+    useRouter: () => ({
+        push: mocks.push,
+    }),
 }));
 
-vi.mock('next/link', () => ({
-    default: ({ href, onClick, children }: any) => (
-        <a
-            href={href}
-            onClick={(e) => {
-                e.preventDefault();
-                onClick?.(e);
-            }}
+vi.mock('@/components/ui/dropdown-menu', () => ({
+    DropdownMenu: ({ children }: any) => <div>{children}</div>,
+    DropdownMenuTrigger: ({ children }: any) => <>{children}</>,
+    DropdownMenuContent: ({ children }: any) => <div>{children}</div>,
+    DropdownMenuItem: ({ children, onSelect, ...props }: any) => (
+        <button
+            type="button"
+            onClick={() => onSelect?.()}
+            {...props}
         >
             {children}
-        </a>
+        </button>
     ),
 }));
 
 import { MainNav } from '@/components/MainNav';
 
-function classTokens(element: HTMLElement) {
-    return element.className.split(/\s+/).filter(Boolean);
-}
-
 describe('MainNav', () => {
+    const originalResizeObserver = global.ResizeObserver;
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+
+    const widthByTestId: Record<string, number> = {
+        'main-nav-measure-dashboard': 96,
+        'main-nav-measure-chores': 82,
+        'main-nav-measure-calendar': 92,
+        'main-nav-measure-task-series': 104,
+        'main-nav-measure-finance': 84,
+        'main-nav-measure-allowance-distribution': 162,
+        'main-nav-measure-settings': 88,
+        'main-nav-measure-trigger': 36,
+    };
+
+    const triggerResizeObservers = () => {
+        mocks.resizeObservers.forEach(({ callback }) => {
+            callback([], {} as ResizeObserver);
+        });
+    };
+
     beforeEach(() => {
-        mocks.pathnameState.pathname = '/';
+        mocks.pathname = '/calendar';
+        mocks.push.mockReset();
+        mocks.resizeObservers = [];
+
+        class MockResizeObserver {
+            callback: ResizeObserverCallback;
+
+            constructor(callback: ResizeObserverCallback) {
+                this.callback = callback;
+                mocks.resizeObservers.push({ callback });
+            }
+
+            observe() {}
+
+            disconnect() {}
+
+            unobserve() {}
+        }
+
+        global.ResizeObserver = MockResizeObserver as typeof ResizeObserver;
+        HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+            const testId = this.getAttribute('data-testid') || '';
+            const width = widthByTestId[testId] ?? 0;
+            return {
+                width,
+                height: 36,
+                top: 0,
+                left: 0,
+                right: width,
+                bottom: 36,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            } as DOMRect;
+        };
     });
 
-    it('marks the root dashboard link active only on exact root path', () => {
-        const { rerender } = render(<MainNav />);
-
-        expect(classTokens(screen.getByRole('button', { name: /dashboard/i }))).toContain('bg-accent');
-
-        mocks.pathnameState.pathname = '/calendar';
-        rerender(<MainNav />);
-
-        expect(classTokens(screen.getByRole('button', { name: /dashboard/i }))).not.toContain('bg-accent');
-        expect(classTokens(screen.getByRole('button', { name: /calendar/i }))).toContain('bg-accent');
+    afterEach(() => {
+        global.ResizeObserver = originalResizeObserver;
+        HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
     });
 
-    it('uses prefix matching for nested section routes', () => {
-        mocks.pathnameState.pathname = '/task-series/new';
+    it('shows all links inline when there is enough horizontal space', () => {
         render(<MainNav />);
 
-        expect(classTokens(screen.getByRole('button', { name: /task series/i }))).toContain('bg-accent');
+        const container = screen.getByTestId('main-nav-container');
+        Object.defineProperty(container, 'clientWidth', {
+            configurable: true,
+            value: 900,
+        });
+
+        act(() => {
+            triggerResizeObservers();
+        });
+
+        expect(screen.getByTestId('main-nav-link-dashboard')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-link-settings')).toBeInTheDocument();
+        expect(screen.queryByTestId('main-nav-overflow-trigger')).toBeNull();
     });
 
-    it('calls onNavigate when a nav link is clicked', () => {
-        const onNavigate = vi.fn();
-        render(<MainNav onNavigate={onNavigate} />);
+    it('keeps the leftmost links visible and moves only the overflowing tail into the hamburger menu', () => {
+        render(<MainNav />);
 
-        fireEvent.click(screen.getByRole('link', { name: /calendar/i }));
-        expect(onNavigate).toHaveBeenCalledTimes(1);
+        const container = screen.getByTestId('main-nav-container');
+        Object.defineProperty(container, 'clientWidth', {
+            configurable: true,
+            value: 360,
+        });
+
+        act(() => {
+            triggerResizeObservers();
+        });
+
+        expect(screen.getByTestId('main-nav-link-dashboard')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-link-chores')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-link-calendar')).toBeInTheDocument();
+        expect(screen.queryByTestId('main-nav-link-task-series')).toBeNull();
+        expect(screen.getByTestId('main-nav-overflow-trigger')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-overflow-item-task-series')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-overflow-item-settings')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId('main-nav-overflow-item-task-series'));
+        expect(mocks.push).toHaveBeenCalledWith('/task-series');
     });
 });

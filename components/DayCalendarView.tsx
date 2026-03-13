@@ -282,41 +282,6 @@ function dateAtMinute(day: Date, minute: number) {
     return new Date(startOfDayDate(day).getTime() + minute * 60 * 1000);
 }
 
-function buildGregorianHeaderLabel(start: Date, end: Date) {
-    const sameMonth = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth();
-    if (sameMonth) {
-        return `${start.toLocaleDateString(undefined, { month: 'long' })} ${start.getFullYear()}`;
-    }
-
-    const sameYear = start.getFullYear() === end.getFullYear();
-    if (sameYear) {
-        return `${start.toLocaleDateString(undefined, { month: 'long' })} - ${end.toLocaleDateString(undefined, { month: 'long' })} ${start.getFullYear()}`;
-    }
-
-    return `${start.toLocaleDateString(undefined, { month: 'short' })} ${start.getFullYear()} - ${end.toLocaleDateString(undefined, { month: 'short' })} ${end.getFullYear()}`;
-}
-
-function buildBsHeaderLabel(start: Date, end: Date) {
-    try {
-        const startBs = new NepaliDate(start);
-        const endBs = new NepaliDate(end);
-        const startMonth = `${NEPALI_MONTHS_COMMON_DEVANAGARI[startBs.getMonth()] || ''} ${NEPALI_MONTHS_COMMON_ROMAN[startBs.getMonth()] || ''}`.trim();
-        const endMonth = `${NEPALI_MONTHS_COMMON_DEVANAGARI[endBs.getMonth()] || ''} ${NEPALI_MONTHS_COMMON_ROMAN[endBs.getMonth()] || ''}`.trim();
-        const startYear = toDevanagariDigits(startBs.getYear());
-        const endYear = toDevanagariDigits(endBs.getYear());
-        const sameMonth = startBs.getYear() === endBs.getYear() && startBs.getMonth() === endBs.getMonth();
-        if (sameMonth) {
-            return `${startMonth} ${startYear}`.trim();
-        }
-        if (startBs.getYear() === endBs.getYear()) {
-            return `${startMonth} - ${endMonth} ${startYear}`.trim();
-        }
-        return `${startMonth} ${startYear} - ${endMonth} ${endYear}`.trim();
-    } catch {
-        return '';
-    }
-}
-
 function determineAllDayLaneCap(containerHeight: number | null) {
     if (!containerHeight || containerHeight < 680) return 2;
     if (containerHeight < 940) return 3;
@@ -626,11 +591,11 @@ export default function DayCalendarView({
     const topViewportRefs = useRef<Array<HTMLDivElement | null>>([]);
     const bodyHorizontalViewportRefs = useRef<Array<HTMLDivElement | null>>([]);
     const bodyVerticalScrollRefs = useRef<Array<HTMLDivElement | null>>([]);
+    const timeGutterInnerRefs = useRef<Array<HTMLDivElement | null>>([]);
     const horizontalAnchorTimerRef = useRef<number | null>(null);
     const suppressAnchorSyncRef = useRef(false);
     const horizontalSyncLockRef = useRef(false);
     const [viewportWidth, setViewportWidth] = useState(0);
-    const [verticalScrollTopByRow, setVerticalScrollTopByRow] = useState<number[]>(() => Array.from({ length: rowCount }, () => 0));
     const [draftState, setDraftState] = useState<DraftState | null>(null);
     const [resizePreview, setResizePreview] = useState<{ segmentKey: string; startMs: number; endMs: number } | null>(null);
     const resizeStateRef = useRef<ResizeState | null>(null);
@@ -662,6 +627,16 @@ export default function DayCalendarView({
             })),
         [renderedDays, rowCount, visibleDayCount]
     );
+
+    function syncTimeGutterOffset(rowIndex: number, scrollTop: number) {
+        const gutterInner = timeGutterInnerRefs.current[rowIndex];
+        if (!gutterInner) return;
+
+        const nextTransform = `translate3d(0, ${-scrollTop}px, 0)`;
+        if (gutterInner.style.transform !== nextTransform) {
+            gutterInner.style.transform = nextTransform;
+        }
+    }
 
     useEffect(() => {
         const interval = window.setInterval(() => setNow(new Date()), 60 * 1000);
@@ -707,20 +682,13 @@ export default function DayCalendarView({
 
     useLayoutEffect(() => {
         const nextTop = DAY_VIEW_DEFAULT_START_HOUR * effectiveHourHeight;
-        bodyVerticalScrollRefs.current.forEach((verticalScroller) => {
+        bodyVerticalScrollRefs.current.forEach((verticalScroller, rowIndex) => {
             if (verticalScroller) {
                 verticalScroller.scrollTop = nextTop;
             }
+            syncTimeGutterOffset(rowIndex, nextTop);
         });
-        setVerticalScrollTopByRow(Array.from({ length: rowCount }, () => nextTop));
     }, [effectiveHourHeight, rowCount, verticalResetKey]);
-
-    useEffect(() => {
-        setVerticalScrollTopByRow((current) => {
-            if (current.length === rowCount) return current;
-            return Array.from({ length: rowCount }, (_unused, index) => current[index] ?? 0);
-        });
-    }, [rowCount]);
 
     useEffect(() => {
         if (!scrollRequest || dayWidth <= 0) return;
@@ -752,9 +720,6 @@ export default function DayCalendarView({
         if (verticalScroller) {
             verticalScroller.scrollTo({ top: nextTop, behavior: 'smooth' });
         }
-        setVerticalScrollTopByRow((current) =>
-            Array.from({ length: rowCount }, (_unused, index) => (index === rowIndex ? nextTop : current[index] ?? 0))
-        );
     }, [allDayLaneHeightPx, dayWidth, effectiveHourHeight, renderedDayMap, rowContainerHeight, rowCount, scrollRequest, visibleDayCount, visibleStartKey]);
 
     useEffect(() => {
@@ -1059,15 +1024,6 @@ export default function DayCalendarView({
             top: ((now.getHours() * 60 + now.getMinutes()) / 60) * effectiveHourHeight,
         };
     }, [effectiveHourHeight, now, renderedDayMap]);
-    const visibleRangeHeader = useMemo(() => {
-        const visibleStart = anchorDate;
-        const visibleEnd = addDays(anchorDate, visibleDayCount * rowCount - 1);
-        return {
-            gregorian: buildGregorianHeaderLabel(visibleStart, visibleEnd),
-            bs: buildBsHeaderLabel(visibleStart, visibleEnd),
-        };
-    }, [anchorDate, rowCount, visibleDayCount]);
-
     const handleHorizontalScroll = (sourceIndex: number) => {
         const viewport = bodyHorizontalViewportRefs.current[sourceIndex];
         if (!viewport) return;
@@ -1138,7 +1094,6 @@ export default function DayCalendarView({
     return (
         <div className={styles.dayViewShell}>
             {rowDescriptors.map(({ rowIndex, rowOffset, rowDays }) => {
-                const rowScrollTop = verticalScrollTopByRow[rowIndex] ?? 0;
                 const rowTrackWidth = rowDays.length * dayWidth;
                 const visibleRowEndCol = rowOffset + rowDays.length - 1;
                 const rowVisibleLaneCount = allDayVisibleLanes.reduce((count, lane) => {
@@ -1166,15 +1121,7 @@ export default function DayCalendarView({
                     <div key={`day-view-row-${rowIndex}`} className={styles.dayViewRowSection}>
                         <div className={styles.dayViewTopRow}>
                             <div className={styles.dayViewTimeHeaderSpacer} style={{ width: `${DAY_VIEW_HOUR_LABEL_WIDTH_PX}px` }}>
-                                <div className={styles.dayViewTimeHeaderLabel}>
-                                    {rowIndex === 0
-                                        ? effectiveShowGregorianCalendar && effectiveShowBsCalendar
-                                            ? `${visibleRangeHeader.gregorian}\n${visibleRangeHeader.bs}`
-                                            : effectiveShowBsCalendar
-                                            ? visibleRangeHeader.bs
-                                            : visibleRangeHeader.gregorian
-                                        : ''}
-                                </div>
+                                <div className={styles.dayViewTimeHeaderLabel} />
                             </div>
                             <div
                                 ref={(node) => {
@@ -1328,10 +1275,17 @@ export default function DayCalendarView({
                             <div className={styles.dayViewBodyRow}>
                             <div className={styles.dayViewTimeGutter} style={{ width: `${DAY_VIEW_HOUR_LABEL_WIDTH_PX}px`, height: `${rowTimedViewportHeight}px` }}>
                                 <div
+                                    ref={(node) => {
+                                        timeGutterInnerRefs.current[rowIndex] = node;
+                                        if (node) {
+                                            const nextScrollTop = bodyVerticalScrollRefs.current[rowIndex]?.scrollTop ?? DAY_VIEW_DEFAULT_START_HOUR * effectiveHourHeight;
+                                            node.style.transform = `translate3d(0, ${-nextScrollTop}px, 0)`;
+                                        }
+                                    }}
+                                    data-testid={`day-view-time-gutter-inner-${rowIndex}`}
                                     className={styles.dayViewTimeGutterInner}
                                     style={{
                                         height: `${gridHeight}px`,
-                                        transform: `translateY(${-rowScrollTop}px)`,
                                     }}
                                 >
                                     {hourLabels.map((hour) => (
@@ -1363,11 +1317,7 @@ export default function DayCalendarView({
                                         style={{ height: `${rowTimedViewportHeight}px` }}
                                         onScroll={(event) => {
                                             const nextScrollTop = event.currentTarget.scrollTop;
-                                            setVerticalScrollTopByRow((current) => {
-                                                const next = [...current];
-                                                next[rowIndex] = nextScrollTop;
-                                                return next;
-                                            });
+                                            syncTimeGutterOffset(rowIndex, nextScrollTop);
                                         }}
                                     >
                                         <div className={styles.dayViewTimedGrid} style={{ width: `${rowTrackWidth}px`, height: `${gridHeight}px` }}>

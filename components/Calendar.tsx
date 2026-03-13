@@ -1294,32 +1294,56 @@ const Calendar = ({
         };
     }, []);
 
-    const currentPeriodLabel = useMemo(() => {
-        if (viewMode !== 'monthly') {
-            return {
-                visible: false,
-                title: '',
-                subtitle: '',
-            };
+    const buildGregorianRangeLabel = useCallback((start: Date, end: Date) => {
+        const sameMonth = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth();
+        if (sameMonth) {
+            return `${start.toLocaleDateString(undefined, { month: 'long' })} ${start.getFullYear()}`;
         }
 
-        const titleParts = [
-            effectiveShowGregorianCalendar ? `${activeMonthLabel.gregorianMonth} ${activeMonthLabel.gregorianYear}` : '',
-            !effectiveShowGregorianCalendar && effectiveShowBsCalendar
-                ? `${activeMonthLabel.nepaliMonth} ${activeMonthLabel.nepaliYearDevanagari}`
-                : '',
-        ].filter(Boolean);
-        const subtitle =
-            effectiveShowGregorianCalendar && effectiveShowBsCalendar
-                ? `${activeMonthLabel.nepaliMonth} ${activeMonthLabel.nepaliYearDevanagari}`
-                : '';
+        const sameYear = start.getFullYear() === end.getFullYear();
+        if (sameYear) {
+            return `${start.toLocaleDateString(undefined, { month: 'long' })} - ${end.toLocaleDateString(undefined, { month: 'long' })} ${start.getFullYear()}`;
+        }
 
-        return {
-            visible: titleParts.length > 0,
-            title: titleParts.join(' • '),
-            subtitle,
-        };
-    }, [activeMonthLabel, effectiveShowBsCalendar, effectiveShowGregorianCalendar, viewMode]);
+        return `${start.toLocaleDateString(undefined, { month: 'short' })} ${start.getFullYear()} - ${end.toLocaleDateString(undefined, { month: 'short' })} ${end.getFullYear()}`;
+    }, []);
+
+    const buildBsRangeLabel = useCallback((start: Date, end: Date) => {
+        try {
+            const startBs = new NepaliDate(start);
+            const endBs = new NepaliDate(end);
+            const startMonth = `${NEPALI_MONTHS_COMMON_DEVANAGARI[startBs.getMonth()] || ''} (${NEPALI_MONTHS_COMMON_ROMAN[startBs.getMonth()] || ''})`.trim();
+            const endMonth = `${NEPALI_MONTHS_COMMON_DEVANAGARI[endBs.getMonth()] || ''} (${NEPALI_MONTHS_COMMON_ROMAN[endBs.getMonth()] || ''})`.trim();
+            const startYear = toDevanagariDigits(startBs.getYear());
+            const endYear = toDevanagariDigits(endBs.getYear());
+            const sameMonth = startBs.getYear() === endBs.getYear() && startBs.getMonth() === endBs.getMonth();
+            if (sameMonth) {
+                return `${startMonth} ${startYear}`.trim();
+            }
+            if (startBs.getYear() === endBs.getYear()) {
+                return `${startMonth} - ${endMonth} ${startYear}`.trim();
+            }
+            return `${startMonth} ${startYear} - ${endMonth} ${endYear}`.trim();
+        } catch {
+            return '';
+        }
+    }, []);
+
+    const buildGregorianYearRangeLabel = useCallback((start: Date, end: Date) => {
+        const startYear = format(start, 'yyyy');
+        const endYear = format(end, 'yyyy');
+        return startYear === endYear ? startYear : `${startYear} - ${endYear}`;
+    }, []);
+
+    const buildBsYearRangeLabel = useCallback((start: Date, end: Date) => {
+        try {
+            const startYear = toDevanagariDigits(new NepaliDate(start).getYear());
+            const endYear = toDevanagariDigits(new NepaliDate(end).getYear());
+            return startYear === endYear ? startYear : `${startYear} - ${endYear}`;
+        } catch {
+            return '';
+        }
+    }, []);
 
     useEffect(() => {
         if (isMiniInfinite && viewMode !== 'monthly') {
@@ -1446,6 +1470,60 @@ const Calendar = ({
         [dayRenderedStartDate, dayRowCount, dayVisibleDays]
     );
     const dayRenderedEndDate = dayRenderedDays[dayRenderedDays.length - 1] ?? dayRenderedStartDate;
+    const currentPeriodLabel = useMemo(() => {
+        let gregorianTitle = '';
+        let bsTitle = '';
+
+        if (viewMode === 'monthly') {
+            gregorianTitle = `${activeMonthLabel.gregorianMonth} ${activeMonthLabel.gregorianYear}`;
+            bsTitle = `${activeMonthLabel.nepaliMonth} ${activeMonthLabel.nepaliYearDevanagari}`;
+        } else if (viewMode === 'year') {
+            const visibleYearStart = yearMonths[0]?.startDate ?? startOfMonth(effectiveCurrentDate);
+            const visibleYearEnd = addDays(
+                yearMonths[yearMonths.length - 1]?.endDateExclusive ?? startOfMonth(addMonths(visibleYearStart, 1)),
+                -1
+            );
+            gregorianTitle = buildGregorianYearRangeLabel(visibleYearStart, visibleYearEnd);
+            bsTitle = buildBsYearRangeLabel(visibleYearStart, visibleYearEnd);
+        } else if (viewMode === 'day') {
+            const visibleDayEnd = addDays(dayAnchorDate, dayVisibleDays * dayRowCount - 1);
+            gregorianTitle = buildGregorianRangeLabel(dayAnchorDate, visibleDayEnd);
+            bsTitle = buildBsRangeLabel(dayAnchorDate, visibleDayEnd);
+        } else if (viewMode === 'agenda') {
+            gregorianTitle = buildGregorianRangeLabel(agendaWindow.start, agendaWindow.end);
+            bsTitle = buildBsRangeLabel(agendaWindow.start, agendaWindow.end);
+        }
+
+        if (!effectiveShowGregorianCalendar && effectiveShowBsCalendar) {
+            return {
+                visible: bsTitle.length > 0,
+                title: bsTitle,
+                subtitle: '',
+            };
+        }
+
+        return {
+            visible: gregorianTitle.length > 0 || bsTitle.length > 0,
+            title: gregorianTitle || bsTitle,
+            subtitle: effectiveShowGregorianCalendar && effectiveShowBsCalendar ? bsTitle : '',
+        };
+    }, [
+        activeMonthLabel,
+        agendaWindow.end,
+        agendaWindow.start,
+        buildBsRangeLabel,
+        buildBsYearRangeLabel,
+        buildGregorianRangeLabel,
+        buildGregorianYearRangeLabel,
+        dayAnchorDate,
+        dayRowCount,
+        dayVisibleDays,
+        effectiveCurrentDate,
+        effectiveShowBsCalendar,
+        effectiveShowGregorianCalendar,
+        viewMode,
+        yearMonths,
+    ]);
     const explicitDateRangeWindow = useMemo(() => {
         const dateRange = effectivePersistentFilters.dateRange;
         if (!isCalendarDateRangeFilterActive(dateRange)) {

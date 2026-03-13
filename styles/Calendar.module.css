@@ -216,6 +216,8 @@
 
 .dayViewTimeGutterInner {
     position: relative;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
 }
 
 .dayViewTimeLabel {
