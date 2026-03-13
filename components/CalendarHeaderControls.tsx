@@ -57,19 +57,25 @@ import {
     clampCalendarYearFontScale,
     createDefaultCalendarAgendaDisplaySettings,
     createDefaultCalendarPersistentFilters,
-    createEmptyCalendarDateRangeFilter,
     createEmptyCalendarTagExpression,
     type CalendarAgendaDisplaySettings,
     type CalendarCommandDetail,
+    type CalendarCurrentPeriodLabel,
     type CalendarFilterDateRange,
     type CalendarLiveSearchState,
     type CalendarPersistentFilters,
+    type CalendarSavedSearchFilter,
     type CalendarStateDetail,
     type CalendarTagExpression,
     type CalendarViewMode,
     type CalendarYearMonthBasis,
 } from '@/lib/calendar-controls';
-import { createFlatOrTagExpression, flattenCalendarTagExpressionIds, normalizeCalendarTagExpression } from '@/lib/calendar-search';
+import {
+    createFlatOrTagExpression,
+    flattenCalendarTagExpressionIds,
+    normalizeCalendarPersistentFilters,
+    normalizeCalendarTagExpression,
+} from '@/lib/calendar-search';
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const normalizeChecked = (value: boolean | 'indeterminate') => value === true;
@@ -130,6 +136,33 @@ const summarizeTagExpression = (
     return parts.join(' • ');
 };
 
+const summarizeSavedSearchSelection = (
+    filters: CalendarPersistentFilters,
+    searchLabelById: Map<string, string>
+) => {
+    const selectedLabels = filters.selectedSavedSearchIds
+        .map((searchId) => searchLabelById.get(searchId))
+        .filter((label): label is string => Boolean(label));
+
+    if (filters.savedSearches.length === 0) {
+        return 'No saved searches yet';
+    }
+    if (selectedLabels.length === 0) {
+        return 'No saved searches selected';
+    }
+    if (selectedLabels.length === filters.savedSearches.length) {
+        return 'All saved searches selected';
+    }
+    return `Matching ${humanJoin(selectedLabels)}`;
+};
+
+const createSavedSearchFilterId = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return `calendar-search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+};
+
 const normalizeAgendaDisplay = (value?: Partial<CalendarAgendaDisplaySettings> | null): CalendarAgendaDisplaySettings => {
     const defaults = createDefaultCalendarAgendaDisplaySettings();
     return {
@@ -170,6 +203,7 @@ export default function CalendarHeaderControls() {
     const [agendaDisplay, setAgendaDisplay] = useState<CalendarAgendaDisplaySettings>(
         createDefaultCalendarAgendaDisplaySettings()
     );
+    const [currentPeriodLabel, setCurrentPeriodLabel] = useState<CalendarCurrentPeriodLabel | null>(null);
     const [searchState, setSearchState] = useState<CalendarLiveSearchState>({ isOpen: false, query: '' });
     const [filters, setFilters] = useState<CalendarPersistentFilters>(createDefaultCalendarPersistentFilters);
     const [selectedChoreIds, setSelectedChoreIds] = useState<string[]>([]);
@@ -177,6 +211,7 @@ export default function CalendarHeaderControls() {
     const [everyoneSelected, setEveryoneSelected] = useState(true);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [isChoreFilterExpanded, setIsChoreFilterExpanded] = useState(false);
+    const [isAdvancedFilterLogicOpen, setIsAdvancedFilterLogicOpen] = useState(false);
     const [draftTagGroupCount, setDraftTagGroupCount] = useState(1);
 
     const filterOptionsQuery = useCalendarFilterOptions();
@@ -189,6 +224,16 @@ export default function CalendarHeaderControls() {
     const tagNameById = useMemo(
         () => new Map(tags.map((tag) => [tag.id, String(tag.name || '').trim() || 'Untitled tag'])),
         [tags]
+    );
+    const searchLabelById = useMemo(
+        () =>
+            new Map(
+                filters.savedSearches.map((search) => [
+                    search.id,
+                    String(search.label || search.query || '').trim() || String(search.query || '').trim() || 'Untitled search',
+                ])
+            ),
+        [filters.savedSearches]
     );
     const effectiveSelectedChoreIds = useMemo(
         () => (choreFilterConfigured ? selectedChoreIds : choreIds),
@@ -272,15 +317,18 @@ export default function CalendarHeaderControls() {
             setVisibleWeeks(clampNumber(Math.round(detail.visibleWeeks), CALENDAR_VISIBLE_WEEKS_MIN, CALENDAR_VISIBLE_WEEKS_MAX));
             setShowChores(Boolean(detail.showChores));
             setViewMode(detail.viewMode);
+            setCurrentPeriodLabel(detail.currentPeriodLabel || null);
             setSearchState(normalizeSearchState(detail.search));
-            setFilters({
-                textQuery: String(detail.filters?.textQuery || ''),
-                dateRange: normalizeDateRange(detail.filters?.dateRange),
-                tagExpression:
-                    detail.filters?.tagExpression ||
-                    detail.tagFilter?.tagExpression ||
-                    createFlatOrTagExpression(detail.tagFilter?.selectedTagIds || []),
-            });
+            setFilters(
+                normalizeCalendarPersistentFilters({
+                    ...(detail.filters || createDefaultCalendarPersistentFilters()),
+                    dateRange: normalizeDateRange(detail.filters?.dateRange),
+                    tagExpression:
+                        detail.filters?.tagExpression ||
+                        detail.tagFilter?.tagExpression ||
+                        createFlatOrTagExpression(detail.tagFilter?.selectedTagIds || []),
+                })
+            );
             setAgendaDisplay(normalizeAgendaDisplay(detail.agendaDisplay));
             setDayVisibleDays(clampCalendarDayVisibleDays(detail.dayVisibleDays));
             setDayRowCount(clampCalendarDayRowCount(detail.dayRowCount));
@@ -373,20 +421,24 @@ export default function CalendarHeaderControls() {
         if (!isCalendarRoute) return;
         if (filterOptionsQuery.isLoading) return;
 
-        const nextExpression = normalizeCalendarTagExpression(filters.tagExpression);
         const allowedIds = new Set(tagIds);
-        const sanitizedExpression = normalizeCalendarTagExpression({
-            anyOf: nextExpression.anyOf.map((group) => group.filter((tagId) => allowedIds.has(tagId))),
-            exclude: nextExpression.exclude.filter((tagId) => allowedIds.has(tagId)),
+        const allowedMemberIds = new Set(familyMemberIds);
+        const sanitizedFilters = normalizeCalendarPersistentFilters({
+            ...filters,
+            tagExpression: normalizeCalendarTagExpression({
+                anyOf: normalizedTagExpression.anyOf.map((group) => group.filter((tagId) => allowedIds.has(tagId))),
+                exclude: normalizedTagExpression.exclude.filter((tagId) => allowedIds.has(tagId)),
+            }),
+            excludedMemberIds: filters.excludedMemberIds.filter((memberId) => allowedMemberIds.has(memberId)),
         });
 
-        const flattenedCurrent = flattenCalendarTagExpressionIds(nextExpression).join('|');
-        const flattenedNext = flattenCalendarTagExpressionIds(sanitizedExpression).join('|');
-        if (flattenedCurrent !== flattenedNext || nextExpression.anyOf.length !== sanitizedExpression.anyOf.length) {
-            setFilters((current) => ({ ...current, tagExpression: sanitizedExpression }));
-            dispatchCalendarCommand({ type: 'setTagExpressionFilter', tagExpression: sanitizedExpression });
+        const currentSerialized = JSON.stringify(normalizeCalendarPersistentFilters(filters));
+        const nextSerialized = JSON.stringify(sanitizedFilters);
+        if (currentSerialized !== nextSerialized) {
+            setFilters(sanitizedFilters);
+            dispatchCalendarCommand({ type: 'setPersistentFilters', filters: sanitizedFilters });
         }
-    }, [filterOptionsQuery.isLoading, filters.tagExpression, isCalendarRoute, tagIds]);
+    }, [familyMemberIds, filterOptionsQuery.isLoading, filters, isCalendarRoute, normalizedTagExpression, tagIds]);
 
     useEffect(() => {
         if (!isCalendarRoute) return;
@@ -456,21 +508,92 @@ export default function CalendarHeaderControls() {
         dispatchCalendarCommand({ type: 'setSearchQuery', query });
     };
 
+    const updateFilters = (
+        updater:
+            | CalendarPersistentFilters
+            | Partial<CalendarPersistentFilters>
+            | ((current: CalendarPersistentFilters) => CalendarPersistentFilters | Partial<CalendarPersistentFilters>)
+    ) => {
+        const nextFilters = normalizeCalendarPersistentFilters(
+            typeof updater === 'function' ? updater(filters) : { ...filters, ...updater }
+        );
+        setFilters(nextFilters);
+        dispatchCalendarCommand({ type: 'setPersistentFilters', filters: nextFilters });
+        return nextFilters;
+    };
+
     const applyPersistentTextFilter = (textQuery: string) => {
-        setFilters((current) => ({ ...current, textQuery }));
-        dispatchCalendarCommand({ type: 'setPersistentTextFilter', textQuery });
+        updateFilters((current) => ({ ...current, textQuery }));
     };
 
     const applyDateRange = (dateRange: CalendarFilterDateRange) => {
         const normalized = normalizeDateRange(dateRange);
-        setFilters((current) => ({ ...current, dateRange: normalized }));
-        dispatchCalendarCommand({ type: 'setPersistentDateRange', dateRange: normalized });
+        updateFilters((current) => ({ ...current, dateRange: normalized }));
     };
 
     const applyTagExpression = (tagExpression: CalendarTagExpression) => {
         const normalized = normalizeCalendarTagExpression(tagExpression);
-        setFilters((current) => ({ ...current, tagExpression: normalized }));
-        dispatchCalendarCommand({ type: 'setTagExpressionFilter', tagExpression: normalized });
+        updateFilters((current) => ({ ...current, tagExpression: normalized }));
+    };
+
+    const applySavedSearchSelection = (nextSelectedIds: string[]) => {
+        updateFilters((current) => ({ ...current, selectedSavedSearchIds: nextSelectedIds }));
+    };
+
+    const applyExcludedMemberIds = (nextExcludedMemberIds: string[]) => {
+        updateFilters((current) => ({ ...current, excludedMemberIds: nextExcludedMemberIds }));
+    };
+
+    const applyExcludedSavedSearchIds = (nextExcludedSavedSearchIds: string[]) => {
+        updateFilters((current) => ({ ...current, excludedSavedSearchIds: nextExcludedSavedSearchIds }));
+    };
+
+    const saveLiveSearchToFilters = (query: string) => {
+        const trimmedQuery = query.trim();
+        if (!trimmedQuery) return;
+
+        updateFilters((current) => {
+            const existing = current.savedSearches.find(
+                (search) => String(search.query || '').trim().toLowerCase() === trimmedQuery.toLowerCase()
+            );
+            const savedSearchId = existing?.id || createSavedSearchFilterId();
+            const nextSavedSearches = existing
+                ? current.savedSearches
+                : [
+                      ...current.savedSearches,
+                      {
+                          id: savedSearchId,
+                          query: trimmedQuery,
+                          label: trimmedQuery,
+                          createdAt: new Date().toISOString(),
+                      } satisfies CalendarSavedSearchFilter,
+                  ];
+
+            return {
+                ...current,
+                savedSearches: nextSavedSearches,
+                selectedSavedSearchIds: Array.from(new Set([...current.selectedSavedSearchIds, savedSearchId])),
+            };
+        });
+    };
+
+    const deleteSavedSearch = (searchId: string) => {
+        updateFilters((current) => ({
+            ...current,
+            savedSearches: current.savedSearches.filter((search) => search.id !== searchId),
+            selectedSavedSearchIds: current.selectedSavedSearchIds.filter((id) => id !== searchId),
+            excludedSavedSearchIds: current.excludedSavedSearchIds.filter((id) => id !== searchId),
+        }));
+    };
+
+    const clearAllFilters = () => {
+        updateFilters(createDefaultCalendarPersistentFilters());
+        setDraftTagGroupCount(1);
+        setIsAdvancedFilterLogicOpen(false);
+        applyMemberFilter(true, familyMemberIds);
+        if (showChores) {
+            applyChoreFilter(choreIds);
+        }
     };
 
     const applyAgendaDisplay = (nextValue: Partial<CalendarAgendaDisplaySettings>) => {
@@ -512,6 +635,27 @@ export default function CalendarHeaderControls() {
         () => summarizeTagExpression(normalizedTagExpression, tagNameById),
         [normalizedTagExpression, tagNameById]
     );
+    const savedSearchSummary = useMemo(
+        () => summarizeSavedSearchSelection(filters, searchLabelById),
+        [filters, searchLabelById]
+    );
+    const advancedLogicSummary = useMemo(() => {
+        const memberNameById = new Map(
+            familyMembers.map((member) => [member.id, String(member.name || '').trim() || 'Unnamed member'])
+        );
+        const excludedMembers = filters.excludedMemberIds
+            .map((memberId) => memberNameById.get(memberId))
+            .filter((name): name is string => Boolean(name));
+        const excludedSearches = filters.excludedSavedSearchIds
+            .map((searchId) => searchLabelById.get(searchId))
+            .filter((label): label is string => Boolean(label));
+        const parts = [
+            excludedMembers.length > 0 ? `Exclude ${humanJoin(excludedMembers)}` : '',
+            excludedSearches.length > 0 ? `Exclude searches ${humanJoin(excludedSearches)}` : '',
+            flattenCalendarTagExpressionIds(filters.tagExpression).length > 0 ? tagFilterSummary : '',
+        ].filter(Boolean);
+        return parts.length > 0 ? parts.join(' • ') : 'No advanced logic';
+    }, [familyMembers, filters.excludedMemberIds, filters.excludedSavedSearchIds, filters.tagExpression, searchLabelById, tagFilterSummary]);
 
     const agendaDisplaySummary = useMemo(() => {
         const enabled = [
@@ -549,6 +693,14 @@ export default function CalendarHeaderControls() {
 
     return (
         <div className="flex items-center gap-2">
+            {currentPeriodLabel?.visible ? (
+                <div className="min-w-0 max-w-[min(44vw,18rem)] rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-right shadow-sm">
+                    <div className="truncate text-sm font-semibold text-slate-900">{currentPeriodLabel.title}</div>
+                    {currentPeriodLabel.subtitle ? (
+                        <div className="truncate text-[11px] font-medium text-slate-500">{currentPeriodLabel.subtitle}</div>
+                    ) : null}
+                </div>
+            ) : null}
             <Popover open={searchState.isOpen} onOpenChange={applySearchOpen}>
                 <PopoverTrigger asChild>
                     <Button variant={searchState.isOpen ? 'default' : 'outline'} size="icon" aria-label="Search calendar">
@@ -578,7 +730,7 @@ export default function CalendarHeaderControls() {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => applyPersistentTextFilter(searchState.query)}
+                                    onClick={() => saveLiveSearchToFilters(searchState.query)}
                                     disabled={searchState.query.trim().length === 0}
                                 >
                                     Add to filters
@@ -593,6 +745,9 @@ export default function CalendarHeaderControls() {
                                     Clear live query
                                 </Button>
                             </div>
+                            <p className="text-[11px] text-muted-foreground">
+                                Adding a live query saves it as a reusable filter in the main filter panel.
+                            </p>
                         </div>
                     </div>
                 </PopoverContent>
@@ -974,11 +1129,21 @@ export default function CalendarHeaderControls() {
                         Filter
                     </Button>
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-[30rem]">
-                    <div className="grid gap-5">
+                <PopoverContent align="end" className="w-[30rem] max-h-[80vh] overflow-hidden">
+                    <div className="grid max-h-[calc(80vh-2rem)] gap-5 overflow-y-auto pr-1">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                                <h4 className="text-sm font-semibold leading-none">Calendar filters</h4>
+                                <p className="text-xs text-muted-foreground">Combine quick filters with saved searches and optional advanced logic.</p>
+                            </div>
+                            <Button type="button" variant="ghost" size="sm" onClick={clearAllFilters}>
+                                Clear filters
+                            </Button>
+                        </div>
+
                         <div className="grid gap-2">
                             <div className="space-y-1">
-                                <h4 className="text-sm font-semibold leading-none">Search filter</h4>
+                                <h4 className="text-sm font-semibold leading-none">Text filter</h4>
                                 <p className="text-xs text-muted-foreground">
                                     Persistent text filtering hides non-matches in every calendar view.
                                 </p>
@@ -1009,6 +1174,56 @@ export default function CalendarHeaderControls() {
                                     Clear
                                 </Button>
                             </div>
+                        </div>
+
+                        <div className="space-y-4 border-t border-slate-200 pt-4">
+                            <div className="space-y-1">
+                                <h4 className="text-sm font-semibold leading-none">Saved searches</h4>
+                                <p className="text-xs text-muted-foreground">{savedSearchSummary}</p>
+                            </div>
+
+                            {filters.savedSearches.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">Save a live search to reuse it here as a filter.</p>
+                            ) : (
+                                <div className="grid max-h-52 gap-2 overflow-y-auto pr-1">
+                                    {filters.savedSearches.map((search) => {
+                                        const label = searchLabelById.get(search.id) || search.query || 'Untitled search';
+                                        return (
+                                            <div
+                                                key={search.id}
+                                                className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
+                                            >
+                                                <label
+                                                    htmlFor={`calendar-saved-search-${search.id}`}
+                                                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-2"
+                                                >
+                                                    <Checkbox
+                                                        id={`calendar-saved-search-${search.id}`}
+                                                        checked={filters.selectedSavedSearchIds.includes(search.id)}
+                                                        onCheckedChange={(checked) => {
+                                                            const next = normalizeChecked(checked)
+                                                                ? [...filters.selectedSavedSearchIds, search.id]
+                                                                : filters.selectedSavedSearchIds.filter((id) => id !== search.id);
+                                                            applySavedSearchSelection(next);
+                                                        }}
+                                                    />
+                                                    <span className="truncate text-sm">{label}</span>
+                                                </label>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-7 px-2"
+                                                    aria-label={`Delete saved search ${label}`}
+                                                    onClick={() => deleteSavedSearch(search.id)}
+                                                >
+                                                    Delete
+                                                </Button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
 
                         <div className="grid gap-2 border-t border-slate-200 pt-4">
@@ -1126,112 +1341,198 @@ export default function CalendarHeaderControls() {
                             )}
                         </div>
 
-                        <div className="space-y-4 border-t border-slate-200 pt-4">
-                            <div className="space-y-1">
-                                <h4 className="text-sm font-semibold leading-none">Tag logic</h4>
-                                <p className="text-xs text-muted-foreground">{tagFilterSummary}</p>
-                            </div>
+                        <div className="space-y-3 border-t border-slate-200 pt-4">
+                            <button
+                                type="button"
+                                className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-left"
+                                aria-expanded={isAdvancedFilterLogicOpen}
+                                onClick={() => setIsAdvancedFilterLogicOpen((current) => !current)}
+                            >
+                                <div className="space-y-1">
+                                    <span className="block text-sm font-medium">Advanced logic</span>
+                                    <span className="block text-xs text-muted-foreground">{advancedLogicSummary}</span>
+                                </div>
+                                <span className="text-xs font-medium text-slate-600">{isAdvancedFilterLogicOpen ? 'Hide' : 'Show'}</span>
+                            </button>
 
-                            <div className="flex items-center gap-2">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setDraftTagGroupCount((current) => current + 1)}
-                                    disabled={tags.length === 0}
-                                >
-                                    Add OR group
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => applyTagExpression(createEmptyCalendarTagExpression())}
-                                    disabled={flattenCalendarTagExpressionIds(filters.tagExpression).length === 0}
-                                >
-                                    Clear tag logic
-                                </Button>
-                            </div>
-
-                            {tags.length === 0 ? (
-                                <p className="text-xs text-muted-foreground">No calendar tags have been created yet.</p>
-                            ) : (
-                                <>
-                                    {Array.from({ length: renderedTagGroupCount }, (_unused, groupIndex) => normalizedTagExpression.anyOf[groupIndex] || []).map(
-                                        (group, groupIndex) => (
-                                        <div
-                                            key={`calendar-tag-group-${groupIndex}`}
-                                            data-testid={`calendar-tag-group-${groupIndex}`}
-                                            className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-3"
-                                        >
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div>
-                                                    <div className="text-sm font-medium text-slate-900">Match all tags in group {groupIndex + 1}</div>
-                                                    <div className="text-xs text-muted-foreground">Groups are ORed together.</div>
-                                                </div>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => {
-                                                        if (group.length > 0) {
-                                                            applyTagExpression({
-                                                                ...normalizedTagExpression,
-                                                                anyOf: normalizedTagExpression.anyOf.filter(
-                                                                    (_unused, index) => index !== groupIndex
-                                                                ),
-                                                            });
-                                                        }
-                                                        setDraftTagGroupCount((current) => Math.max(1, current - 1));
-                                                    }}
-                                                >
-                                                    Remove
-                                                </Button>
-                                            </div>
-                                            <div className="grid max-h-44 gap-2 overflow-y-auto pr-1">
-                                                {tags.map((tag) => (
+                            {isAdvancedFilterLogicOpen ? (
+                                <div className="grid gap-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+                                    <div className="grid gap-2">
+                                        <div className="space-y-1">
+                                            <div className="text-sm font-medium text-slate-900">Exclude members</div>
+                                            <div className="text-xs text-muted-foreground">Events linked to any checked member are filtered out.</div>
+                                        </div>
+                                        {familyMembers.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground">No family members available yet.</p>
+                                        ) : (
+                                            <div className="grid max-h-40 gap-2 overflow-y-auto pr-1">
+                                                {familyMembers.map((member) => (
                                                     <label
-                                                        key={`${groupIndex}-${tag.id}`}
-                                                        htmlFor={`calendar-tag-group-${groupIndex}-${tag.id}`}
+                                                        key={`calendar-filter-member-exclude-${member.id}`}
+                                                        htmlFor={`calendar-filter-member-exclude-${member.id}`}
                                                         className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
                                                     >
                                                         <Checkbox
-                                                            id={`calendar-tag-group-${groupIndex}-${tag.id}`}
-                                                            checked={group.includes(tag.id)}
-                                                            onCheckedChange={(checked) => updateTagGroup(groupIndex, tag.id, checked)}
+                                                            id={`calendar-filter-member-exclude-${member.id}`}
+                                                            checked={filters.excludedMemberIds.includes(member.id)}
+                                                            onCheckedChange={(checked) => {
+                                                                const next = normalizeChecked(checked)
+                                                                    ? [...filters.excludedMemberIds, member.id]
+                                                                    : filters.excludedMemberIds.filter((id) => id !== member.id);
+                                                                applyExcludedMemberIds(next);
+                                                            }}
                                                         />
-                                                        <span className="text-sm">{tag.name || 'Untitled tag'}</span>
+                                                        <span className="text-sm">{member.name || 'Unnamed member'}</span>
                                                     </label>
                                                 ))}
                                             </div>
-                                        </div>
-                                        )
-                                    )}
-
-                                    <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-                                        <div className="text-sm font-medium text-slate-900">Exclude tags</div>
-                                        <div className="text-xs text-muted-foreground">
-                                            Excluded tags always remove an event even if an OR group matches.
-                                        </div>
-                                        <div className="grid max-h-44 gap-2 overflow-y-auto pr-1">
-                                            {tags.map((tag) => (
-                                                <label
-                                                    key={`calendar-tag-exclude-${tag.id}`}
-                                                    htmlFor={`calendar-tag-exclude-${tag.id}`}
-                                                    className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
-                                                >
-                                                    <Checkbox
-                                                        id={`calendar-tag-exclude-${tag.id}`}
-                                                        checked={normalizedTagExpression.exclude.includes(tag.id)}
-                                                        onCheckedChange={(checked) => updateExcludeTag(tag.id, checked)}
-                                                    />
-                                                    <span className="text-sm">{tag.name || 'Untitled tag'}</span>
-                                                </label>
-                                            ))}
-                                        </div>
+                                        )}
                                     </div>
-                                </>
-                            )}
+
+                                    <div className="grid gap-2 border-t border-slate-200 pt-4">
+                                        <div className="space-y-1">
+                                            <div className="text-sm font-medium text-slate-900">Exclude saved searches</div>
+                                            <div className="text-xs text-muted-foreground">Hide anything that matches these saved search queries.</div>
+                                        </div>
+                                        {filters.savedSearches.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground">No saved searches to exclude yet.</p>
+                                        ) : (
+                                            <div className="grid max-h-40 gap-2 overflow-y-auto pr-1">
+                                                {filters.savedSearches.map((search) => {
+                                                    const label = searchLabelById.get(search.id) || search.query || 'Untitled search';
+                                                    return (
+                                                        <label
+                                                            key={`calendar-filter-search-exclude-${search.id}`}
+                                                            htmlFor={`calendar-filter-search-exclude-${search.id}`}
+                                                            className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2"
+                                                        >
+                                                            <Checkbox
+                                                                id={`calendar-filter-search-exclude-${search.id}`}
+                                                                checked={filters.excludedSavedSearchIds.includes(search.id)}
+                                                                onCheckedChange={(checked) => {
+                                                                    const next = normalizeChecked(checked)
+                                                                        ? [...filters.excludedSavedSearchIds, search.id]
+                                                                        : filters.excludedSavedSearchIds.filter((id) => id !== search.id);
+                                                                    applyExcludedSavedSearchIds(next);
+                                                                }}
+                                                            />
+                                                            <span className="text-sm">{label}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="space-y-4 border-t border-slate-200 pt-4">
+                                        <div className="space-y-1">
+                                            <h4 className="text-sm font-semibold leading-none">Tag logic</h4>
+                                            <p className="text-xs text-muted-foreground">{tagFilterSummary}</p>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setDraftTagGroupCount((current) => current + 1)}
+                                                disabled={tags.length === 0}
+                                            >
+                                                Add OR group
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => applyTagExpression(createEmptyCalendarTagExpression())}
+                                                disabled={flattenCalendarTagExpressionIds(filters.tagExpression).length === 0}
+                                            >
+                                                Clear tag logic
+                                            </Button>
+                                        </div>
+
+                                        {tags.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground">No calendar tags have been created yet.</p>
+                                        ) : (
+                                            <>
+                                                {Array.from({ length: renderedTagGroupCount }, (_unused, groupIndex) => normalizedTagExpression.anyOf[groupIndex] || []).map(
+                                                    (group, groupIndex) => (
+                                                        <div
+                                                            key={`calendar-tag-group-${groupIndex}`}
+                                                            data-testid={`calendar-tag-group-${groupIndex}`}
+                                                            className="grid gap-2 rounded-md border border-slate-200 bg-white px-3 py-3"
+                                                        >
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <div>
+                                                                    <div className="text-sm font-medium text-slate-900">Match all tags in group {groupIndex + 1}</div>
+                                                                    <div className="text-xs text-muted-foreground">Groups are ORed together.</div>
+                                                                </div>
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => {
+                                                                        if (group.length > 0) {
+                                                                            applyTagExpression({
+                                                                                ...normalizedTagExpression,
+                                                                                anyOf: normalizedTagExpression.anyOf.filter(
+                                                                                    (_unused, index) => index !== groupIndex
+                                                                                ),
+                                                                            });
+                                                                        }
+                                                                        setDraftTagGroupCount((current) => Math.max(1, current - 1));
+                                                                    }}
+                                                                >
+                                                                    Remove
+                                                                </Button>
+                                                            </div>
+                                                            <div className="grid max-h-44 gap-2 overflow-y-auto pr-1">
+                                                                {tags.map((tag) => (
+                                                                    <label
+                                                                        key={`${groupIndex}-${tag.id}`}
+                                                                        htmlFor={`calendar-tag-group-${groupIndex}-${tag.id}`}
+                                                                        className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                                                                    >
+                                                                        <Checkbox
+                                                                            id={`calendar-tag-group-${groupIndex}-${tag.id}`}
+                                                                            checked={group.includes(tag.id)}
+                                                                            onCheckedChange={(checked) => updateTagGroup(groupIndex, tag.id, checked)}
+                                                                        />
+                                                                        <span className="text-sm">{tag.name || 'Untitled tag'}</span>
+                                                                    </label>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                )}
+
+                                                <div className="grid gap-2 rounded-md border border-slate-200 bg-white px-3 py-3">
+                                                    <div className="text-sm font-medium text-slate-900">Exclude tags</div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        Excluded tags always remove an event even if an OR group matches.
+                                                    </div>
+                                                    <div className="grid max-h-44 gap-2 overflow-y-auto pr-1">
+                                                        {tags.map((tag) => (
+                                                            <label
+                                                                key={`calendar-tag-exclude-${tag.id}`}
+                                                                htmlFor={`calendar-tag-exclude-${tag.id}`}
+                                                                className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                                                            >
+                                                                <Checkbox
+                                                                    id={`calendar-tag-exclude-${tag.id}`}
+                                                                    checked={normalizedTagExpression.exclude.includes(tag.id)}
+                                                                    onCheckedChange={(checked) => updateExcludeTag(tag.id, checked)}
+                                                                />
+                                                                <span className="text-sm">{tag.name || 'Untitled tag'}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
 
                         {showChores ? (

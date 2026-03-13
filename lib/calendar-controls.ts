@@ -36,6 +36,7 @@ export const CALENDAR_YEAR_FONT_SCALE_MIN = 0.08;
 export const CALENDAR_YEAR_FONT_SCALE_MAX = 2;
 export const CALENDAR_YEAR_FONT_SCALE_DEFAULT = 0.84;
 export const CALENDAR_YEAR_FONT_SCALE_STORAGE_KEY = 'calendar.yearFontScale';
+export const CALENDAR_PERSISTENT_FILTERS_STORAGE_KEY = 'calendar.persistentFilters';
 export const clampCalendarYearFontScale = (value: number) =>
     Math.round(Math.min(CALENDAR_YEAR_FONT_SCALE_MAX, Math.max(CALENDAR_YEAR_FONT_SCALE_MIN, value)) * 100) / 100;
 export const clampCalendarAgendaFontScale = (value: number) =>
@@ -91,6 +92,13 @@ export interface CalendarTagExpression {
     exclude: string[];
 }
 
+export interface CalendarSavedSearchFilter {
+    id: string;
+    query: string;
+    label?: string;
+    createdAt?: string;
+}
+
 export interface CalendarAgendaDisplaySettings {
     fontScale: number;
     showTags: boolean;
@@ -108,6 +116,16 @@ export interface CalendarPersistentFilters {
     textQuery: string;
     dateRange: CalendarFilterDateRange;
     tagExpression: CalendarTagExpression;
+    savedSearches: CalendarSavedSearchFilter[];
+    selectedSavedSearchIds: string[];
+    excludedMemberIds: string[];
+    excludedSavedSearchIds: string[];
+}
+
+export interface CalendarCurrentPeriodLabel {
+    visible: boolean;
+    title: string;
+    subtitle: string;
 }
 
 export const createEmptyCalendarDateRangeFilter = (): CalendarFilterDateRange => ({
@@ -133,6 +151,10 @@ export const createDefaultCalendarPersistentFilters = (): CalendarPersistentFilt
     textQuery: '',
     dateRange: createEmptyCalendarDateRangeFilter(),
     tagExpression: createEmptyCalendarTagExpression(),
+    savedSearches: [],
+    selectedSavedSearchIds: [],
+    excludedMemberIds: [],
+    excludedSavedSearchIds: [],
 });
 
 export type CalendarCommandDetail =
@@ -142,6 +164,7 @@ export type CalendarCommandDetail =
     | { type: 'setViewMode'; viewMode: CalendarViewMode }
     | { type: 'setSearchOpen'; isOpen: boolean }
     | { type: 'setSearchQuery'; query: string }
+    | { type: 'setPersistentFilters'; filters: CalendarPersistentFilters }
     | { type: 'setPersistentTextFilter'; textQuery: string }
     | { type: 'setPersistentDateRange'; dateRange: CalendarFilterDateRange }
     | { type: 'setTagExpressionFilter'; tagExpression: CalendarTagExpression }
@@ -169,6 +192,7 @@ export interface CalendarStateDetail {
     visibleWeeks: number;
     showChores: boolean;
     viewMode: CalendarViewMode;
+    currentPeriodLabel?: CalendarCurrentPeriodLabel | null;
     search: CalendarLiveSearchState;
     filters: CalendarPersistentFilters;
     agendaDisplay: CalendarAgendaDisplaySettings;

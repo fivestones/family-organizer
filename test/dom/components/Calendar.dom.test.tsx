@@ -579,9 +579,7 @@ describe('Calendar', () => {
 
         await waitFor(() => {
             expect(within(firstOfMonthCell).getByText(inlineBsLabel)).toBeInTheDocument();
-            const stickyMonthLabel = document.querySelector('[class*="stickyMonthNepali"]');
-            expect(stickyMonthLabel?.textContent || '').toContain('(');
-            expect((stickyMonthLabel?.textContent || '').trim().length).toBeGreaterThan(0);
+            expect(document.querySelector('[class*="stickyMonthNepali"]')).toBeNull();
         });
     });
 
@@ -958,7 +956,7 @@ describe('Calendar', () => {
             expect(screen.getByTestId('day-view-header-2026-03-15')).toBeInTheDocument();
         });
 
-        fireEvent.doubleClick(screen.getByTestId('day-view-timed-column-2026-03-15'), { clientY: 40 });
+        fireEvent.doubleClick(screen.getByTestId('day-view-timed-column-2026-03-15'), { clientY: 520 });
 
         const form = screen.getByTestId('add-event-form');
         expect(form).toHaveAttribute('data-selected-date', '2026-03-15');
@@ -1183,7 +1181,6 @@ describe('Calendar', () => {
             'December 31, 2026 at 11 pm - January 2, 2027 at 1 am'
         );
     });
-    });
 
     it('reschedules a timed event to a specific day/time in the day view', async () => {
         renderCalendarWithItems([
@@ -1240,6 +1237,100 @@ describe('Calendar', () => {
                 month: 3,
                 dayOfMonth: 16,
             },
+        });
+    });
+
+    it('uses the dragged event footprint instead of the cursor for final timed day placement', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-footprint',
+                title: 'Math tutoring',
+                startDate: new Date(2026, 2, 15, 9, 0, 0, 0).toISOString(),
+                endDate: new Date(2026, 2, 15, 10, 0, 0, 0).toISOString(),
+                isAllDay: false,
+            },
+        ]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayVisibleDays', dayVisibleDays: 3 },
+                })
+            );
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('day-view-timed-column-2026-03-16')).toBeInTheDocument();
+            expect(screen.getByTestId('day-view-timed-column-2026-03-17')).toBeInTheDocument();
+        });
+
+        const day15Column = screen.getByTestId('day-view-timed-column-2026-03-15');
+        const day16Column = screen.getByTestId('day-view-timed-column-2026-03-16');
+        const day17Column = screen.getByTestId('day-view-timed-column-2026-03-17');
+
+        Object.defineProperty(day15Column, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 0, right: 100, top: 100, bottom: 388, width: 100, height: 288 }),
+        });
+        Object.defineProperty(day16Column, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 100, right: 200, top: 100, bottom: 388, width: 100, height: 288 }),
+        });
+        Object.defineProperty(day17Column, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 200, right: 300, top: 100, bottom: 388, width: 100, height: 288 }),
+        });
+
+        const sourceElement = document.createElement('div');
+        Object.defineProperty(sourceElement, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 100, right: 280, top: 100, bottom: 140, width: 180, height: 40 }),
+        });
+
+        const event = {
+            id: 'evt-footprint',
+            title: 'Math tutoring',
+            startDate: new Date(2026, 2, 15, 9, 0, 0, 0).toISOString(),
+            endDate: new Date(2026, 2, 15, 10, 0, 0, 0).toISOString(),
+            isAllDay: false,
+        };
+
+        act(() => {
+            mocks.monitorConfig.onDragStart({
+                source: { data: { type: 'calendar-event', event }, element: sourceElement },
+                location: { current: { input: { clientX: 170, clientY: 120 } } },
+            });
+        });
+
+        act(() => {
+            mocks.monitorConfig.onDrop({
+                source: { data: { type: 'calendar-event', event } },
+                location: {
+                    current: {
+                        input: { altKey: false, shiftKey: false, clientX: 185, clientY: 240 },
+                        dropTargets: [{ data: { type: 'calendar-time-slot', dateStr: '2026-03-16', minuteOfDay: 600 } }],
+                    },
+                },
+            });
+        });
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalled();
+        });
+
+        const [ops] = mocks.dbTransact.mock.calls.at(-1)!;
+        expect(ops[0]).toMatchObject({
+            entity: 'calendarItems',
+            id: 'evt-footprint',
+            op: 'update',
+            payload: expect.objectContaining({
+                dayOfMonth: 17,
+            }),
         });
     });
 

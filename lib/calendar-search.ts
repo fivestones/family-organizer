@@ -2,7 +2,9 @@ import { format, parseISO } from 'date-fns';
 import {
     type CalendarFilterDateRange,
     type CalendarPersistentFilters,
+    type CalendarSavedSearchFilter,
     type CalendarTagExpression,
+    createDefaultCalendarPersistentFilters,
     createEmptyCalendarTagExpression,
 } from '@/lib/calendar-controls';
 
@@ -19,6 +21,7 @@ export interface SearchableCalendarItemLike {
     startDate?: string | null;
     endDate?: string | null;
     isAllDay?: boolean | null;
+    pertainsTo?: Array<{ id?: string | null }> | null;
     tags?: SearchableCalendarTagLike[] | null;
     recurrenceId?: string | null;
     __displayDate?: string | null;
@@ -32,8 +35,23 @@ export interface CalendarAgendaSection<T extends SearchableCalendarItemLike = Se
 
 const normalizeToken = (value: unknown) => String(value || '').trim();
 
+const SEARCH_COMBINING_MARKS_REGEX = /[\u0300-\u036f]/g;
+const SEARCH_APOSTROPHE_REGEX = /[\u2018\u2019\u201B\u2032\u2035\u02BC\uFF07`´]/g;
+const SEARCH_QUOTE_REGEX = /[\u201C\u201D\u201E\u2033\u2036\u00AB\u00BB]/g;
+const SEARCH_DASH_REGEX = /[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g;
+
+const foldSearchPunctuation = (value: string) =>
+    value
+        .normalize('NFKD')
+        .replace(SEARCH_COMBINING_MARKS_REGEX, '')
+        .replace(SEARCH_APOSTROPHE_REGEX, "'")
+        .replace(SEARCH_QUOTE_REGEX, '"')
+        .replace(SEARCH_DASH_REGEX, '-')
+        .replace(/\u2026/g, '...')
+        .replace(/\u00A0/g, ' ');
+
 const normalizeLowerText = (value: unknown) =>
-    normalizeToken(value)
+    foldSearchPunctuation(normalizeToken(value))
         .toLowerCase()
         .replace(/\s+/g, ' ')
         .trim();
@@ -84,6 +102,43 @@ export const getCalendarItemTagIds = (item: SearchableCalendarItemLike) =>
         )
     );
 
+export const getCalendarItemMemberIds = (item: SearchableCalendarItemLike) =>
+    Array.from(
+        new Set(
+            (Array.isArray(item.pertainsTo) ? item.pertainsTo : [])
+                .map((member) => normalizeToken(member?.id))
+                .filter(Boolean)
+        )
+    );
+
+export const normalizeCalendarSavedSearchFilters = (
+    searches?: Array<Partial<CalendarSavedSearchFilter> | null> | null
+): CalendarSavedSearchFilter[] => {
+    const seenIds = new Set<string>();
+    const normalized: CalendarSavedSearchFilter[] = [];
+
+    for (const candidate of Array.isArray(searches) ? searches : []) {
+        const id = normalizeToken(candidate?.id);
+        const query = String(candidate?.query || '').trim();
+        if (!id || !query || seenIds.has(id)) {
+            continue;
+        }
+
+        seenIds.add(id);
+        normalized.push({
+            id,
+            query,
+            label: normalizeToken(candidate?.label) || query,
+            createdAt: normalizeToken(candidate?.createdAt) || undefined,
+        });
+    }
+
+    return normalized;
+};
+
+const normalizeIdList = (value?: string[] | null) =>
+    Array.from(new Set((Array.isArray(value) ? value : []).map((entry) => normalizeToken(entry)).filter(Boolean)));
+
 export const normalizeCalendarTagExpression = (
     expression?: Partial<CalendarTagExpression> | null
 ): CalendarTagExpression => {
@@ -117,6 +172,28 @@ export const createFlatOrTagExpression = (tagIds: string[]): CalendarTagExpressi
 export const flattenCalendarTagExpressionIds = (expression?: CalendarTagExpression | null) => {
     const normalized = normalizeCalendarTagExpression(expression);
     return Array.from(new Set([...normalized.exclude, ...normalized.anyOf.flat()]));
+};
+
+export const normalizeCalendarPersistentFilters = (
+    filters?: Partial<CalendarPersistentFilters> | null
+): CalendarPersistentFilters => {
+    const defaults = createDefaultCalendarPersistentFilters();
+    const savedSearches = normalizeCalendarSavedSearchFilters(filters?.savedSearches || defaults.savedSearches);
+    const savedSearchIds = new Set(savedSearches.map((search) => search.id));
+
+    return {
+        textQuery: String(filters?.textQuery || defaults.textQuery),
+        dateRange: {
+            mode: filters?.dateRange?.mode || defaults.dateRange.mode,
+            startDate: String(filters?.dateRange?.startDate || defaults.dateRange.startDate),
+            endDate: String(filters?.dateRange?.endDate || defaults.dateRange.endDate),
+        },
+        tagExpression: normalizeCalendarTagExpression(filters?.tagExpression || defaults.tagExpression),
+        savedSearches,
+        selectedSavedSearchIds: normalizeIdList(filters?.selectedSavedSearchIds).filter((id) => savedSearchIds.has(id)),
+        excludedMemberIds: normalizeIdList(filters?.excludedMemberIds),
+        excludedSavedSearchIds: normalizeIdList(filters?.excludedSavedSearchIds).filter((id) => savedSearchIds.has(id)),
+    };
 };
 
 export const calendarItemMatchesTagExpression = (
@@ -197,13 +274,42 @@ export const calendarItemOverlapsDateRange = (
     return span.startDay <= effectiveEnd && span.endDay >= effectiveStart;
 };
 
+export const calendarItemMatchesNonDatePersistentFilters = (
+    item: SearchableCalendarItemLike,
+    filters: CalendarPersistentFilters
+) => {
+    const normalizedFilters = normalizeCalendarPersistentFilters(filters);
+    const memberIds = new Set(getCalendarItemMemberIds(item));
+
+    if (normalizedFilters.excludedMemberIds.some((memberId) => memberIds.has(memberId))) {
+        return false;
+    }
+
+    const savedSearchById = new Map(normalizedFilters.savedSearches.map((search) => [search.id, search] as const));
+    const selectedSavedSearches = normalizedFilters.selectedSavedSearchIds
+        .map((searchId) => savedSearchById.get(searchId))
+        .filter(Boolean) as CalendarSavedSearchFilter[];
+    const excludedSavedSearches = normalizedFilters.excludedSavedSearchIds
+        .map((searchId) => savedSearchById.get(searchId))
+        .filter(Boolean) as CalendarSavedSearchFilter[];
+
+    if (selectedSavedSearches.length > 0 && !selectedSavedSearches.some((search) => calendarItemMatchesTextQuery(item, search.query))) {
+        return false;
+    }
+
+    if (excludedSavedSearches.some((search) => calendarItemMatchesTextQuery(item, search.query))) {
+        return false;
+    }
+
+    return calendarItemMatchesTextQuery(item, normalizedFilters.textQuery) && calendarItemMatchesTagExpression(item, normalizedFilters.tagExpression);
+};
+
 export const calendarItemMatchesPersistentFilters = (
     item: SearchableCalendarItemLike,
     filters: CalendarPersistentFilters
 ) =>
-    calendarItemMatchesTextQuery(item, filters.textQuery) &&
-    calendarItemOverlapsDateRange(item, filters.dateRange) &&
-    calendarItemMatchesTagExpression(item, filters.tagExpression);
+    calendarItemMatchesNonDatePersistentFilters(item, filters) &&
+    calendarItemOverlapsDateRange(item, normalizeCalendarPersistentFilters(filters).dateRange);
 
 export const buildCalendarAgendaSections = <T extends SearchableCalendarItemLike>(
     itemsByDate: Map<string, T[]>,

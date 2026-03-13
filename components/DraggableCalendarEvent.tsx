@@ -8,7 +8,7 @@ import { CALENDAR_YEAR_FONT_SCALE_MAX, CALENDAR_YEAR_FONT_SCALE_MIN } from '../l
 import { buildCalendarOccurrenceKey } from '@/lib/calendar-search';
 import { buildMemberColorMap, getReadableTextColor, hexToRgbaString } from '../lib/family-member-colors';
 import { getPhotoUrl } from '@/lib/photo-urls';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar } from '@/components/ui/avatar';
 import styles from '../styles/Calendar.module.css'; // Import your calendar styles
 
 interface EventFamilyMember {
@@ -95,6 +95,8 @@ export const DraggableCalendarEvent = ({
 }: DraggableCalendarEventProps) => {
     const eventRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const [dayCardSize, setDayCardSize] = useState({ width: 0, height: 0 });
+    const [failedPhotoMemberIds, setFailedPhotoMemberIds] = useState<string[]>([]);
     const members = item.pertainsTo || [];
     const isSpanLayout = layout === 'span';
     const isYearLayout = layout === 'year';
@@ -142,6 +144,28 @@ export const DraggableCalendarEvent = ({
     const usesDotIndicators = memberIndicatorStyle === 'dot';
     const primaryMemberColor = memberIndicators[0]?.color || '#1D4ED8';
     const readableTextColor = getReadableTextColor(primaryMemberColor);
+    const isDayAppearance = appearance === 'day';
+    const isCompactDayLayout = isDayAppearance && (isSpanLayout || item.isAllDay);
+    const shouldPinDayContentVertically = isDayAppearance && !isSpanLayout && !item.isAllDay;
+    const avatarSizePx = Math.max(10, (isCompactDayLayout ? 14 : 18) * effectiveScale);
+    const canShowDayAvatarRow =
+        memberIndicators.length > 0 &&
+        dayCardSize.height >= (isCompactDayLayout ? avatarSizePx + 4 : Math.max(32, avatarSizePx + 10)) &&
+        dayCardSize.width >= (isCompactDayLayout ? 56 : 96) + Math.min(memberIndicators.length, 3) * (avatarSizePx * 0.72);
+    const canShowDayAvatarColumn =
+        memberIndicators.length > 0 &&
+        !isCompactDayLayout &&
+        dayCardSize.width >= 82 &&
+        dayCardSize.height >= 20 + Math.min(memberIndicators.length, 3) * (avatarSizePx + 2);
+    const showDayAvatars = isDayAppearance && (canShowDayAvatarRow || canShowDayAvatarColumn);
+    const dayAvatarLayout = canShowDayAvatarRow ? 'row' : 'column';
+    const railIndicators = useMemo<EventMemberIndicator[]>(
+        () =>
+            memberIndicators.length > 0
+                ? memberIndicators
+                : [{ id: 'default', name: null, initials: '', color: primaryMemberColor, contrastSurface: readableTextColor }],
+        [memberIndicators, primaryMemberColor, readableTextColor]
+    );
     const eventSurfaceStyle = useMemo(() => {
         if (appearance !== 'day') {
             return {
@@ -159,8 +183,41 @@ export const DraggableCalendarEvent = ({
             '--calendar-day-event-text': readableTextColor,
             '--calendar-day-event-muted': readableTextColor === '#0F172A' ? 'rgba(15, 23, 42, 0.72)' : 'rgba(248, 250, 252, 0.84)',
             '--calendar-day-event-shadow': hexToRgbaString(primaryMemberColor, 0.18),
+            '--calendar-day-avatar-size': `${avatarSizePx}px`,
         } as React.CSSProperties;
-    }, [appearance, effectiveScale, isDragging, primaryMemberColor, readableTextColor]);
+    }, [appearance, avatarSizePx, effectiveScale, isDragging, primaryMemberColor, readableTextColor]);
+
+    useEffect(() => {
+        setFailedPhotoMemberIds([]);
+    }, [item.id, memberIndicators.length]);
+
+    useEffect(() => {
+        if (appearance !== 'day') {
+            setDayCardSize((current) => (current.width === 0 && current.height === 0 ? current : { width: 0, height: 0 }));
+            return;
+        }
+
+        const element = eventRef.current;
+        if (!element) return;
+
+        const updateSize = (width: number, height: number) => {
+            setDayCardSize((current) => (current.width === width && current.height === height ? current : { width, height }));
+        };
+
+        updateSize(element.offsetWidth, element.offsetHeight);
+
+        if (typeof ResizeObserver === 'undefined') {
+            return;
+        }
+
+        const observer = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry) return;
+            updateSize(Math.round(entry.contentRect.width), Math.round(entry.contentRect.height));
+        });
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, [appearance]);
 
     useEffect(() => {
         if (!draggableEnabled) {
@@ -179,6 +236,22 @@ export const DraggableCalendarEvent = ({
 
         return cleanupDraggable;
     }, [draggableEnabled, item, index]);
+
+    const renderDayEventMemberRail = (pinned = false) => (
+        <div
+            className={styles.dayEventMemberRail}
+            aria-hidden="true"
+            data-calendar-pinned-rail={pinned ? 'true' : undefined}
+        >
+            {railIndicators.map((member) => (
+                <span
+                    key={member.id}
+                    className={styles.dayEventMemberRailSegment}
+                    style={{ background: member.color }}
+                />
+            ))}
+        </div>
+    );
 
     return (
         <div
@@ -216,23 +289,27 @@ export const DraggableCalendarEvent = ({
         >
             {appearance === 'day' ? (
                 <>
-                    <div className={styles.dayEventMemberRail} aria-hidden="true">
-                        {(memberIndicators.length > 0 ? memberIndicators : [{ id: 'default', name: null, initials: '', color: primaryMemberColor, contrastSurface: readableTextColor }]).map((member) => (
-                            <span
-                                key={member.id}
-                                className={styles.dayEventMemberRailSegment}
-                                style={{ background: member.color }}
-                            />
-                        ))}
-                    </div>
+                    {!isSpanLayout ? renderDayEventMemberRail() : null}
                     <div className={styles.dayEventCardBody}>
-                        <div className={styles.dayEventCardTopRow}>
-                            <div className={styles.dayEventCardTitleBlock}>
-                                <div className={styles.dayEventCardTitle}>{item.title}</div>
-                                {showDescriptionRow ? <div className={styles.dayEventCardMeta}>{metaText}</div> : null}
+                        <div
+                            className={styles.dayEventCardTopRow}
+                            data-calendar-pinned-vertical={shouldPinDayContentVertically ? 'true' : undefined}
+                        >
+                            <div
+                                className={isSpanLayout ? styles.dayEventPinnedContent : styles.dayEventCardTitleBlock}
+                                data-calendar-pinned-content={isSpanLayout ? 'true' : undefined}
+                            >
+                                {isSpanLayout ? renderDayEventMemberRail(true) : null}
+                                <div
+                                    className={styles.dayEventCardTitleBlock}
+                                    data-calendar-pinned-text={isSpanLayout ? 'true' : undefined}
+                                >
+                                    <div className={styles.dayEventCardTitle}>{item.title}</div>
+                                    {showDescriptionRow ? <div className={styles.dayEventCardMeta}>{metaText}</div> : null}
+                                </div>
                             </div>
-                            {memberIndicators.length > 0 ? (
-                                <div className={styles.dayEventAvatarStack}>
+                            {showDayAvatars ? (
+                                <div className={styles.dayEventAvatarStack} data-avatar-layout={dayAvatarLayout}>
                                     {memberIndicators.map((member) => (
                                         <Avatar
                                             key={member.id}
@@ -244,8 +321,20 @@ export const DraggableCalendarEvent = ({
                                                 } as React.CSSProperties
                                             }
                                         >
-                                            {member.photoUrl ? <AvatarImage src={member.photoUrl} alt={member.name || 'Family member'} /> : null}
-                                            <AvatarFallback className={styles.dayEventAvatarFallback}>{member.initials}</AvatarFallback>
+                                            {member.photoUrl && !failedPhotoMemberIds.includes(member.id) ? (
+                                                <img
+                                                    src={member.photoUrl}
+                                                    alt={member.name || 'Family member'}
+                                                    className={styles.dayEventAvatarImage}
+                                                    onError={() =>
+                                                        setFailedPhotoMemberIds((current) =>
+                                                            current.includes(member.id) ? current : [...current, member.id]
+                                                        )
+                                                    }
+                                                />
+                                            ) : (
+                                                <span className={styles.dayEventAvatarFallback}>{member.initials}</span>
+                                            )}
                                         </Avatar>
                                     ))}
                                 </div>

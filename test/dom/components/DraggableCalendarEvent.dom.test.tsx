@@ -21,10 +21,43 @@ vi.mock('@atlaskit/pragmatic-drag-and-drop/element/adapter', () => ({
 import { DraggableCalendarEvent } from '@/components/DraggableCalendarEvent';
 
 describe('DraggableCalendarEvent', () => {
+    const originalResizeObserver = global.ResizeObserver;
+
+    const mockResizeObserver = (width: number, height: number) => {
+        class MockResizeObserver {
+            private callback: ResizeObserverCallback;
+
+            constructor(callback: ResizeObserverCallback) {
+                this.callback = callback;
+            }
+
+            observe(_target: Element) {
+                this.callback(
+                    [
+                        {
+                            contentRect: {
+                                width,
+                                height,
+                            },
+                        } as ResizeObserverEntry,
+                    ],
+                    this as unknown as ResizeObserver
+                );
+            }
+
+            disconnect() {}
+
+            unobserve() {}
+        }
+
+        global.ResizeObserver = MockResizeObserver as typeof ResizeObserver;
+    };
+
     beforeEach(() => {
         dndMocks.draggable.mockReset();
         dndMocks.cleanup.mockReset();
         dndMocks.lastConfig = null;
+        global.ResizeObserver = originalResizeObserver;
     });
 
     it('registers draggable metadata and toggles drag style during drag lifecycle', () => {
@@ -186,5 +219,158 @@ describe('DraggableCalendarEvent', () => {
         );
 
         expect(screen.getByTestId('calendar-event-evt-5')).toHaveAttribute('data-calendar-selected', 'true');
+    });
+
+    it('shows day-view avatars in a top-right row when a day event is wide enough', () => {
+        mockResizeObserver(220, 72);
+
+        render(
+            <DraggableCalendarEvent
+                item={{
+                    id: 'evt-day-row',
+                    title: 'Science fair',
+                    startDate: '2026-04-01T15:00:00.000Z',
+                    endDate: '2026-04-01T16:00:00.000Z',
+                    isAllDay: false,
+                    __calendarAppearance: 'day',
+                    pertainsTo: [
+                        {
+                            id: 'member-1',
+                            name: 'Judah Bell',
+                            color: '#3B82F6',
+                            photoUrls: { '64': 'judah-64.png' },
+                        },
+                        { id: 'member-2', name: 'Ava Bell', color: '#EF4444' },
+                    ],
+                }}
+                index={0}
+                draggableEnabled={false}
+            />
+        );
+
+        const eventNode = screen.getByTestId('calendar-event-evt-day-row');
+        const avatarStack = eventNode.querySelector('[data-avatar-layout="row"]');
+        const photoImage = eventNode.querySelector('img[alt="Judah Bell"]') as HTMLImageElement | null;
+
+        expect(avatarStack).not.toBeNull();
+        expect(photoImage).not.toBeNull();
+        expect(photoImage?.getAttribute('src')).toBe('/files/judah-64.png');
+        expect(eventNode).toHaveTextContent('AB');
+    });
+
+    it('shows compact day-view avatars for wide all-day span events', () => {
+        mockResizeObserver(180, 22);
+
+        render(
+            <DraggableCalendarEvent
+                item={{
+                    id: 'evt-day-span',
+                    title: 'Spring break',
+                    startDate: '2026-04-01',
+                    endDate: '2026-04-03',
+                    isAllDay: true,
+                    __calendarAppearance: 'day',
+                    pertainsTo: [
+                        { id: 'member-1', name: 'Judah Bell', color: '#3B82F6' },
+                        { id: 'member-2', name: 'Ava Bell', color: '#EF4444' },
+                    ],
+                }}
+                index={0}
+                layout="span"
+                draggableEnabled={false}
+            />
+        );
+
+        const eventNode = screen.getByTestId('calendar-event-evt-day-span');
+        const avatarStack = eventNode.querySelector('[data-avatar-layout="row"]');
+
+        expect(avatarStack).not.toBeNull();
+        expect(eventNode).toHaveTextContent('JB');
+        expect(eventNode).toHaveTextContent('AB');
+    });
+
+    it('marks timed day-view labels as vertically pinned so clipped events keep their title visible', () => {
+        mockResizeObserver(160, 84);
+
+        render(
+            <DraggableCalendarEvent
+                item={{
+                    id: 'evt-day-vertical-pin',
+                    title: 'Piano lesson',
+                    description: 'Bring books',
+                    startDate: '2026-04-01T07:30:00.000Z',
+                    endDate: '2026-04-01T09:30:00.000Z',
+                    isAllDay: false,
+                    __calendarAppearance: 'day',
+                    __calendarMetaLabel: '7:30-9:30 am',
+                }}
+                index={0}
+                className="dayViewTimedEventCard"
+                draggableEnabled={false}
+            />
+        );
+
+        const eventNode = screen.getByTestId('calendar-event-evt-day-vertical-pin');
+        const pinnedRow = eventNode.querySelector('[data-calendar-pinned-vertical="true"]');
+
+        expect(pinnedRow).not.toBeNull();
+        expect(eventNode).toHaveTextContent('Piano lesson');
+        expect(eventNode).toHaveTextContent('7:30-9:30 am');
+    });
+
+    it('pins day-view span text so the visible portion keeps the title at its left edge', () => {
+        mockResizeObserver(180, 22);
+
+        render(
+            <DraggableCalendarEvent
+                item={{
+                    id: 'evt-day-pinned-text',
+                    title: 'Spring break',
+                    description: 'Cabin trip',
+                    startDate: '2026-04-01',
+                    endDate: '2026-04-03',
+                    isAllDay: true,
+                    __calendarAppearance: 'day',
+                    __calendarMetaLabel: 'All day',
+                }}
+                index={0}
+                layout="span"
+                draggableEnabled={false}
+            />
+        );
+
+        const eventNode = screen.getByTestId('calendar-event-evt-day-pinned-text');
+        const pinnedContent = eventNode.querySelector('[data-calendar-pinned-content="true"]');
+        const pinnedText = eventNode.querySelector('[data-calendar-pinned-text="true"]');
+        const pinnedRail = eventNode.querySelector('[data-calendar-pinned-rail="true"]');
+
+        expect(pinnedContent).not.toBeNull();
+        expect(pinnedText).not.toBeNull();
+        expect(pinnedRail).not.toBeNull();
+        expect(eventNode).toHaveTextContent('Spring break');
+    });
+
+    it('hides day-view avatars when the event is too small', () => {
+        mockResizeObserver(78, 18);
+
+        render(
+            <DraggableCalendarEvent
+                item={{
+                    id: 'evt-day-hidden',
+                    title: 'Quick stop',
+                    startDate: '2026-04-01T15:00:00.000Z',
+                    endDate: '2026-04-01T15:20:00.000Z',
+                    isAllDay: false,
+                    __calendarAppearance: 'day',
+                    pertainsTo: [{ id: 'member-1', name: 'Judah Bell', color: '#3B82F6' }],
+                }}
+                index={0}
+                draggableEnabled={false}
+            />
+        );
+
+        const eventNode = screen.getByTestId('calendar-event-evt-day-hidden');
+        expect(eventNode.querySelector('[data-avatar-layout]')).toBeNull();
+        expect(eventNode).not.toHaveTextContent('JB');
     });
 });

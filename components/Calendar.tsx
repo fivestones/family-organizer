@@ -68,6 +68,7 @@ import {
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY,
     CALENDAR_DAY_HEIGHT_STORAGE_KEY,
+    CALENDAR_PERSISTENT_FILTERS_STORAGE_KEY,
     CALENDAR_SHOW_BS_CALENDAR_STORAGE_KEY,
     CALENDAR_SHOW_GREGORIAN_CALENDAR_STORAGE_KEY,
     CALENDAR_SHOW_INLINE_NON_BASIS_MONTH_BREAKS_STORAGE_KEY,
@@ -102,8 +103,8 @@ import {
 import {
     buildCalendarAgendaSections,
     buildCalendarOccurrenceKey,
+    calendarItemMatchesNonDatePersistentFilters,
     calendarItemMatchesPersistentFilters,
-    calendarItemMatchesTagExpression,
     calendarItemMatchesTextQuery,
     calendarItemOverlapsDateRange,
     createFlatOrTagExpression,
@@ -111,6 +112,7 @@ import {
     getClosestCalendarHitMinute,
     getCalendarOccurrenceDateKey,
     isCalendarDateRangeFilterActive,
+    normalizeCalendarPersistentFilters,
     normalizeCalendarSearchQuery,
     normalizeCalendarTagExpression,
 } from '@/lib/calendar-search';
@@ -176,6 +178,19 @@ interface DragRecurrenceIndicatorState {
     hotkeyLabel: string;
 }
 
+interface DayViewDragPreviewState {
+    item: CalendarItem;
+    startDate: string;
+    endDate: string;
+}
+
+interface ActiveCalendarDragMetrics {
+    pointerOffsetX: number;
+    pointerOffsetY: number;
+    width: number;
+    height: number;
+}
+
 interface CalendarWeekSpanSegment {
     segmentKey: string;
     item: CalendarItem;
@@ -201,11 +216,8 @@ const WEEKS_PER_LOAD = 8;
 const SUPPLEMENTAL_WINDOW_MONTHS = 4;
 const MONTH_MEMORY_CAP = 240;
 const MEMORY_CAP_WEEKS = Math.round((MONTH_MEMORY_CAP * 365.2425) / 12 / 7);
-const MONTH_FADE_MS = 260;
 const EDGE_TRIGGER_PX = 220;
 const EDGE_LOAD_COOLDOWN_MS = 220;
-const MONTH_BOX_HORIZONTAL_PADDING = 16;
-const MONTH_BOX_VERTICAL_PADDING = 10;
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -1008,7 +1020,22 @@ const Calendar = ({
         return window.localStorage.getItem(CALENDAR_SHOW_CHORES_STORAGE_KEY) === 'true';
     });
     const [searchState, setSearchState] = useState<CalendarLiveSearchState>({ isOpen: false, query: '' });
-    const [persistentFilters, setPersistentFilters] = useState<CalendarPersistentFilters>(createDefaultCalendarPersistentFilters);
+    const [persistentFilters, setPersistentFilters] = useState<CalendarPersistentFilters>(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) {
+            return createDefaultCalendarPersistentFilters();
+        }
+
+        const stored = window.localStorage.getItem(CALENDAR_PERSISTENT_FILTERS_STORAGE_KEY);
+        if (!stored) {
+            return createDefaultCalendarPersistentFilters();
+        }
+
+        try {
+            return normalizeCalendarPersistentFilters(JSON.parse(stored));
+        } catch {
+            return createDefaultCalendarPersistentFilters();
+        }
+    });
     const [viewMode, setViewMode] = useState<CalendarViewMode>(() => {
         if (typeof window === 'undefined' || isMiniInfinite) {
             return 'monthly';
@@ -1132,6 +1159,7 @@ const Calendar = ({
     const [dayAnchorDate, setDayAnchorDate] = useState<Date>(() => effectiveCurrentDate);
     const [dayViewVerticalResetKey, setDayViewVerticalResetKey] = useState(0);
     const [dayViewScrollRequest, setDayViewScrollRequest] = useState<{ nonce: number; dateKey: string; minute: number | null } | null>(null);
+    const [dayViewDragPreview, setDayViewDragPreview] = useState<DayViewDragPreviewState | null>(null);
     const [agendaWindow, setAgendaWindow] = useState<CalendarRangeWindow>(() => {
         const today = new Date();
         return createRollingWindow(new Date(today.getFullYear(), today.getMonth(), today.getDate()), { includePast: false });
@@ -1154,8 +1182,6 @@ const Calendar = ({
     const [scrollContainerWidth, setScrollContainerWidth] = useState<number | null>(null);
     const [yearShiftAnimation, setYearShiftAnimation] = useState<{ key: number; direction: 'left' | 'right' } | null>(null);
     const [dayNumberStickyTop, setDayNumberStickyTop] = useState(0);
-    const stickyMonthTop = 2;
-    const [monthBoxSize, setMonthBoxSize] = useState<{ width: number; height: number } | null>(null);
     const [activeMonthLabel, setActiveMonthLabel] = useState<MonthLabel>(() => {
         // @ts-ignore - package has no strict Date typing
         const nepaliDate = new NepaliDate(effectiveCurrentDate);
@@ -1169,14 +1195,12 @@ const Calendar = ({
             nepaliYearDevanagari: toDevanagariDigits(nepaliYear),
         };
     });
-    const [previousMonthLabel, setPreviousMonthLabel] = useState<MonthLabel | null>(null);
-    const [isMonthTransitioning, setIsMonthTransitioning] = useState(false);
 
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLTableSectionElement>(null);
     const pendingTopScrollAdjustRef = useRef<PendingScrollAdjust | null>(null);
+    const activeDragMetricsRef = useRef<ActiveCalendarDragMetrics | null>(null);
     const expandLockRef = useRef(false);
-    const monthFadeTimerRef = useRef<number | null>(null);
     const monthLabelRef = useRef<MonthLabel>(activeMonthLabel);
     const scrollRafRef = useRef<number | null>(null);
     const lastScrollTopRef = useRef<number | null>(null);
@@ -1186,8 +1210,6 @@ const Calendar = ({
     const yearShiftAnimationKeyRef = useRef(0);
     // const lastTopTriggerScrollTopRef = useRef<number>(Number.POSITIVE_INFINITY);
     // const lastBottomTriggerScrollTopRef = useRef<number>(Number.NEGATIVE_INFINITY);
-    const activeMonthMeasureRef = useRef<HTMLDivElement>(null);
-    const previousMonthMeasureRef = useRef<HTMLDivElement>(null);
     const initialCurrentDateStrRef = useRef(
         format(effectiveCurrentDate, 'yyyy-MM-dd')
     );
@@ -1246,12 +1268,13 @@ const Calendar = ({
         ? createFlatOrTagExpression(sanitizeControlledIds(controlledSelectedTagIds))
         : normalizeCalendarTagExpression(persistentFilters.tagExpression);
     const effectivePersistentFilters = useMemo(
-        () => ({
-            textQuery: String(persistentFilters.textQuery || ''),
-            dateRange: persistentFilters.dateRange || createEmptyCalendarDateRangeFilter(),
-            tagExpression: effectiveTagExpression,
-        }),
-        [effectiveTagExpression, persistentFilters.dateRange, persistentFilters.textQuery]
+        () =>
+            normalizeCalendarPersistentFilters({
+                ...persistentFilters,
+                dateRange: persistentFilters.dateRange || createEmptyCalendarDateRangeFilter(),
+                tagExpression: effectiveTagExpression,
+            }),
+        [effectiveTagExpression, persistentFilters]
     );
     const normalizedLiveSearchQuery = useMemo(() => normalizeCalendarSearchQuery(searchState.query), [searchState.query]);
     const effectiveMemberFilterConfigured = memberFilterControlled ? true : memberFilterConfigured;
@@ -1271,26 +1294,32 @@ const Calendar = ({
         };
     }, []);
 
-    const renderMonthLabel = useCallback((label: MonthLabel) => {
-        return (
-            <div className={styles.stickyMonthLabel}>
-                <div className={`${styles.stickyMonthLine} ${styles.stickyMonthMonthLine}`}>
-                    {effectiveShowGregorianCalendar ? <span>{label.gregorianMonth}</span> : null}
-                    {effectiveShowBsCalendar ? (
-                        <span className={effectiveShowGregorianCalendar ? styles.stickyMonthNepali : undefined}>{label.nepaliMonth}</span>
-                    ) : null}
-                </div>
-                <div className={`${styles.stickyMonthLine} ${styles.stickyMonthYearLine}`}>
-                    {effectiveShowGregorianCalendar ? <span>{label.gregorianYear}</span> : null}
-                    {effectiveShowBsCalendar ? (
-                        <span className={effectiveShowGregorianCalendar ? styles.stickyMonthYearNepali : undefined}>
-                            {label.nepaliYearDevanagari}
-                        </span>
-                    ) : null}
-                </div>
-            </div>
-        );
-    }, [effectiveShowBsCalendar, effectiveShowGregorianCalendar]);
+    const currentPeriodLabel = useMemo(() => {
+        if (viewMode !== 'monthly') {
+            return {
+                visible: false,
+                title: '',
+                subtitle: '',
+            };
+        }
+
+        const titleParts = [
+            effectiveShowGregorianCalendar ? `${activeMonthLabel.gregorianMonth} ${activeMonthLabel.gregorianYear}` : '',
+            !effectiveShowGregorianCalendar && effectiveShowBsCalendar
+                ? `${activeMonthLabel.nepaliMonth} ${activeMonthLabel.nepaliYearDevanagari}`
+                : '',
+        ].filter(Boolean);
+        const subtitle =
+            effectiveShowGregorianCalendar && effectiveShowBsCalendar
+                ? `${activeMonthLabel.nepaliMonth} ${activeMonthLabel.nepaliYearDevanagari}`
+                : '';
+
+        return {
+            visible: titleParts.length > 0,
+            title: titleParts.join(' • '),
+            subtitle,
+        };
+    }, [activeMonthLabel, effectiveShowBsCalendar, effectiveShowGregorianCalendar, viewMode]);
 
     useEffect(() => {
         if (isMiniInfinite && viewMode !== 'monthly') {
@@ -1313,8 +1342,6 @@ const Calendar = ({
         setDayViewVerticalResetKey((previous) => previous + 1);
         setActiveMonthLabel(buildMonthLabel(effectiveCurrentDate));
         monthLabelRef.current = buildMonthLabel(effectiveCurrentDate);
-        setPreviousMonthLabel(null);
-        setIsMonthTransitioning(false);
         setRangeStart(startOfWeek(addWeeks(effectiveCurrentDate, -initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
         setRangeEnd(endOfWeek(addWeeks(effectiveCurrentDate, initialWeeksPerSide), { weekStartsOn: WEEK_STARTS_ON }));
         setSearchWindow(createRollingWindow(effectiveCurrentDate));
@@ -1337,30 +1364,6 @@ const Calendar = ({
         }
         return true;
     }, [isMiniInfinite]);
-
-    const recalculateMonthBoxSize = useCallback(() => {
-        const activeRect = activeMonthMeasureRef.current?.getBoundingClientRect();
-        const previousRect = previousMonthMeasureRef.current?.getBoundingClientRect();
-
-        const baseWidth = Math.ceil(Math.max(activeRect?.width ?? 0, previousRect?.width ?? 0));
-        const baseHeight = Math.ceil(Math.max(activeRect?.height ?? 0, previousRect?.height ?? 0));
-
-        if (baseWidth === 0 || baseHeight === 0) {
-            return;
-        }
-
-        const nextSize = {
-            width: baseWidth + MONTH_BOX_HORIZONTAL_PADDING,
-            height: baseHeight + MONTH_BOX_VERTICAL_PADDING,
-        };
-
-        setMonthBoxSize((previousSize) => {
-            if (previousSize && previousSize.width === nextSize.width && previousSize.height === nextSize.height) {
-            return previousSize;
-            }
-            return nextSize;
-        });
-    }, []);
 
     const scrollToMonthOffset = useCallback((monthOffset: number, behavior: ScrollBehavior = 'smooth') => {
         const container = scrollContainerRef.current;
@@ -3528,126 +3531,291 @@ const Calendar = ({
         setSearchWindow((current) => expandSupplementalWindow(current, 'down'));
     }, [expandSupplementalWindow, explicitDateRangeWindow]);
 
+    const getDayViewTimedDropFromPointer = useCallback(
+        (input: { clientX?: number; clientY?: number } | null | undefined) => {
+            const dragMetrics = activeDragMetricsRef.current;
+            const clientX = Number(input?.clientX);
+            const clientY = Number(input?.clientY);
+            if (
+                !dragMetrics ||
+                !Number.isFinite(clientX) ||
+                !Number.isFinite(clientY) ||
+                dragMetrics.width <= 0 ||
+                dragMetrics.height <= 0
+            ) {
+                return null;
+            }
+
+            const dragLeft = clientX - dragMetrics.pointerOffsetX;
+            const dragTop = clientY - dragMetrics.pointerOffsetY;
+            const dragRight = dragLeft + dragMetrics.width;
+            const requiredOverlapWidth = dragMetrics.width / 2;
+
+            const timedColumns = Array.from(
+                document.querySelectorAll<HTMLElement>('[data-calendar-drop-surface="timed"][data-calendar-day-key]')
+            );
+            let bestTarget: {
+                dayKey: string;
+                minuteOfDay: number;
+                overlapWidth: number;
+            } | null = null;
+
+            for (const column of timedColumns) {
+                const rect = column.getBoundingClientRect();
+                const overlapWidth = Math.min(dragRight, rect.right) - Math.max(dragLeft, rect.left);
+                if (overlapWidth <= requiredOverlapWidth) {
+                    continue;
+                }
+
+                const dayKey = String(column.dataset.calendarDayKey || '').trim();
+                if (!dayKey) continue;
+
+                const snapMinutes = Math.max(1, Number(column.dataset.calendarSnapMinutes || 15));
+                const rawMinute = ((dragTop - rect.top) / Math.max(1, rect.height)) * 24 * 60;
+                const minuteOfDay = clampNumber(Math.round(rawMinute / snapMinutes) * snapMinutes, 0, 24 * 60);
+
+                if (!bestTarget || overlapWidth > bestTarget.overlapWidth) {
+                    bestTarget = {
+                        dayKey,
+                        minuteOfDay,
+                        overlapWidth,
+                    };
+                }
+            }
+
+            if (!bestTarget) {
+                return null;
+            }
+
+            return {
+                type: 'calendar-time-slot' as const,
+                dateStr: bestTarget.dayKey,
+                minuteOfDay: bestTarget.minuteOfDay,
+            };
+        },
+        []
+    );
+
+    const getDayViewDominantDayKeyFromPointer = useCallback((input: { clientX?: number; clientY?: number } | null | undefined) => {
+        const dragMetrics = activeDragMetricsRef.current;
+        const clientX = Number(input?.clientX);
+        if (!dragMetrics || !Number.isFinite(clientX) || dragMetrics.width <= 0) {
+            return null;
+        }
+
+        const dragLeft = clientX - dragMetrics.pointerOffsetX;
+        const dragRight = dragLeft + dragMetrics.width;
+        const requiredOverlapWidth = dragMetrics.width / 2;
+        const timedColumns = Array.from(
+            document.querySelectorAll<HTMLElement>('[data-calendar-drop-surface="timed"][data-calendar-day-key]')
+        );
+
+        let bestTarget: { dayKey: string; overlapWidth: number } | null = null;
+
+        for (const column of timedColumns) {
+            const rect = column.getBoundingClientRect();
+            const overlapWidth = Math.min(dragRight, rect.right) - Math.max(dragLeft, rect.left);
+            if (overlapWidth <= requiredOverlapWidth) {
+                continue;
+            }
+
+            const dayKey = String(column.dataset.calendarDayKey || '').trim();
+            if (!dayKey) continue;
+
+            if (!bestTarget || overlapWidth > bestTarget.overlapWidth) {
+                bestTarget = {
+                    dayKey,
+                    overlapWidth,
+                };
+            }
+        }
+
+        return bestTarget?.dayKey || null;
+    }, []);
+
+    const buildCalendarMoveTargetFromDrop = useCallback((
+        event: CalendarItem,
+        destData: any,
+        input?: { clientX?: number; clientY?: number } | null
+    ) => {
+        const actualStart = parseISO(event.startDate);
+        const actualEnd = parseISO(event.endDate);
+        if (Number.isNaN(actualStart.getTime()) || Number.isNaN(actualEnd.getTime())) {
+            return null;
+        }
+
+        if (destData?.type === 'calendar-day' || destData?.type === 'calendar-all-day') {
+            const dominantDayKey = getDayViewDominantDayKeyFromPointer(input);
+            const destinationDateStr = String(dominantDayKey || destData.dateStr || '');
+            const destinationDate = parseISO(destinationDateStr);
+            if (Number.isNaN(destinationDate.getTime())) {
+                return null;
+            }
+
+            if (destData?.type === 'calendar-all-day' && !event.isAllDay) {
+                return null;
+            }
+
+            const sourceDisplayDate =
+                typeof (event as any).__displayDate === 'string' && (event as any).__displayDate.trim().length > 0
+                    ? (event as any).__displayDate
+                    : typeof (event as any).__dragAnchorStartDate === 'string' &&
+                        (event as any).__dragAnchorStartDate.trim().length > 0 &&
+                        parseRecurrenceDateToken(String((event as any).__dragAnchorStartDate))
+                      ? format(parseRecurrenceDateToken(String((event as any).__dragAnchorStartDate)) as Date, 'yyyy-MM-dd')
+                      : event.isAllDay
+                        ? event.startDate
+                        : format(parseISO(event.startDate), 'yyyy-MM-dd');
+            const sourceDate = parseISO(sourceDisplayDate);
+            if (Number.isNaN(sourceDate.getTime())) {
+                return null;
+            }
+
+            const daysDifference = differenceInDays(destinationDate, sourceDate);
+            if (daysDifference === 0) {
+                return null;
+            }
+
+            const nextStartDate = event.isAllDay
+                ? format(addDays(actualStart, daysDifference), 'yyyy-MM-dd')
+                : addDays(actualStart, daysDifference).toISOString();
+            const nextEndDate = event.isAllDay
+                ? format(addDays(actualEnd, daysDifference), 'yyyy-MM-dd')
+                : addDays(actualEnd, daysDifference).toISOString();
+
+            return {
+                nextStartDate,
+                nextEndDate,
+                preview:
+                    destData?.type === 'calendar-all-day'
+                        ? {
+                              item: event,
+                              startDate: nextStartDate,
+                              endDate: nextEndDate,
+                          }
+                        : null,
+            };
+        }
+
+        const effectiveTimedDestData =
+            destData?.type === 'calendar-time-slot' ? getDayViewTimedDropFromPointer(input) || destData : destData;
+
+        if (effectiveTimedDestData?.type !== 'calendar-time-slot' || event.isAllDay) {
+            return null;
+        }
+
+        const destinationDate = parseISO(`${String(effectiveTimedDestData.dateStr)}T00:00:00`);
+        if (Number.isNaN(destinationDate.getTime())) {
+            return null;
+        }
+
+        const sourceAnchorDate =
+            typeof (event as any).__dragAnchorStartDate === 'string' && (event as any).__dragAnchorStartDate.trim().length > 0
+                ? parseISO((event as any).__dragAnchorStartDate)
+                : actualStart;
+        if (Number.isNaN(sourceAnchorDate.getTime())) {
+            return null;
+        }
+
+        const minuteOfDay = clampNumber(Number(effectiveTimedDestData.minuteOfDay ?? 0), 0, 24 * 60);
+        const destinationAnchorDate = new Date(destinationDate.getTime() + minuteOfDay * 60 * 1000);
+        const deltaMs = destinationAnchorDate.getTime() - sourceAnchorDate.getTime();
+        if (deltaMs === 0) {
+            return null;
+        }
+
+        const nextStartDate = addMilliseconds(actualStart, deltaMs).toISOString();
+        const nextEndDate = addMilliseconds(actualEnd, deltaMs).toISOString();
+        return {
+            nextStartDate,
+            nextEndDate,
+            preview: {
+                item: event,
+                startDate: nextStartDate,
+                endDate: nextEndDate,
+            },
+        };
+    }, [getDayViewDominantDayKeyFromPointer, getDayViewTimedDropFromPointer]);
+
     useEffect(() => {
         const cleanup = monitorForElements({
             onDragStart: ({ source, location }) => {
                 if (source.data.type !== 'calendar-event') {
+                    activeDragMetricsRef.current = null;
                     setDragRecurrenceIndicator(null);
+                    setDayViewDragPreview(null);
                     return;
                 }
 
+                const sourceElement = source.element instanceof HTMLElement ? source.element : null;
+                const sourceRect = sourceElement?.getBoundingClientRect();
+                const clientX = Number(location.current.input?.clientX);
+                const clientY = Number(location.current.input?.clientY);
+                activeDragMetricsRef.current =
+                    sourceRect &&
+                    Number.isFinite(clientX) &&
+                    Number.isFinite(clientY) &&
+                    sourceRect.width > 0 &&
+                    sourceRect.height > 0
+                        ? {
+                              pointerOffsetX: clientX - sourceRect.left,
+                              pointerOffsetY: clientY - sourceRect.top,
+                              width: sourceRect.width,
+                              height: sourceRect.height,
+                          }
+                        : null;
                 syncDragRecurrenceIndicator(location.current.input, source.data.event as CalendarItem);
             },
             onDrag: ({ source, location }) => {
                 if (source.data.type !== 'calendar-event') {
+                    activeDragMetricsRef.current = null;
                     setDragRecurrenceIndicator(null);
+                    setDayViewDragPreview(null);
                     return;
                 }
 
+                const destination = location.current.dropTargets?.[0];
+                const moveTarget = destination
+                    ? buildCalendarMoveTargetFromDrop(source.data.event as CalendarItem, destination.data, location.current.input)
+                    : buildCalendarMoveTargetFromDrop(source.data.event as CalendarItem, { type: 'calendar-time-slot' }, location.current.input);
+                setDayViewDragPreview(moveTarget?.preview ?? null);
                 syncDragRecurrenceIndicator(location.current.input, source.data.event as CalendarItem);
             },
             onDrop: (args) => {
                 void (async () => {
-                    setDragRecurrenceIndicator(null);
-                    const { source, location } = args;
-                    const destination = location.current.dropTargets[0];
-                    const sourceData = source.data;
-                    const destData = destination?.data;
+                    try {
+                        setDragRecurrenceIndicator(null);
+                        setDayViewDragPreview(null);
+                        const { source, location } = args;
+                        const destination = location.current.dropTargets?.[0];
+                        const sourceData = source.data;
+                        const destData = destination?.data;
 
-                    if (!destination || sourceData.type !== 'calendar-event') {
-                        return;
-                    }
-
-                    const event = sourceData.event as CalendarItem;
-                    const actualStart = parseISO(event.startDate);
-                    const actualEnd = parseISO(event.endDate);
-                    if (Number.isNaN(actualStart.getTime()) || Number.isNaN(actualEnd.getTime())) {
-                        return;
-                    }
-
-                    if (destData?.type === 'calendar-day' || destData?.type === 'calendar-all-day') {
-                        const destinationDateStr = String(destData.dateStr || '');
-                        const destinationDate = parseISO(destinationDateStr);
-                        if (Number.isNaN(destinationDate.getTime())) {
+                        if (!destination || sourceData.type !== 'calendar-event') {
                             return;
                         }
 
-                        if (destData?.type === 'calendar-all-day' && !event.isAllDay) {
+                        const event = sourceData.event as CalendarItem;
+                        const moveTarget = buildCalendarMoveTargetFromDrop(event, destData, location.current.input);
+                        if (!moveTarget) {
                             return;
                         }
-
-                        const sourceDisplayDate =
-                            typeof (event as any).__displayDate === 'string' && (event as any).__displayDate.trim().length > 0
-                                ? (event as any).__displayDate
-                                : typeof (event as any).__dragAnchorStartDate === 'string' &&
-                                    (event as any).__dragAnchorStartDate.trim().length > 0 &&
-                                    parseRecurrenceDateToken(String((event as any).__dragAnchorStartDate))
-                                  ? format(parseRecurrenceDateToken(String((event as any).__dragAnchorStartDate)) as Date, 'yyyy-MM-dd')
-                                  : event.isAllDay
-                                    ? event.startDate
-                                    : format(parseISO(event.startDate), 'yyyy-MM-dd');
-                        const sourceDate = parseISO(sourceDisplayDate);
-                        if (Number.isNaN(sourceDate.getTime())) {
-                            return;
-                        }
-
-                        const daysDifference = differenceInDays(destinationDate, sourceDate);
-                        if (daysDifference === 0) {
-                            return;
-                        }
-
-                        const nextStartDate = event.isAllDay
-                            ? format(addDays(actualStart, daysDifference), 'yyyy-MM-dd')
-                            : addDays(actualStart, daysDifference).toISOString();
-                        const nextEndDate = event.isAllDay
-                            ? format(addDays(actualEnd, daysDifference), 'yyyy-MM-dd')
-                            : addDays(actualEnd, daysDifference).toISOString();
 
                         await applyCalendarMoveUpdate({
                             event,
-                            nextStartDate,
-                            nextEndDate,
+                            nextStartDate: moveTarget.nextStartDate,
+                            nextEndDate: moveTarget.nextEndDate,
                             input: location.current.input,
                         });
-                        return;
+                    } finally {
+                        activeDragMetricsRef.current = null;
                     }
-
-                    if (destData?.type !== 'calendar-time-slot' || event.isAllDay) {
-                        return;
-                    }
-
-                    const destinationDate = parseISO(`${String(destData.dateStr)}T00:00:00`);
-                    if (Number.isNaN(destinationDate.getTime())) {
-                        return;
-                    }
-
-                    const sourceAnchorDate =
-                        typeof (event as any).__dragAnchorStartDate === 'string' && (event as any).__dragAnchorStartDate.trim().length > 0
-                            ? parseISO((event as any).__dragAnchorStartDate)
-                            : actualStart;
-                    if (Number.isNaN(sourceAnchorDate.getTime())) {
-                        return;
-                    }
-
-                    const minuteOfDay = clampNumber(Number(destData.minuteOfDay ?? 0), 0, 24 * 60);
-                    const destinationAnchorDate = new Date(destinationDate.getTime() + minuteOfDay * 60 * 1000);
-                    const deltaMs = destinationAnchorDate.getTime() - sourceAnchorDate.getTime();
-                    if (deltaMs === 0) {
-                        return;
-                    }
-
-                    await applyCalendarMoveUpdate({
-                        event,
-                        nextStartDate: addMilliseconds(actualStart, deltaMs).toISOString(),
-                        nextEndDate: addMilliseconds(actualEnd, deltaMs).toISOString(),
-                        input: location.current.input,
-                    });
                 })();
             },
         });
 
         return cleanup;
-    }, [applyCalendarMoveUpdate, syncDragRecurrenceIndicator]);
+    }, [applyCalendarMoveUpdate, buildCalendarMoveTargetFromDrop, syncDragRecurrenceIndicator]);
 
     useLayoutEffect(() => {
         const pendingAdjust = pendingTopScrollAdjustRef.current;
@@ -3715,15 +3883,6 @@ const Calendar = ({
         return () => window.removeEventListener('resize', syncContainerHeight);
     }, [isMiniInfinite, viewMode]);
 
-    useLayoutEffect(() => {
-        recalculateMonthBoxSize();
-    }, [activeMonthLabel, previousMonthLabel, recalculateMonthBoxSize]);
-
-    useEffect(() => {
-        window.addEventListener('resize', recalculateMonthBoxSize);
-        return () => window.removeEventListener('resize', recalculateMonthBoxSize);
-    }, [recalculateMonthBoxSize]);
-
     useEffect(() => {
         if (isMiniInfinite || viewMode !== 'year') return;
         yearShiftLockRef.current = false;
@@ -3741,20 +3900,7 @@ const Calendar = ({
             return;
         }
 
-        setPreviousMonthLabel(current);
         setActiveMonthLabel(nextMonth);
-        setIsMonthTransitioning(true);
-
-        if (monthFadeTimerRef.current !== null) {
-            window.clearTimeout(monthFadeTimerRef.current);
-        }
-
-        monthFadeTimerRef.current = window.setTimeout(() => {
-            setPreviousMonthLabel(null);
-            setIsMonthTransitioning(false);
-            monthFadeTimerRef.current = null;
-        }, MONTH_FADE_MS);
-
         monthLabelRef.current = nextMonth;
     }, []);
 
@@ -4039,6 +4185,11 @@ const Calendar = ({
 
     useEffect(() => {
         if (typeof window === 'undefined' || !commandsEnabled) return;
+        window.localStorage.setItem(CALENDAR_PERSISTENT_FILTERS_STORAGE_KEY, JSON.stringify(effectivePersistentFilters));
+    }, [commandsEnabled, effectivePersistentFilters]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) return;
         window.localStorage.setItem(CALENDAR_SHOW_GREGORIAN_CALENDAR_STORAGE_KEY, showGregorianCalendar ? 'true' : 'false');
     }, [commandsEnabled, showGregorianCalendar]);
 
@@ -4062,6 +4213,7 @@ const Calendar = ({
             visibleWeeks: visibleWeeksEstimate,
             showChores: effectiveShowChores,
             viewMode,
+            currentPeriodLabel,
             search: searchState,
             filters: effectivePersistentFilters,
             agendaDisplay,
@@ -4098,6 +4250,7 @@ const Calendar = ({
         effectiveShowChores,
         effectivePersistentFilters,
         effectiveTagExpression,
+        currentPeriodLabel,
         dayFontScale,
         dayHourHeight,
         dayRowCount,
@@ -4157,26 +4310,38 @@ const Calendar = ({
                 return;
             }
 
+            if (detail.type === 'setPersistentFilters') {
+                setPersistentFilters(normalizeCalendarPersistentFilters(detail.filters));
+                return;
+            }
+
             if (detail.type === 'setPersistentTextFilter') {
-                setPersistentFilters((current) => ({ ...current, textQuery: detail.textQuery }));
+                setPersistentFilters((current) => normalizeCalendarPersistentFilters({ ...current, textQuery: detail.textQuery }));
                 return;
             }
 
             if (detail.type === 'setPersistentDateRange') {
-                setPersistentFilters((current) => ({ ...current, dateRange: detail.dateRange }));
+                setPersistentFilters((current) => normalizeCalendarPersistentFilters({ ...current, dateRange: detail.dateRange }));
                 return;
             }
 
             if (detail.type === 'setTagExpressionFilter') {
-                setPersistentFilters((current) => ({ ...current, tagExpression: normalizeCalendarTagExpression(detail.tagExpression) }));
+                setPersistentFilters((current) =>
+                    normalizeCalendarPersistentFilters({
+                        ...current,
+                        tagExpression: normalizeCalendarTagExpression(detail.tagExpression),
+                    })
+                );
                 return;
             }
 
             if (detail.type === 'setTagFilter') {
-                setPersistentFilters((current) => ({
-                    ...current,
-                    tagExpression: createFlatOrTagExpression(detail.selectedTagIds),
-                }));
+                setPersistentFilters((current) =>
+                    normalizeCalendarPersistentFilters({
+                        ...current,
+                        tagExpression: createFlatOrTagExpression(detail.selectedTagIds),
+                    })
+                );
                 return;
             }
 
@@ -4282,6 +4447,7 @@ const Calendar = ({
                     visibleWeeks: visibleWeeksEstimate,
                     showChores: effectiveShowChores,
                     viewMode,
+                    currentPeriodLabel,
                     search: searchState,
                     filters: effectivePersistentFilters,
                     agendaDisplay,
@@ -4328,6 +4494,7 @@ const Calendar = ({
         handleTodayClick,
         effectivePersistentFilters,
         effectiveTagExpression,
+        currentPeriodLabel,
         dayFontScale,
         dayHourHeight,
         dayRowCount,
@@ -4379,14 +4546,6 @@ const Calendar = ({
     useEffect(() => {
         monthLabelRef.current = activeMonthLabel;
     }, [activeMonthLabel]);
-
-    useEffect(() => {
-        return () => {
-            if (monthFadeTimerRef.current !== null) {
-                window.clearTimeout(monthFadeTimerRef.current);
-            }
-        };
-    }, []);
 
     const query = useMemo(
             () => ({
@@ -4529,9 +4688,7 @@ const Calendar = ({
             return assignedIds.some((id) => selectedMemberIdSet.has(id));
         };
 
-        const matchesEventFilters = (item: CalendarItem) =>
-            calendarItemMatchesTextQuery(item, effectivePersistentFilters.textQuery) &&
-            calendarItemMatchesTagExpression(item, effectivePersistentFilters.tagExpression);
+        const matchesEventFilters = (item: CalendarItem) => calendarItemMatchesNonDatePersistentFilters(item, effectivePersistentFilters);
 
         const matchesChoreIdFilter = (choreId: string) => {
             const normalizedId = String(choreId || '').trim();
@@ -4927,9 +5084,7 @@ const Calendar = ({
                 return assignedIds.some((id) => selectedMemberIdSet.has(id));
             };
 
-            const matchesEventFilters = (item: CalendarItem) =>
-                calendarItemMatchesTextQuery(item, effectivePersistentFilters.textQuery) &&
-                calendarItemMatchesTagExpression(item, effectivePersistentFilters.tagExpression);
+            const matchesEventFilters = (item: CalendarItem) => calendarItemMatchesNonDatePersistentFilters(item, effectivePersistentFilters);
 
             const matchesChoreIdFilter = (choreId: string) => {
                 const normalizedId = String(choreId || '').trim();
@@ -5241,8 +5396,11 @@ const Calendar = ({
                     isEventSelected={isEventSelected}
                 />
             ) : (
-                <div className="flex h-full min-h-0 gap-4">
-                    <div className="min-w-0 flex-1">
+                <div
+                    className="flex h-full min-h-0 gap-4 overflow-hidden"
+                    style={scrollContainerHeight ? { height: `${scrollContainerHeight}px` } : undefined}
+                >
+                    <div className="min-w-0 flex-1 h-full">
                         {showAgendaView ? (
                             <CalendarAgendaView
                                 sections={agendaSections}
@@ -5285,6 +5443,7 @@ const Calendar = ({
                                         showGregorianCalendar={effectiveShowGregorianCalendar}
                                         showBsCalendar={effectiveShowBsCalendar}
                                         items={dayViewItems}
+                                        dragPreview={dayViewDragPreview}
                                         verticalResetKey={dayViewVerticalResetKey}
                                         scrollRequest={dayViewScrollRequest}
                                         onAnchorDateChange={handleDayViewAnchorChange}
@@ -5328,30 +5487,6 @@ const Calendar = ({
                                     />
                                 ) : (
                                     <>
-                                        <div className={styles.stickyMonthBox} style={{ top: `${stickyMonthTop}px` }}>
-                                            <div
-                                                className={styles.stickyMonthFrame}
-                                                style={monthBoxSize ? { width: `${monthBoxSize.width}px`, height: `${monthBoxSize.height}px` } : undefined}
-                                            >
-                                                <div ref={activeMonthMeasureRef} className={styles.stickyMonthMeasure}>
-                                                    {renderMonthLabel(activeMonthLabel)}
-                                                </div>
-                                                {previousMonthLabel && (
-                                                    <div ref={previousMonthMeasureRef} className={styles.stickyMonthMeasure}>
-                                                        {renderMonthLabel(previousMonthLabel)}
-                                                    </div>
-                                                )}
-                                                {previousMonthLabel && (
-                                                    <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeOut : ''}`}>
-                                                        {renderMonthLabel(previousMonthLabel)}
-                                                    </div>
-                                                )}
-                                                <div className={`${styles.stickyMonthText} ${isMonthTransitioning ? styles.monthFadeIn : styles.monthStatic}`}>
-                                                    {renderMonthLabel(activeMonthLabel)}
-                                                </div>
-                                            </div>
-                                        </div>
-
                                         <table className={styles.calendarTable}>
                                             <thead ref={headerRef} className={ebGaramond.className}>
                                                 <tr>
@@ -5541,7 +5676,7 @@ const Calendar = ({
                         )}
                     </div>
                     {showSearchResultsRail ? (
-                        <aside className="h-full min-h-0 w-[clamp(19rem,24vw,27rem)] shrink-0">
+                        <aside className="h-full min-h-0 w-[clamp(19rem,24vw,27rem)] shrink-0 overflow-hidden">
                             <CalendarAgendaView
                                 sections={searchResultSections}
                                 display={agendaDisplay}

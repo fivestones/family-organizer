@@ -80,6 +80,59 @@ describe('CalendarHeaderControls member filter summary', () => {
         expect(screen.getByText("Show only events that don't pertain to any individual family members")).toBeInTheDocument();
     });
 
+    it('renders the current monthly period label when the calendar publishes it', async () => {
+        render(<CalendarHeaderControls />);
+
+        fireEvent(
+            window,
+            new CustomEvent('calendar:state', {
+                detail: {
+                    dayHeight: 120,
+                    visibleWeeks: 6,
+                    showChores: false,
+                    viewMode: 'monthly',
+                    currentPeriodLabel: {
+                        visible: true,
+                        title: 'March 2026',
+                        subtitle: 'बैशाख (Baisakh) 2083',
+                    },
+                    search: { isOpen: false, query: '' },
+                    filters: {
+                        textQuery: '',
+                        dateRange: { mode: 'any', startDate: '', endDate: '' },
+                        tagExpression: { anyOf: [], exclude: [] },
+                        savedSearches: [],
+                        selectedSavedSearchIds: [],
+                        excludedMemberIds: [],
+                        excludedSavedSearchIds: [],
+                    },
+                    agendaDisplay: {
+                        fontScale: 1,
+                        showTags: true,
+                        showDescription: true,
+                        showLocation: true,
+                        showMetadata: true,
+                    },
+                    dayVisibleDays: 1,
+                    dayRowCount: 1,
+                    dayHourHeight: 44,
+                    dayFontScale: 1,
+                    yearMonthBasis: 'gregorian',
+                    showGregorianCalendar: true,
+                    showBsCalendar: true,
+                    showInlineNonBasisMonthBreaks: true,
+                    yearFontScale: 0.84,
+                    choreFilter: { configured: false, selectedChoreIds: [] },
+                    tagFilter: { selectedTagIds: [], tagExpression: { anyOf: [], exclude: [] } },
+                    memberFilter: { everyoneSelected: true, selectedMemberIds: ['member-alex', 'member-sam'] },
+                },
+            })
+        );
+
+        expect(screen.getByText('March 2026')).toBeInTheDocument();
+        expect(screen.getByText('बैशाख (Baisakh) 2083')).toBeInTheDocument();
+    });
+
     it('offers a default-off show chores toggle in calendar settings', async () => {
         const receivedCommands: any[] = [];
         const handleCommand = (event: Event) => {
@@ -390,6 +443,7 @@ describe('CalendarHeaderControls member filter summary', () => {
         fireEvent.change(screen.getByLabelText('Date range mode'), { target: { value: 'between' } });
         fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-03-15' } });
         fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-03-20' } });
+        fireEvent.click(screen.getByRole('button', { name: /advanced logic/i }));
         fireEvent.click(screen.getByRole('button', { name: 'Add OR group' }));
 
         const firstTagGroup = await screen.findByTestId('calendar-tag-group-0');
@@ -403,23 +457,19 @@ describe('CalendarHeaderControls member filter summary', () => {
                         query: 'school',
                     }),
                     expect.objectContaining({
-                        type: 'setPersistentTextFilter',
-                        textQuery: 'pickup',
-                    }),
-                    expect.objectContaining({
-                        type: 'setPersistentDateRange',
-                        dateRange: expect.objectContaining({
-                            mode: 'between',
-                            startDate: '2026-03-15',
-                            endDate: '2026-03-20',
+                        type: 'setPersistentFilters',
+                        filters: expect.objectContaining({
+                            textQuery: 'pickup',
+                            dateRange: expect.objectContaining({
+                                mode: 'between',
+                                startDate: '2026-03-15',
+                                endDate: '2026-03-20',
+                            }),
+                            tagExpression: {
+                                anyOf: [['tag-travel']],
+                                exclude: [],
+                            },
                         }),
-                    }),
-                    expect.objectContaining({
-                        type: 'setTagExpressionFilter',
-                        tagExpression: {
-                            anyOf: [['tag-travel']],
-                            exclude: [],
-                        },
                     }),
                 ])
             );

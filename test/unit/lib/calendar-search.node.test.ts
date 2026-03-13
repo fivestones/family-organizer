@@ -3,9 +3,12 @@ import {
     buildCalendarAgendaSections,
     buildCalendarOccurrenceKey,
     buildCalendarSearchableText,
+    calendarItemMatchesPersistentFilters,
+    calendarItemMatchesTextQuery,
     calendarItemMatchesTagExpression,
     calendarItemOverlapsDateRange,
     getClosestCalendarHitMinute,
+    normalizeCalendarSearchQuery,
 } from '@/lib/calendar-search';
 
 describe('calendar-search helpers', () => {
@@ -72,6 +75,76 @@ describe('calendar-search helpers', () => {
         expect(buildCalendarSearchableText(item)).toContain('science project');
         expect(buildCalendarSearchableText(item)).toContain('north gate');
         expect(buildCalendarSearchableText(item)).toContain('urgent');
+    });
+
+    it('normalizes common punctuation variants for search matching', () => {
+        const item = {
+            title: 'Judah’s school pickup - Nepal',
+            description: 'Don’t forget the passport',
+            location: 'Mandy’s list',
+            tags: [{ name: 'Travel' }],
+        };
+
+        expect(normalizeCalendarSearchQuery("Judah's school pickup - Nepal")).toBe(
+            normalizeCalendarSearchQuery('Judah’s school pickup - Nepal')
+        );
+        expect(normalizeCalendarSearchQuery("Don't")).toBe(normalizeCalendarSearchQuery('Don’t'));
+        expect(calendarItemMatchesTextQuery(item, "Judah's school pickup")).toBe(true);
+        expect(calendarItemMatchesTextQuery(item, "Mandy's list")).toBe(true);
+    });
+
+    it('applies saved-search and exclusion filters together', () => {
+        const baseFilters = {
+            textQuery: '',
+            dateRange: { mode: 'any' as const, startDate: '', endDate: '' },
+            tagExpression: { anyOf: [], exclude: ['tag-school'] },
+            savedSearches: [{ id: 'search-nepal', query: 'Nepal', label: 'Nepal' }],
+            selectedSavedSearchIds: ['search-nepal'],
+            excludedMemberIds: ['member-mandy'],
+            excludedSavedSearchIds: [],
+        };
+
+        expect(
+            calendarItemMatchesPersistentFilters(
+                {
+                    title: 'Nepal planning',
+                    startDate: '2026-03-15T09:00:00.000Z',
+                    endDate: '2026-03-15T10:00:00.000Z',
+                    isAllDay: false,
+                    pertainsTo: [{ id: 'member-judah' }],
+                    tags: [{ id: 'tag-travel', name: 'Travel' }],
+                },
+                baseFilters
+            )
+        ).toBe(true);
+
+        expect(
+            calendarItemMatchesPersistentFilters(
+                {
+                    title: 'Nepal planning',
+                    startDate: '2026-03-15T09:00:00.000Z',
+                    endDate: '2026-03-15T10:00:00.000Z',
+                    isAllDay: false,
+                    pertainsTo: [{ id: 'member-judah' }, { id: 'member-mandy' }],
+                    tags: [{ id: 'tag-travel', name: 'Travel' }],
+                },
+                baseFilters
+            )
+        ).toBe(false);
+
+        expect(
+            calendarItemMatchesPersistentFilters(
+                {
+                    title: 'Nepal school pickup',
+                    startDate: '2026-03-15T09:00:00.000Z',
+                    endDate: '2026-03-15T10:00:00.000Z',
+                    isAllDay: false,
+                    pertainsTo: [{ id: 'member-judah' }],
+                    tags: [{ id: 'tag-school', name: 'School' }],
+                },
+                baseFilters
+            )
+        ).toBe(false);
     });
 
     it('groups agenda sections chronologically and filters them by live query', () => {
