@@ -18,6 +18,7 @@ const NAV_LINKS = [
     { href: '/', label: 'Dashboard' },
     { href: '/chores', label: 'Chores' },
     { href: '/tasks', label: 'Tasks' },
+    { href: '/task-series', label: 'Task Series' },
     { href: '/calendar', label: 'Calendar' },
     { href: '/familyMemberDetail', label: 'Finance' },
     { href: '/allowance-distribution', label: 'Allowance Distribution' },
