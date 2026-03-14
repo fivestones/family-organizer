@@ -13,7 +13,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { id, tx } from '@instantdb/react-native';
 import { router } from 'expo-router';
-import * as DocumentPicker from 'expo-document-picker';
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
 import {
   calculateDailyXP,
   formatDateKeyUTC,
@@ -23,9 +29,18 @@ import {
   localDateToUTC,
 } from '@family-organizer/shared-core';
 import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
+import { AttachmentPreviewModal } from '../../src/components/AttachmentPreviewModal';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
-import { createMobilePresignedUpload, getPresignedFileUrl } from '../../src/lib/api-client';
+import { getPresignedFileUrl } from '../../src/lib/api-client';
+import {
+  captureCameraImage,
+  captureCameraVideo,
+  createRecordedAudioAttachment,
+  pickAttachmentDocuments,
+  pickLibraryMedia,
+  uploadPendingAttachments,
+} from '../../src/lib/attachments';
 import { getTasksForDate } from '../../../lib/task-scheduler';
 import { buildTaskProgressUpdateTransactions } from '../../../lib/task-progress-mutations';
 import {
@@ -37,6 +52,7 @@ import {
   getTaskStatusLabel,
   getTaskWorkflowState,
   isTaskDone,
+  sortTaskProgressEntries,
 } from '../../../lib/task-progress';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 
@@ -210,10 +226,10 @@ function buildTaskLinks(task) {
   const seen = new Set();
   const urlPattern = /\b((?:https?:\/\/|[a-z][a-z0-9+.-]*:\/\/)[^\s<>"')]+)/gi;
 
-  function pushLink(label, url, kind = 'link') {
+  function pushLink(label, url, kind = 'link', extra = {}) {
     if (!url || seen.has(url) || links.length >= MAX_LINKS_PER_TASK) return;
     seen.add(url);
-    links.push({ key: `${kind}:${url}`, label, url, kind });
+    links.push({ key: `${kind}:${url}`, label, url, kind, ...extra });
   }
 
   [task?.text, task?.notes].forEach((value) => {
@@ -228,7 +244,9 @@ function buildTaskLinks(task) {
     if (!attachment?.url) return;
     const key = String(attachment.url);
     const isFullUrl = /^https?:\/\//i.test(key);
-    pushLink(attachment.name || 'Open attachment', isFullUrl ? key : key, 'attachment');
+    pushLink(attachment.name || 'Open attachment', isFullUrl ? key : key, 'attachment', {
+      attachment,
+    });
     if (!isFullUrl) {
       // Mark with the S3 key so openTaskLink can resolve it via presigned URL
       const link = links[links.length - 1];
@@ -288,7 +306,10 @@ export default function DashboardTab() {
   const [taskComposer, setTaskComposer] = useState(null);
   const [restoreRequest, setRestoreRequest] = useState(null);
   const [taskMutationPending, setTaskMutationPending] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState(null);
   const currentUserIdRef = useRef('');
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const audioRecorderState = useAudioRecorderState(audioRecorder, 200);
 
   const dashboardQuery = db.useQuery(
     isAuthenticated && instantReady
@@ -485,44 +506,23 @@ export default function DashboardTab() {
     });
   }, [chores, selectedDate, viewedMember?.id]);
 
-  async function uploadTaskEvidenceFiles(files) {
-    const uploaded = [];
+  function appendComposerFiles(files) {
+    if (!files?.length) return;
+    setTaskComposer((previous) => {
+      if (!previous) return previous;
+      return {
+        ...previous,
+        files: [...previous.files, ...files],
+      };
+    });
+  }
 
-    for (const file of files || []) {
-      const presigned = await createMobilePresignedUpload({
-        filename: file.name,
-        contentType: file.type || 'application/octet-stream',
-        scope: 'task-attachment',
-      });
-
-      const formData = new FormData();
-      Object.entries(presigned.fields || {}).forEach(([key, value]) => {
-        formData.append(key, value);
-      });
-      formData.append('file', {
-        uri: file.uri,
-        name: file.name,
-        type: file.type || 'application/octet-stream',
-      });
-
-      const response = await fetch(presigned.uploadUrl, {
-        method: presigned.method || 'POST',
-        body: formData,
-      });
-
-      if (response.status >= 400) {
-        throw new Error(`Upload failed for ${file.name}`);
-      }
-
-      uploaded.push({
-        id: id(),
-        name: file.name,
-        type: file.type || 'application/octet-stream',
-        url: presigned.objectKey,
-      });
+  async function handleOpenTaskLink(link) {
+    if (link.kind === 'attachment' && link.attachment) {
+      setPreviewAttachment(link.attachment);
+      return;
     }
-
-    return uploaded;
+    await openTaskLink(link);
   }
 
   function openTaskComposer(task, allTasks, chore) {
@@ -539,6 +539,9 @@ export default function DashboardTab() {
 
   function closeTaskComposer() {
     if (taskMutationPending) return;
+    if (audioRecorderState.isRecording) {
+      void stopComposerAudioRecording();
+    }
     setTaskComposer(null);
   }
 
@@ -554,25 +557,80 @@ export default function DashboardTab() {
   }
 
   async function pickComposerFiles() {
-    const result = await DocumentPicker.getDocumentAsync({
-      multiple: true,
-      type: '*/*',
-      copyToCacheDirectory: true,
-    });
+    try {
+      const files = await pickAttachmentDocuments();
+      appendComposerFiles(files);
+    } catch (error) {
+      Alert.alert('Unable to add files', error?.message || 'Please try again.');
+    }
+  }
 
-    if (result.canceled || !result.assets?.length) return;
+  async function pickComposerMedia() {
+    try {
+      const files = await pickLibraryMedia();
+      appendComposerFiles(files);
+    } catch (error) {
+      Alert.alert('Unable to open library', error?.message || 'Please try again.');
+    }
+  }
 
-    setTaskComposer((previous) => {
-      if (!previous) return previous;
-      return {
-        ...previous,
-        files: [...previous.files, ...result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.name,
-          type: asset.mimeType || 'application/octet-stream',
-        }))],
-      };
-    });
+  async function captureComposerPhoto() {
+    try {
+      const files = await captureCameraImage();
+      appendComposerFiles(files);
+    } catch (error) {
+      Alert.alert('Unable to take photo', error?.message || 'Please try again.');
+    }
+  }
+
+  async function captureComposerVideo() {
+    try {
+      const files = await captureCameraVideo();
+      appendComposerFiles(files);
+    } catch (error) {
+      Alert.alert('Unable to record video', error?.message || 'Please try again.');
+    }
+  }
+
+  async function startComposerAudioRecording() {
+    try {
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Microphone required', 'Allow microphone access to record audio attachments.');
+        return;
+      }
+
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+    } catch (error) {
+      Alert.alert('Unable to record audio', error?.message || 'Please try again.');
+    }
+  }
+
+  async function stopComposerAudioRecording() {
+    if (!audioRecorderState.isRecording) return;
+
+    try {
+      await audioRecorder.stop();
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      });
+
+      const recordedFile = createRecordedAudioAttachment({
+        uri: audioRecorder.uri || audioRecorderState.uri,
+        durationMillis: audioRecorderState.durationMillis,
+      });
+      if (recordedFile?.uri) {
+        appendComposerFiles([recordedFile]);
+      }
+    } catch (error) {
+      Alert.alert('Unable to stop recording', error?.message || 'Please try again.');
+    }
   }
 
   async function applyTaskWorkflowUpdate(context, payload) {
@@ -583,7 +641,7 @@ export default function DashboardTab() {
 
     setTaskMutationPending(true);
     try {
-      const attachments = payload.files?.length ? await uploadTaskEvidenceFiles(payload.files) : [];
+      const attachments = payload.files?.length ? await uploadPendingAttachments(payload.files, id) : [];
       const transactions = buildTaskProgressUpdateTransactions({
         tx,
         createId: id,
@@ -880,7 +938,7 @@ export default function DashboardTab() {
                                             accessibilityRole="button"
                                             accessibilityLabel={link.label}
                                             onPress={() => {
-                                              void openTaskLink(link);
+                                              void handleOpenTaskLink(link);
                                             }}
                                             style={styles.taskLinkChip}
                                           >
@@ -910,7 +968,7 @@ export default function DashboardTab() {
                                               accessibilityRole="button"
                                               accessibilityLabel={link.label}
                                               onPress={() => {
-                                                void openTaskLink(link);
+                                                void handleOpenTaskLink(link);
                                               }}
                                               style={styles.taskLinkChip}
                                             >
@@ -999,14 +1057,7 @@ export default function DashboardTab() {
                                           key={attachment.id}
                                           accessibilityRole="button"
                                           accessibilityLabel={attachment.name || 'Open attachment'}
-                                          onPress={() => {
-                                            void openTaskLink({
-                                              key: attachment.id,
-                                              label: attachment.name || 'Open attachment',
-                                              url: attachment.url,
-                                              s3Key: attachment.url,
-                                            });
-                                          }}
+                                          onPress={() => setPreviewAttachment(attachment)}
                                           style={styles.taskLinkChip}
                                         >
                                           <Text style={styles.taskLinkText}>{attachment.name || 'Attachment'}</Text>
@@ -1263,15 +1314,48 @@ export default function DashboardTab() {
 
                 <View style={styles.sheetEvidenceHeader}>
                   <Text style={styles.sheetLabel}>Evidence</Text>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Add evidence files" onPress={() => { void pickComposerFiles(); }}>
-                    <Text style={styles.sheetLink}>Add files</Text>
-                  </Pressable>
                 </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sheetMediaActionRow}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Add evidence files" onPress={() => { void pickComposerFiles(); }} style={styles.sheetMediaActionChip}>
+                    <Text style={styles.sheetMediaActionText}>Files</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Choose photos or videos from library" onPress={() => { void pickComposerMedia(); }} style={styles.sheetMediaActionChip}>
+                    <Text style={styles.sheetMediaActionText}>Library</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Take a photo" onPress={() => { void captureComposerPhoto(); }} style={styles.sheetMediaActionChip}>
+                    <Text style={styles.sheetMediaActionText}>Photo</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Record a video" onPress={() => { void captureComposerVideo(); }} style={styles.sheetMediaActionChip}>
+                    <Text style={styles.sheetMediaActionText}>Video</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={audioRecorderState.isRecording ? 'Stop audio recording' : 'Record audio'}
+                    onPress={() => {
+                      if (audioRecorderState.isRecording) {
+                        void stopComposerAudioRecording();
+                      } else {
+                        void startComposerAudioRecording();
+                      }
+                    }}
+                    style={[styles.sheetMediaActionChip, audioRecorderState.isRecording && styles.sheetMediaActionChipActive]}
+                  >
+                    <Text style={[styles.sheetMediaActionText, audioRecorderState.isRecording && styles.sheetMediaActionTextActive]}>
+                      {audioRecorderState.isRecording ? `Stop ${Math.round((audioRecorderState.durationMillis || 0) / 1000)}s` : 'Audio'}
+                    </Text>
+                  </Pressable>
+                </ScrollView>
                 {taskComposer.files.length > 0 ? (
                   <View style={styles.sheetFileList}>
                     {taskComposer.files.map((file, index) => (
                       <View key={`${file.name}-${index}`} style={styles.sheetFileRow}>
-                        <Text style={styles.sheetFileName} numberOfLines={1}>{file.name}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.sheetFileName} numberOfLines={1}>{file.name}</Text>
+                          <Text style={styles.sheetFileMeta}>
+                            {file.kind || 'file'}
+                            {Number.isFinite(Number(file.durationSec)) ? ` • ${Math.round(Number(file.durationSec))}s` : ''}
+                          </Text>
+                        </View>
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel={`Remove ${file.name}`}
@@ -1308,14 +1392,7 @@ export default function DashboardTab() {
                                 key={attachment.id}
                                 accessibilityRole="button"
                                 accessibilityLabel={attachment.name || 'Open attachment'}
-                                onPress={() => {
-                                  void openTaskLink({
-                                    key: attachment.id,
-                                    label: attachment.name || 'Open attachment',
-                                    url: attachment.url,
-                                    s3Key: attachment.url,
-                                  });
-                                }}
+                                onPress={() => setPreviewAttachment(attachment)}
                                 style={styles.taskLinkChip}
                               >
                                 <Text style={styles.taskLinkText}>{attachment.name || 'Attachment'}</Text>
@@ -1335,7 +1412,7 @@ export default function DashboardTab() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Save task update"
-                    disabled={taskMutationPending}
+                    disabled={taskMutationPending || audioRecorderState.isRecording}
                     onPress={() => {
                       applyTaskWorkflowUpdate(taskComposer, {
                         nextState: taskComposer.nextState,
@@ -1345,10 +1422,10 @@ export default function DashboardTab() {
                         setTaskComposer(null);
                       }).catch(() => {});
                     }}
-                    style={[styles.sheetButton, styles.sheetButtonPrimary, taskMutationPending && styles.sheetButtonDisabled]}
+                    style={[styles.sheetButton, styles.sheetButtonPrimary, (taskMutationPending || audioRecorderState.isRecording) && styles.sheetButtonDisabled]}
                   >
                     <Text style={[styles.sheetButtonText, styles.sheetButtonTextPrimary]}>
-                      {taskMutationPending ? 'Saving…' : 'Save update'}
+                      {audioRecorderState.isRecording ? 'Stop recording first' : taskMutationPending ? 'Saving…' : 'Save update'}
                     </Text>
                   </Pressable>
                 </View>
@@ -1470,6 +1547,12 @@ export default function DashboardTab() {
           </View>
         </View>
       </Modal>
+
+      <AttachmentPreviewModal
+        attachment={previewAttachment}
+        visible={!!previewAttachment}
+        onClose={() => setPreviewAttachment(null)}
+      />
     </>
   );
 }
@@ -2164,6 +2247,29 @@ const createStyles = (colors) =>
     color: colors.accentCalendar,
     fontWeight: '700',
   },
+  sheetMediaActionRow: {
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  sheetMediaActionChip: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  sheetMediaActionChipActive: {
+    borderColor: colors.warning,
+    backgroundColor: withAlpha(colors.warning, 0.12),
+  },
+  sheetMediaActionText: {
+    color: colors.ink,
+    fontWeight: '700',
+  },
+  sheetMediaActionTextActive: {
+    color: colors.warning,
+  },
   sheetFileList: {
     borderRadius: radii.sm,
     borderWidth: 1,
@@ -2181,6 +2287,11 @@ const createStyles = (colors) =>
   sheetFileName: {
     color: colors.ink,
     flex: 1,
+  },
+  sheetFileMeta: {
+    color: colors.inkMuted,
+    fontSize: 11,
+    marginTop: 2,
   },
   sheetRemoveLink: {
     color: colors.warning,

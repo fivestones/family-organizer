@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '@/lib/db';
 import FamilyMembersList from '@/components/FamilyMembersList';
 import { Button } from '@/components/ui/button';
+import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import {
     getHistoryActorKey,
     getHistoryActorLabel,
@@ -413,35 +414,11 @@ export default function HistoryPage({
                                         {!linkedMessage?.body && detailsNote ? <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailsNote}</div> : null}
 
                                         {messageAttachments.length > 0 ? (
-                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                {messageAttachments.map((attachment) => (
-                                                    <a
-                                                        key={attachment.id}
-                                                        href={`/files/${attachment.url}`}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700"
-                                                    >
-                                                        {attachment.name || 'Attachment'}
-                                                    </a>
-                                                ))}
-                                            </div>
+                                            <AttachmentCollection attachments={messageAttachments} className="mt-3" variant="panel" />
                                         ) : null}
 
                                         {eventAttachments.length > 0 ? (
-                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                {eventAttachments.map((attachment) => (
-                                                    <a
-                                                        key={attachment.id}
-                                                        href={`/files/${attachment.url}`}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700"
-                                                    >
-                                                        {attachment.name || 'Attachment'}
-                                                    </a>
-                                                ))}
-                                            </div>
+                                            <AttachmentCollection attachments={eventAttachments} className="mt-3" variant="panel" />
                                         ) : null}
                                     </div>
                                 );

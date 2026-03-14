@@ -30,6 +30,16 @@ export interface TaskProgressAttachmentInput {
     name: string;
     type: string;
     url: string;
+    kind?: string | null;
+    sizeBytes?: number | null;
+    width?: number | null;
+    height?: number | null;
+    durationSec?: number | null;
+    thumbnailUrl?: string | null;
+    thumbnailWidth?: number | null;
+    thumbnailHeight?: number | null;
+    blurhash?: string | null;
+    waveformPeaks?: number[] | null;
 }
 
 export interface BuildTaskProgressUpdateTransactionsParams {
@@ -190,11 +200,21 @@ export function buildTaskProgressUpdateTransactions(params: BuildTaskProgressUpd
         if (typeof params.tx.taskProgressAttachments?.[attachment.id]?.update === 'function') {
             transactions.push(
                 params.tx.taskProgressAttachments[attachment.id].update({
+                    blurhash: attachment.blurhash || null,
                     createdAt: now.toISOString(),
+                    durationSec: attachment.durationSec ?? null,
+                    height: attachment.height ?? null,
+                    kind: attachment.kind || null,
                     name: attachment.name,
+                    sizeBytes: attachment.sizeBytes ?? null,
+                    thumbnailHeight: attachment.thumbnailHeight ?? null,
+                    thumbnailUrl: attachment.thumbnailUrl || null,
+                    thumbnailWidth: attachment.thumbnailWidth ?? null,
                     type: attachment.type,
                     updatedAt: now.toISOString(),
                     url: attachment.url,
+                    waveformPeaks: attachment.waveformPeaks || null,
+                    width: attachment.width ?? null,
                 })
             );
         }

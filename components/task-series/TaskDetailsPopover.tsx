@@ -4,13 +4,14 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import type { Editor } from '@tiptap/core';
 import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react-dom';
 import { id as generateId, tx } from '@instantdb/react';
-import { ChevronLeft, ChevronRight, File as FileIcon, Loader2, Trash2, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Trash2, Upload } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useDebouncedCallback } from 'use-debounce';
 
-import { getPresignedUploadUrl, refreshFiles } from '@/app/actions';
+import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { Button } from '@/components/ui/button';
 import { db } from '@/lib/db';
+import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { cn } from '@/lib/utils';
 
 import {
@@ -126,34 +127,30 @@ const TaskMetadataManager = ({
 
         setUploading(true);
         try {
-            const { url, fields, key } = await getPresignedUploadUrl(file.type, file.name);
+            const [uploadedAttachment] = await uploadFilesToS3([file], generateId);
+            if (!uploadedAttachment) throw new Error('Upload failed');
 
-            const formData = new FormData();
-            Object.entries(fields).forEach(([fieldKey, fieldValue]) => formData.append(fieldKey, fieldValue as string));
-            formData.append('file', file);
-
-            const uploadResponse = await fetch(url, {
-                method: 'POST',
-                body: formData,
-            });
-
-            // S3 presigned POST returns 204. Cross-origin opaque responses have status 0.
-            // Only treat 4xx/5xx as failures.
-            if (uploadResponse.status >= 400) throw new Error('Upload failed');
-
-            const attachmentId = generateId();
+            const attachmentId = uploadedAttachment.id;
             db.transact([
                 tx.taskAttachments[attachmentId].update({
-                    name: file.name,
-                    url: key,
-                    type: file.type,
+                    blurhash: uploadedAttachment.blurhash || null,
                     createdAt: new Date(),
+                    durationSec: uploadedAttachment.durationSec ?? null,
+                    height: uploadedAttachment.height ?? null,
+                    kind: uploadedAttachment.kind || null,
+                    name: uploadedAttachment.name,
+                    sizeBytes: uploadedAttachment.sizeBytes ?? null,
+                    thumbnailHeight: uploadedAttachment.thumbnailHeight ?? null,
+                    thumbnailUrl: uploadedAttachment.thumbnailUrl || null,
+                    thumbnailWidth: uploadedAttachment.thumbnailWidth ?? null,
+                    type: uploadedAttachment.type,
                     updatedAt: new Date(),
+                    url: uploadedAttachment.url,
+                    waveformPeaks: uploadedAttachment.waveformPeaks || null,
+                    width: uploadedAttachment.width ?? null,
                 }),
                 tx.tasks[taskId].link({ attachments: attachmentId }),
             ]);
-
-            await refreshFiles();
         } catch (error) {
             console.error('File upload error:', error);
             alert('Failed to upload file.');
@@ -201,24 +198,14 @@ const TaskMetadataManager = ({
                     {task?.attachments?.length === 0 && (
                         <div className="text-xs text-gray-400 italic py-2 text-center border border-dashed rounded">No files attached</div>
                     )}
+                    {task?.attachments?.length ? <AttachmentCollection attachments={task.attachments} variant="compact" /> : null}
                     {task?.attachments?.map((file: any) => (
-                        <div
-                            key={file.id}
-                            className="group flex items-center justify-between gap-2 p-2 rounded border bg-white hover:border-blue-200 transition-all text-xs"
-                        >
-                            <a
-                                href={`/files/${file.url}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center gap-2 flex-1 min-w-0 truncate hover:text-blue-600"
-                            >
-                                <FileIcon className="h-3 w-3 shrink-0 text-gray-400" />
-                                <span className="truncate">{file.name}</span>
-                            </a>
+                        <div key={`${file.id}-remove`} className="group flex items-center justify-between gap-2 rounded border bg-white px-2 py-1.5 text-xs">
+                            <span className="min-w-0 flex-1 truncate text-slate-600">{file.name}</span>
                             <button
                                 type="button"
                                 onClick={() => handleDeleteAttachment(file.id)}
-                                className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="text-gray-400 transition-colors hover:text-red-500"
                             >
                                 <Trash2 className="h-3 w-3" />
                             </button>

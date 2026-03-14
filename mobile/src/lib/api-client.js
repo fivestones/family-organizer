@@ -108,6 +108,18 @@ export async function createMobilePresignedUpload({ filename, contentType, scope
   return parseJson(response);
 }
 
+export async function finalizeMobileUploadedAttachment(payload) {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/files/finalize`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
 export async function getAppleCalendarSyncStatus() {
   const response = await fetch(`${getApiBaseUrl()}/api/calendar-sync/apple/status`, {
     headers: {

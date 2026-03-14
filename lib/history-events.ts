@@ -7,6 +7,16 @@ export interface HistoryAttachmentInput {
     name: string;
     type: string;
     url: string;
+    kind?: string | null;
+    sizeBytes?: number | null;
+    width?: number | null;
+    height?: number | null;
+    durationSec?: number | null;
+    thumbnailUrl?: string | null;
+    thumbnailWidth?: number | null;
+    thumbnailHeight?: number | null;
+    blurhash?: string | null;
+    waveformPeaks?: number[] | null;
 }
 
 export interface BuildHistoryEventTransactionsParams {
@@ -61,6 +71,16 @@ export interface HistoryAttachmentLike {
     name?: string | null;
     type?: string | null;
     url?: string | null;
+    kind?: string | null;
+    sizeBytes?: number | null;
+    width?: number | null;
+    height?: number | null;
+    durationSec?: number | null;
+    thumbnailUrl?: string | null;
+    thumbnailWidth?: number | null;
+    thumbnailHeight?: number | null;
+    blurhash?: string | null;
+    waveformPeaks?: number[] | null;
 }
 
 export interface MessageLike {
@@ -133,11 +153,21 @@ export function buildHistoryEventTransactions(params: BuildHistoryEventTransacti
         if (typeof params.tx.historyEventAttachments?.[attachment.id]?.update === 'function') {
             transactions.push(
                 params.tx.historyEventAttachments[attachment.id].update({
+                    blurhash: attachment.blurhash || null,
                     createdAt: occurredAt,
+                    durationSec: attachment.durationSec ?? null,
+                    height: attachment.height ?? null,
+                    kind: attachment.kind || null,
                     name: attachment.name,
+                    sizeBytes: attachment.sizeBytes ?? null,
+                    thumbnailHeight: attachment.thumbnailHeight ?? null,
+                    thumbnailUrl: attachment.thumbnailUrl || null,
+                    thumbnailWidth: attachment.thumbnailWidth ?? null,
                     type: attachment.type,
                     updatedAt: occurredAt,
                     url: attachment.url,
+                    waveformPeaks: attachment.waveformPeaks || null,
+                    width: attachment.width ?? null,
                 })
             );
         }

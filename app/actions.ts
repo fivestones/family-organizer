@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { randomUUID, createHash } from 'crypto';
 import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
+import { finalizeUploadedAttachment, type AttachmentFinalizeInput } from '@/lib/attachment-finalizer';
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
 const AVATAR_SIZES = ['64', '320', '1200'] as const;
@@ -150,6 +151,11 @@ export async function getPresignedUploadUrl(contentType: string, fileName: strin
         console.error('Error creating presigned URL:', error);
         throw new Error('Failed to generate upload signature');
     }
+}
+
+export async function finalizeUploadedAttachmentAction(input: AttachmentFinalizeInput) {
+    await requireDeviceAuth();
+    return finalizeUploadedAttachment(input);
 }
 
 export async function getAvatarVariantUploadUrls(input: { scope: AvatarUploadScope; memberId?: string | null }) {

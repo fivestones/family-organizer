@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListObjectsV2Command, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
@@ -118,3 +118,36 @@ export async function createSignedDownloadUrlForS3Object(key: string): Promise<s
     return getSignedUrl(signer, command, { expiresIn: 3600 });
 }
 
+async function toBuffer(body: any): Promise<Buffer> {
+    if (!body) return Buffer.alloc(0);
+    if (typeof body.transformToByteArray === 'function') {
+        return Buffer.from(await body.transformToByteArray());
+    }
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of body) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+}
+
+export async function getS3ObjectBuffer(key: string): Promise<Buffer> {
+    const client = getS3InternalClient();
+    const response = await client.send(
+        new GetObjectCommand({
+            Bucket: getBucketName(),
+            Key: key,
+        })
+    );
+    return toBuffer(response.Body);
+}
+
+export async function getS3ObjectHead(key: string) {
+    const client = getS3InternalClient();
+    return client.send(
+        new HeadObjectCommand({
+            Bucket: getBucketName(),
+            Key: key,
+        })
+    );
+}

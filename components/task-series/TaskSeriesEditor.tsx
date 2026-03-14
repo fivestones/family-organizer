@@ -13,13 +13,14 @@ import { useDebouncedCallback } from 'use-debounce';
 import { SlashCommand, slashCommandSuggestion } from './SlashCommand';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
-import { getPresignedUploadUrl, refreshFiles } from '@/app/actions';
+import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/components/AuthProvider';
 import TaskItemExtension, { TaskDateContext } from './TaskItem';
 import { TaskDetailsPopover } from './TaskDetailsPopover';
+import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { cn } from '@/lib/utils';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 import { getTaskActorName, getTaskStatusLabel, isTaskWorkflowState, sortTaskProgressEntries } from '@/lib/task-progress';
@@ -43,6 +44,16 @@ interface TaskAttachment {
     name?: string | null;
     type?: string | null;
     url?: string | null;
+    kind?: string | null;
+    sizeBytes?: number | null;
+    width?: number | null;
+    height?: number | null;
+    durationSec?: number | null;
+    thumbnailUrl?: string | null;
+    thumbnailWidth?: number | null;
+    thumbnailHeight?: number | null;
+    blurhash?: string | null;
+    waveformPeaks?: number[] | null;
 }
 
 interface TaskProgressEntry {
@@ -332,35 +343,31 @@ const TaskSeriesCard = ({
 
         setUploading(true);
         try {
-            const { url, fields, key } = await getPresignedUploadUrl(file.type, file.name);
+            const [uploadedAttachment] = await uploadFilesToS3([file], id);
+            if (!uploadedAttachment) throw new Error('Upload failed');
 
-            const formData = new FormData();
-            Object.entries(fields).forEach(([fieldKey, fieldValue]) => formData.append(fieldKey, fieldValue as string));
-            formData.append('file', file);
-
-            const uploadResponse = await fetch(url, {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (uploadResponse.status >= 400) {
-                throw new Error('Upload failed');
-            }
-
-            const attachmentId = id();
+            const attachmentId = uploadedAttachment.id;
             await db.transact([
                 tx.taskAttachments[attachmentId].update({
-                    name: file.name,
-                    url: key,
-                    type: file.type,
+                    blurhash: uploadedAttachment.blurhash || null,
                     createdAt: new Date(),
+                    durationSec: uploadedAttachment.durationSec ?? null,
+                    height: uploadedAttachment.height ?? null,
+                    kind: uploadedAttachment.kind || null,
+                    name: uploadedAttachment.name,
+                    sizeBytes: uploadedAttachment.sizeBytes ?? null,
+                    thumbnailHeight: uploadedAttachment.thumbnailHeight ?? null,
+                    thumbnailUrl: uploadedAttachment.thumbnailUrl || null,
+                    thumbnailWidth: uploadedAttachment.thumbnailWidth ?? null,
+                    type: uploadedAttachment.type,
                     updatedAt: new Date(),
+                    url: uploadedAttachment.url,
+                    waveformPeaks: uploadedAttachment.waveformPeaks || null,
+                    width: uploadedAttachment.width ?? null,
                 }),
                 tx.tasks[item.id].link({ attachments: attachmentId }),
                 tx.taskSeries[seriesId].link({ tasks: item.id }),
             ]);
-
-            await refreshFiles();
         } catch (error) {
             console.error('File upload error:', error);
             alert('Failed to upload file.');
@@ -518,23 +525,21 @@ const TaskSeriesCard = ({
                                     Attachments unlock after the task saves.
                                 </div>
                             ) : persistedTask?.attachments?.length ? (
-                                persistedTask.attachments.map((file) => (
-                                    <div
-                                        key={file.id}
-                                        className="group flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600"
-                                    >
-                                        <a href={`/files/${file.url}`} target="_blank" rel="noreferrer" className="max-w-[180px] truncate hover:text-sky-700">
-                                            {file.name || 'Attachment'}
-                                        </a>
-                                        <button
-                                            type="button"
-                                            onClick={() => void handleDeleteAttachment(file.id)}
-                                            className="text-slate-400 transition-colors hover:text-rose-600"
-                                        >
-                                            x
-                                        </button>
+                                <div className="w-full space-y-2">
+                                    <AttachmentCollection attachments={persistedTask.attachments} variant="compact" />
+                                    <div className="flex flex-wrap gap-2">
+                                        {persistedTask.attachments.map((file) => (
+                                            <button
+                                                key={`${file.id}-remove`}
+                                                type="button"
+                                                onClick={() => void handleDeleteAttachment(file.id)}
+                                                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 transition-colors hover:border-rose-200 hover:text-rose-600"
+                                            >
+                                                Remove {file.name || 'attachment'}
+                                            </button>
+                                        ))}
                                     </div>
-                                ))
+                                </div>
                             ) : (
                                 <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
                                     No attachments yet.
@@ -578,19 +583,7 @@ const TaskSeriesCard = ({
                                         </div>
                                         {entry.note ? <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{entry.note}</div> : null}
                                         {entry.attachments?.length ? (
-                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                {entry.attachments.map((file) => (
-                                                    <a
-                                                        key={file.id}
-                                                        href={`/files/${file.url}`}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600 hover:text-sky-700"
-                                                    >
-                                                        {file.name || 'Attachment'}
-                                                    </a>
-                                                ))}
-                                            </div>
+                                            <AttachmentCollection attachments={entry.attachments} className="mt-3" variant="compact" />
                                         ) : null}
                                     </div>
                                 );

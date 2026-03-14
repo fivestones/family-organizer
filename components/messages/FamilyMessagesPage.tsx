@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/components/AuthProvider';
+import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { db } from '@/lib/db';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
 import {
@@ -22,7 +23,22 @@ type MessageRecord = {
     editedAt?: string | null;
     editableUntil?: string | null;
     authorFamilyMemberId?: string | null;
-    attachments?: Array<{ id: string; name?: string | null; url?: string | null; type?: string | null }>;
+    attachments?: Array<{
+        id: string;
+        name?: string | null;
+        url?: string | null;
+        type?: string | null;
+        kind?: string | null;
+        sizeBytes?: number | null;
+        width?: number | null;
+        height?: number | null;
+        durationSec?: number | null;
+        thumbnailUrl?: string | null;
+        thumbnailWidth?: number | null;
+        thumbnailHeight?: number | null;
+        blurhash?: string | null;
+        waveformPeaks?: number[] | null;
+    }>;
     author?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null;
 };
 
@@ -178,11 +194,21 @@ export default function FamilyMessagesPage() {
             for (const attachment of uploadedAttachments) {
                 transactions.push(
                     tx.messageAttachments[attachment.id].update({
+                        blurhash: attachment.blurhash || null,
                         createdAt: nowIso,
+                        durationSec: attachment.durationSec ?? null,
+                        height: attachment.height ?? null,
+                        kind: attachment.kind || null,
                         name: attachment.name,
+                        sizeBytes: attachment.sizeBytes ?? null,
+                        thumbnailHeight: attachment.thumbnailHeight ?? null,
+                        thumbnailUrl: attachment.thumbnailUrl || null,
+                        thumbnailWidth: attachment.thumbnailWidth ?? null,
                         type: attachment.type,
                         updatedAt: nowIso,
                         url: attachment.url,
+                        waveformPeaks: attachment.waveformPeaks || null,
+                        width: attachment.width ?? null,
                     }),
                     tx.messages[messageId].link({ attachments: attachment.id })
                 );
@@ -310,19 +336,11 @@ export default function FamilyMessagesPage() {
                                             <>
                                                 {message.body ? <div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div> : null}
                                                 {message.attachments?.length ? (
-                                                    <div className="mt-3 flex flex-wrap gap-2">
-                                                        {message.attachments.map((attachment) => (
-                                                            <a
-                                                                key={attachment.id}
-                                                                href={`/files/${attachment.url}`}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                className={`rounded-full border px-3 py-1 text-xs font-medium ${isOwnMessage ? 'border-sky-200/40 bg-sky-500/30 text-white' : 'border-slate-300 bg-white text-slate-700'}`}
-                                                            >
-                                                                {attachment.name || 'Attachment'}
-                                                            </a>
-                                                        ))}
-                                                    </div>
+                                                    <AttachmentCollection
+                                                        attachments={message.attachments}
+                                                        className="mt-3"
+                                                        variant={isOwnMessage ? 'bubble-own' : 'bubble-other'}
+                                                    />
                                                 ) : null}
                                                 {canEdit ? (
                                                     <div className="mt-3 flex justify-end">

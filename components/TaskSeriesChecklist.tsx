@@ -2,10 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Task } from '@/lib/task-scheduler';
-import { File as FileIcon, Loader2, Maximize2, Minimize2, RotateCcw, Upload, X } from 'lucide-react';
+import { Loader2, RotateCcw, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
-import { PDFPreview } from './PDFPreview';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import {
     getBucketedTasks,
     getLatestTaskProgressEntry,
@@ -69,49 +69,6 @@ const statusToneClassName: Record<TaskWorkflowState, string> = {
     done: 'bg-emerald-100 text-emerald-700 border-emerald-200',
 };
 
-const FileThumbnail = ({ file, onClick }: { file: any; onClick: () => void }) => {
-    const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(file.url);
-    const isPdf = /\.pdf$/i.test(file.url);
-    const isText = /\.(txt|md|csv|log)$/i.test(file.url);
-    const [previewText, setPreviewText] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (isText && !previewText) {
-            fetch(`/files/${file.url}`)
-                .then((res) => res.text())
-                .then((text) => setPreviewText(text.slice(0, 150)))
-                .catch((err) => console.error('Failed to load text preview', err));
-        }
-    }, [isText, file.url, previewText]);
-
-    return (
-        <div
-            onClick={(e) => {
-                e.stopPropagation();
-                onClick();
-            }}
-            className="group relative h-12 w-12 cursor-pointer overflow-hidden rounded border bg-white transition-all hover:ring-2 hover:ring-blue-400"
-            title={file.name}
-        >
-            {isImage ? (
-                <img src={`/files/${file.url}`} alt={file.name} className="h-full w-full object-cover" />
-            ) : isPdf ? (
-                <div className="flex h-full w-full items-center justify-center bg-red-50 text-red-500">
-                    <span className="text-[8px] font-bold">PDF</span>
-                </div>
-            ) : isText ? (
-                <div className="h-full w-full overflow-hidden bg-gray-50 p-1">
-                    <div className="break-all font-mono text-[5px] leading-[6px] text-gray-500 opacity-70">{previewText || 'Loading...'}</div>
-                </div>
-            ) : (
-                <div className="flex h-full w-full items-center justify-center bg-gray-100">
-                    <FileIcon className="h-5 w-5 text-gray-400" />
-                </div>
-            )}
-        </div>
-    );
-};
-
 export const TaskSeriesChecklist: React.FC<Props> = ({
     tasks: scheduledTasks,
     allTasks,
@@ -125,10 +82,6 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     isParentReviewer = false,
 }) => {
     const [localExpandedIds, setLocalExpandedIds] = useState<Set<string>>(new Set());
-    const [previewFile, setPreviewFile] = useState<any | null>(null);
-    const [fullTextContent, setFullTextContent] = useState<string | null>(null);
-    const [loadingText, setLoadingText] = useState(false);
-    const [isExpanded, setIsExpanded] = useState(false);
     const [expandedBuckets, setExpandedBuckets] = useState<Record<TaskBucketState, boolean>>({
         blocked: true,
         skipped: false,
@@ -153,26 +106,6 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
             }
             return next;
         });
-    };
-
-    const openPreview = async (file: any) => {
-        setPreviewFile(file);
-        setFullTextContent(null);
-        setIsExpanded(false);
-
-        if (/\.(txt|md|csv|log)$/i.test(file.url)) {
-            setLoadingText(true);
-            try {
-                const res = await fetch(`/files/${file.url}`);
-                const text = await res.text();
-                setFullTextContent(text);
-            } catch (err) {
-                console.error('Failed to load full text', err);
-                setFullTextContent('Error loading file content.');
-            } finally {
-                setLoadingText(false);
-            }
-        }
     };
 
     const activeScheduledTasks = useMemo(() => scheduledTasks.filter((task) => !isTaskDone(task)), [scheduledTasks]);
@@ -365,11 +298,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                     <div className="mt-2 rounded-md border border-blue-100 bg-blue-50/50 p-2 text-sm">
                         {hasNotes ? <div className="mb-2 whitespace-pre-wrap text-xs text-gray-700">{task.notes}</div> : null}
                         {hasAttachments ? (
-                            <div className="flex flex-wrap gap-2">
-                                {attachments.map((file: any) => (
-                                    <FileThumbnail key={file.id} file={file} onClick={() => openPreview(file)} />
-                                ))}
-                            </div>
+                            <AttachmentCollection attachments={attachments} variant="compact" />
                         ) : null}
                     </div>
                 ) : null}
@@ -532,11 +461,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                         </div>
                         {latestEntry?.note ? <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{latestEntry.note}</div> : null}
                         {latestEntry?.attachments?.length ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                                {latestEntry.attachments.map((file: any) => (
-                                    <FileThumbnail key={file.id} file={file} onClick={() => openPreview(file)} />
-                                ))}
-                            </div>
+                            <AttachmentCollection attachments={latestEntry.attachments} className="mt-2" variant="compact" />
                         ) : null}
                     </div>
                     {!isReadOnly ? (
@@ -584,8 +509,6 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
             </div>
         );
     };
-
-    const previewIsPdf = previewFile && /\.pdf$/i.test(previewFile.url);
 
     return (
         <div className="relative mb-2 mt-3 space-y-3">
@@ -770,11 +693,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                     </div>
                                                     {entry.note ? <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{entry.note}</div> : null}
                                                     {entry.attachments?.length ? (
-                                                        <div className="mt-2 flex flex-wrap gap-2">
-                                                            {entry.attachments.map((file: any) => (
-                                                                <FileThumbnail key={file.id} file={file} onClick={() => openPreview(file)} />
-                                                            ))}
-                                                        </div>
+                                                        <AttachmentCollection attachments={entry.attachments} className="mt-2" variant="compact" />
                                                     ) : null}
                                                 </div>
                                             );
@@ -815,74 +734,6 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={!!previewFile} onOpenChange={(open) => !open && setPreviewFile(null)}>
-                <DialogContent
-                    className={cn(
-                        'flex flex-col overflow-hidden p-0 transition-all duration-300',
-                        isExpanded
-                            ? 'h-screen max-h-none w-screen max-w-none rounded-none border-0'
-                            : cn('w-[90vw] max-w-4xl', previewIsPdf ? 'h-[85vh]' : 'max-h-[85vh]')
-                    )}
-                >
-                    <DialogHeader className="z-10 flex shrink-0 flex-row items-center justify-between space-y-0 border-b bg-white p-4">
-                        <div className="flex flex-1 items-center gap-2 overflow-hidden">
-                            <DialogTitle className="truncate pr-4">{previewFile?.name}</DialogTitle>
-                        </div>
-                        <div className="flex flex-shrink-0 items-center gap-2">
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setIsExpanded(!isExpanded)}
-                                className="text-gray-500 hover:bg-gray-100"
-                                title={isExpanded ? 'Exit Full Screen' : 'Full Screen'}
-                            >
-                                {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                            </Button>
-
-                            <DialogClose className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100">
-                                <X className="h-4 w-4" />
-                                <span className="sr-only">Close</span>
-                            </DialogClose>
-                        </div>
-                    </DialogHeader>
-
-                    <div className="h-full w-full flex-1 overflow-auto bg-gray-50">
-                        <div className="flex min-h-full flex-col items-center justify-start">
-                            {previewFile ? (
-                                /\.(jpg|jpeg|png|webp|gif)$/i.test(previewFile.url) ? (
-                                    <div className="flex w-full justify-center p-4">
-                                        <img src={`/files/${previewFile.url}`} alt={previewFile.name} className="max-w-full rounded object-contain shadow-md" />
-                                    </div>
-                                ) : /\.pdf$/i.test(previewFile.url) ? (
-                                    <PDFPreview url={`/files/${encodeURIComponent(previewFile.url)}`} />
-                                ) : /\.(txt|md|csv|log)$/i.test(previewFile.url) ? (
-                                    <div className="flex w-full justify-center p-4">
-                                        {loadingText ? (
-                                            <div className="mt-10 flex items-center gap-2 text-muted-foreground">
-                                                <Loader2 className="h-6 w-6 animate-spin" /> Loading text...
-                                            </div>
-                                        ) : (
-                                            <div className="w-full max-w-3xl overflow-hidden rounded border bg-white p-6 font-mono text-base shadow-sm whitespace-pre-wrap">
-                                                {fullTextContent}
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div className="mt-10 text-center">
-                                        <FileIcon className="mx-auto mb-4 h-16 w-16 text-gray-300" />
-                                        <p className="mb-4 text-muted-foreground">Preview not available for this file type.</p>
-                                        <Button asChild>
-                                            <a href={`/files/${previewFile.url}`} download target="_blank" rel="noreferrer">
-                                                Download File
-                                            </a>
-                                        </Button>
-                                    </div>
-                                )
-                            ) : null}
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 };

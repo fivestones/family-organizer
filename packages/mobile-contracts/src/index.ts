@@ -46,3 +46,32 @@ export interface MobilePresignResponse {
     accessUrl: string;
 }
 
+export interface MobileFinalizeAttachmentRequest {
+    objectKey: string;
+    fileName?: string;
+    contentType?: string;
+    width?: number | null;
+    height?: number | null;
+    durationSec?: number | null;
+    thumbnailUrl?: string | null;
+    thumbnailWidth?: number | null;
+    thumbnailHeight?: number | null;
+    blurhash?: string | null;
+    waveformPeaks?: number[] | null;
+}
+
+export interface MobileFinalizeAttachmentResponse {
+    name: string;
+    url: string;
+    type: string;
+    kind?: string | null;
+    sizeBytes?: number | null;
+    width?: number | null;
+    height?: number | null;
+    durationSec?: number | null;
+    thumbnailUrl?: string | null;
+    thumbnailWidth?: number | null;
+    thumbnailHeight?: number | null;
+    blurhash?: string | null;
+    waveformPeaks?: number[] | null;
+}
