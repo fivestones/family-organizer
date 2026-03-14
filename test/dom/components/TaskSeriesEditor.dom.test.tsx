@@ -501,11 +501,32 @@ describe('TaskSeriesEditor', () => {
 
         render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
 
+        expect(screen.getByTestId('task-series-editor-root').className).toContain('max-w-none');
+        expect(screen.getByTestId('task-series-editor-layout').className).toContain('min-[1600px]:grid-cols-[minmax(0,38rem)_minmax(0,1fr)]');
+        expect(screen.getByRole('button', { name: /collapse bulk editor/i })).toHaveAttribute('aria-expanded', 'true');
         expect(screen.getByRole('heading', { name: /task cards/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /^add day break$/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /add day break below existing task/i })).toBeInTheDocument();
         expect(screen.getByText(/saved when you leave the field/i)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /^history$/i })).toBeInTheDocument();
+    });
+
+    it('starts with the bulk editor expanded and lets stacked layouts collapse it', async () => {
+        const user = userEvent.setup();
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+
+        const toggle = screen.getByRole('button', { name: /collapse bulk editor/i });
+        const bulkPanel = screen.getByTestId('task-series-bulk-editor-panel');
+
+        expect(bulkPanel).toHaveAttribute('data-collapsed', 'false');
+
+        await user.click(toggle);
+
+        expect(screen.getByRole('button', { name: /expand bulk editor/i })).toHaveAttribute('aria-expanded', 'false');
+        expect(bulkPanel).toHaveAttribute('data-collapsed', 'true');
+        expect(screen.getByText(/bulk editor collapsed/i)).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: /task cards/i })).toBeInTheDocument();
     });
 
     it('adds a day break section from the card toolbar', async () => {
