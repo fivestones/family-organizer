@@ -27,6 +27,28 @@ function getLinkedFamilyMember(value: Envelope['familyMember'] | { id?: string; 
     return value || null;
 }
 
+function formatPossessiveName(name: string | null | undefined) {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) return '';
+    return /s$/i.test(trimmed) ? `${trimmed}'` : `${trimmed}'s`;
+}
+
+function formatEnvelopeHistoryLabel(input: { envelopeName?: string | null; memberName?: string | null }) {
+    const envelopeName = String(input.envelopeName || '').trim();
+    const memberName = formatPossessiveName(input.memberName);
+
+    if (memberName && envelopeName) {
+        return `${memberName} ${envelopeName}`;
+    }
+    if (envelopeName) {
+        return envelopeName;
+    }
+    if (memberName) {
+        return `${memberName} envelope`;
+    }
+    return 'envelope';
+}
+
 function formatHistoryAmount(amount: number, currency: string) {
     const absoluteAmount = Math.abs(amount);
     const upperCaseCurrency = String(currency || '').toUpperCase();
@@ -41,11 +63,35 @@ function formatHistoryAmount(amount: number, currency: string) {
     }
 }
 
-async function getEnvelopeContextMap(db: any, envelopeIds: string[]) {
+async function getEnvelopeContextMap(
+    db: any,
+    envelopeIds: string[],
+    fallbackEnvelopes: Array<Pick<Envelope, 'id' | 'name' | 'familyMember'> | null | undefined> = []
+) {
     const uniqueEnvelopeIds = Array.from(new Set(envelopeIds.filter(Boolean)));
     const contextMap = new Map<string, { id: string; name?: string; memberId?: string; memberName?: string }>();
 
     if (uniqueEnvelopeIds.length === 0) {
+        return contextMap;
+    }
+
+    for (const envelope of fallbackEnvelopes) {
+        if (!envelope?.id) continue;
+        const familyMember = getLinkedFamilyMember(envelope.familyMember);
+        contextMap.set(envelope.id, {
+            id: envelope.id,
+            name: envelope.name,
+            memberId: familyMember?.id,
+            memberName: familyMember?.name,
+        });
+    }
+
+    const missingEnvelopeIds = uniqueEnvelopeIds.filter((envelopeId) => {
+        const current = contextMap.get(envelopeId);
+        return !current || (!current.memberId && !current.memberName);
+    });
+
+    if (missingEnvelopeIds.length === 0 || typeof db?.queryOnce !== 'function') {
         return contextMap;
     }
 
@@ -54,7 +100,7 @@ async function getEnvelopeContextMap(db: any, envelopeIds: string[]) {
             $: {
                 where: {
                     id: {
-                        $in: uniqueEnvelopeIds,
+                        $in: missingEnvelopeIds,
                     },
                 },
             },
@@ -589,7 +635,10 @@ export const depositToSpecificEnvelope = async (
         occurredAt: nowIso,
         domain: 'finance',
         actionType: 'envelope_deposit',
-        summary: `Deposited ${formatHistoryAmount(amount, upperCaseCurrency)} to ${envelopeContext?.name || 'envelope'}`,
+        summary: `Deposited ${formatHistoryAmount(amount, upperCaseCurrency)} to ${formatEnvelopeHistoryLabel({
+            envelopeName: envelopeContext?.name || null,
+            memberName: envelopeContext?.memberName || null,
+        })}`,
         source: 'manual',
         actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
         affectedFamilyMemberIds: envelopeContext?.memberId ? [envelopeContext.memberId] : [],
@@ -600,6 +649,8 @@ export const depositToSpecificEnvelope = async (
             description,
             envelopeId,
             envelopeName: envelopeContext?.name || null,
+            memberId: envelopeContext?.memberId || null,
+            memberName: envelopeContext?.memberName || null,
         },
     });
 
@@ -661,18 +712,25 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
     const transactionIdOut = id();
     const transactionIdIn = id();
     const nowIso = new Date().toISOString();
-    const fromMember = getLinkedFamilyMember(fromEnvelope.familyMember);
-    const toMember = getLinkedFamilyMember(toEnvelope.familyMember);
+    const envelopeContextMap = await getEnvelopeContextMap(db, [fromEnvelope.id, toEnvelope.id], [fromEnvelope, toEnvelope]);
+    const fromEnvelopeContext = envelopeContextMap.get(fromEnvelope.id);
+    const toEnvelopeContext = envelopeContextMap.get(toEnvelope.id);
     const historyEvent = buildHistoryEventTransactions({
         tx,
         createId: id,
         occurredAt: nowIso,
         domain: 'finance',
         actionType: 'envelope_transfer',
-        summary: `Transferred ${formatHistoryAmount(amount, upperCaseCurrency)} from ${fromEnvelope.name} to ${toEnvelope.name}`,
+        summary: `Transferred ${formatHistoryAmount(amount, upperCaseCurrency)} from ${formatEnvelopeHistoryLabel({
+            envelopeName: fromEnvelope.name,
+            memberName: fromEnvelopeContext?.memberName || null,
+        })} to ${formatEnvelopeHistoryLabel({
+            envelopeName: toEnvelope.name,
+            memberName: toEnvelopeContext?.memberName || null,
+        })}`,
         source: 'manual',
         actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
-        affectedFamilyMemberIds: [fromMember?.id, toMember?.id],
+        affectedFamilyMemberIds: [fromEnvelopeContext?.memberId, toEnvelopeContext?.memberId],
         allowanceTransactionId: transactionIdOut,
         metadata: {
             amount,
@@ -681,6 +739,10 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
             fromEnvelopeName: fromEnvelope.name,
             toEnvelopeId: toEnvelope.id,
             toEnvelopeName: toEnvelope.name,
+            fromMemberId: fromEnvelopeContext?.memberId || null,
+            fromMemberName: fromEnvelopeContext?.memberName || null,
+            toMemberId: toEnvelopeContext?.memberId || null,
+            toMemberName: toEnvelopeContext?.memberName || null,
             description: transferDesc,
         },
     });
@@ -806,24 +868,34 @@ export const deleteEnvelope = async (
         }
     }
 
-    const deletedMember = getLinkedFamilyMember(envelopeToDelete.familyMember);
-    const targetMember = getLinkedFamilyMember(targetEnvelope.familyMember);
+    const envelopeContextMap = await getEnvelopeContextMap(db, [envelopeToDeleteId, transferToEnvelopeId], [envelopeToDelete, targetEnvelope]);
+    const deletedEnvelopeContext = envelopeContextMap.get(envelopeToDeleteId);
+    const targetEnvelopeContext = envelopeContextMap.get(transferToEnvelopeId);
     const historyEvent = buildHistoryEventTransactions({
         tx,
         createId: id,
         occurredAt: nowIso,
         domain: 'finance',
         actionType: 'envelope_deleted',
-        summary: `Deleted envelope "${envelopeToDelete.name}"`,
+        summary: deletedEnvelopeContext?.memberName
+            ? `Deleted ${formatEnvelopeHistoryLabel({
+                  envelopeName: envelopeToDelete.name,
+                  memberName: deletedEnvelopeContext.memberName,
+              })}`
+            : `Deleted envelope "${envelopeToDelete.name}"`,
         source: 'manual',
         actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
-        affectedFamilyMemberIds: [deletedMember?.id, targetMember?.id],
+        affectedFamilyMemberIds: [deletedEnvelopeContext?.memberId, targetEnvelopeContext?.memberId],
         metadata: {
             deletedEnvelopeId: envelopeToDeleteId,
             deletedEnvelopeName: envelopeToDelete.name,
             transferToEnvelopeId,
             transferToEnvelopeName: targetEnvelope.name,
             newDefaultEnvelopeId: newDefaultEnvelopeId || null,
+            deletedMemberId: deletedEnvelopeContext?.memberId || null,
+            deletedMemberName: deletedEnvelopeContext?.memberName || null,
+            transferToMemberId: targetEnvelopeContext?.memberId || null,
+            transferToMemberName: targetEnvelopeContext?.memberName || null,
         },
     });
     transactions.push(...historyEvent.transactions);
@@ -876,7 +948,12 @@ export const updateEnvelope = async (
         occurredAt: nowIso,
         domain: 'finance',
         actionType: 'envelope_updated',
-        summary: `Updated envelope "${trimmedName}"`,
+        summary: envelopeContext?.memberName
+            ? `Updated ${formatEnvelopeHistoryLabel({
+                  envelopeName: trimmedName,
+                  memberName: envelopeContext.memberName,
+              })}`
+            : `Updated envelope "${trimmedName}"`,
         source: 'manual',
         actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
         affectedFamilyMemberIds: envelopeContext?.memberId ? [envelopeContext.memberId] : [],
@@ -886,6 +963,8 @@ export const updateEnvelope = async (
             isDefault,
             goalAmount: goalAmount ?? null,
             goalCurrency: goalCurrency ?? null,
+            memberId: envelopeContext?.memberId || null,
+            memberName: envelopeContext?.memberName || null,
         },
     });
     await db.transact([
@@ -953,17 +1032,21 @@ export const withdrawFromEnvelope = async (
         createdAt: nowIso,
         updatedAt: nowIso,
     });
-    const envelopeMember = getLinkedFamilyMember(envelope.familyMember);
+    const envelopeContextMap = await getEnvelopeContextMap(db, [envelope.id], [envelope]);
+    const envelopeContext = envelopeContextMap.get(envelope.id);
     const historyEvent = buildHistoryEventTransactions({
         tx,
         createId: id,
         occurredAt: nowIso,
         domain: 'finance',
         actionType: 'envelope_withdrawal',
-        summary: `Withdrew ${formatHistoryAmount(amount, upperCaseCurrency)} from ${envelope.name}`,
+        summary: `Withdrew ${formatHistoryAmount(amount, upperCaseCurrency)} from ${formatEnvelopeHistoryLabel({
+            envelopeName: envelope.name,
+            memberName: envelopeContext?.memberName || null,
+        })}`,
         source: 'manual',
         actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
-        affectedFamilyMemberIds: envelopeMember?.id ? [envelopeMember.id] : [],
+        affectedFamilyMemberIds: envelopeContext?.memberId ? [envelopeContext.memberId] : [],
         allowanceTransactionId: transactionId,
         metadata: {
             amount,
@@ -971,6 +1054,8 @@ export const withdrawFromEnvelope = async (
             description,
             envelopeId: envelope.id,
             envelopeName: envelope.name,
+            memberId: envelopeContext?.memberId || null,
+            memberName: envelopeContext?.memberName || null,
         },
     });
 
@@ -1034,8 +1119,11 @@ export const transferFundsToPerson = async (
     const transactionIdOut = id();
     const transactionIdIn = id();
     // Attempt to get recipient name for description
-    const recipientName = destinationEnvelope.familyMember?.[0]?.name || 'other member';
-    const senderName = sourceEnvelope.familyMember?.[0]?.name || 'other member';
+    const envelopeContextMap = await getEnvelopeContextMap(db, [sourceEnvelope.id, destinationEnvelope.id], [sourceEnvelope, destinationEnvelope]);
+    const sourceEnvelopeContext = envelopeContextMap.get(sourceEnvelope.id);
+    const destinationEnvelopeContext = envelopeContextMap.get(destinationEnvelope.id);
+    const recipientName = destinationEnvelopeContext?.memberName || destinationEnvelope.familyMember?.[0]?.name || 'other member';
+    const senderName = sourceEnvelopeContext?.memberName || sourceEnvelope.familyMember?.[0]?.name || 'other member';
     const transferDesc = description || `Transfer from ${senderName} to ${recipientName}`;
 
     // Transaction for the sender
@@ -1066,18 +1154,22 @@ export const transferFundsToPerson = async (
         updatedAt: new Date().toISOString(),
     });
     const nowIso = new Date().toISOString();
-    const sourceMember = getLinkedFamilyMember(sourceEnvelope.familyMember);
-    const destinationMember = getLinkedFamilyMember(destinationEnvelope.familyMember);
     const historyEvent = buildHistoryEventTransactions({
         tx,
         createId: id,
         occurredAt: nowIso,
         domain: 'finance',
         actionType: 'person_transfer',
-        summary: `Transferred ${formatHistoryAmount(amount, upperCaseCurrency)} from ${senderName} to ${recipientName}`,
+        summary: `Transferred ${formatHistoryAmount(amount, upperCaseCurrency)} from ${formatEnvelopeHistoryLabel({
+            envelopeName: sourceEnvelope.name,
+            memberName: sourceEnvelopeContext?.memberName || senderName,
+        })} to ${formatEnvelopeHistoryLabel({
+            envelopeName: destinationEnvelope.name,
+            memberName: destinationEnvelopeContext?.memberName || recipientName,
+        })}`,
         source: 'manual',
         actorFamilyMemberId: auditFields.createdByFamilyMemberId || null,
-        affectedFamilyMemberIds: [sourceMember?.id, destinationMember?.id],
+        affectedFamilyMemberIds: [sourceEnvelopeContext?.memberId, destinationEnvelopeContext?.memberId],
         allowanceTransactionId: transactionIdOut,
         metadata: {
             amount,
@@ -1087,8 +1179,10 @@ export const transferFundsToPerson = async (
             sourceEnvelopeName: sourceEnvelope.name,
             destinationEnvelopeId: destinationEnvelope.id,
             destinationEnvelopeName: destinationEnvelope.name,
-            sourceMemberId: sourceMember?.id || null,
-            destinationMemberId: destinationMember?.id || null,
+            sourceMemberId: sourceEnvelopeContext?.memberId || null,
+            sourceMemberName: sourceEnvelopeContext?.memberName || null,
+            destinationMemberId: destinationEnvelopeContext?.memberId || null,
+            destinationMemberName: destinationEnvelopeContext?.memberName || null,
         },
     });
 

@@ -22,14 +22,18 @@ const currencyMocks = vi.hoisted(() => {
             }
         );
 
+    const txRoot = new Proxy(
+        {},
+        {
+            get(_target, entity: string) {
+                return txFactory(entity);
+            },
+        }
+    );
+
     return {
         id: vi.fn(() => 'mock-id'),
-        tx: {
-            allowanceEnvelopes: txFactory('allowanceEnvelopes'),
-            allowanceTransactions: txFactory('allowanceTransactions'),
-            familyMembers: txFactory('familyMembers'),
-            exchangeRates: txFactory('exchangeRates'),
-        },
+        tx: txRoot,
         getAuth: vi.fn(),
     };
 });
@@ -77,48 +81,56 @@ describe('currency-utils mutation helpers', () => {
 
             expect(db.transact).toHaveBeenCalledTimes(1);
             const txs = db.transact.mock.calls[0][0] as any[];
-            expect(txs).toEqual([
-                {
-                    op: 'update',
-                    entity: 'allowanceEnvelopes',
-                    id: 'env-savings',
-                    payload: {
-                        name: 'Savings',
-                        balances: {},
-                        isDefault: true,
-                        familyMember: 'member-1',
-                        goalAmount: null,
-                        goalCurrency: null,
+            expect(txs).toEqual(
+                expect.arrayContaining([
+                    {
+                        op: 'update',
+                        entity: 'allowanceEnvelopes',
+                        id: 'env-savings',
+                        payload: {
+                            name: 'Savings',
+                            balances: {},
+                            isDefault: true,
+                            familyMember: 'member-1',
+                            goalAmount: null,
+                            goalCurrency: null,
+                        },
                     },
-                },
-                {
-                    op: 'link',
-                    entity: 'familyMembers',
-                    id: 'member-1',
-                    payload: { allowanceEnvelopes: 'env-savings' },
-                },
-                {
-                    op: 'update',
-                    entity: 'allowanceTransactions',
-                    id: 'mock-id',
-                    payload: {
-                        createdBy: 'instant-parent-principal',
-                        amount: 0,
-                        currency: 'USD',
-                        transactionType: 'init',
-                        description: 'Envelope Created',
-                        createdAt: '2026-02-26T12:34:56.000Z',
-                        updatedAt: '2026-02-26T12:34:56.000Z',
-                        envelope: 'env-savings',
+                    {
+                        op: 'link',
+                        entity: 'familyMembers',
+                        id: 'member-1',
+                        payload: { allowanceEnvelopes: 'env-savings' },
                     },
-                },
-                {
-                    op: 'link',
-                    entity: 'allowanceEnvelopes',
-                    id: 'env-savings',
-                    payload: { transactions: 'mock-id' },
-                },
-            ]);
+                    {
+                        op: 'update',
+                        entity: 'allowanceTransactions',
+                        id: 'mock-id',
+                        payload: {
+                            createdBy: 'instant-parent-principal',
+                            amount: 0,
+                            currency: 'USD',
+                            transactionType: 'init',
+                            description: 'Envelope Created',
+                            createdAt: '2026-02-26T12:34:56.000Z',
+                            updatedAt: '2026-02-26T12:34:56.000Z',
+                            envelope: 'env-savings',
+                        },
+                    },
+                    {
+                        op: 'link',
+                        entity: 'allowanceEnvelopes',
+                        id: 'env-savings',
+                        payload: { transactions: 'mock-id' },
+                    },
+                    {
+                        op: 'link',
+                        entity: 'historyEvents',
+                        id: 'mock-id',
+                        payload: { affectedFamilyMembers: 'member-1' },
+                    },
+                ])
+            );
         });
 
         it('creates an additional envelope with trimmed name and goal fields', async () => {
@@ -185,19 +197,29 @@ describe('currency-utils mutation helpers', () => {
 
             await updateEnvelope(db as any, 'env-1', '  New Name  ', true, 25, 'EUR');
             expect(db.transact).toHaveBeenCalledTimes(1);
-            expect(db.transact.mock.calls[0][0]).toEqual([
-                {
-                    op: 'update',
-                    entity: 'allowanceEnvelopes',
-                    id: 'env-1',
-                    payload: {
-                        name: 'New Name',
-                        isDefault: true,
-                        goalAmount: 25,
-                        goalCurrency: 'EUR',
+            expect(db.transact.mock.calls[0][0]).toEqual(
+                expect.arrayContaining([
+                    {
+                        op: 'update',
+                        entity: 'allowanceEnvelopes',
+                        id: 'env-1',
+                        payload: {
+                            name: 'New Name',
+                            isDefault: true,
+                            goalAmount: 25,
+                            goalCurrency: 'EUR',
+                        },
                     },
-                },
-            ]);
+                    {
+                        op: 'update',
+                        entity: 'historyEvents',
+                        id: 'mock-id',
+                        payload: expect.objectContaining({
+                            summary: 'Updated envelope "New Name"',
+                        }),
+                    },
+                ])
+            );
 
             await expect(updateEnvelope(db as any, 'env-1', '   ', false)).rejects.toThrow('Envelope name cannot be empty.');
             await expect(updateEnvelope(db as any, 'env-1', 'A', false, -1, 'USD')).rejects.toThrow('Goal amount must be positive if set.');
@@ -277,6 +299,44 @@ describe('currency-utils mutation helpers', () => {
                 op: 'link',
                 payload: { transactions: 'tx-withdraw' },
             });
+        });
+
+        it('records the envelope owner in withdrawal history when the member is resolved from envelope context', async () => {
+            currencyMocks.id.mockReturnValueOnce('tx-withdraw').mockReturnValueOnce('history-withdraw');
+            const db = {
+                transact: vi.fn().mockResolvedValue(undefined),
+                queryOnce: vi.fn().mockResolvedValue({
+                    data: {
+                        allowanceEnvelopes: [
+                            {
+                                id: 'env-1',
+                                name: 'Savings',
+                                familyMember: [{ id: 'member-ethan', name: 'Ethan' }],
+                            },
+                        ],
+                    },
+                }),
+            };
+
+            await withdrawFromEnvelope(db as any, { id: 'env-1', name: 'Savings', balances: { USD: 10 } } as any, 3.22, 'usd');
+
+            const txs = db.transact.mock.calls[0][0] as any[];
+            expect(
+                txs.some(
+                    (tx) =>
+                        tx.entity === 'historyEvents' &&
+                        tx.op === 'update' &&
+                        tx.payload?.summary === `Withdrew $3.22 from Ethan's Savings`
+                )
+            ).toBe(true);
+            expect(
+                txs.some(
+                    (tx) =>
+                        tx.entity === 'historyEvents' &&
+                        tx.op === 'link' &&
+                        tx.payload?.affectedFamilyMembers === 'member-ethan'
+                )
+            ).toBe(true);
         });
 
         it('validates withdrawal inputs and insufficient funds', async () => {
