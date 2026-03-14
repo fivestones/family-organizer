@@ -45,9 +45,11 @@ import { DroppableDayCell } from './DroppableDayCell'; // Import new component
 // Import the component and the interface
 import { DraggableCalendarEvent, CalendarItem } from './DraggableCalendarEvent';
 import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesScopeMode } from './RecurrenceScopeDialog';
+import { useOptionalAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/db';
 import { getAssignedMembersForChoreOnDate, type Chore } from '@/lib/chore-utils';
 import { cn } from '@/lib/utils';
+import { buildHistoryEventTransactions } from '@/lib/history-events';
 import {
     CALENDAR_COMMAND_EVENT,
     CALENDAR_AGENDA_FONT_SCALE_DEFAULT,
@@ -273,11 +275,6 @@ const buildRecurrenceMonthConditionsForWindows = (windows: CalendarRangeWindow[]
     }
 
     return conditions;
-};
-
-const shouldRetryLegacyCalendarMutation = (error: unknown) => {
-    const message = String((error as any)?.message || '').toLowerCase();
-    return message.includes('permission denied') || message.includes('mutation failed') || message.includes('attrs');
 };
 
 const getCalendarItemStartTime = (item: CalendarItem) => {
@@ -991,6 +988,7 @@ const Calendar = ({
     // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
     // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
     // and displayMonthNumber = false, to display the month number as well as the name.
+    const currentUser = useOptionalAuth()?.currentUser || null;
     const isMiniInfinite = variant === 'miniInfinite';
     const commandsEnabled = commandBusEnabled ?? !isMiniInfinite;
     const effectiveCurrentDate = useMemo(
@@ -1044,6 +1042,44 @@ const Calendar = ({
         const stored = window.localStorage.getItem(CALENDAR_VIEW_MODE_STORAGE_KEY);
         return stored === 'year' || stored === 'day' || stored === 'agenda' ? stored : 'monthly';
     });
+
+    const appendCalendarHistoryTransactions = useCallback(
+        (
+            txOps: any[],
+            input: {
+                occurredAt: string;
+                actionType: string;
+                summary: string;
+                calendarItemId?: string | null;
+                affectedMemberIds?: Iterable<string>;
+                title?: string | null;
+                metadata?: Record<string, unknown>;
+            }
+        ) => {
+            if (!currentUser?.id) return txOps;
+
+            const affectedFamilyMemberIds = Array.from(new Set(Array.from(input.affectedMemberIds || []).filter(Boolean)));
+            const historyEvent = buildHistoryEventTransactions({
+                tx,
+                createId: id,
+                occurredAt: input.occurredAt,
+                domain: 'calendar',
+                actionType: input.actionType,
+                summary: input.summary,
+                source: 'manual',
+                actorFamilyMemberId: currentUser.id,
+                affectedFamilyMemberIds,
+                calendarItemId: input.calendarItemId || null,
+                metadata: {
+                    title: input.title || null,
+                    ...(input.metadata || {}),
+                },
+            });
+
+            return [...txOps, ...historyEvent.transactions];
+        },
+        [currentUser?.id]
+    );
     const [dayVisibleDays, setDayVisibleDays] = useState<number>(() => {
         if (typeof window === 'undefined' || !commandsEnabled) {
             return CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT;
@@ -1880,9 +1916,25 @@ const Calendar = ({
             const masterId = String(masterEvent?.id || selectedEvent.id);
             const masterLinkKeys = getRecurringSeriesLinkKeys(masterEvent);
             const hasRecurringContext = Boolean(masterRrule || String(selectedEvent.recurringEventId || '').trim());
+            const selectedAffectedMemberIds = Array.from(
+                new Set((Array.isArray(selectedEvent.pertainsTo) ? selectedEvent.pertainsTo : []).map((member) => member?.id).filter(Boolean))
+            ) as string[];
+            const selectedTitle = String(selectedEvent.title || masterEvent.title || 'Untitled event');
 
             if (!hasRecurringContext) {
-                await db.transact([tx.calendarItems[selectedEvent.id].delete()]);
+                await db.transact(
+                    appendCalendarHistoryTransactions([tx.calendarItems[selectedEvent.id].delete()], {
+                        occurredAt: new Date().toISOString(),
+                        actionType: 'calendar_event_deleted',
+                        summary: `Deleted event "${selectedTitle}"`,
+                        calendarItemId: selectedEvent.id,
+                        affectedMemberIds: selectedAffectedMemberIds,
+                        title: selectedTitle,
+                        metadata: {
+                            scope: 'single',
+                        },
+                    })
+                );
                 clearCalendarSelection();
                 return;
             }
@@ -1902,7 +1954,19 @@ const Calendar = ({
                     return;
                 }
 
-                await db.transact([tx.calendarItems[selectedEvent.id].delete()]);
+                await db.transact(
+                    appendCalendarHistoryTransactions([tx.calendarItems[selectedEvent.id].delete()], {
+                        occurredAt: new Date().toISOString(),
+                        actionType: 'calendar_event_deleted',
+                        summary: `Deleted event "${selectedTitle}"`,
+                        calendarItemId: selectedEvent.id,
+                        affectedMemberIds: selectedAffectedMemberIds,
+                        title: selectedTitle,
+                        metadata: {
+                            scope: 'single',
+                        },
+                    })
+                );
                 clearCalendarSelection();
                 return;
             }
@@ -2059,14 +2123,32 @@ const Calendar = ({
             }
 
             try {
-                await db.transact(txOps);
+                await db.transact(
+                    appendCalendarHistoryTransactions(txOps, {
+                        occurredAt: new Date().toISOString(),
+                        actionType: 'calendar_event_deleted',
+                        summary:
+                            scope === 'all'
+                                ? `Deleted all events in "${selectedTitle}" series`
+                                : scope === 'following'
+                                  ? `Deleted following events in "${selectedTitle}" series`
+                                  : `Deleted occurrence of "${selectedTitle}"`,
+                        calendarItemId: scope === 'all' ? masterId : selectedEvent.id,
+                        affectedMemberIds: selectedAffectedMemberIds,
+                        title: selectedTitle,
+                        metadata: {
+                            scope,
+                            recurring: true,
+                        },
+                    })
+                );
                 clearCalendarSelection();
             } catch (error) {
                 console.error('Unable to delete recurring event:', error);
                 window.alert('Unable to delete event. Please try again.');
             }
         },
-        [calendarItems, clearCalendarSelection, selectedEvent]
+        [appendCalendarHistoryTransactions, calendarItems, clearCalendarSelection, selectedEvent]
     );
 
     const handleDeleteSelectedEvent = useCallback(async () => {
@@ -2255,6 +2337,13 @@ const Calendar = ({
             const dayDelta = differenceInDays(startOfDayDate(nextStart), startOfDayDate(currentStart));
             const deltaMs = nextStart.getTime() - currentStart.getTime();
             const nowIso = new Date().toISOString();
+            const eventTitle = String(event.title || masterEvent.title || 'Untitled event');
+            const eventAffectedMemberIds = Array.from(
+                new Set((Array.isArray(event.pertainsTo) ? event.pertainsTo : []).map((member) => member?.id).filter(Boolean))
+            ) as string[];
+            const masterAffectedMemberIds = Array.from(
+                new Set((Array.isArray(masterEvent.pertainsTo) ? masterEvent.pertainsTo : []).map((member) => member?.id).filter(Boolean))
+            ) as string[];
             const legacyPayload = {
                 startDate: nextStartDate,
                 endDate: nextEndDate,
@@ -2280,19 +2369,27 @@ const Calendar = ({
 
                 void (async () => {
                     try {
-                        await db.transact([tx.calendarItems[targetEvent.id].update(fullPayload)]);
+                        await db.transact(
+                            appendCalendarHistoryTransactions([tx.calendarItems[targetEvent.id].update(fullPayload)], {
+                                occurredAt: nowIso,
+                                actionType: 'calendar_event_moved',
+                                summary: `Moved event "${String(targetEvent.title || eventTitle)}"`,
+                                calendarItemId: targetEvent.id,
+                                affectedMemberIds: Array.from(
+                                    new Set((Array.isArray(targetEvent.pertainsTo) ? targetEvent.pertainsTo : []).map((member) => member?.id).filter(Boolean))
+                                ),
+                                title: String(targetEvent.title || eventTitle),
+                                metadata: {
+                                    previousStartDate: event.startDate,
+                                    previousEndDate: event.endDate,
+                                    nextStartDate,
+                                    nextEndDate,
+                                    scope: 'single',
+                                },
+                            })
+                        );
                     } catch (error) {
-                        if (shouldRetryLegacyCalendarMutation(error)) {
-                            try {
-                                await db.transact([tx.calendarItems[targetEvent.id].update(legacyPayload)]);
-                                return;
-                            } catch (fallbackError) {
-                                console.error('Calendar move failed after legacy fallback:', fallbackError);
-                            }
-                        } else {
-                            console.error('Calendar move failed:', error);
-                        }
-
+                        console.error('Calendar move failed:', error);
                         rollbackOptimisticMove();
                     }
                 })();
@@ -2368,7 +2465,24 @@ const Calendar = ({
 
                     void (async () => {
                         try {
-                            await db.transact([tx.calendarItems[event.id].update(overridePatch)]);
+                            await db.transact(
+                                appendCalendarHistoryTransactions([tx.calendarItems[event.id].update(overridePatch)], {
+                                    occurredAt: nowIso,
+                                    actionType: 'calendar_event_moved',
+                                    summary: `Moved occurrence of "${eventTitle}"`,
+                                    calendarItemId: event.id,
+                                    affectedMemberIds: eventAffectedMemberIds,
+                                    title: eventTitle,
+                                    metadata: {
+                                        previousStartDate: event.startDate,
+                                        previousEndDate: event.endDate,
+                                        nextStartDate,
+                                        nextEndDate,
+                                        scope: 'single',
+                                        recurring: true,
+                                    },
+                                })
+                            );
                         } catch (error) {
                             console.error('Calendar recurring override move failed:', error);
                             rollbackAll();
@@ -2457,7 +2571,24 @@ const Calendar = ({
 
                 void (async () => {
                     try {
-                        await db.transact(txOps);
+                        await db.transact(
+                            appendCalendarHistoryTransactions(txOps, {
+                                occurredAt: nowIso,
+                                actionType: 'calendar_event_moved',
+                                summary: `Moved occurrence of "${eventTitle}"`,
+                                calendarItemId: overrideId,
+                                affectedMemberIds: overrideMembers.map((member) => member?.id).filter(Boolean) as string[],
+                                title: eventTitle,
+                                metadata: {
+                                    previousStartDate: event.startDate,
+                                    previousEndDate: event.endDate,
+                                    nextStartDate,
+                                    nextEndDate,
+                                    scope: 'single',
+                                    recurring: true,
+                                },
+                            })
+                        );
                     } catch (error) {
                         console.error('Calendar recurring single move failed:', error);
                         rollbackAll();
@@ -2594,7 +2725,24 @@ const Calendar = ({
 
                 void (async () => {
                     try {
-                        await db.transact(txOps);
+                        await db.transact(
+                            appendCalendarHistoryTransactions(txOps, {
+                                occurredAt: nowIso,
+                                actionType: 'calendar_event_moved',
+                                summary: `Moved all events in "${eventTitle}" series`,
+                                calendarItemId: masterEvent.id,
+                                affectedMemberIds: masterAffectedMemberIds,
+                                title: eventTitle,
+                                metadata: {
+                                    previousStartDate: event.startDate,
+                                    previousEndDate: event.endDate,
+                                    nextStartDate,
+                                    nextEndDate,
+                                    scope: 'all',
+                                    recurring: true,
+                                },
+                            })
+                        );
                     } catch (error) {
                         console.error('Calendar recurring series move failed:', error);
                         rollbackAll();
@@ -2812,7 +2960,24 @@ const Calendar = ({
 
             void (async () => {
                 try {
-                    await db.transact(txOps);
+                    await db.transact(
+                        appendCalendarHistoryTransactions(txOps, {
+                            occurredAt: nowIso,
+                            actionType: 'calendar_event_moved',
+                            summary: `Moved following events in "${eventTitle}" series`,
+                            calendarItemId: newSeriesId,
+                            affectedMemberIds: newSeriesMembers.map((member) => member?.id).filter(Boolean) as string[],
+                            title: eventTitle,
+                            metadata: {
+                                previousStartDate: event.startDate,
+                                previousEndDate: event.endDate,
+                                nextStartDate,
+                                nextEndDate,
+                                scope: 'following',
+                                recurring: true,
+                            },
+                        })
+                    );
                 } catch (error) {
                     console.error('Calendar recurring split move failed:', error);
                     rollbackAll();
@@ -2821,6 +2986,7 @@ const Calendar = ({
         },
         [
             applyOptimisticCalendarItem,
+            appendCalendarHistoryTransactions,
             calendarItems,
             getForcedRecurrenceScopeFromInput,
             isOriginalSeriesOccurrence,
@@ -2861,6 +3027,10 @@ const Calendar = ({
             const endDeltaMs = nextEnd.getTime() - currentEnd.getTime();
             const dayDelta = differenceInDays(startOfDayDate(nextStart), startOfDayDate(currentStart));
             const nowIso = new Date().toISOString();
+            const itemTitle = String(item.title || 'Untitled event');
+            const itemAffectedMemberIds = Array.from(
+                new Set((Array.isArray(item.pertainsTo) ? item.pertainsTo : []).map((member) => member?.id).filter(Boolean))
+            ) as string[];
             const legacyPayload = {
                 startDate: nextStartDate,
                 endDate: nextEndDate,
@@ -2886,19 +3056,27 @@ const Calendar = ({
 
                 void (async () => {
                     try {
-                        await db.transact([tx.calendarItems[targetEvent.id].update(fullPayload)]);
+                        await db.transact(
+                            appendCalendarHistoryTransactions([tx.calendarItems[targetEvent.id].update(fullPayload)], {
+                                occurredAt: nowIso,
+                                actionType: 'calendar_event_resized',
+                                summary: `Resized event "${String(targetEvent.title || itemTitle)}"`,
+                                calendarItemId: targetEvent.id,
+                                affectedMemberIds: Array.from(
+                                    new Set((Array.isArray(targetEvent.pertainsTo) ? targetEvent.pertainsTo : []).map((member) => member?.id).filter(Boolean))
+                                ),
+                                title: String(targetEvent.title || itemTitle),
+                                metadata: {
+                                    previousStartDate: item.startDate,
+                                    previousEndDate: item.endDate,
+                                    nextStartDate,
+                                    nextEndDate,
+                                    scope: 'single',
+                                },
+                            })
+                        );
                     } catch (error) {
-                        if (shouldRetryLegacyCalendarMutation(error)) {
-                            try {
-                                await db.transact([tx.calendarItems[targetEvent.id].update(legacyPayload)]);
-                                return;
-                            } catch (fallbackError) {
-                                console.error('Calendar resize failed after legacy fallback:', fallbackError);
-                            }
-                        } else {
-                            console.error('Calendar resize failed:', error);
-                        }
-
+                        console.error('Calendar resize failed:', error);
                         rollbackOptimisticMove();
                     }
                 })();
@@ -2972,7 +3150,24 @@ const Calendar = ({
 
                     void (async () => {
                         try {
-                            await db.transact([tx.calendarItems[item.id].update(overridePatch)]);
+                            await db.transact(
+                                appendCalendarHistoryTransactions([tx.calendarItems[item.id].update(overridePatch)], {
+                                    occurredAt: nowIso,
+                                    actionType: 'calendar_event_resized',
+                                    summary: `Resized occurrence of "${itemTitle}"`,
+                                    calendarItemId: item.id,
+                                    affectedMemberIds: itemAffectedMemberIds,
+                                    title: itemTitle,
+                                    metadata: {
+                                        previousStartDate: item.startDate,
+                                        previousEndDate: item.endDate,
+                                        nextStartDate,
+                                        nextEndDate,
+                                        scope: 'single',
+                                        recurring: true,
+                                    },
+                                })
+                            );
                         } catch (error) {
                             console.error('Calendar recurring override resize failed:', error);
                             rollbackAll();
@@ -3044,7 +3239,24 @@ const Calendar = ({
 
                 void (async () => {
                     try {
-                        await db.transact(txOps);
+                        await db.transact(
+                            appendCalendarHistoryTransactions(txOps, {
+                                occurredAt: nowIso,
+                                actionType: 'calendar_event_resized',
+                                summary: `Resized occurrence of "${itemTitle}"`,
+                                calendarItemId: overrideId,
+                                affectedMemberIds: overrideMembers.map((member) => member?.id).filter(Boolean) as string[],
+                                title: itemTitle,
+                                metadata: {
+                                    previousStartDate: item.startDate,
+                                    previousEndDate: item.endDate,
+                                    nextStartDate,
+                                    nextEndDate,
+                                    scope: 'single',
+                                    recurring: true,
+                                },
+                            })
+                        );
                     } catch (error) {
                         console.error('Calendar recurring single resize failed:', error);
                         rollbackAll();
@@ -3148,7 +3360,26 @@ const Calendar = ({
 
                 void (async () => {
                     try {
-                        await db.transact(txOps);
+                        await db.transact(
+                            appendCalendarHistoryTransactions(txOps, {
+                                occurredAt: nowIso,
+                                actionType: 'calendar_event_resized',
+                                summary: `Resized all events in "${itemTitle}" series`,
+                                calendarItemId: masterEvent.id,
+                                affectedMemberIds: Array.from(
+                                    new Set((Array.isArray(masterEvent.pertainsTo) ? masterEvent.pertainsTo : []).map((member) => member?.id).filter(Boolean))
+                                ),
+                                title: itemTitle,
+                                metadata: {
+                                    previousStartDate: item.startDate,
+                                    previousEndDate: item.endDate,
+                                    nextStartDate,
+                                    nextEndDate,
+                                    scope: 'all',
+                                    recurring: true,
+                                },
+                            })
+                        );
                     } catch (error) {
                         console.error('Calendar recurring series resize failed:', error);
                         rollbackAll();
@@ -3328,17 +3559,35 @@ const Calendar = ({
                 txOps.push(tx.calendarItems[override.id].update(overridePatch));
             }
 
-            void (async () => {
-                try {
-                    await db.transact(txOps);
-                } catch (error) {
-                    console.error('Calendar recurring split resize failed:', error);
-                    rollbackAll();
+                void (async () => {
+                    try {
+                        await db.transact(
+                            appendCalendarHistoryTransactions(txOps, {
+                                occurredAt: nowIso,
+                                actionType: 'calendar_event_resized',
+                                summary: `Resized following events in "${itemTitle}" series`,
+                                calendarItemId: newSeriesId,
+                                affectedMemberIds: newSeriesMembers.map((member) => member?.id).filter(Boolean) as string[],
+                                title: itemTitle,
+                                metadata: {
+                                    previousStartDate: item.startDate,
+                                    previousEndDate: item.endDate,
+                                    nextStartDate,
+                                    nextEndDate,
+                                    scope: 'following',
+                                    recurring: true,
+                                },
+                            })
+                        );
+                    } catch (error) {
+                        console.error('Calendar recurring split resize failed:', error);
+                        rollbackAll();
                 }
             })();
         },
         [
             applyOptimisticCalendarItem,
+            appendCalendarHistoryTransactions,
             calendarItems,
             getForcedRecurrenceScopeFromInput,
             isOriginalSeriesOccurrence,

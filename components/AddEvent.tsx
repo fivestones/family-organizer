@@ -1373,11 +1373,6 @@ function splitRecurrenceRowsAtBoundary(rows: StoredRecurrenceExceptionRow[], bou
     return { before, onOrAfter };
 }
 
-function shouldRetryLegacyCalendarMutation(error: unknown): boolean {
-    const message = String((error as any)?.message || '').toLowerCase();
-    return message.includes('permission denied') || message.includes('mutation failed') || message.includes('attrs');
-}
-
 function deriveAlarmDefaults(selectedEvent: CalendarItem | null) {
     const firstAlarm = Array.isArray(selectedEvent?.alarms) ? selectedEvent?.alarms?.[0] : null;
     if (!firstAlarm) {
@@ -2867,12 +2862,7 @@ const AddEventForm = ({
         onClose();
 
         try {
-            await db.transact(buildTxOps(legacyEventData));
-            void Promise.resolve(db.transact([tx.calendarItems[eventId].update(extendedEventPatch)])).catch((error) => {
-                if (!shouldRetryLegacyCalendarMutation(error)) {
-                    console.error('Unable to persist extended calendar metadata:', error);
-                }
-            });
+            await db.transact(buildTxOps(eventData));
         } catch (error) {
             rollbackAllOptimistic();
             console.error('Unable to save event:', error);

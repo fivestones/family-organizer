@@ -271,7 +271,7 @@ describe('AddEventForm', () => {
         await user.click(screen.getByRole('button', { name: /update event/i }));
 
         await waitFor(() => {
-            expect(mocks.dbTransact).toHaveBeenCalledTimes(2);
+            expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
         });
 
         expect(getOps()).toEqual([
@@ -349,8 +349,8 @@ describe('AddEventForm', () => {
         fireEvent.change(screen.getByLabelText('Occurrences'), { target: { value: '8' } });
         await user.click(screen.getByRole('button', { name: /add event/i }));
 
-        expect(mocks.dbTransact).toHaveBeenCalledTimes(2);
-        const [advancedOps] = mocks.dbTransact.mock.calls[1];
+        expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        const [advancedOps] = mocks.dbTransact.mock.calls[0];
         expect(advancedOps[0].data.rrule).toBe('RRULE:FREQ=WEEKLY;INTERVAL=3;BYDAY=SU,TU,TH;COUNT=8');
     });
 
@@ -372,8 +372,8 @@ describe('AddEventForm', () => {
 
         await user.click(screen.getByRole('button', { name: /add event/i }));
 
-        expect(mocks.dbTransact).toHaveBeenCalledTimes(2);
-        const [advancedOps] = mocks.dbTransact.mock.calls[1];
+        expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        const [advancedOps] = mocks.dbTransact.mock.calls[0];
         expect(advancedOps[0].data.exdates).toEqual(['2026-03-20', '2026-03-22', '2026-03-23', '2026-03-24']);
         expect(advancedOps[0].data.recurrenceLines).toEqual(
             expect.arrayContaining(['RRULE:FREQ=DAILY', 'EXDATE:2026-03-20,2026-03-22,2026-03-23,2026-03-24'])
@@ -402,8 +402,8 @@ describe('AddEventForm', () => {
 
         await user.click(screen.getByRole('button', { name: /add event/i }));
 
-        expect(mocks.dbTransact).toHaveBeenCalledTimes(2);
-        const [advancedOps] = mocks.dbTransact.mock.calls[1];
+        expect(mocks.dbTransact).toHaveBeenCalledTimes(1);
+        const [advancedOps] = mocks.dbTransact.mock.calls[0];
         expect(advancedOps[0].data.rdates).toEqual(['2026-03-19', '2026-03-25', '2026-03-26', '2026-03-27']);
         expect(advancedOps[0].data.recurrenceLines).toEqual(expect.arrayContaining(['RRULE:FREQ=DAILY', 'RDATE:2026-03-19,2026-03-25,2026-03-26,2026-03-27']));
         expect(advancedOps[0].data.xProps?.recurrenceRdateRows).toEqual([
