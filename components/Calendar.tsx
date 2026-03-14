@@ -46,6 +46,7 @@ import { DroppableDayCell } from './DroppableDayCell'; // Import new component
 import { DraggableCalendarEvent, CalendarItem } from './DraggableCalendarEvent';
 import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesScopeMode } from './RecurrenceScopeDialog';
 import { useOptionalAuth } from '@/components/AuthProvider';
+import { buildCalendarHistoryMetadata, buildCalendarHistorySnapshot } from '@/lib/calendar-history';
 import { db } from '@/lib/db';
 import { getAssignedMembersForChoreOnDate, type Chore } from '@/lib/chore-utils';
 import { cn } from '@/lib/utils';
@@ -1053,6 +1054,8 @@ const Calendar = ({
                 calendarItemId?: string | null;
                 affectedMemberIds?: Iterable<string>;
                 title?: string | null;
+                beforeSnapshot?: ReturnType<typeof buildCalendarHistorySnapshot>;
+                afterSnapshot?: ReturnType<typeof buildCalendarHistorySnapshot>;
                 metadata?: Record<string, unknown>;
             }
         ) => {
@@ -1070,10 +1073,12 @@ const Calendar = ({
                 actorFamilyMemberId: currentUser.id,
                 affectedFamilyMemberIds,
                 calendarItemId: input.calendarItemId || null,
-                metadata: {
+                metadata: buildCalendarHistoryMetadata({
                     title: input.title || null,
-                    ...(input.metadata || {}),
-                },
+                    before: input.beforeSnapshot || null,
+                    after: input.afterSnapshot || null,
+                    extra: input.metadata || null,
+                }),
             });
 
             return [...txOps, ...historyEvent.transactions];
@@ -1930,6 +1935,7 @@ const Calendar = ({
                         calendarItemId: selectedEvent.id,
                         affectedMemberIds: selectedAffectedMemberIds,
                         title: selectedTitle,
+                        beforeSnapshot: buildCalendarHistorySnapshot(selectedEvent),
                         metadata: {
                             scope: 'single',
                         },
@@ -1962,6 +1968,7 @@ const Calendar = ({
                         calendarItemId: selectedEvent.id,
                         affectedMemberIds: selectedAffectedMemberIds,
                         title: selectedTitle,
+                        beforeSnapshot: buildCalendarHistorySnapshot(selectedEvent),
                         metadata: {
                             scope: 'single',
                         },
@@ -2136,6 +2143,7 @@ const Calendar = ({
                         calendarItemId: scope === 'all' ? masterId : selectedEvent.id,
                         affectedMemberIds: selectedAffectedMemberIds,
                         title: selectedTitle,
+                        beforeSnapshot: buildCalendarHistorySnapshot(selectedEvent),
                         metadata: {
                             scope,
                             recurring: true,
@@ -2379,11 +2387,14 @@ const Calendar = ({
                                     new Set((Array.isArray(targetEvent.pertainsTo) ? targetEvent.pertainsTo : []).map((member) => member?.id).filter(Boolean))
                                 ),
                                 title: String(targetEvent.title || eventTitle),
+                                beforeSnapshot: buildCalendarHistorySnapshot(event),
+                                afterSnapshot: buildCalendarHistorySnapshot({
+                                    startDate: nextStartDate,
+                                    endDate: nextEndDate,
+                                    isAllDay: targetEvent.isAllDay,
+                                    timeZone: targetEvent.timeZone || event.timeZone || null,
+                                }),
                                 metadata: {
-                                    previousStartDate: event.startDate,
-                                    previousEndDate: event.endDate,
-                                    nextStartDate,
-                                    nextEndDate,
                                     scope: 'single',
                                 },
                             })
@@ -2473,11 +2484,14 @@ const Calendar = ({
                                     calendarItemId: event.id,
                                     affectedMemberIds: eventAffectedMemberIds,
                                     title: eventTitle,
+                                    beforeSnapshot: buildCalendarHistorySnapshot(event),
+                                    afterSnapshot: buildCalendarHistorySnapshot({
+                                        startDate: nextStartDate,
+                                        endDate: nextEndDate,
+                                        isAllDay: event.isAllDay,
+                                        timeZone: event.timeZone || masterEvent.timeZone || null,
+                                    }),
                                     metadata: {
-                                        previousStartDate: event.startDate,
-                                        previousEndDate: event.endDate,
-                                        nextStartDate,
-                                        nextEndDate,
                                         scope: 'single',
                                         recurring: true,
                                     },
@@ -2579,11 +2593,9 @@ const Calendar = ({
                                 calendarItemId: overrideId,
                                 affectedMemberIds: overrideMembers.map((member) => member?.id).filter(Boolean) as string[],
                                 title: eventTitle,
+                                beforeSnapshot: buildCalendarHistorySnapshot(event),
+                                afterSnapshot: buildCalendarHistorySnapshot(overridePayload),
                                 metadata: {
-                                    previousStartDate: event.startDate,
-                                    previousEndDate: event.endDate,
-                                    nextStartDate,
-                                    nextEndDate,
                                     scope: 'single',
                                     recurring: true,
                                 },
@@ -2733,11 +2745,14 @@ const Calendar = ({
                                 calendarItemId: masterEvent.id,
                                 affectedMemberIds: masterAffectedMemberIds,
                                 title: eventTitle,
+                                beforeSnapshot: buildCalendarHistorySnapshot(event),
+                                afterSnapshot: buildCalendarHistorySnapshot({
+                                    startDate: nextStartDate,
+                                    endDate: nextEndDate,
+                                    isAllDay: event.isAllDay,
+                                    timeZone: event.timeZone || masterEvent.timeZone || null,
+                                }),
                                 metadata: {
-                                    previousStartDate: event.startDate,
-                                    previousEndDate: event.endDate,
-                                    nextStartDate,
-                                    nextEndDate,
                                     scope: 'all',
                                     recurring: true,
                                 },
@@ -2968,11 +2983,9 @@ const Calendar = ({
                             calendarItemId: newSeriesId,
                             affectedMemberIds: newSeriesMembers.map((member) => member?.id).filter(Boolean) as string[],
                             title: eventTitle,
+                            beforeSnapshot: buildCalendarHistorySnapshot(event),
+                            afterSnapshot: buildCalendarHistorySnapshot(newSeriesPayload),
                             metadata: {
-                                previousStartDate: event.startDate,
-                                previousEndDate: event.endDate,
-                                nextStartDate,
-                                nextEndDate,
                                 scope: 'following',
                                 recurring: true,
                             },
@@ -3066,11 +3079,14 @@ const Calendar = ({
                                     new Set((Array.isArray(targetEvent.pertainsTo) ? targetEvent.pertainsTo : []).map((member) => member?.id).filter(Boolean))
                                 ),
                                 title: String(targetEvent.title || itemTitle),
+                                beforeSnapshot: buildCalendarHistorySnapshot(item),
+                                afterSnapshot: buildCalendarHistorySnapshot({
+                                    startDate: nextStartDate,
+                                    endDate: nextEndDate,
+                                    isAllDay: targetEvent.isAllDay,
+                                    timeZone: targetEvent.timeZone || item.timeZone || null,
+                                }),
                                 metadata: {
-                                    previousStartDate: item.startDate,
-                                    previousEndDate: item.endDate,
-                                    nextStartDate,
-                                    nextEndDate,
                                     scope: 'single',
                                 },
                             })
@@ -3158,11 +3174,14 @@ const Calendar = ({
                                     calendarItemId: item.id,
                                     affectedMemberIds: itemAffectedMemberIds,
                                     title: itemTitle,
+                                    beforeSnapshot: buildCalendarHistorySnapshot(item),
+                                    afterSnapshot: buildCalendarHistorySnapshot({
+                                        startDate: nextStartDate,
+                                        endDate: nextEndDate,
+                                        isAllDay: item.isAllDay,
+                                        timeZone: item.timeZone || masterEvent.timeZone || null,
+                                    }),
                                     metadata: {
-                                        previousStartDate: item.startDate,
-                                        previousEndDate: item.endDate,
-                                        nextStartDate,
-                                        nextEndDate,
                                         scope: 'single',
                                         recurring: true,
                                     },
@@ -3247,11 +3266,9 @@ const Calendar = ({
                                 calendarItemId: overrideId,
                                 affectedMemberIds: overrideMembers.map((member) => member?.id).filter(Boolean) as string[],
                                 title: itemTitle,
+                                beforeSnapshot: buildCalendarHistorySnapshot(item),
+                                afterSnapshot: buildCalendarHistorySnapshot(overridePayload),
                                 metadata: {
-                                    previousStartDate: item.startDate,
-                                    previousEndDate: item.endDate,
-                                    nextStartDate,
-                                    nextEndDate,
                                     scope: 'single',
                                     recurring: true,
                                 },
@@ -3370,11 +3387,14 @@ const Calendar = ({
                                     new Set((Array.isArray(masterEvent.pertainsTo) ? masterEvent.pertainsTo : []).map((member) => member?.id).filter(Boolean))
                                 ),
                                 title: itemTitle,
+                                beforeSnapshot: buildCalendarHistorySnapshot(item),
+                                afterSnapshot: buildCalendarHistorySnapshot({
+                                    startDate: nextStartDate,
+                                    endDate: nextEndDate,
+                                    isAllDay: item.isAllDay,
+                                    timeZone: item.timeZone || masterEvent.timeZone || null,
+                                }),
                                 metadata: {
-                                    previousStartDate: item.startDate,
-                                    previousEndDate: item.endDate,
-                                    nextStartDate,
-                                    nextEndDate,
                                     scope: 'all',
                                     recurring: true,
                                 },
@@ -3569,11 +3589,9 @@ const Calendar = ({
                                 calendarItemId: newSeriesId,
                                 affectedMemberIds: newSeriesMembers.map((member) => member?.id).filter(Boolean) as string[],
                                 title: itemTitle,
+                                beforeSnapshot: buildCalendarHistorySnapshot(item),
+                                afterSnapshot: buildCalendarHistorySnapshot(newSeriesPayload),
                                 metadata: {
-                                    previousStartDate: item.startDate,
-                                    previousEndDate: item.endDate,
-                                    nextStartDate,
-                                    nextEndDate,
                                     scope: 'following',
                                     recurring: true,
                                 },
@@ -3858,7 +3876,7 @@ const Calendar = ({
         setSearchWindow((current) => expandSupplementalWindow(current, 'down'));
     }, [expandSupplementalWindow, explicitDateRangeWindow]);
 
-    const getDayViewTimedDropFromPointer = useCallback(
+    const getBestDayViewTimedColumnFromFootprint = useCallback(
         (input: { clientX?: number; clientY?: number } | null | undefined) => {
             const dragMetrics = activeDragMetricsRef.current;
             const clientX = Number(input?.clientX);
@@ -3876,6 +3894,7 @@ const Calendar = ({
             const dragLeft = clientX - dragMetrics.pointerOffsetX;
             const dragTop = clientY - dragMetrics.pointerOffsetY;
             const dragRight = dragLeft + dragMetrics.width;
+            const dragBottom = dragTop + dragMetrics.height;
             const requiredOverlapWidth = dragMetrics.width / 2;
 
             const timedColumns = Array.from(
@@ -3885,6 +3904,8 @@ const Calendar = ({
                 dayKey: string;
                 minuteOfDay: number;
                 overlapWidth: number;
+                overlapHeight: number;
+                overlapArea: number;
             } | null = null;
 
             for (const column of timedColumns) {
@@ -3898,18 +3919,41 @@ const Calendar = ({
                 if (!dayKey) continue;
 
                 const snapMinutes = Math.max(1, Number(column.dataset.calendarSnapMinutes || 15));
+                const overlapHeight = Math.max(0, Math.min(dragBottom, rect.bottom) - Math.max(dragTop, rect.top));
+                const overlapArea = overlapWidth * overlapHeight;
                 const rawMinute = ((dragTop - rect.top) / Math.max(1, rect.height)) * 24 * 60;
                 const minuteOfDay = clampNumber(Math.round(rawMinute / snapMinutes) * snapMinutes, 0, 24 * 60);
 
-                if (!bestTarget || overlapWidth > bestTarget.overlapWidth) {
+                const candidateHasVerticalOverlap = overlapHeight > 0;
+                const bestHasVerticalOverlap = (bestTarget?.overlapHeight ?? 0) > 0;
+
+                if (
+                    !bestTarget ||
+                    (candidateHasVerticalOverlap && !bestHasVerticalOverlap) ||
+                    (candidateHasVerticalOverlap === bestHasVerticalOverlap &&
+                        (overlapArea > bestTarget.overlapArea ||
+                            (overlapArea === bestTarget.overlapArea &&
+                                (overlapWidth > bestTarget.overlapWidth ||
+                                    (overlapWidth === bestTarget.overlapWidth && overlapHeight > bestTarget.overlapHeight)))))
+                ) {
                     bestTarget = {
                         dayKey,
                         minuteOfDay,
                         overlapWidth,
+                        overlapHeight,
+                        overlapArea,
                     };
                 }
             }
 
+            return bestTarget;
+        },
+        []
+    );
+
+    const getDayViewTimedDropFromPointer = useCallback(
+        (input: { clientX?: number; clientY?: number } | null | undefined) => {
+            const bestTarget = getBestDayViewTimedColumnFromFootprint(input);
             if (!bestTarget) {
                 return null;
             }
@@ -3920,45 +3964,14 @@ const Calendar = ({
                 minuteOfDay: bestTarget.minuteOfDay,
             };
         },
-        []
+        [getBestDayViewTimedColumnFromFootprint]
     );
 
-    const getDayViewDominantDayKeyFromPointer = useCallback((input: { clientX?: number; clientY?: number } | null | undefined) => {
-        const dragMetrics = activeDragMetricsRef.current;
-        const clientX = Number(input?.clientX);
-        if (!dragMetrics || !Number.isFinite(clientX) || dragMetrics.width <= 0) {
-            return null;
-        }
-
-        const dragLeft = clientX - dragMetrics.pointerOffsetX;
-        const dragRight = dragLeft + dragMetrics.width;
-        const requiredOverlapWidth = dragMetrics.width / 2;
-        const timedColumns = Array.from(
-            document.querySelectorAll<HTMLElement>('[data-calendar-drop-surface="timed"][data-calendar-day-key]')
-        );
-
-        let bestTarget: { dayKey: string; overlapWidth: number } | null = null;
-
-        for (const column of timedColumns) {
-            const rect = column.getBoundingClientRect();
-            const overlapWidth = Math.min(dragRight, rect.right) - Math.max(dragLeft, rect.left);
-            if (overlapWidth <= requiredOverlapWidth) {
-                continue;
-            }
-
-            const dayKey = String(column.dataset.calendarDayKey || '').trim();
-            if (!dayKey) continue;
-
-            if (!bestTarget || overlapWidth > bestTarget.overlapWidth) {
-                bestTarget = {
-                    dayKey,
-                    overlapWidth,
-                };
-            }
-        }
-
-        return bestTarget?.dayKey || null;
-    }, []);
+    const getDayViewDominantDayKeyFromPointer = useCallback(
+        (input: { clientX?: number; clientY?: number } | null | undefined) =>
+            getBestDayViewTimedColumnFromFootprint(input)?.dayKey || null,
+        [getBestDayViewTimedColumnFromFootprint]
+    );
 
     const buildCalendarMoveTargetFromDrop = useCallback((
         event: CalendarItem,

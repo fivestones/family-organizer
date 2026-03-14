@@ -2,6 +2,7 @@ import 'server-only';
 
 import { id } from '@instantdb/admin';
 import { RRule } from 'rrule';
+import { buildCalendarHistoryMetadata, buildCalendarHistorySnapshot } from '@/lib/calendar-history';
 import { getInstantAdminDb } from '@/lib/instant-admin';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 
@@ -467,11 +468,14 @@ export async function upsertImportedCalendarItems(input: {
             summary: `Deleted event "${String(existingItem.title || 'Untitled event')}"`,
             source: 'apple_sync',
             calendarItemId: existingItem.id,
-            metadata: {
+            metadata: buildCalendarHistoryMetadata({
                 title: String(existingItem.title || 'Untitled event'),
-                sourceCalendarId: input.calendarId,
-                sourceAccountId: input.accountId,
-            },
+                before: buildCalendarHistorySnapshot(existingItem),
+                extra: {
+                    sourceCalendarId: input.calendarId,
+                    sourceAccountId: input.accountId,
+                },
+            }),
         });
         txs.push(...historyEvent.transactions);
 
@@ -507,11 +511,15 @@ export async function upsertImportedCalendarItems(input: {
             summary: `${existingItem ? 'Updated' : 'Imported'} event "${String(item.title || 'Untitled event')}"`,
             source: 'apple_sync',
             calendarItemId: targetItemId,
-            metadata: {
+            metadata: buildCalendarHistoryMetadata({
                 title: String(item.title || 'Untitled event'),
-                sourceCalendarId: input.calendarId,
-                sourceAccountId: input.accountId,
-            },
+                before: buildCalendarHistorySnapshot(existingItem),
+                after: buildCalendarHistorySnapshot(item),
+                extra: {
+                    sourceCalendarId: input.calendarId,
+                    sourceAccountId: input.accountId,
+                },
+            }),
         });
         txs.push(...historyEvent.transactions);
         if (item.status === 'cancelled' || item.sourceSyncStatus === 'cancelled') {
@@ -585,11 +593,14 @@ export async function markImportedCalendarItemsDeletedByRemoteUrls(input: {
                 summary: `Deleted event "${String(item.title || 'Untitled event')}"`,
                 source: 'apple_sync',
                 calendarItemId: item.id,
-                metadata: {
+                metadata: buildCalendarHistoryMetadata({
                     title: String(item.title || 'Untitled event'),
-                    sourceCalendarId: input.calendarId,
-                    sourceAccountId: input.accountId,
-                },
+                    before: buildCalendarHistorySnapshot(item),
+                    extra: {
+                        sourceCalendarId: input.calendarId,
+                        sourceAccountId: input.accountId,
+                    },
+                }),
             });
 
             return [

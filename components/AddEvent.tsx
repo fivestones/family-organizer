@@ -22,6 +22,7 @@ import { format, addHours, addDays, parse, parseISO } from 'date-fns';
 import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesScopeMode } from '@/components/RecurrenceScopeDialog';
 import { useOptionalAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/db';
+import { buildCalendarHistoryMetadata, buildCalendarHistorySnapshot } from '@/lib/calendar-history';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 import {
     dedupeCalendarTagRecords,
@@ -1521,6 +1522,9 @@ const AddEventForm = ({
                 calendarItemId?: string | null;
                 affectedMemberIds?: Iterable<string>;
                 title?: string;
+                beforeSnapshot?: ReturnType<typeof buildCalendarHistorySnapshot>;
+                afterSnapshot?: ReturnType<typeof buildCalendarHistorySnapshot>;
+                metadata?: Record<string, unknown>;
             }
         ) => {
             if (!currentUser?.id) return txOps;
@@ -1535,9 +1539,12 @@ const AddEventForm = ({
                 actorFamilyMemberId: currentUser.id,
                 affectedFamilyMemberIds: Array.from(new Set(Array.from(input.affectedMemberIds || []).filter(Boolean))),
                 calendarItemId: input.calendarItemId || null,
-                metadata: {
+                metadata: buildCalendarHistoryMetadata({
                     title: input.title || null,
-                },
+                    before: input.beforeSnapshot || null,
+                    after: input.afterSnapshot || null,
+                    extra: input.metadata || null,
+                }),
             });
             return [...txOps, ...historyEvent.transactions];
         },
@@ -2089,6 +2096,7 @@ const AddEventForm = ({
                             calendarItemId: selectedEvent.id,
                             affectedMemberIds: selectedAffectedIds,
                             title: selectedEvent.title || 'Untitled event',
+                            beforeSnapshot: buildCalendarHistorySnapshot(selectedEvent),
                         })
                     );
                     onClose();
@@ -2128,6 +2136,7 @@ const AddEventForm = ({
                             calendarItemId: selectedEvent.id,
                             affectedMemberIds: selectedAffectedIds,
                             title: selectedEvent.title || 'Untitled event',
+                            beforeSnapshot: buildCalendarHistorySnapshot(selectedEvent),
                         })
                     );
                     onClose();
@@ -2297,6 +2306,7 @@ const AddEventForm = ({
                         calendarItemId: selectedEvent.id,
                         affectedMemberIds: selectedAffectedIds,
                         title: selectedEvent.title || 'Untitled event',
+                        beforeSnapshot: buildCalendarHistorySnapshot(selectedEvent),
                     })
                 );
                 onClose();
@@ -2694,6 +2704,8 @@ const AddEventForm = ({
                         calendarItemId: overrideId,
                         affectedMemberIds: nextMemberIds,
                         title: formData.title || 'Untitled event',
+                        beforeSnapshot: buildCalendarHistorySnapshot(selectedEvent),
+                        afterSnapshot: buildCalendarHistorySnapshot(overrideData),
                     })
                 );
             } catch (error) {
@@ -2822,6 +2834,8 @@ const AddEventForm = ({
                             calendarItemId: newSeriesId,
                             affectedMemberIds: nextMemberIds,
                             title: formData.title || 'Untitled event',
+                            beforeSnapshot: buildCalendarHistorySnapshot(selectedEvent),
+                            afterSnapshot: buildCalendarHistorySnapshot(newSeriesData),
                         })
                     );
                 } catch (error) {
@@ -2849,6 +2863,8 @@ const AddEventForm = ({
                     calendarItemId: eventId,
                     affectedMemberIds: nextMemberIds,
                     title: formData.title || 'Untitled event',
+                    beforeSnapshot: buildCalendarHistorySnapshot(selectedEvent),
+                    afterSnapshot: buildCalendarHistorySnapshot(payload),
                 }
             );
         };

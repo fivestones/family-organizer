@@ -22,6 +22,8 @@ import { useAppSession } from '../../src/providers/AppProviders';
 import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
+import { buildCalendarHistoryMetadata, buildCalendarHistorySnapshot } from '../../../lib/calendar-history';
+import { buildHistoryEventTransactions } from '../../../lib/history-events';
 import {
   dedupeCalendarTagRecords,
   normalizeCalendarTagKey,
@@ -435,6 +437,32 @@ export default function CalendarTab() {
   const [handledResumeNonce, setHandledResumeNonce] = useState('');
 
   const canEditEvents = principalType === 'parent';
+  const appendCalendarHistoryTransactions = useCallback(
+    (txOps, input) => {
+      if (!currentUser?.id) return txOps;
+
+      const historyEvent = buildHistoryEventTransactions({
+        tx,
+        createId: id,
+        occurredAt: input.occurredAt,
+        domain: 'calendar',
+        actionType: input.actionType,
+        summary: input.summary,
+        source: 'manual',
+        actorFamilyMemberId: currentUser.id,
+        calendarItemId: input.calendarItemId || null,
+        metadata: buildCalendarHistoryMetadata({
+          title: input.title || null,
+          before: input.beforeSnapshot || null,
+          after: input.afterSnapshot || null,
+          extra: input.metadata || null,
+        }),
+      });
+
+      return [...txOps, ...historyEvent.transactions];
+    },
+    [currentUser?.id]
+  );
   const grid = useMemo(() => buildMonthGrid(viewMonth), [viewMonth]);
   const monthWhereConditions = useMemo(() => getMonthWhereConditions(grid.days), [grid.days]);
 
@@ -879,16 +907,27 @@ export default function CalendarTab() {
 
     payload = { ...payload, ...payloadBase };
     const tagTxOps = buildTagTxOps(eventId, editingEvent?.tags || []);
+    const summary = `${editingEventId ? 'Updated' : 'Created'} event "${title || 'Untitled event'}"`;
+    const buildSaveTxOps = (nextPayload) =>
+      appendCalendarHistoryTransactions([tx.calendarItems[eventId].update(nextPayload), ...tagTxOps], {
+        occurredAt: nowIso,
+        actionType: editingEventId ? 'calendar_event_updated' : 'calendar_event_created',
+        summary,
+        calendarItemId: eventId,
+        title: title || 'Untitled event',
+        beforeSnapshot: buildCalendarHistorySnapshot(editingEvent),
+        afterSnapshot: buildCalendarHistorySnapshot(nextPayload),
+      });
 
     setSaving(true);
     try {
-      await db.transact([tx.calendarItems[eventId].update(payload), ...tagTxOps]);
+      await db.transact(buildSaveTxOps(payload));
       setSelectedDate(parseYmdLocal(form.startDate) || selectedDate);
       closeModal();
     } catch (error) {
       if (shouldRetryLegacyCalendarMutation(error)) {
         try {
-          await db.transact([tx.calendarItems[eventId].update(legacyPayload), ...tagTxOps]);
+          await db.transact(buildSaveTxOps(legacyPayload));
           setSelectedDate(parseYmdLocal(form.startDate) || selectedDate);
           closeModal();
           return;
@@ -925,7 +964,16 @@ export default function CalendarTab() {
           void (async () => {
             setSaving(true);
             try {
-              await db.transact([tx.calendarItems[editingEventId].delete()]);
+              await db.transact(
+                appendCalendarHistoryTransactions([tx.calendarItems[editingEventId].delete()], {
+                  occurredAt: new Date().toISOString(),
+                  actionType: 'calendar_event_deleted',
+                  summary: `Deleted event "${editingEvent?.title || 'Untitled event'}"`,
+                  calendarItemId: editingEventId,
+                  title: editingEvent?.title || 'Untitled event',
+                  beforeSnapshot: buildCalendarHistorySnapshot(editingEvent),
+                })
+              );
               closeModal();
             } catch (error) {
               setSaving(false);

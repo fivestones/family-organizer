@@ -4,7 +4,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '@/lib/db';
 import FamilyMembersList from '@/components/FamilyMembersList';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
+import {
+    collapseCalendarHistoryEvents,
+    getCalendarHistoryDetail,
+    getCalendarHistoryHeadline,
+    HISTORY_CALENDAR_INLINE_DETAILS_MAX,
+} from '@/lib/calendar-history';
 import {
     getHistoryActorKey,
     getHistoryActorLabel,
@@ -21,6 +28,17 @@ type HistoryPageProps = {
     initialSelectedMember?: string | null;
     initialDomain?: string | null;
     initialTaskSeriesId?: string | null;
+};
+
+type HistoryDisplayEntry = {
+    key: string;
+    representative: HistoryEventLike;
+    events: HistoryEventLike[];
+    inlineEvents: HistoryEventLike[];
+    hasOverflowDetails: boolean;
+    isCollapsedCalendarGroup: boolean;
+    summary: string;
+    detailText: string | null;
 };
 
 function cycleFilter(map: Record<string, HistoryFilterMode>, key: string) {
@@ -72,6 +90,12 @@ function filterButtonClass(mode: HistoryFilterMode) {
     return 'border-slate-200 bg-white text-slate-700';
 }
 
+function sortHistoryEventsChronologically(events: HistoryEventLike[]) {
+    return events
+        .slice()
+        .sort((left, right) => new Date(String(left.occurredAt || '')).getTime() - new Date(String(right.occurredAt || '')).getTime());
+}
+
 export default function HistoryPage({
     initialSelectedMember = null,
     initialDomain = null,
@@ -87,6 +111,8 @@ export default function HistoryPage({
     const [dateEnd, setDateEnd] = useState('');
     const [taskSeriesFilterId, setTaskSeriesFilterId] = useState(initialTaskSeriesId || '');
     const [taskSeriesFilterMode, setTaskSeriesFilterMode] = useState<'include' | 'exclude'>('include');
+    const [expandedDetailGroups, setExpandedDetailGroups] = useState<Record<string, boolean>>({});
+    const [detailDialogGroupKey, setDetailDialogGroupKey] = useState<string | null>(null);
     const feedRef = useRef<HTMLDivElement | null>(null);
 
     const { data, isLoading, error } = db.useQuery({
@@ -200,6 +226,30 @@ export default function HistoryPage({
         });
     }, [historyEvents, selectedMember, domainFilters, actorFilters, affectedFilters, taskSeriesFilterId, taskSeriesFilterMode, dateStart, dateEnd]);
 
+    const historyDisplayEntries = useMemo<HistoryDisplayEntry[]>(() => {
+        return collapseCalendarHistoryEvents(filteredEvents).map((group) => {
+            const chronologicalEvents = sortHistoryEventsChronologically(group.events);
+            const representative = group.events[0];
+            const isCollapsedCalendarGroup = representative.domain === 'calendar' && group.events.length > 1;
+
+            return {
+                key: group.key,
+                representative,
+                events: chronologicalEvents,
+                inlineEvents: chronologicalEvents.slice(0, HISTORY_CALENDAR_INLINE_DETAILS_MAX),
+                hasOverflowDetails: chronologicalEvents.length > HISTORY_CALENDAR_INLINE_DETAILS_MAX,
+                isCollapsedCalendarGroup,
+                summary: representative.domain === 'calendar' ? getCalendarHistoryHeadline(group.events) : String(representative.summary || ''),
+                detailText: representative.domain === 'calendar' ? getCalendarHistoryDetail(group.events) : null,
+            };
+        });
+    }, [filteredEvents]);
+
+    const detailDialogEntry = useMemo(
+        () => historyDisplayEntries.find((entry) => entry.key === detailDialogGroupKey) || null,
+        [detailDialogGroupKey, historyDisplayEntries]
+    );
+
     const jumpToNow = () => {
         if (!feedRef.current) return;
         feedRef.current.scrollTo({
@@ -216,6 +266,8 @@ export default function HistoryPage({
         setDateEnd('');
         setTaskSeriesFilterId(initialTaskSeriesId || '');
         setTaskSeriesFilterMode('include');
+        setExpandedDetailGroups({});
+        setDetailDialogGroupKey(null);
     };
 
     return (
@@ -373,25 +425,33 @@ export default function HistoryPage({
                         {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error.message}</div> : null}
                         {isLoading ? <div className="text-sm text-slate-500">Loading history...</div> : null}
 
-                        {!isLoading && filteredEvents.length === 0 ? (
+                        {!isLoading && historyDisplayEntries.length === 0 ? (
                             <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500">
                                 No history items match these filters.
                             </div>
                         ) : null}
 
                         <div className="space-y-3">
-                            {filteredEvents.map((event) => {
+                            {historyDisplayEntries.map((entry) => {
+                                const event = entry.representative;
                                 const linkedMessage = getLinkedMessage(event);
                                 const actorLabel = getHistoryActorLabel(event, familyMemberNamesById);
-                                const affectedLabels = getHistoryAffectedMemberIds(event)
-                                    .map((memberId) => familyMemberNamesById.get(memberId))
-                                    .filter(Boolean);
+                                const affectedLabels = Array.from(
+                                    new Set(
+                                        entry.events
+                                            .flatMap((historyEvent) => getHistoryAffectedMemberIds(historyEvent))
+                                            .map((memberId) => familyMemberNamesById.get(memberId))
+                                            .filter(Boolean)
+                                    )
+                                );
                                 const messageAttachments = linkedMessage?.attachments || [];
                                 const eventAttachments = event.attachments || [];
-                                const detailsNote = typeof event.metadata?.note === 'string' ? event.metadata.note : null;
+                                const detailsNote =
+                                    entry.detailText || (typeof event.metadata?.note === 'string' ? event.metadata.note : null);
+                                const isExpanded = Boolean(expandedDetailGroups[entry.key]);
 
                                 return (
-                                    <div key={event.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                                    <div key={entry.key} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                                         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                                             <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-semibold text-slate-700">
                                                 {HISTORY_DOMAIN_LABELS[(event.domain as keyof typeof HISTORY_DOMAIN_LABELS) || 'system'] || event.domain}
@@ -402,16 +462,67 @@ export default function HistoryPage({
                                             <span>{formatOccurredAt(event.occurredAt)}</span>
                                         </div>
 
-                                        <div className="mt-3 text-base font-semibold text-slate-900">{event.summary}</div>
+                                        <div className="mt-3 text-base font-semibold text-slate-900">{entry.summary}</div>
 
                                         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-600">
                                             {actorLabel ? <span>Actor: {actorLabel}</span> : null}
                                             {affectedLabels.length > 0 ? <span>Affected: {affectedLabels.join(', ')}</span> : null}
                                             {linkedMessage?.editedAt ? <span>Edited</span> : null}
+                                            {entry.isCollapsedCalendarGroup ? <span>{entry.events.length} quick changes combined</span> : null}
                                         </div>
 
                                         {linkedMessage?.body ? <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{linkedMessage.body}</div> : null}
                                         {!linkedMessage?.body && detailsNote ? <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailsNote}</div> : null}
+
+                                        {entry.isCollapsedCalendarGroup ? (
+                                            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                                    <div className="text-xs text-slate-500">See the intermediate edits without losing the combined net change.</div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setExpandedDetailGroups((current) => ({
+                                                                ...current,
+                                                                [entry.key]: !current[entry.key],
+                                                            }))
+                                                        }
+                                                        className="text-xs font-medium text-sky-700 hover:text-sky-800"
+                                                    >
+                                                        {isExpanded ? 'Hide details' : 'See details'}
+                                                    </button>
+                                                </div>
+
+                                                {isExpanded ? (
+                                                    <div className="mt-3 space-y-2">
+                                                        {entry.inlineEvents.map((detailEvent) => {
+                                                            const detailText = getCalendarHistoryDetail(detailEvent);
+                                                            return (
+                                                                <div key={detailEvent.id} className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
+                                                                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                                                        <span>{formatOccurredAt(detailEvent.occurredAt)}</span>
+                                                                        {detailEvent.source === 'apple_sync' ? <span>Apple Sync</span> : null}
+                                                                    </div>
+                                                                    <div className="mt-1 text-sm font-medium text-slate-900">{detailEvent.summary}</div>
+                                                                    {detailText ? (
+                                                                        <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailText}</div>
+                                                                    ) : null}
+                                                                </div>
+                                                            );
+                                                        })}
+
+                                                        {entry.hasOverflowDetails ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setDetailDialogGroupKey(entry.key)}
+                                                                className="text-xs font-medium text-sky-700 hover:text-sky-800"
+                                                            >
+                                                                View all details
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        ) : null}
 
                                         {messageAttachments.length > 0 ? (
                                             <AttachmentCollection attachments={messageAttachments} className="mt-3" variant="panel" />
@@ -435,6 +546,33 @@ export default function HistoryPage({
                     </div>
                 </div>
             </div>
+
+            <Dialog open={Boolean(detailDialogEntry)} onOpenChange={(open) => setDetailDialogGroupKey(open ? detailDialogGroupKey : null)}>
+                {detailDialogEntry ? (
+                    <DialogContent className="max-w-2xl">
+                        <DialogHeader>
+                            <DialogTitle>{detailDialogEntry.summary}</DialogTitle>
+                            <DialogDescription>Full detail for the collapsed calendar history changes.</DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-3">
+                            {detailDialogEntry.events.map((detailEvent) => {
+                                const detailText = getCalendarHistoryDetail(detailEvent);
+                                return (
+                                    <div key={detailEvent.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                            <span>{formatOccurredAt(detailEvent.occurredAt)}</span>
+                                            {detailEvent.source === 'apple_sync' ? <span>Apple Sync</span> : null}
+                                        </div>
+                                        <div className="mt-2 text-sm font-semibold text-slate-900">{detailEvent.summary}</div>
+                                        {detailText ? <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailText}</div> : null}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </DialogContent>
+                ) : null}
+            </Dialog>
         </div>
     );
 }

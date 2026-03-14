@@ -1414,6 +1414,124 @@ describe('Calendar', () => {
         });
     });
 
+    it('keeps timed drag previews and drops on the correct date in the second day-view row', async () => {
+        renderCalendarWithItems([
+            {
+                id: 'evt-second-row',
+                title: 'Math tutoring',
+                startDate: new Date(2026, 2, 15, 9, 0, 0, 0).toISOString(),
+                endDate: new Date(2026, 2, 15, 10, 0, 0, 0).toISOString(),
+                isAllDay: false,
+            },
+        ]);
+
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setViewMode', viewMode: 'day' },
+                })
+            );
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayVisibleDays', dayVisibleDays: 3 },
+                })
+            );
+            window.dispatchEvent(
+                new CustomEvent(CALENDAR_COMMAND_EVENT, {
+                    detail: { type: 'setDayRowCount', dayRowCount: 2 },
+                })
+            );
+        });
+
+        const day15Columns = await screen.findAllByTestId('day-view-timed-column-2026-03-15');
+        const day18Columns = await screen.findAllByTestId('day-view-timed-column-2026-03-18');
+        expect(day15Columns.length).toBeGreaterThan(1);
+        expect(day18Columns.length).toBeGreaterThan(1);
+
+        Object.defineProperty(day15Columns[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 0, right: 100, top: 100, bottom: 388, width: 100, height: 288 }),
+        });
+        Object.defineProperty(day15Columns[1], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 300, right: 400, top: 500, bottom: 788, width: 100, height: 288 }),
+        });
+        Object.defineProperty(day18Columns[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 300, right: 400, top: 100, bottom: 388, width: 100, height: 288 }),
+        });
+        Object.defineProperty(day18Columns[1], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 0, right: 100, top: 500, bottom: 788, width: 100, height: 288 }),
+        });
+
+        const sourceElement = document.createElement('div');
+        Object.defineProperty(sourceElement, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 0, right: 90, top: 100, bottom: 140, width: 90, height: 40 }),
+        });
+
+        const event = {
+            id: 'evt-second-row',
+            title: 'Math tutoring',
+            startDate: new Date(2026, 2, 15, 9, 0, 0, 0).toISOString(),
+            endDate: new Date(2026, 2, 15, 10, 0, 0, 0).toISOString(),
+            isAllDay: false,
+        };
+
+        act(() => {
+            mocks.monitorConfig.onDragStart({
+                source: { data: { type: 'calendar-event', event }, element: sourceElement },
+                location: { current: { input: { clientX: 45, clientY: 120 } } },
+            });
+        });
+
+        act(() => {
+            mocks.monitorConfig.onDrag({
+                source: { data: { type: 'calendar-event', event } },
+                location: {
+                    current: {
+                        input: { clientX: 45, clientY: 640 },
+                        dropTargets: [{ data: { type: 'calendar-time-slot', dateStr: '2026-03-18', minuteOfDay: 600 } }],
+                    },
+                },
+            });
+        });
+
+        expect(screen.getAllByText('10-11 am').length).toBeGreaterThan(0);
+        expect(screen.queryByText('12-1 am')).toBeNull();
+
+        act(() => {
+            mocks.monitorConfig.onDrop({
+                source: { data: { type: 'calendar-event', event } },
+                location: {
+                    current: {
+                        input: { altKey: false, shiftKey: false, clientX: 45, clientY: 640 },
+                        dropTargets: [{ data: { type: 'calendar-time-slot', dateStr: '2026-03-18', minuteOfDay: 600 } }],
+                    },
+                },
+            });
+        });
+
+        await waitFor(() => {
+            expect(mocks.dbTransact).toHaveBeenCalled();
+        });
+
+        const [ops] = mocks.dbTransact.mock.calls.at(-1)!;
+        expect(ops[0]).toMatchObject({
+            entity: 'calendarItems',
+            id: 'evt-second-row',
+            op: 'update',
+            payload: {
+                startDate: new Date(2026, 2, 18, 10, 0, 0, 0).toISOString(),
+                endDate: new Date(2026, 2, 18, 11, 0, 0, 0).toISOString(),
+                year: 2026,
+                month: 3,
+                dayOfMonth: 18,
+            },
+        });
+    });
+
     it('resizes a timed event in the day view', async () => {
         renderCalendarWithItems([
             {
