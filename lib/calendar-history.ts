@@ -13,6 +13,13 @@ export interface CalendarHistoryMetadata {
     scope?: string | null;
     sourceAccountId?: string | null;
     sourceCalendarId?: string | null;
+    previousStartDate?: string | null;
+    previousEndDate?: string | null;
+    nextStartDate?: string | null;
+    nextEndDate?: string | null;
+    timeZone?: string | null;
+    previousTimeZone?: string | null;
+    nextTimeZone?: string | null;
     calendarHistory?: {
         before?: CalendarHistorySnapshot | null;
         after?: CalendarHistorySnapshot | null;
@@ -374,18 +381,54 @@ function normalizeCalendarHistoryMetadata(value: unknown) {
     return value as CalendarHistoryMetadata;
 }
 
+function isDateOnlyToken(value: string | null | undefined) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+}
+
+function buildLegacySnapshot(input: {
+    startDate?: string | null;
+    endDate?: string | null;
+    timeZone?: string | null;
+}) {
+    const startDate = String(input.startDate || '').trim();
+    const endDate = String(input.endDate || '').trim();
+    if (!startDate || !endDate) return null;
+
+    const isAllDay = isDateOnlyToken(startDate) && isDateOnlyToken(endDate);
+    return buildCalendarHistorySnapshot({
+        startDate,
+        endDate,
+        isAllDay,
+        timeZone: input.timeZone || null,
+    });
+}
+
 function getCalendarHistoryDataFromEvent(event: HistoryEventLike | null | undefined) {
     const metadata = normalizeCalendarHistoryMetadata(event?.metadata);
     const calendarHistory =
         metadata?.calendarHistory && typeof metadata.calendarHistory === 'object' && !Array.isArray(metadata.calendarHistory)
             ? metadata.calendarHistory
             : null;
+    const before =
+        calendarHistory?.before ||
+        buildLegacySnapshot({
+            startDate: metadata?.previousStartDate || null,
+            endDate: metadata?.previousEndDate || null,
+            timeZone: metadata?.previousTimeZone || metadata?.timeZone || null,
+        });
+    const after =
+        calendarHistory?.after ||
+        buildLegacySnapshot({
+            startDate: metadata?.nextStartDate || null,
+            endDate: metadata?.nextEndDate || null,
+            timeZone: metadata?.nextTimeZone || metadata?.timeZone || null,
+        });
 
     return {
         metadata,
         title: getCalendarHistoryTitle(event),
-        before: calendarHistory?.before || null,
-        after: calendarHistory?.after || null,
+        before,
+        after,
     };
 }
 
@@ -492,12 +535,14 @@ export function getCalendarHistoryDetail(events: HistoryEventLike[] | HistoryEve
     const last = chronological[chronological.length - 1];
     const firstData = getCalendarHistoryDataFromEvent(first);
     const lastData = getCalendarHistoryDataFromEvent(last);
+    const netBefore = normalizedEvents.length > 1 ? firstData.before || firstData.after : firstData.before;
+    const netAfter = normalizedEvents.length > 1 ? lastData.after || lastData.before : lastData.after || firstData.after;
 
-    if (normalizedEvents.length > 1 && String(first.actionType || '') === 'calendar_event_created' && lastData.after) {
-        return formatScheduledRange(lastData.after);
+    if (normalizedEvents.length > 1) {
+        return describeScheduleChange(netBefore, netAfter);
     }
 
-    return describeScheduleChange(firstData.before, lastData.after ?? firstData.after);
+    return describeScheduleChange(firstData.before, netAfter);
 }
 
 export function collapseCalendarHistoryEvents(events: HistoryEventLike[]) {

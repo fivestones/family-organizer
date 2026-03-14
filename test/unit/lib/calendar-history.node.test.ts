@@ -193,7 +193,24 @@ describe('calendar-history helpers', () => {
 
         expect(groups).toHaveLength(1);
         expect(getCalendarHistoryHeadline(groups[0].events)).toBe('Created event "School"');
-        expect(getCalendarHistoryDetail(groups[0].events)).toBe('Scheduled for Friday, March 13 from 4 pm to 6 pm');
+        expect(getCalendarHistoryDetail(groups[0].events)).toBe('From 2 pm to 4 pm');
+    });
+
+    it('falls back to legacy flat before-and-after metadata for detail rows', () => {
+        const detail = getCalendarHistoryDetail(
+            makeEvent({
+                metadata: {
+                    title: 'School',
+                    previousStartDate: '2026-03-13T14:50:00.000Z',
+                    previousEndDate: '2026-03-13T17:00:00.000Z',
+                    nextStartDate: '2026-03-13T19:00:00.000Z',
+                    nextEndDate: '2026-03-13T21:10:00.000Z',
+                    timeZone: 'UTC',
+                },
+            })
+        );
+
+        expect(detail).toBe('From 2:50 pm to 7 pm');
     });
 
     it('stops collapsing once the combined edit window exceeds an hour', () => {
