@@ -96,6 +96,23 @@ function sortHistoryEventsChronologically(events: HistoryEventLike[]) {
         .sort((left, right) => new Date(String(left.occurredAt || '')).getTime() - new Date(String(right.occurredAt || '')).getTime());
 }
 
+function getFinanceDescriptionLine(event: HistoryEventLike | null | undefined) {
+    if (event?.domain !== 'finance') return null;
+
+    const actionType = String(event.actionType || '');
+    if (actionType !== 'envelope_deposit' && actionType !== 'envelope_withdrawal') {
+        return null;
+    }
+
+    const description = typeof event.metadata?.description === 'string' ? event.metadata.description.trim() : '';
+    if (!description) return null;
+    if ((actionType === 'envelope_deposit' && /^deposit$/i.test(description)) || (actionType === 'envelope_withdrawal' && /^withdrawal$/i.test(description))) {
+        return null;
+    }
+
+    return description;
+}
+
 export default function HistoryPage({
     initialSelectedMember = null,
     initialDomain = null,
@@ -446,6 +463,7 @@ export default function HistoryPage({
                                 );
                                 const messageAttachments = linkedMessage?.attachments || [];
                                 const eventAttachments = event.attachments || [];
+                                const financeDescriptionLine = getFinanceDescriptionLine(event);
                                 const detailsNote =
                                     entry.detailText || (typeof event.metadata?.note === 'string' ? event.metadata.note : null);
                                 const isExpanded = Boolean(expandedDetailGroups[entry.key]);
@@ -463,6 +481,8 @@ export default function HistoryPage({
                                         </div>
 
                                         <div className="mt-3 text-base font-semibold text-slate-900">{entry.summary}</div>
+
+                                        {financeDescriptionLine ? <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{financeDescriptionLine}</div> : null}
 
                                         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-600">
                                             {actorLabel ? <span>Actor: {actorLabel}</span> : null}

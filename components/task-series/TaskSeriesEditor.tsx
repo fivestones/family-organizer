@@ -607,6 +607,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     const [isSaving, setIsSaving] = useState(false);
     const [editorDocument, setEditorDocument] = useState<JSONContent>({ type: 'doc', content: [] });
     const [mobilePane, setMobilePane] = useState<'bulk' | 'cards'>('bulk');
+    const [isBulkEditorCollapsed, setIsBulkEditorCollapsed] = useState(false);
     const [historyTaskId, setHistoryTaskId] = useState<string | null>(null);
 
     // Map stores object { label, date } instead of just string
@@ -1637,7 +1638,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     }
 
     return (
-        <div className={cn('mx-auto space-y-6 p-6', className || 'max-w-6xl')}>
+        <div data-testid="task-series-editor-root" className={cn('mx-auto w-full max-w-none space-y-6 px-4 py-6 sm:px-6 xl:px-8 2xl:px-10', className)}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                     <h1 className="text-2xl font-bold">Task Series Editor</h1>
@@ -1778,52 +1779,80 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 </button>
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
-                <section className={cn(mobilePane === 'cards' ? 'hidden lg:block' : 'block')}>
-                    <div className="mb-3 flex items-end justify-between gap-3">
-                        <div>
-                            <h2 className="text-lg font-semibold text-slate-900">Quick / bulk entry</h2>
-                            <p className="text-sm text-slate-500">Paste a long list, indent it, reorder it, and use slash commands when you want speed.</p>
+            <div
+                data-testid="task-series-editor-layout"
+                className="grid items-start gap-6 min-[1600px]:grid-cols-[minmax(0,38rem)_minmax(0,1fr)]"
+            >
+                <section className={cn('min-w-0', mobilePane === 'cards' ? 'hidden lg:block' : 'block')}>
+                    <div className="mb-3 rounded-3xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900">Quick / bulk entry</h2>
+                                <p className="text-sm text-slate-500">Paste a long list, indent it, reorder it, and use slash commands when you want speed.</p>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="hidden lg:inline-flex min-[1600px]:hidden"
+                                aria-expanded={!isBulkEditorCollapsed}
+                                aria-controls="task-series-bulk-editor-panel"
+                                onClick={() => setIsBulkEditorCollapsed((current) => !current)}
+                            >
+                                {isBulkEditorCollapsed ? 'Expand bulk editor' : 'Collapse bulk editor'}
+                            </Button>
                         </div>
                     </div>
 
                     <div
-                        ref={editorRef}
-                        className="relative flex min-h-[500px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
-                        onDragOver={(e) => e.preventDefault()}
+                        id="task-series-bulk-editor-panel"
+                        data-testid="task-series-bulk-editor-panel"
+                        data-collapsed={isBulkEditorCollapsed ? 'true' : 'false'}
+                        className={cn(isBulkEditorCollapsed ? 'block lg:hidden min-[1600px]:block' : 'block')}
                     >
-                        {dropState && dropState.isActive && (
-                            <div
-                                className="absolute pointer-events-none z-50 transition-all duration-75 ease-out"
-                                style={{
-                                    top: dropState.top,
-                                    left: dropState.left,
-                                    width: dropState.width,
-                                }}
-                            >
-                                <div className="relative w-full border-t-2 border-blue-500">
-                                    <div className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-blue-500" />
+                        <div
+                            ref={editorRef}
+                            className="relative flex min-h-[500px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                            onDragOver={(e) => e.preventDefault()}
+                        >
+                            {dropState && dropState.isActive && (
+                                <div
+                                    className="absolute pointer-events-none z-50 transition-all duration-75 ease-out"
+                                    style={{
+                                        top: dropState.top,
+                                        left: dropState.left,
+                                        width: dropState.width,
+                                    }}
+                                >
+                                    <div className="relative w-full border-t-2 border-blue-500">
+                                        <div className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-blue-500" />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="border-b border-slate-200 bg-slate-50/90 px-4 py-3 text-xs font-medium text-slate-500">
+                                <div className="flex">
+                                    <div className="w-20 pr-3 text-right">Date</div>
+                                    <div>Task</div>
                                 </div>
                             </div>
-                        )}
 
-                        <div className="border-b border-slate-200 bg-slate-50/90 px-4 py-3 text-xs font-medium text-slate-500">
-                            <div className="flex">
-                                <div className="w-20 pr-3 text-right">Date</div>
-                                <div>Task</div>
-                            </div>
+                            <TaskDateContext.Provider value={taskDateMap}>
+                                <div style={isDraggingGlobal ? { caretColor: 'transparent' } : undefined}>
+                                    <EditorContent editor={editor} />
+                                </div>
+                            </TaskDateContext.Provider>
+                            <TaskDetailsPopover editor={editor} taskDateMap={taskDateMap} />
                         </div>
-
-                        <TaskDateContext.Provider value={taskDateMap}>
-                            <div style={isDraggingGlobal ? { caretColor: 'transparent' } : undefined}>
-                                <EditorContent editor={editor} />
-                            </div>
-                        </TaskDateContext.Provider>
-                        <TaskDetailsPopover editor={editor} taskDateMap={taskDateMap} />
                     </div>
+
+                    {isBulkEditorCollapsed ? (
+                        <div className="hidden rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-500 lg:block min-[1600px]:hidden">
+                            Bulk editor collapsed. Expand it when you want to paste, indent, or reorder a longer task list.
+                        </div>
+                    ) : null}
                 </section>
 
-                <section className={cn(mobilePane === 'bulk' ? 'hidden lg:block' : 'block')}>
+                <section className={cn('min-w-0', mobilePane === 'bulk' ? 'hidden lg:block' : 'block')}>
                     <div className="mb-3 rounded-3xl border border-slate-200 bg-white/90 p-4 shadow-sm">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div>
