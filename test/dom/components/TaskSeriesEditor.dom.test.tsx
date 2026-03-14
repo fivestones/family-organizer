@@ -90,6 +90,12 @@ vi.mock('@/components/ui/use-toast', () => ({
     useToast: () => ({ toast: vi.fn() }),
 }));
 
+vi.mock('@/components/AuthProvider', () => ({
+    useAuth: () => ({
+        currentUser: { id: 'parent-1', name: 'Parent User' },
+    }),
+}));
+
 vi.mock('@/components/ui/button', async () => {
     const React = await import('react');
     const Button = React.forwardRef<HTMLButtonElement, any>(function MockButton({ children, ...props }, ref) {
@@ -289,6 +295,7 @@ describe('TaskSeriesEditor', () => {
         editorMocks.chainObj.deleteRange.mockClear();
         editorMocks.chainObj.run.mockClear();
         editorMocks.chainObj.insertContentAt.mockClear();
+        editorMocks.chainObj.setTextSelection.mockClear();
         editorMocks.chainObj.command.mockClear();
         editorMocks.monitorCleanup.mockClear();
         editorMocks.monitorForElements.mockReset();
@@ -473,5 +480,63 @@ describe('TaskSeriesEditor', () => {
 
         expect(onClose).toHaveBeenCalledTimes(1);
         expect(editorMocks.dbTransact.mock.invocationCallOrder[0]).toBeLessThan(onClose.mock.invocationCallOrder[0]);
+    });
+
+    it('renders the synced card view controls alongside the bulk editor', () => {
+        seedExistingSeries({
+            tasks: [
+                {
+                    id: 'task-1',
+                    text: 'Existing task',
+                    order: 0,
+                    indentationLevel: 0,
+                    isDayBreak: false,
+                    notes: 'Bring workbook and pencil',
+                    attachments: [{ id: 'attachment-1', name: 'worksheet.pdf', url: 'worksheet.pdf', type: 'application/pdf' }],
+                    progressEntries: [{ id: 'entry-1', toState: 'done', createdAt: '2026-04-03T12:00:00.000Z', note: 'Finished early' }],
+                    parentTask: [],
+                },
+            ],
+        });
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+
+        expect(screen.getByRole('heading', { name: /task cards/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^add day break$/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /add day break below existing task/i })).toBeInTheDocument();
+        expect(screen.getByText(/saved when you leave the field/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^history$/i })).toBeInTheDocument();
+    });
+
+    it('adds a day break section from the card toolbar', async () => {
+        const user = userEvent.setup();
+        editorMocks.nextIdValues = ['break-1', 'task-after-break'];
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+
+        await user.click(screen.getByRole('button', { name: /^add day break$/i }));
+
+        expect(editorMocks.chainObj.insertContentAt).toHaveBeenCalledWith(
+            0,
+            [
+                {
+                    type: 'taskItem',
+                    attrs: {
+                        id: 'break-1',
+                        indentationLevel: 0,
+                        isDayBreak: true,
+                    },
+                },
+                {
+                    type: 'taskItem',
+                    attrs: {
+                        id: 'task-after-break',
+                        indentationLevel: 0,
+                        isDayBreak: false,
+                    },
+                },
+            ]
+        );
+        expect(editorMocks.chainObj.setTextSelection).toHaveBeenCalledWith(3);
     });
 });

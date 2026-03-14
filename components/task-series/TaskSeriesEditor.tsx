@@ -13,6 +13,7 @@ import { useDebouncedCallback } from 'use-debounce';
 import { SlashCommand, slashCommandSuggestion } from './SlashCommand';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
+import { getPresignedUploadUrl, refreshFiles } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
@@ -21,6 +22,7 @@ import TaskItemExtension, { TaskDateContext } from './TaskItem';
 import { TaskDetailsPopover } from './TaskDetailsPopover';
 import { cn } from '@/lib/utils';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
+import { getTaskActorName, getTaskStatusLabel, isTaskWorkflowState, sortTaskProgressEntries } from '@/lib/task-progress';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
 interface Task {
@@ -34,6 +36,34 @@ interface Task {
     lastActiveState?: string | null;
     deferredUntilDate?: string | null;
     parentTask?: { id: string }[]; // Added to track existing parent
+}
+
+interface TaskAttachment {
+    id: string;
+    name?: string | null;
+    type?: string | null;
+    url?: string | null;
+}
+
+interface TaskProgressEntry {
+    id: string;
+    note?: string | null;
+    fromState?: string | null;
+    toState?: string | null;
+    createdAt?: string | Date | null;
+    scheduledForDate?: string | null;
+    restoreTiming?: string | null;
+    attachments?: TaskAttachment[] | null;
+    actor?: { id?: string; name?: string | null }[] | { id?: string; name?: string | null } | null;
+    actorFamilyMemberId?: string | null;
+}
+
+interface PersistedTask extends Task {
+    notes?: string | null;
+    specificTime?: string | null;
+    overrideWorkAhead?: boolean | null;
+    attachments?: TaskAttachment[];
+    progressEntries?: TaskProgressEntry[] | null;
 }
 
 interface TaskSeriesEditorProps {
@@ -50,6 +80,19 @@ type DropState = {
     left: number;
     width: number;
     indentationLevel: number;
+};
+
+type TaskCardItem = {
+    id: string;
+    text: string;
+    indentationLevel: number;
+    isDayBreak: boolean;
+    order: number;
+    parentId: string | null;
+    parentText: string | null;
+    dateLabel: string;
+    dateValue: Date | null;
+    persistedTask: PersistedTask | null;
 };
 
 const ensureDate = (value: any): Date | null => {
@@ -69,6 +112,497 @@ const getSingleId = (relation: any): string | null => {
     return relation.id || null;
 };
 
+const buildEmptyTaskNode = (taskId: string, indentationLevel = 0): JSONContent => ({
+    type: 'taskItem',
+    attrs: {
+        id: taskId,
+        indentationLevel,
+        isDayBreak: false,
+    },
+});
+
+const buildDayBreakNode = (taskId: string, indentationLevel = 0): JSONContent => ({
+    type: 'taskItem',
+    attrs: {
+        id: taskId,
+        indentationLevel,
+        isDayBreak: true,
+    },
+});
+
+const getTopLevelTaskNodes = (editor: NonNullable<ReturnType<typeof useEditor>>) => {
+    const nodes: Array<{ index: number; pos: number; node: any }> = [];
+    let pos = 0;
+
+    for (let index = 0; index < editor.state.doc.childCount; index += 1) {
+        const node = editor.state.doc.child(index);
+        nodes.push({ index, pos, node });
+        pos += node.nodeSize;
+    }
+
+    return nodes;
+};
+
+const getInsertPositionAfterTaskSubtree = (editor: NonNullable<ReturnType<typeof useEditor>>, taskId: string) => {
+    const nodes = getTopLevelTaskNodes(editor);
+    const anchorIndex = nodes.findIndex((item) => item.node?.type?.name === 'taskItem' && item.node?.attrs?.id === taskId);
+
+    if (anchorIndex === -1) {
+        return editor.state.doc.content.size;
+    }
+
+    const anchorNode = nodes[anchorIndex]?.node;
+    const anchorIndentation = anchorNode?.attrs?.indentationLevel || 0;
+    let insertIndex = anchorIndex + 1;
+
+    while (insertIndex < nodes.length) {
+        const candidate = nodes[insertIndex]?.node;
+        if (!candidate || candidate.type?.name !== 'taskItem') break;
+        if (candidate.attrs?.isDayBreak) break;
+        if ((candidate.attrs?.indentationLevel || 0) <= anchorIndentation) break;
+        insertIndex += 1;
+    }
+
+    return nodes[insertIndex]?.pos ?? editor.state.doc.content.size;
+};
+
+const buildTaskCardItems = (
+    json: JSONContent | null | undefined,
+    taskDateMap: Record<string, { label: string; date: Date } | undefined>,
+    persistedTaskById: Map<string, PersistedTask>
+): TaskCardItem[] => {
+    const rawItems: TaskCardItem[] = [];
+    const stack: Array<{ id: string; indentationLevel: number }> = [];
+
+    const content = json?.content || [];
+
+    for (let index = 0; index < content.length; index += 1) {
+        const node = content[index];
+        if (node.type !== 'taskItem') continue;
+
+        const attrs = node.attrs || {};
+        const taskId = typeof attrs.id === 'string' && attrs.id.trim().length > 0 ? attrs.id : `draft-${index}`;
+        const indentationLevel = Number(attrs.indentationLevel || 0);
+        const isDayBreak = Boolean(attrs.isDayBreak);
+
+        while (stack.length > 0 && stack[stack.length - 1].indentationLevel >= indentationLevel) {
+            stack.pop();
+        }
+
+        const parentId = isDayBreak ? null : stack[stack.length - 1]?.id || null;
+        const text = isDayBreak ? '' : node.content?.find((child) => child.type === 'text')?.text || '';
+        const dateData = taskDateMap[taskId];
+
+        rawItems.push({
+            id: taskId,
+            text,
+            indentationLevel,
+            isDayBreak,
+            order: index,
+            parentId,
+            parentText: null,
+            dateLabel: dateData?.label || '',
+            dateValue: dateData?.date || null,
+            persistedTask: persistedTaskById.get(taskId) || null,
+        });
+
+        if (!isDayBreak) {
+            stack.push({ id: taskId, indentationLevel });
+        }
+    }
+
+    const labelById = new Map(rawItems.filter((item) => !item.isDayBreak).map((item) => [item.id, item.text]));
+
+    return rawItems.map((item) => ({
+        ...item,
+        parentText: item.parentId ? labelById.get(item.parentId) || null : null,
+    }));
+};
+
+const formatTaskMetaDate = (value: Date | string | null | undefined) => {
+    if (!value) return '';
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+
+const formatTaskHistoryDate = (value: Date | string | null | undefined) => {
+    if (!value) return 'Unknown time';
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Unknown time';
+    return date.toLocaleString();
+};
+
+const historyToneClassName = (state: string | null | undefined) => {
+    switch (state) {
+        case 'done':
+            return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+        case 'blocked':
+            return 'border-rose-200 bg-rose-50 text-rose-700';
+        case 'needs_review':
+            return 'border-amber-200 bg-amber-50 text-amber-700';
+        case 'skipped':
+            return 'border-slate-200 bg-slate-100 text-slate-700';
+        case 'in_progress':
+            return 'border-sky-200 bg-sky-50 text-sky-700';
+        default:
+            return 'border-slate-200 bg-slate-50 text-slate-600';
+    }
+};
+
+type TaskSeriesCardProps = {
+    db: any;
+    seriesId: string;
+    item: TaskCardItem;
+    familyMemberNamesById: Record<string, string>;
+    historyOpen: boolean;
+    onToggleHistory: (taskId: string) => void;
+    onDeleteTask: (taskId: string) => void;
+    onAddTaskBelow: (taskId: string) => void;
+    onAddDayBreakBelow: (taskId: string) => void;
+    onTitleChange: (taskId: string, value: string) => void;
+};
+
+const TaskSeriesCard = ({
+    db,
+    seriesId,
+    item,
+    familyMemberNamesById,
+    historyOpen,
+    onToggleHistory,
+    onDeleteTask,
+    onAddTaskBelow,
+    onAddDayBreakBelow,
+    onTitleChange,
+}: TaskSeriesCardProps) => {
+    const persistedTask = item.persistedTask;
+    const metadataReady = Boolean(persistedTask);
+    const [notes, setNotes] = useState(persistedTask?.notes || '');
+    const [specificTime, setSpecificTime] = useState(persistedTask?.specificTime || '');
+    const [overrideWorkAhead, setOverrideWorkAhead] = useState(Boolean(persistedTask?.overrideWorkAhead));
+    const [uploading, setUploading] = useState(false);
+    const historyEntries = sortTaskProgressEntries(persistedTask?.progressEntries || []);
+
+    useEffect(() => {
+        setNotes(persistedTask?.notes || '');
+        setSpecificTime(persistedTask?.specificTime || '');
+        setOverrideWorkAhead(Boolean(persistedTask?.overrideWorkAhead));
+    }, [persistedTask?.notes, persistedTask?.overrideWorkAhead, persistedTask?.specificTime]);
+
+    const saveMetadata = useCallback(
+        async (patch: Record<string, unknown>) => {
+            if (!metadataReady) return;
+
+            try {
+                await db.transact([
+                    tx.tasks[item.id].update({
+                        ...patch,
+                        updatedAt: new Date(),
+                    }),
+                    tx.taskSeries[seriesId].link({ tasks: item.id }),
+                ]);
+            } catch (error) {
+                console.error('Unable to save task metadata', error);
+            }
+        },
+        [db, item.id, metadataReady, seriesId]
+    );
+
+    const handleNotesBlur = () => {
+        if (!metadataReady) return;
+        if ((persistedTask?.notes || '') === notes) return;
+        void saveMetadata({ notes });
+    };
+
+    const handleSpecificTimeBlur = () => {
+        if (!metadataReady) return;
+        if ((persistedTask?.specificTime || '') === specificTime) return;
+        void saveMetadata({ specificTime: specificTime || null });
+    };
+
+    const handleOverrideWorkAheadChange = (checked: boolean) => {
+        setOverrideWorkAhead(checked);
+        if (!metadataReady) return;
+        void saveMetadata({ overrideWorkAhead: checked });
+    };
+
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !metadataReady) return;
+
+        setUploading(true);
+        try {
+            const { url, fields, key } = await getPresignedUploadUrl(file.type, file.name);
+
+            const formData = new FormData();
+            Object.entries(fields).forEach(([fieldKey, fieldValue]) => formData.append(fieldKey, fieldValue as string));
+            formData.append('file', file);
+
+            const uploadResponse = await fetch(url, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (uploadResponse.status >= 400) {
+                throw new Error('Upload failed');
+            }
+
+            const attachmentId = id();
+            await db.transact([
+                tx.taskAttachments[attachmentId].update({
+                    name: file.name,
+                    url: key,
+                    type: file.type,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                }),
+                tx.tasks[item.id].link({ attachments: attachmentId }),
+                tx.taskSeries[seriesId].link({ tasks: item.id }),
+            ]);
+
+            await refreshFiles();
+        } catch (error) {
+            console.error('File upload error:', error);
+            alert('Failed to upload file.');
+        } finally {
+            setUploading(false);
+            event.target.value = '';
+        }
+    };
+
+    const handleDeleteAttachment = async (attachmentId: string) => {
+        if (!confirm('Remove this attachment from the task?')) return;
+
+        try {
+            await db.transact([tx.taskAttachments[attachmentId].delete()]);
+        } catch (error) {
+            console.error('Unable to delete attachment', error);
+        }
+    };
+
+    const handleDeleteTask = () => {
+        if (!confirm(`Delete "${item.text || 'Untitled task'}" from this series?`)) return;
+        onDeleteTask(item.id);
+    };
+
+    return (
+        <article
+            className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm transition-colors hover:border-slate-300"
+            style={{ marginLeft: `${Math.min(item.indentationLevel, 4) * 18}px` }}
+        >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {item.dateLabel ? (
+                            <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                                {item.dateLabel}
+                            </span>
+                        ) : item.dateValue ? (
+                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                {formatTaskMetaDate(item.dateValue)}
+                            </span>
+                        ) : null}
+                        {item.parentText ? (
+                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                                In {item.parentText}
+                            </span>
+                        ) : null}
+                        {historyEntries.length > 0 ? (
+                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                                {historyEntries.length} update{historyEntries.length === 1 ? '' : 's'}
+                            </span>
+                        ) : null}
+                    </div>
+
+                    <Input
+                        value={item.text}
+                        onChange={(event) => onTitleChange(item.id, event.target.value)}
+                        placeholder="New task"
+                        className="mt-3 h-11 border-slate-200 bg-white text-base font-semibold"
+                        aria-label={`Task title for ${item.text || 'new task'}`}
+                    />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                        type="button"
+                        onClick={() => onAddTaskBelow(item.id)}
+                        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900"
+                    >
+                        Add task below
+                    </button>
+                    <button
+                        type="button"
+                        aria-label={`Add day break below ${item.text || 'task'}`}
+                        onClick={() => onAddDayBreakBelow(item.id)}
+                        className="h-8 w-8 rounded-full border border-slate-200 text-xs font-bold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900"
+                    >
+                        ||
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onToggleHistory(item.id)}
+                        disabled={!metadataReady}
+                        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {historyOpen ? 'Hide history' : 'History'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleDeleteTask}
+                        className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 transition-colors hover:border-rose-300 hover:text-rose-700"
+                    >
+                        Delete
+                    </button>
+                </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(220px,0.7fr)]">
+                <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Notes</label>
+                    <textarea
+                        value={notes}
+                        onChange={(event) => setNotes(event.target.value)}
+                        onBlur={handleNotesBlur}
+                        disabled={!metadataReady}
+                        placeholder={metadataReady ? 'Add instructions, context, or prep notes…' : 'Metadata unlocks once this card finishes saving.'}
+                        className="min-h-[112px] w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-sky-300 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <div className="text-[11px] text-slate-400">{metadataReady ? 'Saved when you leave the field.' : 'Save is pending for this new card.'}</div>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Timing</div>
+                        <div className="mt-3 space-y-3">
+                            <div>
+                                <label className="text-xs font-medium text-slate-600">Specific time</label>
+                                <Input
+                                    type="time"
+                                    value={specificTime}
+                                    onChange={(event) => setSpecificTime(event.target.value)}
+                                    onBlur={handleSpecificTimeBlur}
+                                    disabled={!metadataReady}
+                                    className="mt-1 border-slate-200 bg-white"
+                                />
+                            </div>
+                            <label className="flex items-center gap-2 text-sm text-slate-700">
+                                <input
+                                    type="checkbox"
+                                    checked={overrideWorkAhead}
+                                    onChange={(event) => handleOverrideWorkAheadChange(event.target.checked)}
+                                    disabled={!metadataReady}
+                                />
+                                Allow work ahead override
+                            </label>
+                        </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Attachments</div>
+                            <label
+                                className={cn(
+                                    'rounded-full border border-sky-200 px-3 py-1 text-xs font-medium text-sky-700 transition-colors',
+                                    metadataReady ? 'cursor-pointer hover:border-sky-300 hover:text-sky-800' : 'cursor-not-allowed opacity-50'
+                                )}
+                            >
+                                {uploading ? 'Uploading...' : 'Upload'}
+                                <input type="file" className="hidden" onChange={handleFileUpload} disabled={!metadataReady || uploading} />
+                            </label>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {!metadataReady ? (
+                                <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+                                    Attachments unlock after the task saves.
+                                </div>
+                            ) : persistedTask?.attachments?.length ? (
+                                persistedTask.attachments.map((file) => (
+                                    <div
+                                        key={file.id}
+                                        className="group flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600"
+                                    >
+                                        <a href={`/files/${file.url}`} target="_blank" rel="noreferrer" className="max-w-[180px] truncate hover:text-sky-700">
+                                            {file.name || 'Attachment'}
+                                        </a>
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleDeleteAttachment(file.id)}
+                                            className="text-slate-400 transition-colors hover:text-rose-600"
+                                        >
+                                            x
+                                        </button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+                                    No attachments yet.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {historyOpen ? (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/90 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-900">Task history</h3>
+                            <p className="text-xs text-slate-500">Later status updates, restore actions, and attached progress files live here.</p>
+                        </div>
+                        <Link href={`/history?domain=tasks&taskSeriesId=${seriesId}`} className="text-xs font-medium text-sky-700 hover:text-sky-800">
+                            Open full history
+                        </Link>
+                    </div>
+
+                    {historyEntries.length === 0 ? (
+                        <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 py-4 text-sm text-slate-500">
+                            No later updates yet. Creation-time notes and attachments stay on the card itself.
+                        </div>
+                    ) : (
+                        <div className="mt-4 space-y-3">
+                            {historyEntries.map((entry) => {
+                                const nextState = isTaskWorkflowState(entry.toState) ? entry.toState : 'not_started';
+                                const stateLabel = getTaskStatusLabel(nextState);
+                                const actorName = getTaskActorName(entry, familyMemberNamesById);
+                                return (
+                                    <div key={entry.id} className="rounded-xl border border-white bg-white p-3 shadow-sm">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-semibold', historyToneClassName(nextState))}>
+                                                {stateLabel}
+                                            </span>
+                                            {actorName ? <span className="text-xs text-slate-500">by {actorName}</span> : null}
+                                            <span className="text-xs text-slate-400">{formatTaskHistoryDate(entry.createdAt)}</span>
+                                        </div>
+                                        {entry.note ? <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{entry.note}</div> : null}
+                                        {entry.attachments?.length ? (
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {entry.attachments.map((file) => (
+                                                    <a
+                                                        key={file.id}
+                                                        href={`/files/${file.url}`}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600 hover:text-sky-700"
+                                                    >
+                                                        {file.name || 'Attachment'}
+                                                    </a>
+                                                ))}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            ) : null}
+        </article>
+    );
+};
+
 const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId, onClose, className }) => {
     const { toast } = useToast();
     const { currentUser } = useAuth();
@@ -78,6 +612,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
     const [seriesId] = useState<string>(initialSeriesId || id());
     const [isSaving, setIsSaving] = useState(false);
+    const [editorDocument, setEditorDocument] = useState<JSONContent>({ type: 'doc', content: [] });
+    const [mobilePane, setMobilePane] = useState<'bulk' | 'cards'>('bulk');
+    const [historyTaskId, setHistoryTaskId] = useState<string | null>(null);
 
     // Map stores object { label, date } instead of just string
     const [taskDateMap, setTaskDateMap] = useState<Record<string, { label: string; date: Date } | undefined>>({});
@@ -120,6 +657,11 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             $: { where: { id: seriesId } },
             tasks: {
                 parentTask: {}, // Fetch parentTask so we can unlink if hierarchy changes
+                attachments: {},
+                progressEntries: {
+                    attachments: {},
+                    actor: {},
+                },
             },
             familyMember: {}, // link: taskSeriesOwner
             scheduledActivity: {}, // link: taskSeriesScheduledActivity (chores)
@@ -132,8 +674,23 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         },
     });
 
-    const dbTasks: Task[] = data?.taskSeries?.[0]?.tasks || [];
+    const dbTasks: PersistedTask[] = data?.taskSeries?.[0]?.tasks || [];
     const seriesData = data?.taskSeries?.[0];
+    const persistedTaskById = React.useMemo(() => new Map(dbTasks.map((task) => [task.id, task])), [dbTasks]);
+    const cardItems = React.useMemo(() => buildTaskCardItems(editorDocument, taskDateMap, persistedTaskById), [editorDocument, persistedTaskById, taskDateMap]);
+    const familyMemberNamesById = React.useMemo(
+        () =>
+            (data?.familyMembers || []).reduce(
+                (acc: Record<string, string>, member: { id: string; name?: string | null }) => {
+                    acc[member.id] = member.name || 'Unknown';
+                    return acc;
+                },
+                {}
+            ),
+        [data?.familyMembers]
+    );
+    const taskCount = cardItems.filter((item) => !item.isDayBreak).length;
+    const dayBreakCount = cardItems.filter((item) => item.isDayBreak).length;
 
     // Keep a ref of seriesData so debouncedSave can access the *current* DB state
     // to know what to unlink without needing to be recreated on every render.
@@ -327,14 +884,17 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             },
         },
         onUpdate: ({ editor }) => {
+            const nextJson = editor.getJSON();
+            setEditorDocument(nextJson);
+
             // 1. DATE CALCULATION
             requestAnimationFrame(() => {
                 // Use the ref to ensure we use the latest calculateDates logic (with latest startDate/activity)
-                calculateDatesRef.current(editor.getJSON());
+                calculateDatesRef.current(nextJson);
             });
 
             // 2. SAVE
-            debouncedSave(editor.getJSON());
+            debouncedSave(nextJson);
         },
     });
 
@@ -593,6 +1153,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
     useEffect(() => {
         if (editor && !isLoading && !hasHydrated.current) {
+            let initialDocument: JSONContent;
+
             if (dbTasks.length > 0) {
                 // Sort by order
                 const sortedTasks = [...dbTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -610,18 +1172,21 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                     content: t.text ? [{ type: 'text', text: t.text }] : undefined,
                 }));
 
-                editor.commands.setContent({ type: 'doc', content });
+                initialDocument = { type: 'doc', content };
             } else {
                 // Initialize with one empty task if new
-                editor.commands.setContent({
+                initialDocument = {
                     type: 'doc',
                     content: [{ type: 'taskItem', attrs: { id: id(), indentationLevel: 0, isDayBreak: false } }],
-                });
+                };
             }
+
+            editor.commands.setContent(initialDocument);
+            setEditorDocument(initialDocument);
 
             hasHydrated.current = true;
             // Initial date calc
-            calculateDates(editor.getJSON());
+            calculateDates(initialDocument);
         }
     }, [editor, isLoading, dbTasks, calculateDates]);
 
@@ -905,6 +1470,161 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         }
     }, [editor, debouncedSave]);
 
+    const syncEditorSurface = useCallback(() => {
+        if (!editor || editor.isDestroyed) return;
+        const nextJson = editor.getJSON();
+        setEditorDocument(nextJson);
+        calculateDatesRef.current(nextJson);
+        debouncedSave(nextJson);
+    }, [debouncedSave, editor]);
+
+    const appendTaskCard = useCallback(() => {
+        if (!editor || editor.isDestroyed) return;
+
+        const insertPos = editor.state.doc.content.size;
+        const nextTaskId = id();
+        const inserted = editor.chain().focus().insertContentAt(insertPos, buildEmptyTaskNode(nextTaskId)).setTextSelection(insertPos + 1).run();
+
+        if (inserted) {
+            setMobilePane('cards');
+            syncEditorSurface();
+        }
+    }, [editor, syncEditorSurface]);
+
+    const appendDayBreakSection = useCallback(() => {
+        if (!editor || editor.isDestroyed) return;
+
+        const insertPos = editor.state.doc.content.size;
+        const breakId = id();
+        const nextTaskId = id();
+        const inserted = editor
+            .chain()
+            .focus()
+            .insertContentAt(insertPos, [buildDayBreakNode(breakId, 0), buildEmptyTaskNode(nextTaskId, 0)])
+            .setTextSelection(insertPos + 3)
+            .run();
+
+        if (inserted) {
+            setMobilePane('cards');
+            syncEditorSurface();
+        }
+    }, [editor, syncEditorSurface]);
+
+    const insertTaskBelow = useCallback(
+        (taskId: string) => {
+            if (!editor || editor.isDestroyed) return;
+
+            const nodes = getTopLevelTaskNodes(editor);
+            const anchor = nodes.find((item) => item.node?.attrs?.id === taskId);
+            const indentationLevel = anchor?.node?.attrs?.indentationLevel || 0;
+            const insertPos = getInsertPositionAfterTaskSubtree(editor, taskId);
+            const nextTaskId = id();
+            const inserted = editor
+                .chain()
+                .focus()
+                .insertContentAt(insertPos, buildEmptyTaskNode(nextTaskId, indentationLevel))
+                .setTextSelection(insertPos + 1)
+                .run();
+
+            if (inserted) {
+                syncEditorSurface();
+            }
+        },
+        [editor, syncEditorSurface]
+    );
+
+    const insertDayBreakBelow = useCallback(
+        (taskId: string) => {
+            if (!editor || editor.isDestroyed) return;
+
+            const nodes = getTopLevelTaskNodes(editor);
+            const anchor = nodes.find((item) => item.node?.attrs?.id === taskId);
+            const indentationLevel = anchor?.node?.attrs?.indentationLevel || 0;
+            const insertPos = getInsertPositionAfterTaskSubtree(editor, taskId);
+            const breakId = id();
+            const nextTaskId = id();
+            const inserted = editor
+                .chain()
+                .focus()
+                .insertContentAt(insertPos, [buildDayBreakNode(breakId, indentationLevel), buildEmptyTaskNode(nextTaskId, indentationLevel)])
+                .setTextSelection(insertPos + 3)
+                .run();
+
+            if (inserted) {
+                syncEditorSurface();
+            }
+        },
+        [editor, syncEditorSurface]
+    );
+
+    const updateTaskTitle = useCallback(
+        (taskId: string, value: string) => {
+            if (!editor || editor.isDestroyed) return;
+
+            const updated = editor
+                .chain()
+                .focus()
+                .command(({ state, dispatch }) => {
+                    let pos = 0;
+
+                    for (let index = 0; index < state.doc.childCount; index += 1) {
+                        const node = state.doc.child(index);
+                        if (node.type.name === 'taskItem' && node.attrs.id === taskId) {
+                            const replacement = node.type.create(node.attrs, value ? [state.schema.text(value)] : undefined);
+                            if (dispatch) {
+                                dispatch(state.tr.replaceWith(pos, pos + node.nodeSize, replacement));
+                            }
+                            return true;
+                        }
+                        pos += node.nodeSize;
+                    }
+
+                    return false;
+                })
+                .run();
+
+            if (updated) {
+                syncEditorSurface();
+            }
+        },
+        [editor, syncEditorSurface]
+    );
+
+    const removeTaskCard = useCallback(
+        (taskId: string) => {
+            if (!editor || editor.isDestroyed) return;
+
+            const removed = editor
+                .chain()
+                .focus()
+                .command(({ state, dispatch }) => {
+                    let pos = 0;
+
+                    for (let index = 0; index < state.doc.childCount; index += 1) {
+                        const node = state.doc.child(index);
+                        if (node.type.name === 'taskItem' && node.attrs.id === taskId) {
+                            if (dispatch) {
+                                dispatch(state.tr.delete(pos, pos + node.nodeSize));
+                            }
+                            return true;
+                        }
+                        pos += node.nodeSize;
+                    }
+
+                    return false;
+                })
+                .run();
+
+            if (removed) {
+                if (historyTaskId === taskId) {
+                    setHistoryTaskId(null);
+                }
+                syncEditorSurface();
+            }
+        },
+        [editor, historyTaskId, syncEditorSurface]
+    );
+
     const handleClose = useCallback(async () => {
         if (editor) {
             debouncedSave(editor.getJSON());
@@ -924,165 +1644,267 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     }
 
     return (
-        // FIX: Use cn() to merge classes.
-        // Default is 'max-w-4xl' (good for page), but can be overridden by 'className' prop (good for modal).
-        <div className={cn('mx-auto p-6 space-y-6', className || 'max-w-4xl')}>
-            <div className="flex justify-between items-center">
+        <div className={cn('mx-auto space-y-6 p-6', className || 'max-w-6xl')}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                     <h1 className="text-2xl font-bold">Task Series Editor</h1>
                     {hasPersisted ? (
                         <Link href={`/history?domain=tasks&taskSeriesId=${seriesId}`}>
-                            <Button variant="outline" size="sm">View History</Button>
+                            <Button variant="outline" size="sm">
+                                View History
+                            </Button>
                         </Link>
                     ) : null}
                 </div>
                 <div className="text-sm text-muted-foreground">{isSaving ? 'Saving...' : 'Saved'}</div>
             </div>
 
-            {/* Header Inputs */}
-            <div className="space-y-4 border p-4 rounded-lg bg-card">
-                <div>
-                    <label className="text-sm font-medium">Series Name</label>
-                    <Input
-                        value={taskSeriesName}
-                        onChange={(e) => {
-                            setTaskSeriesName(e.target.value);
-                            triggerSave();
-                        }}
-                        placeholder="7th Grade Math..."
-                    />
-                </div>
-
-                <div>
-                    <label className="text-sm font-medium">Description</label>
-                    <textarea
-                        className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        rows={3}
-                        value={description}
-                        onChange={(e) => {
-                            setDescription(e.target.value);
-                            triggerSave();
-                        }}
-                        placeholder="Describe this task series (e.g., full 7th grade math curriculum)..."
-                    />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm">
+                <div className="space-y-4">
                     <div>
-                        <label className="text-sm font-medium">Assignee</label>
-                        <select
-                            className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            value={familyMemberId || ''}
-                            onChange={(e) => {
-                                setFamilyMemberId(e.target.value || null);
-                                triggerSave();
-                            }}
-                        >
-                            <option value="">Unassigned</option>
-                            {data?.familyMembers?.map((fm: any) => (
-                                <option key={fm.id} value={fm.id}>
-                                    {fm.name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="text-sm font-medium">Scheduled Activity</label>
-                        <select
-                            className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            value={scheduledActivityId || ''}
-                            onChange={(e) => {
-                                setScheduledActivityId(e.target.value || null);
-                                triggerSave();
-                            }}
-                        >
-                            <option value="">Not linked</option>
-                            {data?.chores?.map((chore: any) => (
-                                <option key={chore.id} value={chore.id}>
-                                    {chore.title}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="text-sm font-medium">Start Date</label>
+                        <label className="text-sm font-medium">Series Name</label>
                         <Input
-                            type="date"
-                            value={startDate ? format(startDate, 'yyyy-MM-dd') : ''}
+                            value={taskSeriesName}
                             onChange={(e) => {
-                                if (e.target.value) {
-                                    setStartDate(startOfDay(parseISO(e.target.value)));
+                                setTaskSeriesName(e.target.value);
+                                triggerSave();
+                            }}
+                            placeholder="7th Grade Math..."
+                            className="mt-1"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="text-sm font-medium">Description</label>
+                        <textarea
+                            className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            rows={3}
+                            value={description}
+                            onChange={(e) => {
+                                setDescription(e.target.value);
+                                triggerSave();
+                            }}
+                            placeholder="Describe this task series (e.g., full 7th grade math curriculum)..."
+                        />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                            <label className="text-sm font-medium">Assignee</label>
+                            <select
+                                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                value={familyMemberId || ''}
+                                onChange={(e) => {
+                                    setFamilyMemberId(e.target.value || null);
                                     triggerSave();
-                                }
-                            }}
-                        />
-                    </div>
+                                }}
+                            >
+                                <option value="">Unassigned</option>
+                                {data?.familyMembers?.map((fm: any) => (
+                                    <option key={fm.id} value={fm.id}>
+                                        {fm.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
 
-                    <div>
-                        <label className="text-sm font-medium">Target End Date (optional)</label>
-                        <Input
-                            type="date"
-                            value={targetEndDate ? format(targetEndDate, 'yyyy-MM-dd') : ''}
-                            onChange={(e) => {
-                                if (e.target.value) {
-                                    setTargetEndDate(startOfDay(parseISO(e.target.value)));
-                                } else {
-                                    setTargetEndDate(null);
-                                }
-                                triggerSave();
-                            }}
-                        />
-                    </div>
-                </div>
-            </div>
-
-            {/* FIX: Added onDragOver to prevent Default (Native) drop behavior 
-               This prevents the "black lines" / native insertion cursor from appearing.
-            */}
-            <div
-                ref={editorRef}
-                className="border rounded-lg bg-background shadow-sm min-h-[500px] flex flex-col relative"
-                onDragOver={(e) => e.preventDefault()}
-            >
-                {dropState && dropState.isActive && (
-                    <div
-                        className="absolute pointer-events-none z-50 transition-all duration-75 ease-out"
-                        style={{
-                            top: dropState.top,
-                            left: dropState.left,
-                            width: dropState.width,
-                        }}
-                    >
-                        <div className="border-t-2 border-blue-500 w-full relative">
-                            <div className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-blue-500" />
+                        <div>
+                            <label className="text-sm font-medium">Scheduled Activity</label>
+                            <select
+                                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                value={scheduledActivityId || ''}
+                                onChange={(e) => {
+                                    setScheduledActivityId(e.target.value || null);
+                                    triggerSave();
+                                }}
+                            >
+                                <option value="">Not linked</option>
+                                {data?.chores?.map((chore: any) => (
+                                    <option key={chore.id} value={chore.id}>
+                                        {chore.title}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                     </div>
-                )}
 
-                <div className="bg-muted/40 px-4 py-2 border-b text-xs font-medium text-muted-foreground flex">
-                    <div className="w-20 text-right pr-3">Date</div>
-                    <div>Task</div>
-                </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                            <label className="text-sm font-medium">Start Date</label>
+                            <Input
+                                type="date"
+                                value={startDate ? format(startDate, 'yyyy-MM-dd') : ''}
+                                onChange={(e) => {
+                                    if (e.target.value) {
+                                        setStartDate(startOfDay(parseISO(e.target.value)));
+                                        triggerSave();
+                                    }
+                                }}
+                            />
+                        </div>
 
-                <TaskDateContext.Provider value={taskDateMap}>
-                    <div style={isDraggingGlobal ? { caretColor: 'transparent' } : undefined}>
-                        <EditorContent editor={editor} />
+                        <div>
+                            <label className="text-sm font-medium">Target End Date (optional)</label>
+                            <Input
+                                type="date"
+                                value={targetEndDate ? format(targetEndDate, 'yyyy-MM-dd') : ''}
+                                onChange={(e) => {
+                                    if (e.target.value) {
+                                        setTargetEndDate(startOfDay(parseISO(e.target.value)));
+                                    } else {
+                                        setTargetEndDate(null);
+                                    }
+                                    triggerSave();
+                                }}
+                            />
+                        </div>
                     </div>
-                </TaskDateContext.Provider>
-                <TaskDetailsPopover editor={editor} taskDateMap={taskDateMap} />
+                </div>
             </div>
 
-            {onClose && (
+            <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 p-1 lg:hidden">
+                <button
+                    type="button"
+                    onClick={() => setMobilePane('bulk')}
+                    className={cn(
+                        'flex-1 rounded-full px-3 py-2 text-sm font-medium transition-colors',
+                        mobilePane === 'bulk' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                    )}
+                >
+                    Bulk editor
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setMobilePane('cards')}
+                    className={cn(
+                        'flex-1 rounded-full px-3 py-2 text-sm font-medium transition-colors',
+                        mobilePane === 'cards' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                    )}
+                >
+                    Task cards
+                </button>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
+                <section className={cn(mobilePane === 'cards' ? 'hidden lg:block' : 'block')}>
+                    <div className="mb-3 flex items-end justify-between gap-3">
+                        <div>
+                            <h2 className="text-lg font-semibold text-slate-900">Quick / bulk entry</h2>
+                            <p className="text-sm text-slate-500">Paste a long list, indent it, reorder it, and use slash commands when you want speed.</p>
+                        </div>
+                    </div>
+
+                    <div
+                        ref={editorRef}
+                        className="relative flex min-h-[500px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                        onDragOver={(e) => e.preventDefault()}
+                    >
+                        {dropState && dropState.isActive && (
+                            <div
+                                className="absolute pointer-events-none z-50 transition-all duration-75 ease-out"
+                                style={{
+                                    top: dropState.top,
+                                    left: dropState.left,
+                                    width: dropState.width,
+                                }}
+                            >
+                                <div className="relative w-full border-t-2 border-blue-500">
+                                    <div className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-blue-500" />
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="border-b border-slate-200 bg-slate-50/90 px-4 py-3 text-xs font-medium text-slate-500">
+                            <div className="flex">
+                                <div className="w-20 pr-3 text-right">Date</div>
+                                <div>Task</div>
+                            </div>
+                        </div>
+
+                        <TaskDateContext.Provider value={taskDateMap}>
+                            <div style={isDraggingGlobal ? { caretColor: 'transparent' } : undefined}>
+                                <EditorContent editor={editor} />
+                            </div>
+                        </TaskDateContext.Provider>
+                        <TaskDetailsPopover editor={editor} taskDateMap={taskDateMap} />
+                    </div>
+                </section>
+
+                <section className={cn(mobilePane === 'bulk' ? 'hidden lg:block' : 'block')}>
+                    <div className="mb-3 rounded-3xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900">Task cards</h2>
+                                <p className="text-sm text-slate-500">Everything here mirrors the bulk editor live. Creation-time metadata stays editable on the cards.</p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
+                                        {taskCount} task{taskCount === 1 ? '' : 's'}
+                                    </span>
+                                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                        {dayBreakCount} day break{dayBreakCount === 1 ? '' : 's'}
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Button type="button" variant="outline" onClick={appendTaskCard}>
+                                    Add task
+                                </Button>
+                                <Button type="button" variant="outline" onClick={appendDayBreakSection}>
+                                    Add day break
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        {cardItems.map((item) =>
+                            item.isDayBreak ? (
+                                <div key={item.id} className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                                            <div className="h-px flex-1 bg-amber-200" />
+                                            <span className="rounded-full border border-amber-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                                                Day break
+                                            </span>
+                                            <div className="h-px flex-1 bg-amber-200" />
+                                        </div>
+                                        {item.dateValue ? <span className="text-xs text-amber-700/80">{formatTaskMetaDate(item.dateValue)}</span> : null}
+                                        <button
+                                            type="button"
+                                            onClick={() => removeTaskCard(item.id)}
+                                            className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-700 transition-colors hover:border-amber-400"
+                                        >
+                                            Remove break
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <TaskSeriesCard
+                                    key={item.id}
+                                    db={db}
+                                    seriesId={seriesId}
+                                    item={item}
+                                    familyMemberNamesById={familyMemberNamesById}
+                                    historyOpen={historyTaskId === item.id}
+                                    onToggleHistory={(taskId) => setHistoryTaskId((current) => (current === taskId ? null : taskId))}
+                                    onDeleteTask={removeTaskCard}
+                                    onAddTaskBelow={insertTaskBelow}
+                                    onAddDayBreakBelow={insertDayBreakBelow}
+                                    onTitleChange={updateTaskTitle}
+                                />
+                            )
+                        )}
+                    </div>
+                </section>
+            </div>
+
+            {onClose ? (
                 <div className="flex justify-end gap-2">
                     <Button variant="outline" onClick={() => void handleClose()}>
                         Close
                     </Button>
                 </div>
-            )}
+            ) : null}
         </div>
     );
 };
