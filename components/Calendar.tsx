@@ -214,6 +214,15 @@ interface CalendarRangeWindow {
     end: Date;
 }
 
+interface ClientRectLike {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+}
+
 const WEEK_STARTS_ON = 0;
 const WEEKS_PER_LOAD = 8;
 const SUPPLEMENTAL_WINDOW_MONTHS = 4;
@@ -223,6 +232,28 @@ const EDGE_TRIGGER_PX = 220;
 const EDGE_LOAD_COOLDOWN_MS = 220;
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const intersectClientRects = (source: ClientRectLike, clip: ClientRectLike): ClientRectLike | null => {
+    const left = Math.max(source.left, clip.left);
+    const right = Math.min(source.right, clip.right);
+    const top = Math.max(source.top, clip.top);
+    const bottom = Math.min(source.bottom, clip.bottom);
+    const width = right - left;
+    const height = bottom - top;
+
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+
+    return {
+        left,
+        right,
+        top,
+        bottom,
+        width,
+        height,
+    };
+};
 
 const createRollingWindow = (anchorDate: Date, options?: { includePast?: boolean }) => ({
     start: startOfWeek(addMonths(anchorDate, options?.includePast === false ? 0 : -SUPPLEMENTAL_WINDOW_MONTHS), { weekStartsOn: WEEK_STARTS_ON }),
@@ -3910,7 +3941,32 @@ const Calendar = ({
 
             for (const column of timedColumns) {
                 const rect = column.getBoundingClientRect();
-                const overlapWidth = Math.min(dragRight, rect.right) - Math.max(dragLeft, rect.left);
+                let visibleRect: ClientRectLike = rect;
+                const horizontalViewport = column.closest<HTMLElement>('[data-calendar-day-horizontal-viewport="timed"]');
+                if (horizontalViewport) {
+                    const viewportRect = horizontalViewport.getBoundingClientRect();
+                    if (viewportRect.width > 0 && viewportRect.height > 0) {
+                        const clippedRect = intersectClientRects(visibleRect, viewportRect);
+                        if (!clippedRect) {
+                            continue;
+                        }
+                        visibleRect = clippedRect;
+                    }
+                }
+
+                const verticalViewport = column.closest<HTMLElement>('[data-calendar-day-vertical-viewport="timed"]');
+                if (verticalViewport) {
+                    const viewportRect = verticalViewport.getBoundingClientRect();
+                    if (viewportRect.width > 0 && viewportRect.height > 0) {
+                        const clippedRect = intersectClientRects(visibleRect, viewportRect);
+                        if (!clippedRect) {
+                            continue;
+                        }
+                        visibleRect = clippedRect;
+                    }
+                }
+
+                const overlapWidth = Math.min(dragRight, visibleRect.right) - Math.max(dragLeft, visibleRect.left);
                 if (overlapWidth <= requiredOverlapWidth) {
                     continue;
                 }
@@ -3919,7 +3975,7 @@ const Calendar = ({
                 if (!dayKey) continue;
 
                 const snapMinutes = Math.max(1, Number(column.dataset.calendarSnapMinutes || 15));
-                const overlapHeight = Math.max(0, Math.min(dragBottom, rect.bottom) - Math.max(dragTop, rect.top));
+                const overlapHeight = Math.max(0, Math.min(dragBottom, visibleRect.bottom) - Math.max(dragTop, visibleRect.top));
                 const overlapArea = overlapWidth * overlapHeight;
                 const rawMinute = ((dragTop - rect.top) / Math.max(1, rect.height)) * 24 * 60;
                 const minuteOfDay = clampNumber(Math.round(rawMinute / snapMinutes) * snapMinutes, 0, 24 * 60);

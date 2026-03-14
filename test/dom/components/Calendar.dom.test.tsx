@@ -1445,24 +1445,47 @@ describe('Calendar', () => {
 
         const day15Columns = await screen.findAllByTestId('day-view-timed-column-2026-03-15');
         const day18Columns = await screen.findAllByTestId('day-view-timed-column-2026-03-18');
+        const timedHorizontalViewports = Array.from(
+            document.querySelectorAll<HTMLElement>('[data-calendar-day-horizontal-viewport="timed"]')
+        );
+        const row0Scroller = await screen.findByTestId('day-view-vertical-scroller-0');
+        const row1Scroller = await screen.findByTestId('day-view-vertical-scroller-1');
         expect(day15Columns.length).toBeGreaterThan(1);
         expect(day18Columns.length).toBeGreaterThan(1);
+        expect(timedHorizontalViewports).toHaveLength(2);
 
-        Object.defineProperty(day15Columns[0], 'getBoundingClientRect', {
+        Object.defineProperty(timedHorizontalViewports[0], 'getBoundingClientRect', {
             configurable: true,
             value: () => ({ left: 0, right: 100, top: 100, bottom: 388, width: 100, height: 288 }),
         });
+        Object.defineProperty(timedHorizontalViewports[1], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 0, right: 100, top: 500, bottom: 788, width: 100, height: 288 }),
+        });
+        Object.defineProperty(row0Scroller, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 0, right: 100, top: 100, bottom: 388, width: 100, height: 288 }),
+        });
+        Object.defineProperty(row1Scroller, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 0, right: 100, top: 500, bottom: 788, width: 100, height: 288 }),
+        });
+
+        Object.defineProperty(day15Columns[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({ left: 0, right: 100, top: -152, bottom: 712, width: 100, height: 864 }),
+        });
         Object.defineProperty(day15Columns[1], 'getBoundingClientRect', {
             configurable: true,
-            value: () => ({ left: 300, right: 400, top: 500, bottom: 788, width: 100, height: 288 }),
+            value: () => ({ left: 300, right: 400, top: 248, bottom: 1112, width: 100, height: 864 }),
         });
         Object.defineProperty(day18Columns[0], 'getBoundingClientRect', {
             configurable: true,
-            value: () => ({ left: 300, right: 400, top: 100, bottom: 388, width: 100, height: 288 }),
+            value: () => ({ left: 300, right: 400, top: -152, bottom: 712, width: 100, height: 864 }),
         });
         Object.defineProperty(day18Columns[1], 'getBoundingClientRect', {
             configurable: true,
-            value: () => ({ left: 0, right: 100, top: 500, bottom: 788, width: 100, height: 288 }),
+            value: () => ({ left: 0, right: 100, top: 248, bottom: 1112, width: 100, height: 864 }),
         });
 
         const sourceElement = document.createElement('div');
@@ -1491,7 +1514,7 @@ describe('Calendar', () => {
                 source: { data: { type: 'calendar-event', event } },
                 location: {
                     current: {
-                        input: { clientX: 45, clientY: 640 },
+                        input: { clientX: 45, clientY: 628 },
                         dropTargets: [{ data: { type: 'calendar-time-slot', dateStr: '2026-03-18', minuteOfDay: 600 } }],
                     },
                 },
@@ -1499,14 +1522,14 @@ describe('Calendar', () => {
         });
 
         expect(screen.getAllByText('10-11 am').length).toBeGreaterThan(0);
-        expect(screen.queryByText('12-1 am')).toBeNull();
+        expect(screen.queryByText('9-10 pm')).toBeNull();
 
         act(() => {
             mocks.monitorConfig.onDrop({
                 source: { data: { type: 'calendar-event', event } },
                 location: {
                     current: {
-                        input: { altKey: false, shiftKey: false, clientX: 45, clientY: 640 },
+                        input: { altKey: false, shiftKey: false, clientX: 45, clientY: 628 },
                         dropTargets: [{ data: { type: 'calendar-time-slot', dateStr: '2026-03-18', minuteOfDay: 600 } }],
                     },
                 },

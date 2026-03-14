@@ -1304,6 +1304,8 @@ export default function DayCalendarView({
                                 ref={(node) => {
                                     bodyHorizontalViewportRefs.current[rowIndex] = node;
                                 }}
+                                data-calendar-day-horizontal-viewport="timed"
+                                data-calendar-day-row-index={rowIndex}
                                 className={styles.dayViewHorizontalViewport}
                                 onScroll={() => handleHorizontalScroll(rowIndex)}
                             >
@@ -1313,6 +1315,8 @@ export default function DayCalendarView({
                                             bodyVerticalScrollRefs.current[rowIndex] = node;
                                         }}
                                         data-testid={`day-view-vertical-scroller-${rowIndex}`}
+                                        data-calendar-day-vertical-viewport="timed"
+                                        data-calendar-day-row-index={rowIndex}
                                         className={styles.dayViewVerticalScroller}
                                         style={{ height: `${rowTimedViewportHeight}px` }}
                                         onScroll={(event) => {
