@@ -527,7 +527,9 @@ export async function sendThreadMessage(actor: any, input: SendMessageRequest) {
     const importance = (input.importance || 'normal') as MessageImportance;
     assertAllowedImportance(actor, importance);
 
-    const nowIso = new Date().toISOString();
+    const nowIso = input.clientTimestamp && !Number.isNaN(new Date(input.clientTimestamp).getTime())
+        ? new Date(input.clientTimestamp).toISOString()
+        : new Date().toISOString();
     const messageId = randomUUID();
     const transactions: any[] = [
         adminDb.tx.messages[messageId].update({

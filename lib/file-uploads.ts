@@ -35,16 +35,30 @@ async function uploadBlobToS3(blob: Blob, fileName: string, contentType: string)
     });
     formData.append('file', blob, fileName);
 
-    const uploadResponse = await fetch(url, {
-        method: 'POST',
-        body: formData,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    try {
+        const uploadResponse = await fetch(url, {
+            method: 'POST',
+            body: formData,
+            signal: controller.signal,
+        });
 
-    if (uploadResponse.status >= 400) {
-        throw new Error(`Upload failed for ${fileName}`);
+        if (uploadResponse.status >= 400) {
+            const errorText = await uploadResponse.text().catch(() => '');
+            console.error(`[file-uploads] S3 upload failed for ${fileName}:`, uploadResponse.status, errorText);
+            throw new Error(`Upload failed for ${fileName} (HTTP ${uploadResponse.status})`);
+        }
+
+        return key;
+    } catch (error: any) {
+        if (error?.name === 'AbortError') {
+            throw new Error(`Upload timed out for ${fileName}`);
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeoutId);
     }
-
-    return key;
 }
 
 async function readImageDimensions(file: File) {
@@ -221,35 +235,52 @@ async function extractLocalAttachmentMetadata(file: File): Promise<LocalAttachme
     return {};
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+    return Promise.race([
+        promise,
+        new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs)
+        ),
+    ]);
+}
+
 export async function uploadFilesToS3(files: File[], createId: () => string): Promise<UploadedFileAttachment[]> {
     const uploadedAttachments: UploadedFileAttachment[] = [];
 
     for (const file of files) {
+        console.info('[file-uploads] uploading file', { name: file.name, size: file.size, type: file.type });
         const contentType = file.type || 'application/octet-stream';
         const localMetadata: LocalAttachmentMetadata = await extractLocalAttachmentMetadata(file).catch((error) => {
-            console.error('Unable to extract local attachment metadata', error);
+            console.error('[file-uploads] Unable to extract local attachment metadata', error);
             return {};
         });
 
         const objectKey = await uploadBlobToS3(file, file.name, contentType);
+        console.info('[file-uploads] uploaded to S3', { name: file.name, objectKey });
         let thumbnailKey: string | null = null;
 
         if (localMetadata.thumbnailBlob && localMetadata.thumbnailFileName) {
             thumbnailKey = await uploadBlobToS3(localMetadata.thumbnailBlob, localMetadata.thumbnailFileName, 'image/jpeg');
+            console.info('[file-uploads] uploaded thumbnail', { name: localMetadata.thumbnailFileName, thumbnailKey });
         }
 
-        const finalized = await finalizeUploadedAttachmentAction({
-            objectKey,
-            fileName: file.name,
-            contentType,
-            width: localMetadata.width ?? null,
-            height: localMetadata.height ?? null,
-            durationSec: localMetadata.durationSec ?? null,
-            thumbnailUrl: thumbnailKey,
-            thumbnailWidth: localMetadata.thumbnailWidth ?? null,
-            thumbnailHeight: localMetadata.thumbnailHeight ?? null,
-            waveformPeaks: localMetadata.waveformPeaks ?? null,
-        });
+        const finalized = await withTimeout(
+            finalizeUploadedAttachmentAction({
+                objectKey,
+                fileName: file.name,
+                contentType,
+                width: localMetadata.width ?? null,
+                height: localMetadata.height ?? null,
+                durationSec: localMetadata.durationSec ?? null,
+                thumbnailUrl: thumbnailKey,
+                thumbnailWidth: localMetadata.thumbnailWidth ?? null,
+                thumbnailHeight: localMetadata.thumbnailHeight ?? null,
+                waveformPeaks: localMetadata.waveformPeaks ?? null,
+            }),
+            30_000,
+            `Finalize attachment "${file.name}"`
+        );
+        console.info('[file-uploads] finalized attachment', { name: file.name, url: finalized.url });
 
         uploadedAttachments.push({
             id: createId(),

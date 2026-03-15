@@ -43,6 +43,7 @@ type ThreadRecord = {
 type MessageRecord = {
     id: string;
     body?: string | null;
+    threadId?: string | null;
     deletedAt?: string | null;
     removedReason?: string | null;
     createdAt?: string | null;
@@ -158,6 +159,7 @@ export default function FamilyMessagesPage() {
     const searchParamString = searchParams.toString();
     const [showNotificationPrefs, setShowNotificationPrefs] = useState(false);
     const [optimisticThreadsById, setOptimisticThreadsById] = useState<Record<string, ThreadRecord>>({});
+    const [optimisticMessages, setOptimisticMessages] = useState<MessageRecord[]>([]);
 
     const membershipQuery = (db as any).useQuery(
         currentUser
@@ -299,13 +301,17 @@ export default function FamilyMessagesPage() {
     );
 
     const messages = useMemo(() => {
-        const rows = ((messagesQuery?.data?.messages as MessageRecord[]) || []).filter((message) => {
+        const serverMessages = ((messagesQuery?.data?.messages as MessageRecord[]) || []).filter((message) => {
             const query = messageSearch.trim().toLowerCase();
             if (!query) return true;
             return `${message.body || ''} ${getAuthorName(message, familyMemberNamesById)}`.toLowerCase().includes(query);
         });
-        return rows;
-    }, [familyMemberNamesById, messageSearch, messagesQuery?.data?.messages]);
+        const serverMessageIds = new Set(serverMessages.map((m) => m.id));
+        const pendingOptimistic = optimisticMessages.filter(
+            (m) => m.threadId === selectedThreadId && !serverMessageIds.has(m.id)
+        );
+        return [...serverMessages, ...pendingOptimistic];
+    }, [familyMemberNamesById, messageSearch, messagesQuery?.data?.messages, optimisticMessages, selectedThreadId]);
 
     const selectedThreadMembership = selectedThread?.membership || null;
     const canComposeInThread = Boolean(
@@ -432,17 +438,21 @@ export default function FamilyMessagesPage() {
         window.localStorage.setItem(draftKey, composerBody);
     }, [composerBody, selectedThreadId]);
 
+    const latestRealMessageId = useMemo(() => {
+        const realMessages = (messagesQuery?.data?.messages as MessageRecord[]) || [];
+        return realMessages.length > 0 ? realMessages[realMessages.length - 1]?.id : null;
+    }, [messagesQuery?.data?.messages]);
+
     useEffect(() => {
-        if (!selectedThreadId || messages.length === 0 || !selectedThreadMembership) return;
-        const latestMessage = messages[messages.length - 1];
-        if (!latestMessage?.id) return;
+        if (!selectedThreadId || !latestRealMessageId || !selectedThreadMembership) return;
         void markRead({
             threadId: selectedThreadId,
-            lastReadMessageId: latestMessage.id,
+            lastReadMessageId: latestRealMessageId,
         }).catch((error) => {
             console.error('Unable to mark thread as read', error);
         });
-    }, [messages, selectedThreadId, selectedThreadMembership]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- Only fire when the latest message or thread changes, not when membership updates from markRead
+    }, [latestRealMessageId, selectedThreadId]);
 
     const availableParticipants = useMemo(
         () => familyMembers.filter((member: any) => member.id !== currentUser?.id),
@@ -454,25 +464,65 @@ export default function FamilyMessagesPage() {
         if (!canComposeInThread) return;
         if (!composerBody.trim() && pendingFiles.length === 0) return;
 
+        const messageBody = composerBody;
+        const messageImportance = composerImportance;
+        const messageReplyToId = replyToMessageId;
+        const messageFiles = pendingFiles;
+        const clientTimestamp = new Date().toISOString();
+        const optimisticId = id();
+
+        // Optimistic update: show the message immediately
+        if (messageBody.trim()) {
+            const optimistic: MessageRecord = {
+                id: optimisticId,
+                threadId: selectedThreadId,
+                body: messageBody,
+                authorFamilyMemberId: currentUser.id,
+                createdAt: clientTimestamp,
+                updatedAt: clientTimestamp,
+                importance: messageImportance,
+                isSystem: false,
+                deletedAt: null,
+                editedAt: null,
+                editableUntil: null,
+                clientNonce: null,
+                metadata: null,
+                removedByFamilyMemberId: null,
+                removedReason: null,
+                replyToMessageId: messageReplyToId || null,
+                author: { id: currentUser.id, name: currentUser.name } as any,
+                attachments: [],
+                _optimistic: true,
+            } as any;
+            setOptimisticMessages((prev) => [...prev, optimistic]);
+        }
+
+        // Clear composer immediately
+        setComposerBody('');
+        setPendingFiles([]);
+        setReplyToMessageId(null);
+        setComposerImportance('normal');
+        typingIndicator?.setActive?.(false);
+        window.localStorage.removeItem(DraftKey(selectedThreadId));
+
         setIsSending(true);
         try {
-            const attachments = pendingFiles.length ? await uploadFilesToS3(pendingFiles, id) : [];
+            const attachments = messageFiles.length ? await uploadFilesToS3(messageFiles, id) : [];
             const result = await sendMessage({
                 threadId: selectedThreadId,
-                body: composerBody,
+                body: messageBody,
                 attachments,
-                replyToMessageId,
-                importance: composerImportance,
+                replyToMessageId: messageReplyToId,
+                importance: messageImportance,
                 clientNonce: `${currentUser.id}:${Date.now()}`,
+                clientTimestamp,
             });
             console.info('[messages] sendMessage result', result);
-            setComposerBody('');
-            setPendingFiles([]);
-            setReplyToMessageId(null);
-            setComposerImportance('normal');
-            typingIndicator?.setActive?.(false);
-            window.localStorage.removeItem(DraftKey(selectedThreadId));
+            // Remove the optimistic message (server message will arrive via live query)
+            setOptimisticMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         } catch (error: any) {
+            // Remove optimistic message on failure
+            setOptimisticMessages((prev) => prev.filter((m) => m.id !== optimisticId));
             toast({
                 title: 'Message failed',
                 description: error?.message || 'Please try again.',
@@ -959,13 +1009,14 @@ export default function FamilyMessagesPage() {
 
                                     {messages.map((message) => {
                                         const isOwnMessage = currentUser?.id && message.authorFamilyMemberId === currentUser.id;
+                                        const isOptimistic = (message as any)._optimistic === true;
                                         const editableUntil = message.editableUntil ? new Date(message.editableUntil).getTime() : 0;
-                                        const canEdit = isOwnMessage && Date.now() < editableUntil && !message.deletedAt;
-                                        const canDelete = (isOwnMessage && Date.now() < editableUntil) || currentUser?.role === 'parent';
+                                        const canEdit = !isOptimistic && isOwnMessage && Date.now() < editableUntil && !message.deletedAt;
+                                        const canDelete = !isOptimistic && ((isOwnMessage && Date.now() < editableUntil) || currentUser?.role === 'parent');
                                         const isEditing = editingMessageId === message.id;
                                         const replyTo = getReplyToMessage(message.replyTo);
                                         return (
-                                            <div key={message.id} className={cn('flex', isOwnMessage ? 'justify-end' : 'justify-start')}>
+                                            <div key={message.id} className={cn('flex', isOwnMessage ? 'justify-end' : 'justify-start', isOptimistic && 'opacity-60')}>
                                                 <div
                                                     className={cn(
                                                         'max-w-[78%] rounded-[28px] border px-4 py-3 shadow-sm',

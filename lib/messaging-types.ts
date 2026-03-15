@@ -44,6 +44,7 @@ export type SendMessageRequest = {
     replyToMessageId?: string | null;
     importance?: MessageImportance;
     clientNonce?: string | null;
+    clientTimestamp?: string | null;
 };
 
 export type EditMessageRequest = {
