@@ -12,7 +12,8 @@ import { AttachmentCollection } from '@/components/attachments/AttachmentCollect
 import { useAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/db';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
-import { acknowledge, bootstrapMessages, createThread, editMessage, joinThreadWatch, leaveThreadWatch, markRead, removeMessage, sendMessage, toggleReaction, updateThreadPreferences } from '@/lib/message-client';
+import { acknowledge, bootstrapMessages, createThread, editMessage, getMessageServerTime, joinThreadWatch, leaveThreadWatch, markRead, removeMessage, sendMessage, toggleReaction, updateThreadPreferences } from '@/lib/message-client';
+import { createMessageServerTimeAnchor, getMessageServerNowMs, getMonotonicNowMs, type MessageServerTimeAnchor } from '@/lib/message-server-time';
 import { cn } from '@/lib/utils';
 import type { MessageNotificationLevel } from '@/lib/messaging-types';
 
@@ -160,6 +161,8 @@ export default function FamilyMessagesPage() {
     const [showNotificationPrefs, setShowNotificationPrefs] = useState(false);
     const [optimisticThreadsById, setOptimisticThreadsById] = useState<Record<string, ThreadRecord>>({});
     const [optimisticMessages, setOptimisticMessages] = useState<MessageRecord[]>([]);
+    const [relativeNowMs, setRelativeNowMs] = useState(() => getMonotonicNowMs());
+    const [serverNowAnchor, setServerNowAnchor] = useState<MessageServerTimeAnchor | null>(null);
 
     const membershipQuery = (db as any).useQuery(
         currentUser
@@ -364,12 +367,57 @@ export default function FamilyMessagesPage() {
         [messages, replyToMessageId]
     );
     const activeMessagesError = selectedThreadId ? messagesQuery?.error : null;
+    const referenceNowMs = useMemo(
+        () => getMessageServerNowMs(serverNowAnchor, relativeNowMs),
+        [relativeNowMs, serverNowAnchor]
+    );
 
     useEffect(() => {
         void bootstrapMessages().catch((error) => {
             console.error('Unable to bootstrap messages', error);
         });
     }, []);
+
+    useEffect(() => {
+        const intervalId = window.setInterval(() => {
+            setRelativeNowMs(getMonotonicNowMs());
+        }, 15_000);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!currentUser?.id) {
+            setServerNowAnchor(null);
+            return;
+        }
+
+        let cancelled = false;
+
+        const syncServerNow = async () => {
+            try {
+                const response = await getMessageServerTime();
+                const nextAnchor = createMessageServerTimeAnchor(response?.serverNow);
+                if (!cancelled && nextAnchor) {
+                    setServerNowAnchor(nextAnchor);
+                }
+            } catch (error) {
+                console.error('Unable to sync message server time', error);
+            }
+        };
+
+        void syncServerNow();
+        const intervalId = window.setInterval(() => {
+            void syncServerNow();
+        }, 5 * 60 * 1000);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, [currentUser?.id]);
 
     useEffect(() => {
         if (membershipQuery?.error) {
@@ -845,27 +893,27 @@ export default function FamilyMessagesPage() {
                                     type="button"
                                     onClick={() => setSelectedThreadId(thread.id)}
                                     className={cn(
-                                        'w-full rounded-[24px] border px-4 py-3 text-left transition-all',
+                                        'w-full overflow-hidden rounded-[24px] border px-4 py-3 text-left transition-all',
                                         selectedThreadId === thread.id
                                             ? 'border-sky-300 bg-sky-50 shadow-sm'
                                             : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50'
                                     )}
                                 >
                                     <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0">
+                                        <div className="min-w-0 flex-1">
                                             <div className="truncate text-sm font-semibold text-slate-900">{thread.title || 'Untitled thread'}</div>
-                                            <div className="mt-1 truncate text-xs text-slate-500">
+                                            <div className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">
                                                 {threadSubtitle(thread, familyMemberNamesById, currentUser?.id || '')}
                                             </div>
                                         </div>
-                                        <div className="flex shrink-0 items-center gap-1">
+                                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1 self-start pl-2">
                                             {thread.membership?.isPinned ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Pinned</span> : null}
                                             {isThreadUnread(thread) ? <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white">Unread</span> : null}
                                         </div>
                                     </div>
-                                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                                        <span>{thread.threadType === 'parents_only' ? 'Parents only' : thread.threadType}</span>
-                                        <span>{formatMessageTime(thread.latestMessageAt)}</span>
+                                    <div className="mt-3 flex min-w-0 items-center gap-2 text-[11px] text-slate-400">
+                                        <span className="min-w-0 truncate">{thread.threadType === 'parents_only' ? 'Parents only' : thread.threadType}</span>
+                                        <span className="ml-auto shrink-0">{formatMessageTime(thread.latestMessageAt)}</span>
                                     </div>
                                 </button>
                             ))}
@@ -1011,8 +1059,8 @@ export default function FamilyMessagesPage() {
                                         const isOwnMessage = currentUser?.id && message.authorFamilyMemberId === currentUser.id;
                                         const isOptimistic = (message as any)._optimistic === true;
                                         const editableUntil = message.editableUntil ? new Date(message.editableUntil).getTime() : 0;
-                                        const canEdit = !isOptimistic && isOwnMessage && Date.now() < editableUntil && !message.deletedAt;
-                                        const canDelete = !isOptimistic && ((isOwnMessage && Date.now() < editableUntil) || currentUser?.role === 'parent');
+                                        const canEdit = !isOptimistic && isOwnMessage && referenceNowMs < editableUntil && !message.deletedAt;
+                                        const canDelete = !isOptimistic && ((isOwnMessage && referenceNowMs < editableUntil) || currentUser?.role === 'parent');
                                         const isEditing = editingMessageId === message.id;
                                         const replyTo = getReplyToMessage(message.replyTo);
                                         return (

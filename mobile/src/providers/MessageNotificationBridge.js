@@ -9,6 +9,8 @@ import {
   normalizeDigestWindowMinutes,
   shouldQueueDigest,
 } from '../../../lib/message-notification-preferences';
+import { createMessageServerTimeAnchor, getMessageServerNowMs, getMonotonicNowMs } from '../../../lib/message-server-time';
+import { getMobileMessageServerTime } from '../lib/api-client';
 
 function queueKey(memberId) {
   return `familyOrganizer.messageDigestQueue.${memberId}`;
@@ -57,6 +59,7 @@ async function showLocalNotification(title, body) {
 export function MessageNotificationBridge() {
   const { currentUser, isAuthenticated } = useFamilyAuth();
   const seenThreadActivityRef = useRef({});
+  const [serverNowAnchor, setServerNowAnchor] = React.useState(null);
 
   const membershipQuery = db.useQuery(
     isAuthenticated && currentUser
@@ -75,22 +78,53 @@ export function MessageNotificationBridge() {
   }, [membershipQuery.data?.messageThreadMembers]);
 
   useEffect(() => {
+    if (!currentUser?.id) {
+      setServerNowAnchor(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function syncServerNow() {
+      try {
+        const response = await getMobileMessageServerTime();
+        const nextAnchor = createMessageServerTimeAnchor(response?.serverNow);
+        if (!cancelled && nextAnchor) {
+          setServerNowAnchor(nextAnchor);
+        }
+      } catch (error) {
+        console.error('Unable to sync mobile message server time', error);
+      }
+    }
+
+    void syncServerNow();
+    const intervalId = setInterval(() => {
+      void syncServerNow();
+    }, 5 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [currentUser?.id]);
+
+  useEffect(() => {
     if (!currentUser?.id) return;
     const intervalId = setInterval(() => {
       void (async () => {
         const queue = await readQueue(currentUser.id);
         if (!queue.length) return;
-        const now = Date.now();
-        const due = queue.filter((item) => new Date(item.dueAt).getTime() <= now);
+        const nowMs = getMessageServerNowMs(serverNowAnchor, getMonotonicNowMs());
+        const due = queue.filter((item) => new Date(item.dueAt).getTime() <= nowMs);
         if (!due.length) return;
-        const remaining = queue.filter((item) => new Date(item.dueAt).getTime() > now);
+        const remaining = queue.filter((item) => new Date(item.dueAt).getTime() > nowMs);
         await writeQueue(currentUser.id, remaining);
         await showLocalNotification('Family message digest', summarizeDigest(due));
       })();
     }, 30_000);
 
     return () => clearInterval(intervalId);
-  }, [currentUser?.id]);
+  }, [currentUser?.id, serverNowAnchor]);
 
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -111,7 +145,7 @@ export function MessageNotificationBridge() {
 
       const title = thread.title || 'Family message';
       const body = thread.latestMessagePreview || 'New message';
-      const now = new Date();
+      const now = new Date(getMessageServerNowMs(serverNowAnchor, getMonotonicNowMs()));
 
       if (shouldQueueDigest(currentUser, now) || digestMode === 'digest') {
         void (async () => {
@@ -146,6 +180,7 @@ export function MessageNotificationBridge() {
     currentUser?.messageQuietHoursEnabled,
     currentUser?.messageQuietHoursEnd,
     currentUser?.messageQuietHoursStart,
+    serverNowAnchor,
     threads,
   ]);
 

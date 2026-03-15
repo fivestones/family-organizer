@@ -23,6 +23,7 @@ import {
   bootstrapMobileMessages,
   createMobileMessageThread,
   editMobileMessage,
+  getMobileMessageServerTime,
   joinMobileThreadWatch,
   leaveMobileThreadWatch,
   markMobileThreadRead,
@@ -31,6 +32,7 @@ import {
   toggleMobileReaction,
   updateMobileThreadPreferences,
 } from '../../src/lib/api-client';
+import { createMessageServerTimeAnchor, getMessageServerNowMs, getMonotonicNowMs } from '../../../lib/message-server-time';
 import {
   captureCameraImage,
   captureCameraVideo,
@@ -88,6 +90,8 @@ export default function MessagesTab() {
   const [newThreadTitle, setNewThreadTitle] = useState('');
   const [attachmentPreview, setAttachmentPreview] = useState(null);
   const [optimisticThreadsById, setOptimisticThreadsById] = useState({});
+  const [relativeNowMs, setRelativeNowMs] = useState(() => getMonotonicNowMs());
+  const [serverNowAnchor, setServerNowAnchor] = useState(null);
 
   const membershipsQuery = db.useQuery(
     isAuthenticated && instantReady
@@ -266,6 +270,7 @@ export default function MessagesTab() {
     () => Object.values(threadPresence.peers || {}).filter((peer) => peer?.familyMemberId && peer.familyMemberId !== currentUser?.id),
     [currentUser?.id, threadPresence.peers]
   );
+  const referenceNowMs = useMemo(() => getMessageServerNowMs(serverNowAnchor, relativeNowMs), [relativeNowMs, serverNowAnchor]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -273,6 +278,45 @@ export default function MessagesTab() {
       console.error('Unable to bootstrap mobile messages', error);
     });
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setRelativeNowMs(getMonotonicNowMs());
+    }, 15_000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      setServerNowAnchor(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function syncServerNow() {
+      try {
+        const response = await getMobileMessageServerTime();
+        const nextAnchor = createMessageServerTimeAnchor(response?.serverNow);
+        if (!cancelled && nextAnchor) {
+          setServerNowAnchor(nextAnchor);
+        }
+      } catch (error) {
+        console.error('Unable to sync mobile message server time', error);
+      }
+    }
+
+    void syncServerNow();
+    const intervalId = setInterval(() => {
+      void syncServerNow();
+    }, 5 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (!selectedThreadId && threads.length > 0) {
@@ -576,8 +620,9 @@ export default function MessagesTab() {
           <ScrollView style={styles.messagesPane} contentContainerStyle={styles.messagesContent}>
             {messages.map((message) => {
               const isOwnMessage = currentUser?.id === message.authorFamilyMemberId;
-              const canEdit = isOwnMessage && message.editableUntil && Date.now() < new Date(message.editableUntil).getTime() && !message.deletedAt;
-              const canDelete = (isOwnMessage && message.editableUntil && Date.now() < new Date(message.editableUntil).getTime()) || currentUser?.role === 'parent';
+              const editableUntilMs = message.editableUntil ? new Date(message.editableUntil).getTime() : 0;
+              const canEdit = isOwnMessage && editableUntilMs > referenceNowMs && !message.deletedAt;
+              const canDelete = (isOwnMessage && editableUntilMs > referenceNowMs) || currentUser?.role === 'parent';
               const isEditing = editingMessageId === message.id;
               const replyTo = getReplyTo(message.replyTo);
               return (

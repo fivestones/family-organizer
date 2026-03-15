@@ -33,6 +33,17 @@ async function parseJson(response) {
   return data;
 }
 
+export async function getMobileMessageServerTime() {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/server-time`, {
+    method: 'GET',
+    headers: {
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+  });
+  return parseJson(response);
+}
+
 export async function mobileDeviceActivate({ accessKey, platform = 'ios', deviceName, appVersion }) {
   const response = await fetch(`${getApiBaseUrl()}/api/mobile/device-activate`, {
     method: 'POST',

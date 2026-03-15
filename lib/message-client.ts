@@ -52,6 +52,18 @@ async function postJson(path: string, body: unknown) {
     return parseJson(response);
 }
 
+export async function getMessageServerTime() {
+    const response = await fetch('/api/messages/server-time', {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: {
+            ...messageAuthHeaders(),
+        },
+    });
+    return parseJson(response);
+}
+
 export function bootstrapMessages() {
     return postJson('/api/messages/bootstrap', {});
 }

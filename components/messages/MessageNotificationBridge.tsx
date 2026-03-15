@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/db';
 import {
@@ -10,6 +10,8 @@ import {
     shouldQueueDigest,
     type MessageNotificationPreferences,
 } from '@/lib/message-notification-preferences';
+import { getMessageServerTime } from '@/lib/message-client';
+import { createMessageServerTimeAnchor, getMessageServerNowMs, getMonotonicNowMs, type MessageServerTimeAnchor } from '@/lib/message-server-time';
 
 type DigestItem = {
     threadId: string;
@@ -65,6 +67,7 @@ function showBrowserNotification(title: string, body: string, tag: string) {
 export function MessageNotificationBridge() {
     const { currentUser } = useAuth();
     const seenThreadActivityRef = useRef<Record<string, string>>({});
+    const [serverNowAnchor, setServerNowAnchor] = useState<MessageServerTimeAnchor | null>(null);
 
     const membershipQuery = (db as any).useQuery(
         currentUser
@@ -92,14 +95,45 @@ export function MessageNotificationBridge() {
     const prefs = currentUser || ({} as MessageNotificationPreferences & { id?: string | null });
 
     useEffect(() => {
+        if (!currentUser?.id) {
+            setServerNowAnchor(null);
+            return;
+        }
+
+        let cancelled = false;
+
+        const syncServerNow = async () => {
+            try {
+                const response = await getMessageServerTime();
+                const nextAnchor = createMessageServerTimeAnchor(response?.serverNow);
+                if (!cancelled && nextAnchor) {
+                    setServerNowAnchor(nextAnchor);
+                }
+            } catch (error) {
+                console.error('Unable to sync message server time for notifications', error);
+            }
+        };
+
+        void syncServerNow();
+        const intervalId = window.setInterval(() => {
+            void syncServerNow();
+        }, 5 * 60 * 1000);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, [currentUser?.id]);
+
+    useEffect(() => {
         if (!currentUser?.id) return;
         const intervalId = window.setInterval(() => {
             const queue = readQueue(currentUser.id);
             if (!queue.length) return;
-            const now = Date.now();
-            const due = queue.filter((item) => new Date(item.dueAt).getTime() <= now);
+            const nowMs = getMessageServerNowMs(serverNowAnchor, getMonotonicNowMs());
+            const due = queue.filter((item) => new Date(item.dueAt).getTime() <= nowMs);
             if (!due.length) return;
-            const remaining = queue.filter((item) => new Date(item.dueAt).getTime() > now);
+            const remaining = queue.filter((item) => new Date(item.dueAt).getTime() > nowMs);
             writeQueue(currentUser.id, remaining);
             showBrowserNotification('Family message digest', summarizeDigest(due), `digest:${currentUser.id}`);
         }, 30_000);
@@ -107,7 +141,7 @@ export function MessageNotificationBridge() {
         return () => {
             window.clearInterval(intervalId);
         };
-    }, [currentUser?.id]);
+    }, [currentUser?.id, serverNowAnchor]);
 
     useEffect(() => {
         if (!currentUser?.id) return;
@@ -128,7 +162,7 @@ export function MessageNotificationBridge() {
 
             const body = thread.latestMessagePreview || 'New message';
             const title = thread.title || 'Family message';
-            const now = new Date();
+            const now = new Date(getMessageServerNowMs(serverNowAnchor, getMonotonicNowMs()));
 
             if (shouldQueueDigest(prefs, now) || digestMode === 'digest') {
                 const queue = readQueue(currentUser.id);
@@ -160,6 +194,7 @@ export function MessageNotificationBridge() {
         prefs.messageQuietHoursEnabled,
         prefs.messageQuietHoursEnd,
         prefs.messageQuietHoursStart,
+        serverNowAnchor,
         threads,
     ]);
 
