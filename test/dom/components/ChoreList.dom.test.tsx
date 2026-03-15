@@ -54,7 +54,6 @@ vi.mock('@/components/ui/dialog', async () => {
 });
 
 vi.mock('lucide-react', () => ({
-    Edit: () => <span>Edit</span>,
     Trash2: () => <span>Trash2</span>,
 }));
 
@@ -212,14 +211,17 @@ describe('ChoreList', () => {
         expect(screen.getAllByText('Visible description').length).toBeGreaterThan(0);
     });
 
-    it('blocks edit/delete actions for non-parent users and shows access denied toasts', async () => {
+    it('opens the detail modal from the chore title and blocks edit/delete actions for non-parent users', async () => {
         const user = userEvent.setup();
         const { props } = renderChoreList({
             canEditChores: false,
             currentUser: { id: 'kid-a', role: 'child' },
         });
 
-        await user.click(screen.getAllByRole('button', { name: /edit/i })[0]);
+        await user.click(screen.getAllByRole('button', { name: /test chore/i })[0]);
+        expect(screen.getByRole('heading', { name: /test chore/i })).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /edit chore/i }));
         await user.click(screen.getAllByRole('button', { name: /trash2/i })[0]);
 
         expect(choreListMocks.toast).toHaveBeenCalledTimes(2);
@@ -244,14 +246,19 @@ describe('ChoreList', () => {
         expect(screen.queryByRole('heading', { name: /edit chore/i })).not.toBeInTheDocument();
     });
 
-    it('opens edit and delete confirmation dialogs for parents and confirms deletion', async () => {
+    it('opens detail metadata, then edit and delete flows for parents', async () => {
         const user = userEvent.setup();
         const { props } = renderChoreList({
             chores: [makeChore({ id: 'chore-parent', title: 'Parent Editable Chore' })],
             canEditChores: true,
         });
 
-        await user.click(screen.getAllByRole('button', { name: /edit/i })[0]);
+        await user.click(screen.getAllByRole('button', { name: /parent editable chore/i })[0]);
+        expect(screen.getByRole('heading', { name: /parent editable chore/i })).toBeInTheDocument();
+        expect(screen.getByText(/selected date/i)).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: /schedule/i })).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /edit chore/i }));
         expect(screen.getByRole('heading', { name: /edit chore/i })).toBeInTheDocument();
         expect(screen.getByTestId('detailed-chore-form')).toHaveTextContent('Editing Parent Editable Chore');
 

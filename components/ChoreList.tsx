@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Edit, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { getAssignedMembersForChoreOnDate, toUTCDate } from '@/lib/chore-utils';
 import { choreOccursOnDate } from '@/lib/chore-schedule';
 import { format } from 'date-fns';
@@ -19,6 +19,7 @@ import { buildTaskProgressUpdateTransactions } from '@/lib/task-progress-mutatio
 import { getTaskBucketCounts, getTaskLastActiveState, isActionableTask, isTaskDone } from '@/lib/task-progress';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import ChoreDetailDialog from './ChoreDetailDialog';
 
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({
@@ -43,6 +44,7 @@ function ChoreList({
     focusedChoreId = null,
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
+    const [detailChoreId, setDetailChoreId] = useState<string | null>(null);
     const [expandedTaskSeriesByMember, setExpandedTaskSeriesByMember] = useState<Record<string, Record<string, boolean>>>({});
     const [expandedTaskSeriesInAllView, setExpandedTaskSeriesInAllView] = useState<Record<string, boolean>>({});
 
@@ -91,6 +93,11 @@ function ChoreList({
 
         return () => window.cancelAnimationFrame(frame);
     }, [focusedChoreId, chores.length]);
+
+    const detailChore = React.useMemo(() => {
+        if (!detailChoreId) return null;
+        return chores.find((chore) => chore.id === detailChoreId) || null;
+    }, [chores, detailChoreId]);
 
     useEffect(() => {
         if (selectedMember === 'All') {
@@ -166,6 +173,16 @@ function ChoreList({
             return;
         }
         setEditingChore(chore);
+    };
+
+    const handleOpenChoreDetails = (choreId: string) => {
+        setDetailChoreId(choreId);
+    };
+
+    const handleEditFromDetails = () => {
+        if (!detailChore) return;
+        setDetailChoreId(null);
+        handleEditChore(detailChore);
     };
 
     // +++ NEW HELPER +++
@@ -551,13 +568,15 @@ function ChoreList({
                     const renderDetails = () => (
                         <div className="flex-grow flex flex-col min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                                <span
-                                    className={`truncate font-medium ${
+                                <button
+                                    type="button"
+                                    onClick={() => handleOpenChoreDetails(chore.id)}
+                                    className={`truncate text-left font-medium transition-colors hover:text-sky-700 hover:underline ${
                                         upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''
                                     }`}
                                 >
                                     {chore.title}
-                                </span>
+                                </button>
                                 {/* +++ ADDED: "with..." Text +++ */}
                                 {withOthersText && <span className="text-xs text-muted-foreground whitespace-nowrap">{withOthersText}</span>}
 
@@ -632,9 +651,6 @@ function ChoreList({
                     // --- COMPONENT EXTRACTION: Render Buttons ---
                     const renderButtons = () => (
                         <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => handleEditChore(chore)} className={!canEditChores ? 'opacity-50' : ''}>
-                                <Edit className="h-4 w-4" />
-                            </Button>
                             <Button variant="ghost" size="icon" onClick={() => handleDeleteChore(chore.id)} className={!canEditChores ? 'opacity-50' : ''}>
                                 <Trash2 className="h-4 w-4" />
                             </Button>
@@ -899,6 +915,17 @@ function ChoreList({
                     )}
                 </DialogContent>
             </Dialog>
+            <ChoreDetailDialog
+                chore={detailChore}
+                familyMembers={familyMembers}
+                open={detailChore !== null}
+                onOpenChange={(open) => {
+                    if (!open) setDetailChoreId(null);
+                }}
+                onEdit={handleEditFromDetails}
+                selectedDate={safeSelectedDate}
+                selectedMember={selectedMember}
+            />
             <Dialog open={pendingCompletion !== null} onOpenChange={(open) => !open && setPendingCompletion(null)}>
                 <DialogContent>
                     <DialogHeader>
