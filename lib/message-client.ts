@@ -9,6 +9,9 @@ import type {
     ThreadPreferencesRequest,
     ToggleReactionRequest,
 } from '@/lib/messaging-types';
+import { getCachedMemberToken } from '@/lib/instant-principal-storage';
+
+const INSTANT_AUTH_TOKEN_HEADER = 'x-instant-auth-token';
 
 async function parseJson(response: Response) {
     const payload = await response.json().catch(() => ({}));
@@ -18,6 +21,15 @@ async function parseJson(response: Response) {
     return payload;
 }
 
+function messageAuthHeaders() {
+    const token = getCachedMemberToken();
+    return token
+        ? {
+              [INSTANT_AUTH_TOKEN_HEADER]: token,
+          }
+        : {};
+}
+
 async function postJson(path: string, body: unknown) {
     const response = await fetch(path, {
         method: 'POST',
@@ -25,6 +37,7 @@ async function postJson(path: string, body: unknown) {
         credentials: 'same-origin',
         headers: {
             'Content-Type': 'application/json',
+            ...messageAuthHeaders(),
         },
         body: JSON.stringify(body),
     });
@@ -82,6 +95,9 @@ export async function leaveThreadWatch(threadId: string) {
         method: 'DELETE',
         cache: 'no-store',
         credentials: 'same-origin',
+        headers: {
+            ...messageAuthHeaders(),
+        },
     });
     return parseJson(response);
 }

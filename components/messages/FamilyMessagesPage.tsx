@@ -491,6 +491,24 @@ export default function FamilyMessagesPage() {
         }
     };
 
+    const openCanonicalThread = async (threadType: 'family' | 'parents_only') => {
+        try {
+            const result = await createThread({
+                threadType,
+            });
+            const threadId = result?.thread?.id;
+            if (threadId) {
+                setSelectedThreadId(threadId);
+            }
+        } catch (error: any) {
+            toast({
+                title: `Unable to open ${threadType === 'family' ? 'family' : 'parents'} thread`,
+                description: error?.message || 'Please try again.',
+                variant: 'destructive',
+            });
+        }
+    };
+
     const activeMessagesLoading = selectedThreadId ? messagesQuery.isLoading : false;
 
     return (
@@ -557,11 +575,11 @@ export default function FamilyMessagesPage() {
                             />
                         </div>
                         <div className="mt-4 flex flex-wrap gap-2">
-                            <Button type="button" variant="outline" size="sm" onClick={() => setSelectedThreadId('00000000-0000-4000-8000-000000000001')}>
+                            <Button type="button" variant="outline" size="sm" onClick={() => void openCanonicalThread('family')}>
                                 Family
                             </Button>
                             {currentUser?.role === 'parent' ? (
-                                <Button type="button" variant="outline" size="sm" onClick={() => setSelectedThreadId('00000000-0000-4000-8000-000000000002')}>
+                                <Button type="button" variant="outline" size="sm" onClick={() => void openCanonicalThread('parents_only')}>
                                     Parents
                                 </Button>
                             ) : null}
