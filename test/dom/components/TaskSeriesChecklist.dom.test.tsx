@@ -66,6 +66,8 @@ vi.mock('@/components/ui/fireworks', () => ({
 vi.mock('lucide-react', () => ({
     File: () => <span>FileIcon</span>,
     Loader2: () => <span>Loader2</span>,
+    RotateCcw: () => <span>RotateCcw</span>,
+    Upload: () => <span>Upload</span>,
     X: () => <span>X</span>,
     Maximize2: () => <span>Maximize2</span>,
     Minimize2: () => <span>Minimize2</span>,
@@ -197,7 +199,35 @@ describe('TaskSeriesChecklist', () => {
         expect(screen.queryByText(/view details/i)).not.toBeInTheDocument();
     });
 
-    it('blocks update actions before opening the composer when task progress auth is unavailable', async () => {
+    it('opens the shared task detail modal when clicking a task title', async () => {
+        const user = userEvent.setup();
+        const activeTask = task({
+            id: 'task-detail',
+            text: 'Practice piano',
+            order: 1,
+            notes: 'Warm up with scales first',
+        });
+
+        render(
+            <TaskSeriesChecklist
+                tasks={[activeTask] as any}
+                allTasks={[activeTask] as any}
+                onToggle={vi.fn()}
+                onTaskUpdate={vi.fn()}
+                isReadOnly={false}
+                selectedMember="kid-a"
+                showDetails={false}
+            />
+        );
+
+        await user.click(screen.getByRole('button', { name: /practice piano/i }));
+
+        expect(screen.getByRole('heading', { name: /practice piano/i })).toBeInTheDocument();
+        expect(screen.getByText(/warm up with scales first/i)).toBeInTheDocument();
+        expect(screen.getByText(/update this task/i)).toBeInTheDocument();
+    });
+
+    it('opens the shared task detail modal from update and lets auth-gated users request login inside it', async () => {
         const user = userEvent.setup();
         const onRequireTaskAuth = vi.fn();
         const onToggle = vi.fn();
@@ -223,8 +253,13 @@ describe('TaskSeriesChecklist', () => {
 
         await user.click(screen.getByRole('button', { name: /update/i }));
 
+        expect(onRequireTaskAuth).not.toHaveBeenCalled();
+        expect(screen.getByText(/task details/i)).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: /practice piano/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /log in to update/i })).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /log in to update/i }));
         expect(onRequireTaskAuth).toHaveBeenCalledTimes(1);
-        expect(screen.queryByRole('dialog', { name: /task progress update/i })).not.toBeInTheDocument();
     });
 
     it('opens a text attachment preview modal and loads full text content', async () => {

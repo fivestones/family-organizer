@@ -807,18 +807,29 @@ function ChoreList({
                                                 allTasks={allTasks}
                                                 onToggle={(taskId, status) => handleTaskToggle(taskId, status, allTasks, chore, { id: series.id, ownerId })}
                                                 onTaskUpdate={(taskId, input) => handleTaskUpdate(taskId, input, allTasks, chore, { id: series.id, ownerId })}
-                                            canWriteTaskProgress={!!currentUser}
-                                            onRequireTaskAuth={() =>
-                                                toast({
-                                                    title: 'Login Required',
-                                                    description: 'Please log in before starting or updating task progress.',
-                                                    variant: 'destructive',
-                                                })
-                                            }
-                                            familyMemberNamesById={familyMemberNamesById}
-                                            isReadOnly={isPastDate}
-                                            selectedMember={selectedMember}
-                                            showDetails={showDetails}
+                                                canWriteTaskProgress={!!currentUser}
+                                                onRequireTaskAuth={() =>
+                                                    toast({
+                                                        title: 'Login Required',
+                                                        description: 'Please log in before starting or updating task progress.',
+                                                        variant: 'destructive',
+                                                    })
+                                                }
+                                                familyMemberNamesById={familyMemberNamesById}
+                                                isReadOnly={isPastDate}
+                                                selectedMember={selectedMember}
+                                                showDetails={showDetails}
+                                                detailContext={{
+                                                    choreTitle: chore.title,
+                                                    seriesName: series.name,
+                                                    ownerName,
+                                                    selectedDateLabel: safeSelectedDate.toLocaleDateString(undefined, {
+                                                        weekday: 'short',
+                                                        month: 'short',
+                                                        day: 'numeric',
+                                                        year: 'numeric',
+                                                    }),
+                                                }}
                                                 isParentReviewer={canEditChores}
                                             />
 

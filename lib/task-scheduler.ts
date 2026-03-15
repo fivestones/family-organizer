@@ -26,6 +26,8 @@ export interface Task {
     attachments?: Array<{ id: string; name?: string; type?: string; url: string }>;
     parentTask?: { id: string }[];
     subTasks?: { id: string }[];
+    specificTime?: string | null;
+    overrideWorkAhead?: boolean | null;
     workflowState?: TaskWorkflowState;
     lastActiveState?: string;
     deferredUntilDate?: string;
