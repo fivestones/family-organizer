@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { id, tx } from '@instantdb/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, MessageSquarePlus, Search, Shield, Users } from 'lucide-react';
@@ -154,6 +154,7 @@ export default function FamilyMessagesPage() {
     const [isCreatingThread, setIsCreatingThread] = useState(false);
     const [browserNotificationPermission, setBrowserNotificationPermission] = useState<string>('default');
     const initialThreadId = searchParams.get('threadId');
+    const hasAppliedInitialThread = useRef(false);
     const searchParamString = searchParams.toString();
     const [showNotificationPrefs, setShowNotificationPrefs] = useState(false);
     const [optimisticThreadsById, setOptimisticThreadsById] = useState<Record<string, ThreadRecord>>({});
@@ -388,7 +389,8 @@ export default function FamilyMessagesPage() {
     }, []);
 
     useEffect(() => {
-        if (initialThreadId && threads.some((thread) => thread.id === initialThreadId)) {
+        if (!hasAppliedInitialThread.current && initialThreadId && threads.some((thread) => thread.id === initialThreadId)) {
+            hasAppliedInitialThread.current = true;
             setSelectedThreadId(initialThreadId);
             return;
         }
