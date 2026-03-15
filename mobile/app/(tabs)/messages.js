@@ -40,6 +40,7 @@ import {
   pickLibraryMedia,
   uploadPendingAttachments,
 } from '../../src/lib/attachments';
+import { getThreadDisplayName, getThreadMembersSummary, getThreadPreviewText, getThreadTypeLabel, isParentOverseeingThread } from '../../../lib/message-thread-display';
 
 function formatMessageTime(value) {
   if (!value) return '';
@@ -255,6 +256,18 @@ export default function MessagesTab() {
 
   const selectedThread = useMemo(() => threads.find((thread) => thread.id === selectedThreadId) || null, [selectedThreadId, threads]);
   const selectedMembership = selectedThread?.membership || null;
+  const selectedThreadDisplayName = useMemo(
+    () => (selectedThread ? getThreadDisplayName(selectedThread, familyMemberNamesById, currentUser?.id || '') : null),
+    [currentUser?.id, familyMemberNamesById, selectedThread]
+  );
+  const selectedThreadMemberSummary = useMemo(
+    () => (selectedThread ? getThreadMembersSummary(selectedThread, familyMemberNamesById, currentUser?.id || '') : null),
+    [currentUser?.id, familyMemberNamesById, selectedThread]
+  );
+  const selectedThreadIsOverseen = useMemo(
+    () => (selectedThread ? isParentOverseeingThread(selectedThread, currentUser?.role) : false),
+    [currentUser?.role, selectedThread]
+  );
   const messages = useMemo(() => {
     const rows = messagesQuery.data?.messages || [];
     const query = messageSearch.trim().toLowerCase();
@@ -451,12 +464,19 @@ export default function MessagesTab() {
   const statusChips = [
     { label: currentUser?.role === 'parent' ? 'Parent mode' : 'Kid mode', tone: currentUser?.role === 'parent' ? 'accent' : 'neutral' },
     { label: isOverseeMode ? 'Oversee' : 'Inbox', tone: isOverseeMode ? 'accent' : 'neutral' },
+    ...(selectedThreadIsOverseen ? [{ label: 'Overseeing', tone: 'accent' }] : []),
   ];
 
   return (
     <ScreenScaffold
-      title={selectedThread ? selectedThread.title || 'Messages' : 'Messages'}
-      subtitle={selectedThread ? 'Family inbox with direct messages, group threads, and parent oversight.' : 'Family inbox with direct messages and group threads.'}
+      title={selectedThread ? selectedThreadDisplayName || 'Messages' : 'Messages'}
+      subtitle={
+        selectedThread
+          ? selectedThreadIsOverseen
+            ? `${selectedThreadMemberSummary || 'Thread visible to parents'} • Viewing as parent oversight`
+            : selectedThreadMemberSummary || 'Family inbox with direct messages, group threads, and parent oversight.'
+          : 'Family inbox with direct messages and group threads.'
+      }
       accent={colors.accentDashboard}
       statusChips={statusChips}
       headerMode="compact"
@@ -556,16 +576,31 @@ export default function MessagesTab() {
               const unread =
                 thread.latestMessageAt &&
                 (!thread.membership?.lastReadAt || new Date(thread.latestMessageAt).getTime() > new Date(thread.membership.lastReadAt).getTime());
+              const displayName = getThreadDisplayName(thread, familyMemberNamesById, currentUser?.id || '');
+              const memberSummary = getThreadMembersSummary(thread, familyMemberNamesById, currentUser?.id || '');
+              const previewText = getThreadPreviewText(thread);
+              const isOverseen = isParentOverseeingThread(thread, currentUser?.role);
               return (
-                <Pressable key={thread.id} style={styles.threadCard} onPress={() => setSelectedThreadId(thread.id)}>
+                <Pressable key={thread.id} style={[styles.threadCard, isOverseen && styles.threadCardObserved]} onPress={() => setSelectedThreadId(thread.id)}>
                   <View style={styles.threadHeader}>
-                    <Text style={styles.threadTitle} numberOfLines={1}>{thread.title || 'Untitled thread'}</Text>
-                    {unread ? <View style={styles.unreadDot} /> : null}
+                    <Text style={styles.threadTitle} numberOfLines={1}>{displayName}</Text>
+                    <View style={styles.threadBadges}>
+                      {isOverseen ? (
+                        <View style={styles.threadObserverBadge}>
+                          <Text style={styles.threadObserverBadgeText}>Oversee</Text>
+                        </View>
+                      ) : null}
+                      {unread ? <View style={styles.unreadDot} /> : null}
+                    </View>
                   </View>
+                  {memberSummary ? <Text style={styles.threadMembers} numberOfLines={1}>{memberSummary}</Text> : null}
                   <Text style={styles.threadPreview} numberOfLines={2}>
-                    {thread.latestMessagePreview || (thread.threadType === 'parents_only' ? 'Parents only' : 'No messages yet')}
+                    {previewText}
                   </Text>
-                  <Text style={styles.threadMeta}>{formatMessageTime(thread.latestMessageAt)}</Text>
+                  <View style={styles.threadMetaRow}>
+                    <Text style={styles.threadMeta} numberOfLines={1}>{getThreadTypeLabel(thread)}</Text>
+                    <Text style={styles.threadMeta}>{formatMessageTime(thread.latestMessageAt)}</Text>
+                  </View>
                 </Pressable>
               );
             })}
@@ -633,6 +668,12 @@ export default function MessagesTab() {
                 ? `${typingPeers[0].name} is typing...`
                 : `${typingPeers[0].name} and ${typingPeers.length - 1} others are typing...`}
             </Text>
+          ) : null}
+          {selectedThreadIsOverseen ? (
+            <View style={styles.threadObserverNotice}>
+              <Text style={styles.threadObserverNoticeTitle}>Viewing as parent oversight</Text>
+              <Text style={styles.threadObserverNoticeText}>You can read this thread even though you are not one of its participants.</Text>
+            </View>
           ) : null}
 
           <TextInput
@@ -997,11 +1038,22 @@ const createStyles = (colors) =>
       gap: spacing.xs,
       ...shadows.card,
     },
+    threadCardObserved: {
+      borderColor: withAlpha(colors.accentCalendar || colors.accentDashboard, 0.28),
+      backgroundColor: withAlpha(colors.accentCalendar || colors.accentDashboard, 0.08),
+    },
     threadHeader: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: spacing.sm,
+    },
+    threadBadges: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      flexWrap: 'wrap',
+      gap: 6,
     },
     threadTitle: {
       flex: 1,
@@ -1009,14 +1061,36 @@ const createStyles = (colors) =>
       fontWeight: '800',
       fontSize: 16,
     },
+    threadMembers: {
+      color: colors.inkMuted,
+      fontSize: 12,
+      fontWeight: '700',
+    },
     threadPreview: {
       color: colors.inkMuted,
       lineHeight: 18,
       fontSize: 13,
     },
+    threadMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+    },
     threadMeta: {
       color: colors.inkMuted,
       fontSize: 12,
+    },
+    threadObserverBadge: {
+      borderRadius: radii.pill,
+      backgroundColor: withAlpha(colors.accentCalendar || colors.accentDashboard, 0.16),
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    threadObserverBadgeText: {
+      color: colors.accentCalendar || colors.accentDashboard,
+      fontSize: 10,
+      fontWeight: '800',
     },
     unreadDot: {
       width: 10,
@@ -1128,6 +1202,27 @@ const createStyles = (colors) =>
     topBarActions: {
       flexDirection: 'row',
       gap: spacing.sm,
+    },
+    threadObserverNotice: {
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: withAlpha(colors.accentCalendar || colors.accentDashboard, 0.2),
+      backgroundColor: withAlpha(colors.accentCalendar || colors.accentDashboard, 0.08),
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      gap: 2,
+    },
+    threadObserverNoticeTitle: {
+      color: colors.accentCalendar || colors.accentDashboard,
+      fontWeight: '800',
+      fontSize: 12,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+    },
+    threadObserverNoticeText: {
+      color: colors.inkMuted,
+      fontSize: 13,
+      lineHeight: 18,
     },
     messagesPane: {
       flex: 1,

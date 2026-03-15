@@ -121,47 +121,66 @@ vi.mock('@/lib/db', () => ({
 
 import FamilyMessagesPage from '@/components/messages/FamilyMessagesPage';
 
-function installQueryMocks(messageOverrides: Record<string, any> = {}) {
-    const membership = {
-        id: 'membership-1',
-        familyMemberId: 'member-1',
-        threadId: 'thread-1',
-        memberRole: 'member',
-        notificationLevel: 'all',
-        isArchived: false,
-        isPinned: false,
-        lastReadAt: '2026-03-15T10:01:00.000Z',
-    };
+function installQueryMocks(
+    messageOverrides: Record<string, any> = {},
+    options: {
+        membershipRows?: any[];
+        threads?: any[];
+        familyMembers?: any[];
+        messages?: any[];
+    } = {}
+) {
+    const membershipRows = options.membershipRows || [
+        {
+            id: 'membership-1',
+            familyMemberId: 'member-1',
+            threadId: 'thread-1',
+            memberRole: 'member',
+            notificationLevel: 'all',
+            isArchived: false,
+            isPinned: false,
+            lastReadAt: '2026-03-15T10:01:00.000Z',
+        },
+    ];
 
-    const thread = {
-        id: 'thread-1',
-        title: 'Family',
-        threadType: 'family',
-        latestMessageAt: '2026-03-15T10:02:00.000Z',
-        latestMessagePreview: 'Hello from the server',
-        members: [
-            {
-                familyMember: [{ id: 'member-1', name: 'Alex' }],
-            },
-        ],
-    };
+    const threads = options.threads || [
+        {
+            id: 'thread-1',
+            title: 'Family',
+            threadType: 'family',
+            latestMessageAt: '2026-03-15T10:02:00.000Z',
+            latestMessagePreview: 'Hello from the server',
+            members: [
+                {
+                    familyMember: [{ id: 'member-1', name: 'Alex' }],
+                },
+            ],
+        },
+    ];
 
-    const message = {
-        id: 'message-1',
-        threadId: 'thread-1',
-        body: 'Hello from the server',
-        createdAt: '2026-03-15T10:00:00.000Z',
-        editableUntil: '2026-03-15T10:05:00.000Z',
-        authorFamilyMemberId: 'member-1',
-        deletedAt: null,
-        removedReason: null,
-        attachments: [],
-        author: { id: 'member-1', name: 'Alex' },
-        reactions: [],
-        acknowledgements: [],
-        replyTo: null,
-        ...messageOverrides,
-    };
+    const messages = options.messages || [
+        {
+            id: 'message-1',
+            threadId: 'thread-1',
+            body: 'Hello from the server',
+            createdAt: '2026-03-15T10:00:00.000Z',
+            editableUntil: '2026-03-15T10:05:00.000Z',
+            authorFamilyMemberId: 'member-1',
+            deletedAt: null,
+            removedReason: null,
+            attachments: [],
+            author: { id: 'member-1', name: 'Alex' },
+            reactions: [],
+            acknowledgements: [],
+            replyTo: null,
+            ...messageOverrides,
+        },
+    ];
+
+    const familyMembers = options.familyMembers || [
+        { id: 'member-1', name: 'Alex', role: 'child' },
+        { id: 'member-2', name: 'Pat', role: 'parent' },
+    ];
 
     familyMessagesMocks.useQuery.mockImplementation((query: any) => {
         if (!query) {
@@ -169,21 +188,21 @@ function installQueryMocks(messageOverrides: Record<string, any> = {}) {
         }
         if (query.messageThreadMembers) {
             return {
-                data: { messageThreadMembers: [membership] },
+                data: { messageThreadMembers: membershipRows },
                 isLoading: false,
                 error: null,
             };
         }
         if (query.messageThreads) {
             return {
-                data: { messageThreads: [thread] },
+                data: { messageThreads: threads },
                 isLoading: false,
                 error: null,
             };
         }
         if (query.messages) {
             return {
-                data: { messages: [message] },
+                data: { messages },
                 isLoading: false,
                 error: null,
             };
@@ -191,10 +210,7 @@ function installQueryMocks(messageOverrides: Record<string, any> = {}) {
         if (query.familyMembers) {
             return {
                 data: {
-                    familyMembers: [
-                        { id: 'member-1', name: 'Alex', role: 'child' },
-                        { id: 'member-2', name: 'Pat', role: 'parent' },
-                    ],
+                    familyMembers,
                 },
                 isLoading: false,
                 error: null,
@@ -219,6 +235,9 @@ describe('FamilyMessagesPage', () => {
     beforeEach(() => {
         freezeTime('2026-03-15T11:30:00.000Z');
         vi.spyOn(console, 'info').mockImplementation(() => {});
+        familyMessagesMocks.currentUser.id = 'member-1';
+        familyMessagesMocks.currentUser.name = 'Alex';
+        familyMessagesMocks.currentUser.role = 'child';
         familyMessagesMocks.routerReplace.mockReset();
         familyMessagesMocks.toast.mockReset();
         familyMessagesMocks.useQuery.mockReset();
@@ -434,5 +453,49 @@ describe('FamilyMessagesPage', () => {
         fireEvent.click(screen.getByRole('button', { name: '👍' }));
 
         expect(familyMessagesMocks.toggleReaction).toHaveBeenCalledWith({ messageId: 'message-1', emoji: '👍' });
+    });
+
+    it('shows member names for named groups and visually marks overseen threads', async () => {
+        familyMessagesMocks.currentUser.id = 'member-2';
+        familyMessagesMocks.currentUser.name = 'Pat';
+        familyMessagesMocks.currentUser.role = 'parent';
+        familyMessagesMocks.getMessageServerTime.mockResolvedValue({
+            serverNow: '2026-03-15T10:04:00.000Z',
+        });
+        installQueryMocks(
+            {},
+            {
+                membershipRows: [],
+                threads: [
+                    {
+                        id: 'thread-1',
+                        title: 'Boys',
+                        threadType: 'group',
+                        latestMessageAt: '2026-03-15T10:02:00.000Z',
+                        latestMessagePreview: 'Plans for the weekend',
+                        members: [
+                            { familyMember: [{ id: 'member-1', name: 'Alex' }] },
+                            { familyMember: [{ id: 'member-3', name: 'Sam' }] },
+                        ],
+                    },
+                ],
+                familyMembers: [
+                    { id: 'member-1', name: 'Alex', role: 'child' },
+                    { id: 'member-2', name: 'Pat', role: 'parent' },
+                    { id: 'member-3', name: 'Sam', role: 'child' },
+                ],
+            }
+        );
+
+        render(<FamilyMessagesPage />);
+        await flushMessagingPage();
+        fireEvent.click(screen.getByRole('button', { name: 'Inbox' }));
+        await flushMessagingPage();
+
+        const threadCard = screen.getByRole('button', { name: /boys/i });
+        expect(screen.getAllByText('Alex, Sam').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Oversee').length).toBeGreaterThan(0);
+        expect(threadCard).toHaveClass('border-violet-300');
+        expect(screen.getByText('Viewing as parent oversight')).toBeInTheDocument();
     });
 });

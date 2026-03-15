@@ -14,6 +14,7 @@ import { db } from '@/lib/db';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { acknowledge, bootstrapMessages, createThread, editMessage, getMessageServerTime, joinThreadWatch, leaveThreadWatch, markRead, removeMessage, sendMessage, toggleReaction, updateThreadPreferences } from '@/lib/message-client';
 import { createMessageServerTimeAnchor, getMessageServerNowMs, getMonotonicNowMs, type MessageServerTimeAnchor } from '@/lib/message-server-time';
+import { getThreadDisplayName, getThreadMembersSummary, getThreadPreviewText, getThreadTypeLabel, isParentOverseeingThread } from '@/lib/message-thread-display';
 import { cn } from '@/lib/utils';
 import type { MessageNotificationLevel } from '@/lib/messaging-types';
 
@@ -185,22 +186,6 @@ function isThreadUnread(thread: ThreadRecord) {
     const latest = thread.latestMessageAt ? new Date(thread.latestMessageAt).getTime() : 0;
     const readAt = thread.membership?.lastReadAt ? new Date(thread.membership.lastReadAt).getTime() : 0;
     return latest > readAt;
-}
-
-function threadSubtitle(thread: ThreadRecord, familyMemberNamesById: Map<string, string>, currentUserId: string) {
-    if (thread.threadType === 'direct' && Array.isArray(thread.members) && thread.members.length > 0) {
-        const peers = (thread.members || [])
-            .map((membership: any) => membership?.familyMember?.[0] || membership?.familyMember || null)
-            .filter(Boolean)
-            .filter((member: any) => member.id !== currentUserId)
-            .map((member: any) => member.name || familyMemberNamesById.get(member.id) || 'Unknown');
-        if (peers.length > 0 && peers.some((name) => name !== 'Unknown')) {
-            return peers.join(', ');
-        }
-        return thread.latestMessagePreview || 'Direct message';
-    }
-
-    return thread.latestMessagePreview || (thread.threadType === 'parents_only' ? 'Parents only' : 'No messages yet');
 }
 
 function sortThreads(threads: ThreadRecord[]) {
@@ -984,34 +969,55 @@ export default function FamilyMessagesPage() {
                     <ScrollArea className="min-h-0 flex-1">
                         <div className="space-y-2 p-3">
                             {threads.map((thread) => (
-                                <button
-                                    key={thread.id}
-                                    type="button"
-                                    onClick={() => setSelectedThreadId(thread.id)}
-                                    className={cn(
-                                        'w-full overflow-hidden rounded-[24px] border px-4 py-3 text-left transition-all',
-                                        selectedThreadId === thread.id
-                                            ? 'border-sky-300 bg-sky-50 shadow-sm'
-                                            : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50'
-                                    )}
-                                >
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0 flex-1">
-                                            <div className="truncate text-sm font-semibold text-slate-900">{thread.title || 'Untitled thread'}</div>
-                                            <div className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">
-                                                {threadSubtitle(thread, familyMemberNamesById, currentUser?.id || '')}
+                                (() => {
+                                    const displayName = getThreadDisplayName(thread, familyMemberNamesById, currentUser?.id || '');
+                                    const memberSummary = getThreadMembersSummary(thread, familyMemberNamesById, currentUser?.id || '');
+                                    const previewText = getThreadPreviewText(thread);
+                                    const isOverseen = isParentOverseeingThread(thread, currentUser?.role);
+                                    return (
+                                        <button
+                                            key={thread.id}
+                                            type="button"
+                                            onClick={() => setSelectedThreadId(thread.id)}
+                                            className={cn(
+                                                'w-full overflow-hidden rounded-[24px] border px-4 py-3 text-left transition-all',
+                                                selectedThreadId === thread.id
+                                                    ? isOverseen
+                                                        ? 'border-violet-300 bg-[linear-gradient(180deg,_rgba(245,243,255,1)_0%,_rgba(239,246,255,1)_100%)] shadow-sm'
+                                                        : 'border-sky-300 bg-sky-50 shadow-sm'
+                                                    : isOverseen
+                                                    ? 'border-violet-200 bg-violet-50/40 hover:border-violet-300 hover:bg-violet-50/70'
+                                                    : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50'
+                                            )}
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="truncate text-sm font-semibold text-slate-900">{displayName}</div>
+                                                    {memberSummary ? (
+                                                        <div className="mt-1 truncate text-[11px] font-medium text-slate-500">{memberSummary}</div>
+                                                    ) : null}
+                                                    <div className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">
+                                                        {previewText}
+                                                    </div>
+                                                </div>
+                                                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1 self-start pl-2">
+                                                    {isOverseen ? (
+                                                        <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                                                            <Shield className="h-3 w-3" />
+                                                            Oversee
+                                                        </span>
+                                                    ) : null}
+                                                    {thread.membership?.isPinned ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Pinned</span> : null}
+                                                    {isThreadUnread(thread) ? <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white">Unread</span> : null}
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1 self-start pl-2">
-                                            {thread.membership?.isPinned ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Pinned</span> : null}
-                                            {isThreadUnread(thread) ? <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white">Unread</span> : null}
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 flex min-w-0 items-center gap-2 text-[11px] text-slate-400">
-                                        <span className="min-w-0 truncate">{thread.threadType === 'parents_only' ? 'Parents only' : thread.threadType}</span>
-                                        <span className="ml-auto shrink-0">{formatMessageTime(thread.latestMessageAt)}</span>
-                                    </div>
-                                </button>
+                                            <div className="mt-3 flex min-w-0 items-center gap-2 text-[11px] text-slate-400">
+                                                <span className="min-w-0 truncate">{getThreadTypeLabel(thread)}</span>
+                                                <span className="ml-auto shrink-0">{formatMessageTime(thread.latestMessageAt)}</span>
+                                            </div>
+                                        </button>
+                                    );
+                                })()
                             ))}
 
                             {!threads.length ? (
@@ -1026,17 +1032,28 @@ export default function FamilyMessagesPage() {
                 <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[36px] border border-slate-200/80 bg-white shadow-[0_32px_80px_rgba(15,23,42,0.10)]">
                     {selectedThread ? (
                         <>
+                            {(() => {
+                                const selectedThreadDisplayName = getThreadDisplayName(selectedThread, familyMemberNamesById, currentUser?.id || '');
+                                const selectedThreadMemberSummary = getThreadMembersSummary(selectedThread, familyMemberNamesById, currentUser?.id || '');
+                                const selectedThreadIsOverseen = isParentOverseeingThread(selectedThread, currentUser?.role);
+                                return (
                             <div className="border-b border-slate-200 px-6 py-5">
                                 <div className="flex flex-wrap items-start justify-between gap-4">
                                     <div>
-                                        <div className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-700">{selectedThread.threadType}</div>
-                                        <h2 className="mt-1 text-3xl font-bold text-slate-950">{selectedThread.title || 'Untitled thread'}</h2>
-                                        {selectedThread.members?.length ? (
-                                            <p className="mt-2 max-w-3xl text-sm text-slate-500">
-                                                {(selectedThread.members || [])
-                                                    .map((membership: any) => membership?.familyMember?.[0]?.name || membership?.familyMember?.name || '')
-                                                    .filter(Boolean)
-                                                    .join(', ')}
+                                        <div className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-700">{getThreadTypeLabel(selectedThread)}</div>
+                                        <h2 className="mt-1 text-3xl font-bold text-slate-950">{selectedThreadDisplayName}</h2>
+                                        {selectedThreadMemberSummary ? (
+                                            <p className="mt-2 max-w-3xl text-sm text-slate-500">{selectedThreadMemberSummary}</p>
+                                        ) : null}
+                                        {selectedThreadIsOverseen ? (
+                                            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+                                                <Shield className="h-3.5 w-3.5" />
+                                                Viewing as parent oversight
+                                            </div>
+                                        ) : null}
+                                        {selectedThreadIsOverseen ? (
+                                            <p className="mt-2 max-w-3xl text-sm text-violet-700">
+                                                You can inspect this conversation as a parent even though you are not a participant.
                                             </p>
                                         ) : null}
                                         {presentPeers.length > 0 ? (
@@ -1136,6 +1153,8 @@ export default function FamilyMessagesPage() {
                                     </div>
                                 ) : null}
                             </div>
+                                );
+                            })()}
 
                             <ScrollArea className="min-h-0 flex-1 bg-[linear-gradient(180deg,_rgba(240,249,255,0.45)_0%,_rgba(255,255,255,1)_28%)]">
                                 <div className="space-y-4 px-6 py-6">
