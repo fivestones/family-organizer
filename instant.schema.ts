@@ -11,7 +11,9 @@ const _schema = i.schema({
         }),
         $users: i.entity({
             email: i.string().unique().indexed().optional(),
+            familyMemberId: i.string().indexed().optional(),
             imageURL: i.string().optional(),
+            role: i.string().optional(),
             type: i.string().optional(),
         }),
         allowanceEnvelopes: i.entity({
@@ -276,17 +278,71 @@ const _schema = i.schema({
         }),
         messageThreads: i.entity({
             createdAt: i.string().indexed(),
+            createdByFamilyMemberId: i.string().indexed().optional(),
+            isClosed: i.boolean().indexed().optional(),
+            latestMessageAt: i.string().indexed().optional(),
+            latestMessageAuthorId: i.string().indexed().optional(),
+            latestMessagePreview: i.string().optional(),
+            linkedDomain: i.string().indexed().optional(),
+            linkedEntityId: i.string().indexed().optional(),
+            searchText: i.string().indexed().optional(),
+            threadKey: i.string().unique().indexed(),
             threadType: i.string().indexed(),
+            titleNormalized: i.string().indexed().optional(),
             title: i.string(),
             updatedAt: i.string().indexed(),
+            visibility: i.string().indexed(),
+        }),
+        messageThreadMembers: i.entity({
+            familyMemberId: i.string().indexed(),
+            isArchived: i.boolean().indexed(),
+            isPinned: i.boolean().indexed(),
+            joinedAt: i.string().indexed(),
+            lastReadAt: i.string().indexed().optional(),
+            lastReadMessageId: i.string().indexed().optional(),
+            memberRole: i.string().indexed(),
+            notificationLevel: i.string().indexed(),
+            pinnedAt: i.string().indexed().optional(),
+            sortTimestamp: i.string().indexed(),
+            threadId: i.string().indexed(),
         }),
         messages: i.entity({
             authorFamilyMemberId: i.string().indexed().optional(),
-            body: i.string(),
+            body: i.string().indexed(),
+            clientNonce: i.string().indexed().optional(),
             createdAt: i.string().indexed(),
+            deletedAt: i.string().indexed().optional(),
             editableUntil: i.string().indexed().optional(),
             editedAt: i.string().indexed().optional(),
+            importance: i.string().indexed().optional(),
+            isSystem: i.boolean().indexed().optional(),
+            metadata: i.json().optional(),
+            removedByFamilyMemberId: i.string().indexed().optional(),
+            removedReason: i.string().optional(),
+            replyToMessageId: i.string().indexed().optional(),
+            threadId: i.string().indexed(),
             updatedAt: i.string().indexed(),
+        }),
+        messageReactions: i.entity({
+            createdAt: i.string().indexed(),
+            emoji: i.string().indexed(),
+            familyMemberId: i.string().indexed(),
+            messageId: i.string().indexed(),
+            reactionKey: i.string().unique().indexed(),
+        }),
+        messageAcknowledgements: i.entity({
+            ackKey: i.string().unique().indexed(),
+            createdAt: i.string().indexed(),
+            familyMemberId: i.string().indexed(),
+            kind: i.string().indexed(),
+            messageId: i.string().indexed(),
+        }),
+        pushDevices: i.entity({
+            familyMemberId: i.string().indexed(),
+            isEnabled: i.boolean().indexed(),
+            lastSeenAt: i.string().indexed(),
+            platform: i.string().indexed(),
+            token: i.string().unique().indexed(),
         }),
         settings: i.entity({
             name: i.string(),
@@ -594,6 +650,18 @@ const _schema = i.schema({
                 label: 'affectedFamilyMembers',
             },
         },
+        familyMembersAuthUsers: {
+            forward: {
+                on: 'familyMembers',
+                has: 'one',
+                label: 'authUser',
+            },
+            reverse: {
+                on: '$users',
+                has: 'one',
+                label: 'familyMember',
+            },
+        },
         familyMembersAuthoredMessages: {
             forward: {
                 on: 'familyMembers',
@@ -604,6 +672,54 @@ const _schema = i.schema({
                 on: 'messages',
                 has: 'one',
                 label: 'author',
+            },
+        },
+        familyMembersMessageAcknowledgements: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'messageAcknowledgements',
+            },
+            reverse: {
+                on: 'messageAcknowledgements',
+                has: 'one',
+                label: 'familyMember',
+            },
+        },
+        familyMembersMessageReactions: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'messageReactions',
+            },
+            reverse: {
+                on: 'messageReactions',
+                has: 'one',
+                label: 'familyMember',
+            },
+        },
+        familyMembersMessageThreadMemberships: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'messageThreadMemberships',
+            },
+            reverse: {
+                on: 'messageThreadMembers',
+                has: 'one',
+                label: 'familyMember',
+            },
+        },
+        familyMembersPushDevices: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'pushDevices',
+            },
+            reverse: {
+                on: 'pushDevices',
+                has: 'one',
+                label: 'familyMember',
             },
         },
         familyMembersTaskProgressEntries: {
@@ -654,6 +770,18 @@ const _schema = i.schema({
                 label: 'thread',
             },
         },
+        messageThreadsMembers: {
+            forward: {
+                on: 'messageThreads',
+                has: 'many',
+                label: 'members',
+            },
+            reverse: {
+                on: 'messageThreadMembers',
+                has: 'one',
+                label: 'thread',
+            },
+        },
         messagesAttachments: {
             forward: {
                 on: 'messages',
@@ -664,6 +792,42 @@ const _schema = i.schema({
                 on: 'messageAttachments',
                 has: 'one',
                 label: 'message',
+            },
+        },
+        messagesAcknowledgements: {
+            forward: {
+                on: 'messages',
+                has: 'many',
+                label: 'acknowledgements',
+            },
+            reverse: {
+                on: 'messageAcknowledgements',
+                has: 'one',
+                label: 'message',
+            },
+        },
+        messagesReactions: {
+            forward: {
+                on: 'messages',
+                has: 'many',
+                label: 'reactions',
+            },
+            reverse: {
+                on: 'messageReactions',
+                has: 'one',
+                label: 'message',
+            },
+        },
+        messagesReplyToMessage: {
+            forward: {
+                on: 'messages',
+                has: 'one',
+                label: 'replyTo',
+            },
+            reverse: {
+                on: 'messages',
+                has: 'many',
+                label: 'replies',
             },
         },
         tasksAttachments: {

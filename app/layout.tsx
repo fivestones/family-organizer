@@ -7,6 +7,7 @@ import DebugTimeWidget from '@/components/debug/DebugTimeWidget';
 import { AuthProvider } from '@/components/AuthProvider';
 import { InstantFamilySessionProvider } from '@/components/InstantFamilySessionProvider';
 import { UserMenu } from '@/components/auth/UserMenu';
+import { FamilyAppGate } from '@/components/auth/FamilyAppGate';
 import { SyncStatusBadge } from '@/components/SyncStatusBadge';
 import { PwaServiceWorkerRegistration } from '@/components/PwaServiceWorkerRegistration';
 import Link from 'next/link';
@@ -144,7 +145,9 @@ export default function RootLayout({
                         </header>
 
                         {/* +++ Main Content +++ */}
-                        <main className="flex-1 min-h-0 relative">{children}</main>
+                        <main className="flex-1 min-h-0 relative">
+                            <FamilyAppGate>{children}</FamilyAppGate>
+                        </main>
 
                         <Toaster />
                         <DebugTimeWidget />

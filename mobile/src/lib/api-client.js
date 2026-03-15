@@ -1,5 +1,5 @@
 import { getServerUrl } from './server-url';
-import { getDeviceSessionToken, getParentPrincipalToken } from './device-session-store';
+import { getActiveMemberPrincipalToken, getDeviceSessionToken, getParentPrincipalToken } from './device-session-store';
 import { CALENDAR_SYNC_PARENT_TOKEN_HEADER } from '../../../lib/calendar-sync-constants';
 
 export function getApiBaseUrl() {
@@ -14,6 +14,11 @@ async function authHeaders() {
 async function parentPrincipalHeaders() {
   const token = await getParentPrincipalToken();
   return token ? { [CALENDAR_SYNC_PARENT_TOKEN_HEADER]: token } : {};
+}
+
+async function memberPrincipalHeaders() {
+  const token = await getActiveMemberPrincipalToken();
+  return token ? { 'X-Instant-Auth-Token': token } : {};
 }
 
 async function parseJson(response) {
@@ -57,8 +62,8 @@ export async function revokeMobileDeviceSession() {
   return parseJson(response);
 }
 
-export async function getKidInstantToken() {
-  const response = await fetch(`${getApiBaseUrl()}/api/mobile/instant-auth-token`, {
+export async function getFamilyMembersRoster() {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/family-members`, {
     headers: {
       ...(await authHeaders()),
     },
@@ -66,13 +71,29 @@ export async function getKidInstantToken() {
   return parseJson(response);
 }
 
-export async function getParentInstantToken({ familyMemberId, pin }) {
-  const response = await fetch(`${getApiBaseUrl()}/api/mobile/instant-auth-parent-token`, {
+export async function getKidInstantToken() {
+  throw new Error('getKidInstantToken is no longer supported; use getMemberInstantToken instead.');
+}
+
+export async function getMemberInstantToken({ familyMemberId, pin }) {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/instant-auth-token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(await authHeaders()),
     },
+    body: JSON.stringify({ familyMemberId, pin }),
+  });
+  return parseJson(response);
+}
+
+export async function getParentInstantToken({ familyMemberId, pin }) {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/instant-auth-parent-token`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+    },
+    method: 'POST',
     body: JSON.stringify({ familyMemberId, pin }),
   });
   return parseJson(response);
@@ -124,6 +145,7 @@ export async function getAppleCalendarSyncStatus() {
   const response = await fetch(`${getApiBaseUrl()}/api/calendar-sync/apple/status`, {
     headers: {
       ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
       ...(await parentPrincipalHeaders()),
     },
   });
@@ -136,6 +158,7 @@ export async function connectAppleCalendarSync({ username, appSpecificPassword, 
     headers: {
       'Content-Type': 'application/json',
       ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
       ...(await parentPrincipalHeaders()),
     },
     body: JSON.stringify({ username, appSpecificPassword, accountLabel }),
@@ -149,6 +172,7 @@ export async function updateAppleCalendarSyncSettings(payload) {
     headers: {
       'Content-Type': 'application/json',
       ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
       ...(await parentPrincipalHeaders()),
     },
     body: JSON.stringify(payload),
@@ -162,9 +186,151 @@ export async function runAppleCalendarSync(payload = {}) {
     headers: {
       'Content-Type': 'application/json',
       ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
       ...(await parentPrincipalHeaders()),
     },
     body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
+export async function bootstrapMobileMessages() {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/bootstrap`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify({}),
+  });
+  return parseJson(response);
+}
+
+export async function createMobileMessageThread(payload) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/threads`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
+export async function sendMobileMessage(payload) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
+export async function editMobileMessage(messageId, payload) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/messages/${encodeURIComponent(messageId)}/edit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
+export async function removeMobileMessage(messageId, payload = {}) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/messages/${encodeURIComponent(messageId)}/remove`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
+export async function toggleMobileReaction(messageId, emoji) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/messages/${encodeURIComponent(messageId)}/reactions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify({ emoji }),
+  });
+  return parseJson(response);
+}
+
+export async function acknowledgeMobileMessage(messageId, kind = 'acknowledged') {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/messages/${encodeURIComponent(messageId)}/acknowledge`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify({ kind }),
+  });
+  return parseJson(response);
+}
+
+export async function markMobileThreadRead(threadId, lastReadMessageId) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/threads/${encodeURIComponent(threadId)}/read`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify({ threadId, lastReadMessageId }),
+  });
+  return parseJson(response);
+}
+
+export async function updateMobileThreadPreferences(threadId, payload) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/threads/${encodeURIComponent(threadId)}/preferences`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}
+
+export async function joinMobileThreadWatch(threadId) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/threads/${encodeURIComponent(threadId)}/watch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify({}),
+  });
+  return parseJson(response);
+}
+
+export async function leaveMobileThreadWatch(threadId) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/threads/${encodeURIComponent(threadId)}/watch`, {
+    method: 'DELETE',
+    headers: {
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
   });
   return parseJson(response);
 }

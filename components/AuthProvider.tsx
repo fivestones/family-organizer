@@ -1,12 +1,11 @@
 // components/AuthProvider.tsx
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, ReactNode } from 'react';
+import React, { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { db } from '@/lib/db';
 import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
 import { isEffectiveParentMode } from '@/lib/parent-mode';
 
-// Define the shape of our User context
 export interface FamilyMemberUser {
     id: string;
     name: string;
@@ -19,47 +18,58 @@ interface AuthContextType {
     login: (user: FamilyMemberUser, remember?: boolean) => void;
     logout: () => void;
     isAuthenticated: boolean;
-    // +++ CHANGED: Expose loading state to consumers +++
     isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 export const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 const REMEMBER_KEY = 'family_organizer_remember_me';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const { ensureKidPrincipal, principalType } = useInstantPrincipal();
-    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-    const [currentUser, setCurrentUser] = useState<FamilyMemberUser | null>(null);
+    const auth = db.useAuth();
     const [rememberMe, setRememberMe] = useState(false);
 
-    // Fetch family members to resolve ID to actual user object
-    // +++ CHANGED: Destructure isLoading +++
-    const { data, isLoading } = db.useQuery({ familyMembers: {} });
-    const familyMembers = (data?.familyMembers as any[]) || [];
+    const familyQuery = (db as any).useQuery(
+        auth.user
+            ? {
+                  familyMembers: {
+                      $: {
+                          order: {
+                              order: 'asc',
+                          },
+                      },
+                  },
+              }
+            : (null as any)
+    ) as any;
 
-    // 1. Initialize from LocalStorage
+    const familyMembers = (familyQuery?.data?.familyMembers as any[]) || [];
+    const currentFamilyMemberId =
+        auth.user && typeof (auth.user as any).familyMemberId === 'string' ? String((auth.user as any).familyMemberId) : null;
+    const currentUser = useMemo<FamilyMemberUser | null>(() => {
+        if (!currentFamilyMemberId) return null;
+        const member = familyMembers.find((entry: any) => entry.id === currentFamilyMemberId);
+        if (!member) return null;
+        return {
+            id: member.id,
+            name: member.name,
+            role: member.role,
+            photoUrls: member.photoUrls,
+        };
+    }, [currentFamilyMemberId, familyMembers]);
+
     useEffect(() => {
-        const storedId = localStorage.getItem(FAMILY_MEMBER_STORAGE_KEY);
         const storedRemember = localStorage.getItem(REMEMBER_KEY);
-
-        if (storedId) {
-            setCurrentUserId(storedId);
-        }
         if (storedRemember === 'true') {
             setRememberMe(true);
         }
 
-        // Listen for changes in other tabs to sync login state immediately
-        const handleStorageChange = (e: StorageEvent) => {
-            if (e.key === FAMILY_MEMBER_STORAGE_KEY) {
-                // e.newValue will be the new ID on login, or null on logout
-                setCurrentUserId(e.newValue);
-            }
-            if (e.key === REMEMBER_KEY) {
-                setRememberMe(e.newValue === 'true');
+        const handleStorageChange = (event: StorageEvent) => {
+            if (event.key === REMEMBER_KEY) {
+                setRememberMe(event.newValue === 'true');
             }
         };
 
@@ -67,94 +77,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return () => window.removeEventListener('storage', handleStorageChange);
     }, []);
 
-    // 2. Sync currentUserId with actual FamilyMember data
     useEffect(() => {
-        // +++ CHANGED: Do not attempt to sync or logout while DB is loading +++
-        if (isLoading) return;
-
-        if (currentUserId && familyMembers.length > 0) {
-            const foundMember = familyMembers.find((m: any) => m.id === currentUserId);
-            if (foundMember) {
-                setCurrentUser({
-                    id: foundMember.id,
-                    name: foundMember.name,
-                    role: foundMember.role,
-                    photoUrls: foundMember.photoUrls,
-                });
-            } else {
-                // ID exists in storage but not in DB (maybe deleted?), clear it
-                // logout(); // <--- DISABLED: Prevents logout on HMR/Fast Refresh updates
-            }
-        } else if (!currentUserId) {
-            setCurrentUser(null);
-        }
-    }, [currentUserId, familyMembers, isLoading]); // +++ CHANGED: Added isLoading dependency
+        if (!currentUser) return;
+        localStorage.setItem(FAMILY_MEMBER_STORAGE_KEY, currentUser.id);
+    }, [currentUser]);
 
     const login = useCallback((user: FamilyMemberUser, remember: boolean = false) => {
         localStorage.setItem(FAMILY_MEMBER_STORAGE_KEY, user.id);
-
         if (remember) {
             localStorage.setItem(REMEMBER_KEY, 'true');
             setRememberMe(true);
-        } else {
-            localStorage.removeItem(REMEMBER_KEY);
-            setRememberMe(false);
+            return;
         }
 
-        setCurrentUserId(user.id);
-        setCurrentUser(user);
+        localStorage.removeItem(REMEMBER_KEY);
+        setRememberMe(false);
     }, []);
 
     const logout = useCallback(() => {
         localStorage.removeItem(FAMILY_MEMBER_STORAGE_KEY);
-        localStorage.removeItem(REMEMBER_KEY); // Clear remember me on manual logout
+        localStorage.removeItem(REMEMBER_KEY);
         setRememberMe(false);
-        setCurrentUserId(null);
-        setCurrentUser(null);
-        // Explicit logout drops parent elevation and returns DB auth to kid principal.
         void ensureKidPrincipal({ clearParentSession: true }).catch((error) => {
-            console.error('Failed to restore kid principal after logout', error);
+            console.error('Failed to clear member auth session', error);
         });
     }, [ensureKidPrincipal]);
 
     useEffect(() => {
         if (!currentUser) return;
 
-        // Parent UI mode requires the parent DB principal. If parent principal expires (shared device timeout)
-        // or the app has been switched back to the kid principal, clear the selected parent user.
         if (currentUser.role === 'parent' && !isEffectiveParentMode(currentUser.role, principalType)) {
             localStorage.removeItem(FAMILY_MEMBER_STORAGE_KEY);
             localStorage.removeItem(REMEMBER_KEY);
             setRememberMe(false);
-            setCurrentUserId(null);
-            setCurrentUser(null);
         }
     }, [currentUser, principalType]);
 
-    // 3. Auto-Logout on Idle
     useEffect(() => {
-        if (!currentUser) return;
-
-        // +++ CHECK REMEMBER ME +++
-        if (rememberMe) return; // Skip auto-logout if remember me is active
+        if (!currentUser || rememberMe) return;
 
         let timeoutId: NodeJS.Timeout;
 
         const resetTimer = () => {
             clearTimeout(timeoutId);
             timeoutId = setTimeout(() => {
-                console.log('Auto-logging out due to inactivity.');
                 logout();
             }, IDLE_TIMEOUT_MS);
         };
 
-        // Events to listen for activity
         window.addEventListener('mousemove', resetTimer);
         window.addEventListener('keydown', resetTimer);
         window.addEventListener('click', resetTimer);
         window.addEventListener('touchstart', resetTimer);
-
-        // Start initial timer
         resetTimer();
 
         return () => {
@@ -166,9 +140,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
     }, [currentUser, logout, rememberMe]);
 
+    const isLoading = auth.isLoading || (Boolean(auth.user) && familyQuery.isLoading);
+
     return (
-        // +++ CHANGED: Pass isLoading to provider +++
-        <AuthContext.Provider value={{ currentUser, login, logout, isAuthenticated: !!currentUser, isLoading }}>{children}</AuthContext.Provider>
+        <AuthContext.Provider value={{ currentUser, login, logout, isAuthenticated: Boolean(currentUser), isLoading }}>
+            {children}
+        </AuthContext.Provider>
     );
 }
 

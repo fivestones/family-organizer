@@ -1,20 +1,17 @@
 // components/auth/LoginModal.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Loader2, ArrowLeft } from 'lucide-react';
-import { db } from '@/lib/db';
 import { useAuth } from '@/components/AuthProvider';
 import { useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
 import { useToast } from '@/components/ui/use-toast';
-import { hashPinClient } from '@/lib/pin-client';
-import { hashPin } from '@/app/actions';
 import { getPhotoUrl } from '@/lib/photo-urls';
 
 interface LoginModalProps {
@@ -22,190 +19,149 @@ interface LoginModalProps {
     onClose: () => void;
 }
 
+type RosterMember = {
+    id: string;
+    name: string;
+    role?: string | null;
+    photoUrls?: Record<string, string> | null;
+    hasPin?: boolean;
+};
+
+async function fetchFamilyMemberRoster() {
+    const response = await fetch('/api/family-members', {
+        cache: 'no-store',
+        credentials: 'same-origin',
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to load family members');
+    }
+    return (payload?.familyMembers as RosterMember[]) || [];
+}
+
 export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     const { login } = useAuth();
-    const { ensureKidPrincipal, elevateParentPrincipal, canUseCachedParentPrincipal, isParentSessionSharedDevice } = useInstantPrincipal();
     const { toast } = useToast();
+    const { canUseCachedParentPrincipal, isParentSessionSharedDevice, signInFamilyMember } = useInstantPrincipal();
     const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
     const [pin, setPin] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
     const [parentSharedDevice, setParentSharedDevice] = useState(true);
+    const [familyMembers, setFamilyMembers] = useState<RosterMember[]>([]);
+    const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+    const [membersError, setMembersError] = useState<string>('');
 
-    // +++ NEW: Force cleanup of pointer-events on Body +++
-    // This implements the fix found on GitHub to prevent the app from freezing
-    // when the modal unmounts or closes.
     useEffect(() => {
         if (isOpen) {
-            // Optional: Remove the lock immediately while open (if Overlay handles clicks)
-            // This mirrors the solution you found:
             const timer = setTimeout(() => {
                 document.body.style.pointerEvents = '';
             }, 0);
             return () => clearTimeout(timer);
-        } else {
-            // Ensure interactions are enabled when closed
-            document.body.style.pointerEvents = 'auto';
         }
 
-        // IMPORTANT: Cleanup on unmount
-        // This catches the case where ParentGate unmounts this component immediately after login
+        document.body.style.pointerEvents = 'auto';
         return () => {
             document.body.style.pointerEvents = 'auto';
         };
     }, [isOpen]);
 
-    // Fetch members with necessary fields
-    const { data, isLoading } = db.useQuery({
-        familyMembers: {
-            $: { order: { order: 'asc' } },
-        },
-    });
-    const familyMembers = (data?.familyMembers as any[]) || [];
-
-    // Reset state when modal opens/closes
     useEffect(() => {
-        if (isOpen) {
-            setSelectedMemberId(null);
-            setPin('');
-            setIsVerifying(false);
-            setRememberMe(false);
-            setParentSharedDevice(true);
-        }
-    }, [isOpen]);
+        if (!isOpen) return;
+        setSelectedMemberId(null);
+        setPin('');
+        setIsVerifying(false);
+        setRememberMe(false);
+        setParentSharedDevice(isParentSessionSharedDevice);
+        setMembersError('');
+        setIsLoadingMembers(true);
+
+        let cancelled = false;
+        void fetchFamilyMemberRoster()
+            .then((members) => {
+                if (!cancelled) {
+                    setFamilyMembers(members);
+                }
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    setMembersError(error instanceof Error ? error.message : 'Failed to load family members');
+                    setFamilyMembers([]);
+                }
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setIsLoadingMembers(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, isParentSessionSharedDevice]);
+
+    const selectedMemberData = useMemo(
+        () => familyMembers.find((member) => member.id === selectedMemberId) || null,
+        [familyMembers, selectedMemberId]
+    );
+    const isParentSelection = selectedMemberData?.role === 'parent';
+    const parentPinCanBeSkipped = Boolean(isParentSelection && canUseCachedParentPrincipal);
+    const loginButtonDisabled = isVerifying || (Boolean(selectedMemberData?.hasPin || isParentSelection) && !pin && !parentPinCanBeSkipped);
 
     const handleMemberSelect = (id: string) => {
         setSelectedMemberId(id);
-        setPin(''); // Clear any previous PIN attempt
+        setPin('');
         setRememberMe(false);
-        setParentSharedDevice(true);
+        setParentSharedDevice(isParentSessionSharedDevice);
     };
 
-    const handlePinSubmit = async (e?: React.FormEvent) => {
-        if (e) e.preventDefault();
+    const handlePinSubmit = async (event?: React.FormEvent) => {
+        if (event) event.preventDefault();
         if (!selectedMemberId) return;
 
-        const member = familyMembers.find((m: any) => m.id === selectedMemberId);
+        const member = familyMembers.find((entry) => entry.id === selectedMemberId);
         if (!member) return;
 
         setIsVerifying(true);
-
         try {
-            const isParentMember = member.role === 'parent';
-
-            if (isParentMember) {
-                const canReuseParent = canUseCachedParentPrincipal;
-                if (!canReuseParent && !pin) {
-                    toast({ title: 'PIN is required', variant: 'destructive' });
-                    return;
-                }
-                if (!canReuseParent && typeof navigator !== 'undefined' && navigator.onLine === false) {
-                    toast({
-                        title: 'Internet required for parent mode',
-                        description: 'Parent elevation needs a server check. Try again when this device is back online.',
-                        variant: 'destructive',
-                    });
-                    return;
-                }
-
-                await elevateParentPrincipal({
-                    familyMemberId: member.id,
-                    pin: pin,
-                    sharedDevice: parentSharedDevice,
-                });
-
-                login(
-                    {
-                        id: member.id,
-                        name: member.name,
-                        role: member.role,
-                        photoUrls: member.photoUrls,
-                    },
-                    rememberMe
-                );
-                toast({ title: `Welcome back, ${member.name}!` });
-                onClose();
-                return;
-            }
-
-            await ensureKidPrincipal({ clearParentSession: isParentSessionSharedDevice });
-
-            // Check if member has a PIN set
-            if (!member.pinHash) {
-                // If no PIN set, login immediately
-                login(
-                    {
-                        id: member.id,
-                        name: member.name,
-                        role: member.role,
-                        photoUrls: member.photoUrls,
-                    },
-                    rememberMe
-                );
-                toast({ title: `Welcome back, ${member.name}!` });
-                onClose();
-                return;
-            }
-
-            let hashedInput: string;
-            try {
-                hashedInput = await hashPinClient(pin);
-            } catch (hashError) {
-                const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
-                if (isOffline) {
-                    console.error('Failed to hash child PIN locally while offline', hashError);
-                    toast({
-                        title: 'Unable to verify PIN',
-                        description: 'This browser cannot verify PINs offline in the current context.',
-                        variant: 'destructive',
-                    });
-                    return;
-                }
-
-                console.warn('Local child PIN hashing unavailable; falling back to server hash.', hashError);
-                try {
-                    hashedInput = await hashPin(pin);
-                } catch (serverHashError) {
-                    console.error('Failed to hash child PIN on server fallback', serverHashError);
-                    toast({
-                        title: 'Unable to verify PIN',
-                        description: 'Please try again.',
-                        variant: 'destructive',
-                    });
-                    return;
-                }
-            }
-            if (hashedInput === member.pinHash) {
-                login(
-                    {
-                        id: member.id,
-                        name: member.name,
-                        role: member.role,
-                        photoUrls: member.photoUrls,
-                    },
-                    rememberMe
-                );
-                toast({ title: `Welcome back, ${member.name}!` });
-                onClose();
-            } else {
+            if (member.role === 'parent' && !parentPinCanBeSkipped && typeof navigator !== 'undefined' && navigator.onLine === false) {
                 toast({
-                    title: 'Incorrect PIN',
+                    title: 'Internet required for parent mode',
+                    description: 'Parent sign-in needs a server check. Try again when this device is back online.',
                     variant: 'destructive',
                 });
-                setPin('');
+                return;
             }
+
+            await signInFamilyMember({
+                familyMemberId: member.id,
+                pin,
+                sharedDevice: member.role === 'parent' ? parentSharedDevice : undefined,
+            });
+
+            login(
+                {
+                    id: member.id,
+                    name: member.name,
+                    role: member.role || 'child',
+                    photoUrls: member.photoUrls || null,
+                },
+                rememberMe
+            );
+            toast({ title: `Welcome back, ${member.name}!` });
+            onClose();
         } catch (error) {
             console.error('Login error', error);
-            toast({ title: 'Error logging in', variant: 'destructive' });
+            toast({
+                title: 'Error logging in',
+                description: error instanceof Error ? error.message : 'Please try again.',
+                variant: 'destructive',
+            });
+            setPin('');
         } finally {
             setIsVerifying(false);
         }
     };
-
-    const selectedMemberData = familyMembers.find((m: any) => m.id === selectedMemberId);
-    const isParentSelection = selectedMemberData?.role === 'parent';
-    const parentPinCanBeSkipped = Boolean(isParentSelection && canUseCachedParentPrincipal);
-    const loginButtonDisabled = isVerifying || (!pin && !parentPinCanBeSkipped);
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -221,36 +177,55 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                     </DialogDescription>
                 </DialogHeader>
 
-                {isLoading ? (
+                {isLoadingMembers ? (
                     <div className="flex justify-center p-8">
                         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                ) : membersError ? (
+                    <div className="space-y-4 py-4">
+                        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{membersError}</p>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setMembersError('');
+                                setIsLoadingMembers(true);
+                                void fetchFamilyMemberRoster()
+                                    .then((members) => setFamilyMembers(members))
+                                    .catch((error) => setMembersError(error instanceof Error ? error.message : 'Failed to load family members'))
+                                    .finally(() => setIsLoadingMembers(false));
+                            }}
+                        >
+                            Retry
+                        </Button>
                     </div>
                 ) : (
                     <div className="py-4">
                         {!selectedMemberId ? (
-                            // Grid of avatars
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                                {familyMembers.map((member: any) => (
+                            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                                {familyMembers.map((member) => (
                                     <button
                                         key={member.id}
                                         onClick={() => handleMemberSelect(member.id)}
-                                        className="flex flex-col items-center p-4 rounded-lg hover:bg-muted/50 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                                        className="flex flex-col items-center rounded-lg p-4 transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary"
                                     >
-                                        <Avatar className="h-20 w-20 mb-2 border-2 border-transparent hover:border-primary">
+                                        <Avatar className="mb-2 h-20 w-20 border-2 border-transparent hover:border-primary">
                                             <AvatarImage src={getPhotoUrl(member.photoUrls, '320')} />
                                             <AvatarFallback className="text-xl">{member.name.charAt(0)}</AvatarFallback>
                                         </Avatar>
-                                        <span className="text-sm font-medium text-center">{member.name}</span>
+                                        <span className="text-center text-sm font-medium">{member.name}</span>
+                                        <span className="mt-1 text-center text-xs text-muted-foreground">
+                                            {member.role === 'parent' ? 'Parent' : member.hasPin ? 'PIN required' : 'Tap to enter'}
+                                        </span>
                                     </button>
                                 ))}
                             </div>
                         ) : (
-                            // PIN Entry
                             <div className="space-y-4">
-                                <div className="flex justify-center mb-4">
+                                <div className="mb-4 flex justify-center">
                                     <Avatar className="h-24 w-24">
                                         <AvatarImage src={getPhotoUrl(selectedMemberData?.photoUrls, '320')} />
-                                        <AvatarFallback className="text-2xl">{selectedMemberData?.name.charAt(0)}</AvatarFallback>
+                                        <AvatarFallback className="text-2xl">{selectedMemberData?.name?.charAt(0)}</AvatarFallback>
                                     </Avatar>
                                 </div>
 
@@ -258,52 +233,59 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                                     <div className="flex justify-center">
                                         <Input
                                             type="password"
-                                            value={pin}
-                                            onChange={(e) => setPin(e.target.value)}
-                                            className="text-center text-2xl tracking-widest w-40"
-                                            maxLength={6}
-                                            placeholder={parentPinCanBeSkipped ? 'PIN (optional)' : 'PIN'}
-                                            autoFocus
                                             inputMode="numeric"
-                                            pattern="[0-9]*"
+                                            autoFocus
+                                            placeholder={parentPinCanBeSkipped ? 'PIN optional on this device' : 'Enter PIN'}
+                                            value={pin}
+                                            onChange={(event) => setPin(event.target.value)}
+                                            disabled={isVerifying}
+                                            className="max-w-[220px] text-center text-lg tracking-[0.4em]"
                                         />
                                     </div>
 
-                                    <div className="flex items-center justify-center space-x-2">
-                                        <Checkbox id="remember" checked={rememberMe} onCheckedChange={(checked) => setRememberMe(checked as boolean)} />
-                                        <Label
-                                            htmlFor="remember"
-                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                        >
-                                            Remember me on this device
-                                        </Label>
-                                    </div>
-
-                                    {isParentSelection && (
-                                        <div className="flex items-start justify-center space-x-2 px-4">
+                                    {isParentSelection ? (
+                                        <div className="flex items-start justify-center gap-3 rounded-xl border bg-slate-50 px-4 py-3">
                                             <Checkbox
-                                                id="parent-shared-device"
+                                                id="shared-device"
                                                 checked={parentSharedDevice}
-                                                onCheckedChange={(checked) => setParentSharedDevice(checked as boolean)}
+                                                onCheckedChange={(checked) => setParentSharedDevice(Boolean(checked))}
                                             />
                                             <div className="space-y-1">
-                                                <Label htmlFor="parent-shared-device" className="text-sm font-medium leading-none">
-                                                    This is a shared device
+                                                <Label htmlFor="shared-device" className="font-semibold">
+                                                    Shared device mode
                                                 </Label>
                                                 <p className="text-xs text-muted-foreground">
-                                                    Parent mode auto-expires after 15 minutes of inactivity and when switching to a kid account.
+                                                    Parent access auto-locks after inactivity when enabled.
                                                 </p>
                                             </div>
                                         </div>
-                                    )}
+                                    ) : null}
 
-                                    <div className="flex justify-between items-center px-4">
-                                        <Button type="button" variant="ghost" onClick={() => setSelectedMemberId(null)}>
-                                            <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <Checkbox
+                                                id="remember-me"
+                                                checked={rememberMe}
+                                                onCheckedChange={(checked) => setRememberMe(Boolean(checked))}
+                                            />
+                                            <Label htmlFor="remember-me">Remember me on this browser</Label>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-between gap-3">
+                                        <Button type="button" variant="ghost" onClick={() => setSelectedMemberId(null)} disabled={isVerifying}>
+                                            <ArrowLeft className="mr-2 h-4 w-4" />
+                                            Back
                                         </Button>
                                         <Button type="submit" disabled={loginButtonDisabled}>
-                                            {isVerifying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            Log In
+                                            {isVerifying ? (
+                                                <>
+                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    Signing in...
+                                                </>
+                                            ) : (
+                                                'Continue'
+                                            )}
                                         </Button>
                                     </div>
                                 </form>

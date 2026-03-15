@@ -3,19 +3,32 @@
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '@/lib/db';
 import {
+    clearCachedMemberId,
+    clearCachedMemberToken,
+    clearParentLastActivityAt,
+    clearParentSharedDeviceMode,
     DEFAULT_PARENT_SHARED_DEVICE,
-    getCachedToken,
+    getCachedMemberToken,
     getParentSharedDeviceIdleTimeoutMs,
     getParentSharedDeviceMode,
     getParentUnlocked,
-    getPreferredPrincipal,
     isBrowser,
+    setCachedMemberId,
+    setCachedMemberToken,
+    setParentLastActivityAt,
+    setParentSharedDeviceMode,
+    setParentUnlocked,
 } from '@/lib/instant-principal-storage';
 import type { ElevateParentParams, InstantPrincipalType } from '@/lib/instant-principal-types';
 import { useParentSharedDeviceTimeout } from '@/components/auth/useParentSharedDeviceTimeout';
-import { useInstantPrincipalSwitching } from '@/components/auth/useInstantPrincipalSwitching';
 
 type BootstrapStatus = 'checking' | 'signing-in' | 'ready' | 'degraded';
+
+type SignInFamilyMemberParams = {
+    familyMemberId: string;
+    pin?: string;
+    sharedDevice?: boolean;
+};
 
 type InstantPrincipalContextValue = {
     principalType: InstantPrincipalType;
@@ -25,9 +38,51 @@ type InstantPrincipalContextValue = {
     parentSharedDeviceIdleTimeoutMs: number;
     ensureKidPrincipal: (opts?: { clearParentSession?: boolean }) => Promise<void>;
     elevateParentPrincipal: (params: ElevateParentParams) => Promise<void>;
+    signInFamilyMember: (params: SignInFamilyMemberParams) => Promise<void>;
 };
 
 const InstantPrincipalContext = createContext<InstantPrincipalContextValue | undefined>(undefined);
+
+async function fetchMemberToken(params: SignInFamilyMemberParams) {
+    const response = await fetch('/api/instant-auth-token', {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            familyMemberId: params.familyMemberId,
+            pin: params.pin || '',
+        }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(payload?.error || `Token endpoint failed with ${response.status}`);
+        (error as any).status = response.status;
+        throw error;
+    }
+
+    if (!payload?.token || typeof payload.token !== 'string') {
+        throw new Error('Token endpoint returned an invalid response');
+    }
+
+    return payload as {
+        token: string;
+        principalType: InstantPrincipalType;
+        familyMemberId: string;
+        familyMemberRole?: string;
+    };
+}
+
+async function clearCurrentSession() {
+    clearCachedMemberToken();
+    clearCachedMemberId();
+    setParentUnlocked(false);
+    clearParentLastActivityAt();
+    await db.auth.signOut().catch(() => {});
+}
 
 export function InstantFamilySessionProvider({ children }: { children: ReactNode }) {
     const { isLoading, user, error } = db.useAuth();
@@ -36,17 +91,92 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
     const [isSwitchingPrincipal, setIsSwitchingPrincipal] = useState(false);
     const [parentUnlocked, setParentUnlockedState] = useState(false);
     const [isParentSessionSharedDevice, setIsParentSessionSharedDevice] = useState(DEFAULT_PARENT_SHARED_DEVICE);
-    const bootstrapStartedRef = useRef(false);
+    const bootstrapAttemptedRef = useRef(false);
     const parentSharedDeviceIdleTimeoutMs = getParentSharedDeviceIdleTimeoutMs();
 
-    const { clearParentSessionState, ensureKidPrincipal, elevateParentPrincipal, signInWithToken } = useInstantPrincipalSwitching({
-        user,
-        principalType,
-        setPrincipalType,
-        setIsSwitchingPrincipal,
-        setParentUnlockedState,
-        setIsParentSessionSharedDeviceState: setIsParentSessionSharedDevice,
-    });
+    const syncPrincipalFromUser = useCallback(
+        (nextUser: any | null | undefined) => {
+            if (!nextUser) {
+                setPrincipalType('unknown');
+                setParentUnlockedState(false);
+                return;
+            }
+
+            const nextPrincipalType = (nextUser as any).type === 'parent' ? 'parent' : 'kid';
+            setPrincipalType(nextPrincipalType);
+            if (typeof nextUser.familyMemberId === 'string' && nextUser.familyMemberId) {
+                setCachedMemberId(nextUser.familyMemberId);
+            }
+
+            const unlocked = nextPrincipalType === 'parent' ? getParentUnlocked() || true : false;
+            setParentUnlockedState(unlocked);
+            setParentUnlocked(unlocked);
+        },
+        []
+    );
+
+    const signInFamilyMember = useCallback(async (params: SignInFamilyMemberParams) => {
+        setIsSwitchingPrincipal(true);
+        setStatus('signing-in');
+        try {
+            const payload = await fetchMemberToken(params);
+            await db.auth.signInWithToken(payload.token);
+            setCachedMemberToken(payload.token);
+            setCachedMemberId(payload.familyMemberId);
+
+            const nextPrincipalType = payload.principalType === 'parent' ? 'parent' : 'kid';
+            const nextSharedDevice = typeof params.sharedDevice === 'boolean' ? params.sharedDevice : getParentSharedDeviceMode();
+            setIsParentSessionSharedDevice(nextSharedDevice);
+            setParentSharedDeviceMode(nextSharedDevice);
+
+            if (nextPrincipalType === 'parent') {
+                setParentUnlocked(true);
+                setParentUnlockedState(true);
+                setParentLastActivityAt(Date.now());
+            } else {
+                setParentUnlocked(false);
+                setParentUnlockedState(false);
+                clearParentLastActivityAt();
+            }
+
+            setPrincipalType(nextPrincipalType);
+            setStatus('ready');
+        } catch (tokenError) {
+            setStatus('degraded');
+            throw tokenError;
+        } finally {
+            setIsSwitchingPrincipal(false);
+        }
+    }, []);
+
+    const ensureKidPrincipal = useCallback(async (opts?: { clearParentSession?: boolean }) => {
+        if (!opts?.clearParentSession && (user as any)?.type === 'kid') {
+            setPrincipalType('kid');
+            return;
+        }
+
+        setIsSwitchingPrincipal(true);
+        try {
+            await clearCurrentSession();
+            setPrincipalType('unknown');
+            setParentUnlockedState(false);
+            setStatus('ready');
+            if (opts?.clearParentSession) {
+                clearParentSharedDeviceMode();
+                setIsParentSessionSharedDevice(DEFAULT_PARENT_SHARED_DEVICE);
+            }
+        } finally {
+            setIsSwitchingPrincipal(false);
+        }
+    }, [user]);
+
+    const elevateParentPrincipal = useCallback(async (params: ElevateParentParams) => {
+        await signInFamilyMember({
+            familyMemberId: params.familyMemberId,
+            pin: params.pin,
+            sharedDevice: params.sharedDevice,
+        });
+    }, [signInFamilyMember]);
 
     useEffect(() => {
         if (!isBrowser()) return;
@@ -60,68 +190,53 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
         }
 
         if (user) {
-            if (principalType === 'unknown') {
-                const preferred = getPreferredPrincipal();
-                setPrincipalType(preferred === 'unknown' ? 'kid' : preferred);
-            }
+            syncPrincipalFromUser(user as any);
             setStatus('ready');
             return;
         }
 
-        if (bootstrapStartedRef.current) {
-            void ensureKidPrincipal({ preferCached: true }).catch((tokenError) => {
-                console.error('Failed to restore kid Instant session', tokenError);
-                setStatus('degraded');
-            });
+        if (bootstrapAttemptedRef.current) {
+            setStatus('ready');
             return;
         }
 
-        bootstrapStartedRef.current = true;
+        bootstrapAttemptedRef.current = true;
+        const cachedToken = getCachedMemberToken();
+        if (!cachedToken) {
+            setStatus('ready');
+            return;
+        }
+
         let cancelled = false;
 
-        const bootstrap = async () => {
+        const restore = async () => {
             setStatus('signing-in');
-
             try {
-                const preferred = getPreferredPrincipal();
-                const canReuseParent = preferred === 'parent' && getParentUnlocked() && !!getCachedToken('parent');
-
-                if (canReuseParent) {
-                    const parentToken = getCachedToken('parent');
-                    if (parentToken) {
-                        try {
-                            await signInWithToken('parent', parentToken, { unlockParent: true });
-                            if (!cancelled) setStatus('ready');
-                            return;
-                        } catch (restoreError) {
-                            console.warn('Cached parent session restore failed; using kid principal.', restoreError);
-                            clearParentSessionState();
-                            setIsParentSessionSharedDevice(getParentSharedDeviceMode());
-                        }
-                    }
-                }
-
-                await ensureKidPrincipal({ preferCached: true });
+                await db.auth.signInWithToken(cachedToken);
                 if (!cancelled) {
                     setStatus('ready');
                 }
-            } catch (tokenError) {
-                console.error('Failed to bootstrap Instant session', tokenError);
+            } catch (restoreError) {
+                console.warn('Cached member Instant token failed; clearing cached session.', restoreError);
+                clearCachedMemberToken();
+                clearCachedMemberId();
+                setParentUnlocked(false);
                 if (!cancelled) {
-                    setStatus('degraded');
+                    setParentUnlockedState(false);
+                    setPrincipalType('unknown');
+                    setStatus('ready');
                 }
             }
         };
 
-        void bootstrap();
+        void restore();
 
         return () => {
             cancelled = true;
         };
-    }, [clearParentSessionState, ensureKidPrincipal, isLoading, principalType, signInWithToken, user]);
+    }, [isLoading, syncPrincipalFromUser, user]);
 
     const expireParentSharedDeviceMode = useCallback(() => {
-        console.log('Parent mode expired on shared device due to inactivity.');
         void ensureKidPrincipal({ clearParentSession: true }).catch((timeoutError) => {
             console.error('Failed to expire parent shared-device mode', timeoutError);
         });
@@ -139,20 +254,22 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
         () => ({
             principalType,
             isSwitchingPrincipal,
-            canUseCachedParentPrincipal: parentUnlocked && !!getCachedToken('parent'),
+            canUseCachedParentPrincipal: principalType === 'parent' && parentUnlocked && Boolean(getCachedMemberToken()),
             isParentSessionSharedDevice,
             parentSharedDeviceIdleTimeoutMs,
             ensureKidPrincipal,
             elevateParentPrincipal,
+            signInFamilyMember,
         }),
         [
-            principalType,
-            isSwitchingPrincipal,
-            parentUnlocked,
-            isParentSessionSharedDevice,
-            parentSharedDeviceIdleTimeoutMs,
-            ensureKidPrincipal,
             elevateParentPrincipal,
+            ensureKidPrincipal,
+            isParentSessionSharedDevice,
+            isSwitchingPrincipal,
+            parentSharedDeviceIdleTimeoutMs,
+            parentUnlocked,
+            principalType,
+            signInFamilyMember,
         ]
     );
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
-import { getFamilyMemberById, hashPinServer, isInstantFamilyAuthConfigured, mintPrincipalToken } from '@/lib/instant-admin';
+import { getFamilyMemberById, isInstantFamilyAuthConfigured, mintFamilyMemberToken, verifyFamilyMemberCredentials } from '@/lib/instant-admin';
 import {
     checkParentElevationRateLimit,
     clearParentElevationRateLimit,
@@ -69,31 +69,24 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Selected member is not a parent' }, { status: 403 });
     }
 
-    const providedPin = typeof body.pin === 'string' ? body.pin : '';
-    if (member.pinHash) {
-        if (!providedPin) {
-            recordParentElevationFailure(rateLimitKey);
-            return NextResponse.json({ error: 'PIN is required' }, { status: 400 });
-        }
-
-        if (hashPinServer(providedPin) !== member.pinHash) {
-            recordParentElevationFailure(rateLimitKey);
-            return NextResponse.json({ error: 'Incorrect PIN' }, { status: 403 });
-        }
-    }
-
     try {
-        const token = await mintPrincipalToken('parent');
+        await verifyFamilyMemberCredentials(body.familyMemberId, body.pin);
+        const session = await mintFamilyMemberToken(body.familyMemberId);
         clearParentElevationRateLimit(rateLimitKey);
         return NextResponse.json(
             {
-                token,
-                principalType: 'parent',
+                token: session.token,
+                principalType: session.principalType,
+                familyMemberId: session.member.id,
+                familyMemberRole: session.member.role || 'parent',
             },
             { headers: { 'Cache-Control': 'no-store' } }
         );
     } catch (error) {
-        console.error('Failed to mint parent Instant auth token', error);
-        return NextResponse.json({ error: 'Failed to create parent auth token' }, { status: 500 });
+        recordParentElevationFailure(rateLimitKey);
+        const message = error instanceof Error ? error.message : 'Failed to create parent auth token';
+        const status =
+            message === 'Family member not found' ? 404 : message === 'Incorrect PIN' ? 403 : message === 'PIN is required' ? 400 : 500;
+        return NextResponse.json({ error: message }, { status });
     }
 }

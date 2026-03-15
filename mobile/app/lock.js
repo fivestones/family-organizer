@@ -13,7 +13,7 @@ import { ScreenScaffold, PlaceholderCard } from '../src/components/ScreenScaffol
 import { AvatarPhotoImage } from '../src/components/AvatarPhotoImage';
 import { radii, spacing, withAlpha } from '../src/theme/tokens';
 import { useAppSession } from '../src/providers/AppProviders';
-import { hashPinClient } from '../src/lib/pin-hash';
+import { getFamilyMembersRoster } from '../src/lib/api-client';
 import { clearPendingParentAction, getPendingParentAction } from '../src/lib/session-prefs';
 import { useAppTheme } from '../src/theme/ThemeProvider';
 import { useBootstrap } from './_layout';
@@ -36,6 +36,12 @@ function automationMemberKey(member) {
     .replace(/^-+|-+$/g, '');
 }
 
+function deviceCanLoadRoster(instantReady, bootstrapStatus, isAuthenticated) {
+  if (isAuthenticated) return false;
+  if (!instantReady) return false;
+  return bootstrapStatus !== 'signing_in';
+}
+
 export default function LockScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -43,9 +49,6 @@ export default function LockScreen() {
   const {
     activationRequired,
     isAuthenticated,
-    familyMembers,
-    familyMembersLoading,
-    familyMembersError,
     instantReady,
     bootstrapStatus,
     bootstrapError,
@@ -54,10 +57,12 @@ export default function LockScreen() {
     canUseCachedParentPrincipal,
     isParentSessionSharedDevice,
     isOnline,
-    ensureKidPrincipal,
-    elevateParentPrincipal,
+    signInFamilyMember,
     login,
   } = useAppSession();
+  const [familyMembers, setFamilyMembers] = useState([]);
+  const [familyMembersLoading, setFamilyMembersLoading] = useState(false);
+  const [familyMembersError, setFamilyMembersError] = useState(null);
 
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [pin, setPin] = useState('');
@@ -78,7 +83,7 @@ export default function LockScreen() {
   const parentPinCanBeSkipped =
     isParentSelection && canUseCachedParentPrincipal && principalType === 'parent';
   const isDetailMode = !!selectedMember;
-  const pinEntryRequired = isParentSelection || Boolean(selectedMember?.pinHash);
+  const pinEntryRequired = isParentSelection || Boolean(selectedMember?.hasPin);
   const pinSlots = Math.max(4, Math.min(MAX_PIN_LENGTH, Math.max(pin.length, 4)));
 
   const focusHardwarePinInput = useCallback(() => {
@@ -102,6 +107,38 @@ export default function LockScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (activationRequired || !deviceCanLoadRoster(instantReady, bootstrapStatus, isAuthenticated)) {
+      return;
+    }
+
+    let cancelled = false;
+    setFamilyMembersLoading(true);
+    setFamilyMembersError(null);
+
+    void getFamilyMembersRoster()
+      .then((payload) => {
+        if (!cancelled) {
+          setFamilyMembers(Array.isArray(payload?.familyMembers) ? payload.familyMembers : []);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setFamilyMembersError(error);
+          setFamilyMembers([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setFamilyMembersLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activationRequired, bootstrapStatus, instantReady, isAuthenticated]);
 
   const pendingRedirect = activationRequired
     ? '/activate'
@@ -267,7 +304,7 @@ export default function LockScreen() {
           throw new Error('Parent mode requires internet access');
         }
 
-        await elevateParentPrincipal({
+        await signInFamilyMember({
           familyMemberId: selectedMember.id,
           pin: pin.trim(),
           sharedDevice: parentSharedDevice,
@@ -287,22 +324,10 @@ export default function LockScreen() {
         return;
       }
 
-      // The lock screen itself is loaded using the kid principal in normal flows, so
-      // avoid an unnecessary principal re-sign-in unless we need to demote from parent
-      // (or recover from an unknown principal state).
-      if (principalType !== 'kid') {
-        await ensureKidPrincipal({ clearParentSession: true });
-      }
-
-      if (selectedMember.pinHash) {
-        if (!pin.trim()) {
-          throw new Error('PIN is required');
-        }
-        const hashedInput = await hashPinClient(pin.trim());
-        if (hashedInput !== selectedMember.pinHash) {
-          throw new Error('Incorrect PIN');
-        }
-      }
+      await signInFamilyMember({
+        familyMemberId: selectedMember.id,
+        pin: pin.trim(),
+      });
 
       await login(selectedMember);
       setRedirectTarget('/dashboard');
@@ -337,7 +362,7 @@ export default function LockScreen() {
       : 'Connecting to family data…'
     : isParentSelection
     ? 'Enter parent PIN to unlock parent mode on this shared device.'
-    : selectedMember.pinHash
+    : selectedMember.hasPin
     ? 'Enter PIN to continue.'
     : 'No PIN set for this member.';
 
@@ -459,7 +484,7 @@ export default function LockScreen() {
                           />
                           <Text style={styles.memberName}>{member.name}</Text>
                           <Text style={styles.memberSub}>
-                            {isParent ? 'Parent (elevation required)' : member.pinHash ? 'PIN required' : 'Tap to enter'}
+                            {isParent ? 'Parent (elevation required)' : member.hasPin ? 'PIN required' : 'Tap to enter'}
                           </Text>
                         </Pressable>
                       );
@@ -550,7 +575,7 @@ export default function LockScreen() {
                             ? parentPinCanBeSkipped
                               ? 'PIN (optional)'
                               : 'Parent PIN'
-                            : selectedMember.pinHash
+                            : selectedMember.hasPin
                             ? 'PIN'
                             : 'No PIN required'}
                         </Text>
@@ -562,7 +587,7 @@ export default function LockScreen() {
                               ? parentPinCanBeSkipped
                                 ? 'Parent PIN optional'
                                 : 'Parent PIN'
-                              : selectedMember.pinHash
+                              : selectedMember.hasPin
                               ? 'PIN'
                               : 'No PIN required'
                           }
@@ -678,7 +703,7 @@ export default function LockScreen() {
                           accessibilityLabel={
                             submitting
                               ? 'Working'
-                              : selectedMember.pinHash || isParentSelection
+                              : selectedMember.hasPin || isParentSelection
                               ? 'Unlock'
                               : 'Continue'
                           }
@@ -696,7 +721,7 @@ export default function LockScreen() {
                           <Text style={styles.buttonText}>
                             {submitting
                               ? 'Working…'
-                              : selectedMember.pinHash || isParentSelection
+                              : selectedMember.hasPin || isParentSelection
                               ? 'Unlock'
                               : 'Continue'}
                           </Text>

@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const DEVICE_SESSION_TOKEN_KEY = 'familyOrganizer.deviceSessionToken';
 const KID_PRINCIPAL_TOKEN_KEY = 'familyOrganizer.kidPrincipalToken';
 const PARENT_PRINCIPAL_TOKEN_KEY = 'familyOrganizer.parentPrincipalToken';
+const ACTIVE_MEMBER_PRINCIPAL_TOKEN_KEY = 'familyOrganizer.memberPrincipalToken';
 const FALLBACK_PREFIX = 'familyOrganizer.secureFallback.';
 
 function fallbackKey(key) {
@@ -99,15 +100,28 @@ export async function getParentPrincipalToken() {
 }
 
 export async function setParentPrincipalToken(token) {
+    if (!token) {
+        await secureDelete(PARENT_PRINCIPAL_TOKEN_KEY);
+        return;
+  }
+    await secureSet(PARENT_PRINCIPAL_TOKEN_KEY, token);
+}
+
+export async function getActiveMemberPrincipalToken() {
+  return secureGet(ACTIVE_MEMBER_PRINCIPAL_TOKEN_KEY);
+}
+
+export async function setActiveMemberPrincipalToken(token) {
   if (!token) {
-    await secureDelete(PARENT_PRINCIPAL_TOKEN_KEY);
+    await secureDelete(ACTIVE_MEMBER_PRINCIPAL_TOKEN_KEY);
     return;
   }
-  await secureSet(PARENT_PRINCIPAL_TOKEN_KEY, token);
+  await secureSet(ACTIVE_MEMBER_PRINCIPAL_TOKEN_KEY, token);
 }
 
 export async function clearPrincipalTokens() {
   await Promise.all([
+    secureDelete(ACTIVE_MEMBER_PRINCIPAL_TOKEN_KEY),
     secureDelete(KID_PRINCIPAL_TOKEN_KEY),
     secureDelete(PARENT_PRINCIPAL_TOKEN_KEY),
   ]);

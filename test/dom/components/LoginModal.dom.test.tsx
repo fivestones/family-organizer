@@ -1,27 +1,17 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-    dbUseQuery: vi.fn(),
     authLogin: vi.fn(),
-    ensureKidPrincipal: vi.fn(),
-    elevateParentPrincipal: vi.fn(),
+    signInFamilyMember: vi.fn(),
     toast: vi.fn(),
-    hashPinClient: vi.fn(),
-    hashPinServer: vi.fn(),
     instantPrincipalState: {
         canUseCachedParentPrincipal: false,
         isParentSessionSharedDevice: true,
-    },
-}));
-
-vi.mock('@/lib/db', () => ({
-    db: {
-        useQuery: mocks.dbUseQuery,
     },
 }));
 
@@ -33,8 +23,7 @@ vi.mock('@/components/AuthProvider', () => ({
 
 vi.mock('@/components/InstantFamilySessionProvider', () => ({
     useInstantPrincipal: () => ({
-        ensureKidPrincipal: mocks.ensureKidPrincipal,
-        elevateParentPrincipal: mocks.elevateParentPrincipal,
+        signInFamilyMember: mocks.signInFamilyMember,
         canUseCachedParentPrincipal: mocks.instantPrincipalState.canUseCachedParentPrincipal,
         isParentSessionSharedDevice: mocks.instantPrincipalState.isParentSessionSharedDevice,
     }),
@@ -44,14 +33,6 @@ vi.mock('@/components/ui/use-toast', () => ({
     useToast: () => ({
         toast: mocks.toast,
     }),
-}));
-
-vi.mock('@/lib/pin-client', () => ({
-    hashPinClient: mocks.hashPinClient,
-}));
-
-vi.mock('@/app/actions', () => ({
-    hashPin: mocks.hashPinServer,
 }));
 
 vi.mock('@/components/ui/dialog', () => ({
@@ -68,7 +49,7 @@ vi.mock('@/components/ui/checkbox', () => ({
             id={id}
             type="checkbox"
             checked={Boolean(checked)}
-            onChange={(e) => onCheckedChange?.(e.target.checked)}
+            onChange={(event) => onCheckedChange?.(event.target.checked)}
         />
     ),
 }));
@@ -79,31 +60,32 @@ type FamilyMember = {
     id: string;
     name: string;
     role: 'parent' | 'child';
-    pinHash?: string | null;
+    hasPin?: boolean;
     photoUrls?: Record<string, string>;
 };
+
+async function flushRoster(members: FamilyMember[]) {
+    vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ familyMembers: members }),
+        })
+    );
+}
 
 function renderLoginModal(options?: {
     members?: FamilyMember[];
     canUseCachedParentPrincipal?: boolean;
     isParentSessionSharedDevice?: boolean;
-    isLoading?: boolean;
 }) {
     const members = options?.members ?? [];
-    const canUseCachedParentPrincipal = options?.canUseCachedParentPrincipal ?? false;
-    const isParentSessionSharedDevice = options?.isParentSessionSharedDevice ?? true;
-    const isLoading = options?.isLoading ?? false;
-
-    mocks.dbUseQuery.mockReturnValue({
-        data: { familyMembers: members },
-        isLoading,
-    });
-    mocks.instantPrincipalState.canUseCachedParentPrincipal = canUseCachedParentPrincipal;
-    mocks.instantPrincipalState.isParentSessionSharedDevice = isParentSessionSharedDevice;
+    mocks.instantPrincipalState.canUseCachedParentPrincipal = options?.canUseCachedParentPrincipal ?? false;
+    mocks.instantPrincipalState.isParentSessionSharedDevice = options?.isParentSessionSharedDevice ?? true;
 
     const onClose = vi.fn();
     render(<LoginModal isOpen onClose={onClose} />);
-    return { onClose };
+    return { onClose, members };
 }
 
 function setNavigatorOnline(value: boolean) {
@@ -115,55 +97,48 @@ function setNavigatorOnline(value: boolean) {
 
 describe('LoginModal', () => {
     beforeEach(() => {
-        mocks.dbUseQuery.mockReset();
         mocks.authLogin.mockReset();
-        mocks.ensureKidPrincipal.mockReset();
-        mocks.elevateParentPrincipal.mockReset();
+        mocks.signInFamilyMember.mockReset();
         mocks.toast.mockReset();
-        mocks.hashPinClient.mockReset();
-        mocks.hashPinServer.mockReset();
-
-        mocks.ensureKidPrincipal.mockResolvedValue(undefined);
-        mocks.elevateParentPrincipal.mockResolvedValue(undefined);
-        mocks.hashPinClient.mockResolvedValue('hashed-0000');
-        mocks.hashPinServer.mockResolvedValue('server-hashed-0000');
+        mocks.signInFamilyMember.mockResolvedValue(undefined);
         mocks.instantPrincipalState.canUseCachedParentPrincipal = false;
         mocks.instantPrincipalState.isParentSessionSharedDevice = true;
-
         setNavigatorOnline(true);
         document.body.style.pointerEvents = '';
     });
 
     it('renders family member selection and shows parent-specific controls after selecting a parent', async () => {
-        renderLoginModal({
-            members: [
-                { id: 'c1', name: 'Ava', role: 'child', pinHash: 'h1' },
-                { id: 'p1', name: 'Pat', role: 'parent', pinHash: 'h2' },
-            ],
-        });
+        await flushRoster([
+            { id: 'c1', name: 'Ava', role: 'child', hasPin: true },
+            { id: 'p1', name: 'Pat', role: 'parent', hasPin: true },
+        ]);
+        renderLoginModal();
         const user = userEvent.setup();
 
         expect(screen.getByText('Who are you?')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByRole('button', { name: /pat/i })).toBeInTheDocument());
         await user.click(screen.getByRole('button', { name: /pat/i }));
 
         expect(screen.getByText(/welcome, pat/i)).toBeInTheDocument();
-        expect(screen.getByLabelText(/this is a shared device/i)).toBeInTheDocument();
-        expect(screen.getByPlaceholderText('PIN')).toBeInTheDocument();
+        expect(screen.getByLabelText(/shared device/i)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('Enter PIN')).toBeInTheDocument();
     });
 
-    it('logs in a child after client-side PIN verification and closes the modal', async () => {
-        mocks.hashPinClient.mockResolvedValue('child-hash');
-        const { onClose } = renderLoginModal({
-            members: [{ id: 'c1', name: 'Ava', role: 'child', pinHash: 'child-hash' }],
-        });
+    it('logs in a child after server-side sign-in verification and closes the modal', async () => {
+        await flushRoster([{ id: 'c1', name: 'Ava', role: 'child', hasPin: true }]);
+        const { onClose } = renderLoginModal();
         const user = userEvent.setup();
 
+        await waitFor(() => expect(screen.getByRole('button', { name: /ava/i })).toBeInTheDocument());
         await user.click(screen.getByRole('button', { name: /ava/i }));
-        await user.type(screen.getByPlaceholderText('PIN'), '1234');
-        await user.click(screen.getByRole('button', { name: /^log in$/i }));
+        await user.type(screen.getByPlaceholderText('Enter PIN'), '1234');
+        await user.click(screen.getByRole('button', { name: /continue/i }));
 
-        expect(mocks.ensureKidPrincipal).toHaveBeenCalledWith({ clearParentSession: true });
-        expect(mocks.hashPinClient).toHaveBeenCalledWith('1234');
+        expect(mocks.signInFamilyMember).toHaveBeenCalledWith({
+            familyMemberId: 'c1',
+            pin: '1234',
+            sharedDevice: undefined,
+        });
         expect(mocks.authLogin).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'c1', name: 'Ava', role: 'child' }),
             false
@@ -172,39 +147,20 @@ describe('LoginModal', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to server PIN hashing for child login when local hashing is unavailable', async () => {
-        mocks.hashPinClient.mockRejectedValue(new Error('webcrypto unavailable'));
-        mocks.hashPinServer.mockResolvedValue('child-hash');
-
-        const { onClose } = renderLoginModal({
-            members: [{ id: 'c1', name: 'Ava', role: 'child', pinHash: 'child-hash' }],
-        });
-        const user = userEvent.setup();
-
-        await user.click(screen.getByRole('button', { name: /ava/i }));
-        await user.type(screen.getByPlaceholderText('PIN'), '5678');
-        await user.click(screen.getByRole('button', { name: /^log in$/i }));
-
-        expect(mocks.hashPinClient).toHaveBeenCalledWith('5678');
-        expect(mocks.hashPinServer).toHaveBeenCalledWith('5678');
-        expect(mocks.authLogin).toHaveBeenCalledTimes(1);
-        expect(onClose).toHaveBeenCalledTimes(1);
-    });
-
-    it('shows an offline error instead of attempting parent elevation when a fresh parent PIN check is required', async () => {
+    it('shows an offline error instead of attempting parent sign-in when a fresh parent PIN check is required', async () => {
         setNavigatorOnline(false);
-
+        await flushRoster([{ id: 'p1', name: 'Pat', role: 'parent', hasPin: true }]);
         renderLoginModal({
-            members: [{ id: 'p1', name: 'Pat', role: 'parent', pinHash: 'parent-hash' }],
             canUseCachedParentPrincipal: false,
         });
         const user = userEvent.setup();
 
+        await waitFor(() => expect(screen.getByRole('button', { name: /pat/i })).toBeInTheDocument());
         await user.click(screen.getByRole('button', { name: /pat/i }));
-        await user.type(screen.getByPlaceholderText('PIN'), '9999');
-        await user.click(screen.getByRole('button', { name: /^log in$/i }));
+        await user.type(screen.getByPlaceholderText('Enter PIN'), '9999');
+        await user.click(screen.getByRole('button', { name: /continue/i }));
 
-        expect(mocks.elevateParentPrincipal).not.toHaveBeenCalled();
+        expect(mocks.signInFamilyMember).not.toHaveBeenCalled();
         expect(mocks.toast).toHaveBeenCalledWith(
             expect.objectContaining({
                 title: 'Internet required for parent mode',
@@ -214,17 +170,18 @@ describe('LoginModal', () => {
     });
 
     it('allows parent login without PIN when cached parent principal can be reused', async () => {
+        await flushRoster([{ id: 'p1', name: 'Pat', role: 'parent', hasPin: true }]);
         const { onClose } = renderLoginModal({
-            members: [{ id: 'p1', name: 'Pat', role: 'parent', pinHash: 'parent-hash' }],
             canUseCachedParentPrincipal: true,
         });
         const user = userEvent.setup();
 
+        await waitFor(() => expect(screen.getByRole('button', { name: /pat/i })).toBeInTheDocument());
         await user.click(screen.getByRole('button', { name: /pat/i }));
-        expect(screen.getByPlaceholderText('PIN (optional)')).toBeInTheDocument();
-        await user.click(screen.getByRole('button', { name: /^log in$/i }));
+        expect(screen.getByPlaceholderText('PIN optional on this device')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: /continue/i }));
 
-        expect(mocks.elevateParentPrincipal).toHaveBeenCalledWith({
+        expect(mocks.signInFamilyMember).toHaveBeenCalledWith({
             familyMemberId: 'p1',
             pin: '',
             sharedDevice: true,

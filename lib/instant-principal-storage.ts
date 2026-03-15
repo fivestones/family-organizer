@@ -2,6 +2,8 @@ export type CachedPrincipalType = 'kid' | 'parent';
 
 export const KID_TOKEN_CACHE_KEY = 'family_organizer_instant_kid_token';
 export const PARENT_TOKEN_CACHE_KEY = 'family_organizer_instant_parent_token';
+export const ACTIVE_MEMBER_TOKEN_CACHE_KEY = 'family_organizer_instant_member_token';
+export const ACTIVE_MEMBER_ID_CACHE_KEY = 'family_organizer_instant_member_id';
 export const PARENT_UNLOCKED_KEY = 'family_organizer_parent_principal_unlocked';
 export const PARENT_SHARED_DEVICE_KEY = 'family_organizer_parent_shared_device';
 export const PARENT_LAST_ACTIVITY_KEY = 'family_organizer_parent_last_activity_at';
@@ -27,6 +29,36 @@ export function setCachedToken(principalType: CachedPrincipalType, token: string
 export function clearCachedToken(principalType: CachedPrincipalType) {
     if (!isBrowser()) return;
     localStorage.removeItem(principalType === 'kid' ? KID_TOKEN_CACHE_KEY : PARENT_TOKEN_CACHE_KEY);
+}
+
+export function getCachedMemberToken() {
+    if (!isBrowser()) return null;
+    return localStorage.getItem(ACTIVE_MEMBER_TOKEN_CACHE_KEY);
+}
+
+export function setCachedMemberToken(token: string) {
+    if (!isBrowser()) return;
+    localStorage.setItem(ACTIVE_MEMBER_TOKEN_CACHE_KEY, token);
+}
+
+export function clearCachedMemberToken() {
+    if (!isBrowser()) return;
+    localStorage.removeItem(ACTIVE_MEMBER_TOKEN_CACHE_KEY);
+}
+
+export function getCachedMemberId() {
+    if (!isBrowser()) return null;
+    return localStorage.getItem(ACTIVE_MEMBER_ID_CACHE_KEY);
+}
+
+export function setCachedMemberId(memberId: string) {
+    if (!isBrowser()) return;
+    localStorage.setItem(ACTIVE_MEMBER_ID_CACHE_KEY, memberId);
+}
+
+export function clearCachedMemberId() {
+    if (!isBrowser()) return;
+    localStorage.removeItem(ACTIVE_MEMBER_ID_CACHE_KEY);
 }
 
 export function getParentUnlocked() {

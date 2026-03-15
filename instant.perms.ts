@@ -5,6 +5,7 @@ import type { InstantRules } from '@instantdb/react';
 const IS_PARENT = "'parent' in auth.ref('$user.type')";
 const IS_KID = "'kid' in auth.ref('$user.type')";
 const IS_FAMILY_PRINCIPAL = `${IS_PARENT} || ${IS_KID}`;
+const AUTH_FAMILY_MEMBER_ID = "auth.ref('$user.familyMemberId')[0]";
 
 const DENY_BY_DEFAULT = {
     allow: {
@@ -94,6 +95,95 @@ const FAMILY_CREATE_UPDATE = {
         delete: 'false',
         link: { $default: 'isFamilyPrincipal' },
         unlink: { $default: 'isFamilyPrincipal' },
+    },
+} as const;
+
+const MESSAGE_THREADS_READ_ONLY = {
+    bind: {
+        isParent: IS_PARENT,
+        isKid: IS_KID,
+        isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+        authFamilyMemberId: AUTH_FAMILY_MEMBER_ID,
+        canViewThread: "isParent || authFamilyMemberId in data.ref('members.familyMember.id')",
+    },
+    allow: {
+        view: 'canViewThread',
+        create: 'false',
+        update: 'false',
+        delete: 'false',
+        link: { $default: 'false' },
+        unlink: { $default: 'false' },
+    },
+} as const;
+
+const MESSAGE_MEMBERS_READ_ONLY = {
+    bind: {
+        isParent: IS_PARENT,
+        isKid: IS_KID,
+        isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+        authFamilyMemberId: AUTH_FAMILY_MEMBER_ID,
+        canViewMembership: "isParent || authFamilyMemberId == data.familyMemberId || authFamilyMemberId in data.ref('thread.members.familyMember.id')",
+    },
+    allow: {
+        view: 'canViewMembership',
+        create: 'false',
+        update: 'false',
+        delete: 'false',
+        link: { $default: 'false' },
+        unlink: { $default: 'false' },
+    },
+} as const;
+
+const MESSAGE_ROWS_READ_ONLY = {
+    bind: {
+        isParent: IS_PARENT,
+        isKid: IS_KID,
+        isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+        authFamilyMemberId: AUTH_FAMILY_MEMBER_ID,
+        canViewMessage: "isParent || authFamilyMemberId in data.ref('thread.members.familyMember.id')",
+    },
+    allow: {
+        view: 'canViewMessage',
+        create: 'false',
+        update: 'false',
+        delete: 'false',
+        link: { $default: 'false' },
+        unlink: { $default: 'false' },
+    },
+} as const;
+
+const MESSAGE_CHILD_ROWS_READ_ONLY = {
+    bind: {
+        isParent: IS_PARENT,
+        isKid: IS_KID,
+        isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+        authFamilyMemberId: AUTH_FAMILY_MEMBER_ID,
+        canViewViaMessage: "isParent || authFamilyMemberId in data.ref('message.thread.members.familyMember.id')",
+    },
+    allow: {
+        view: 'canViewViaMessage',
+        create: 'false',
+        update: 'false',
+        delete: 'false',
+        link: { $default: 'false' },
+        unlink: { $default: 'false' },
+    },
+} as const;
+
+const PUSH_DEVICES_READ_ONLY = {
+    bind: {
+        isParent: IS_PARENT,
+        isKid: IS_KID,
+        isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+        authFamilyMemberId: AUTH_FAMILY_MEMBER_ID,
+    },
+    allow: {
+        view: 'isParent || authFamilyMemberId == data.familyMemberId',
+        create: 'false',
+        update: 'false',
+        delete: 'false',
+        link: { $default: 'false' },
+        unlink: { $default: 'false' },
     },
 } as const;
 
@@ -232,14 +322,17 @@ const rules = {
             unlink: { $default: 'isParent' },
         },
         fields: {
-            // Hide parent PIN hashes from the kid principal. Child PIN hashes remain visible for low-friction client-side kid login.
-            pinHash: "isParent || (isKid && data.role != 'parent')",
+            pinHash: 'isParent',
         },
     },
 
-    messageAttachments: FAMILY_IMMUTABLE_LOG,
-    messages: FAMILY_CREATE_UPDATE,
-    messageThreads: FAMILY_CREATE_UPDATE,
+    messageAcknowledgements: MESSAGE_CHILD_ROWS_READ_ONLY,
+    messageAttachments: MESSAGE_CHILD_ROWS_READ_ONLY,
+    messageReactions: MESSAGE_CHILD_ROWS_READ_ONLY,
+    messages: MESSAGE_ROWS_READ_ONLY,
+    messageThreadMembers: MESSAGE_MEMBERS_READ_ONLY,
+    messageThreads: MESSAGE_THREADS_READ_ONLY,
+    pushDevices: PUSH_DEVICES_READ_ONLY,
     settings: PARENT_MUTABLE,
     taskAttachments: FAMILY_MUTABLE,
     taskProgressAttachments: FAMILY_MUTABLE,

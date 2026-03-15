@@ -46,6 +46,7 @@ function StubInstantProviders({ children }) {
     ensureKidPrincipal: NOOP_ASYNC,
     elevateParentPrincipal: NOOP_ASYNC,
     demoteParentPrincipal: NOOP_ASYNC,
+    signInFamilyMember: NOOP_ASYNC,
     recordParentActivity: NOOP,
     clearPrincipalState: NOOP_ASYNC,
     retryBootstrap: NOOP,

@@ -3,11 +3,13 @@ import { Tabs, Redirect } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
+import { db } from '../../src/lib/instant-db';
 
 export default function TabsLayout() {
   const { colors } = useAppTheme();
   const {
     activationRequired,
+    currentUser,
     isAuthenticated,
     instantReady,
     isBootstrapping,
@@ -15,6 +17,26 @@ export default function TabsLayout() {
     connectionStatus,
     principalType,
   } = useAppSession();
+
+  const unreadMessagesQuery = db.useQuery(
+    isAuthenticated && instantReady && currentUser
+      ? {
+          messageThreadMembers: {
+            thread: {},
+          },
+        }
+      : null
+  );
+
+  const unreadMessageCount = React.useMemo(() => {
+    const memberships = unreadMessagesQuery.data?.messageThreadMembers || [];
+    return memberships.filter((membership) => {
+      const thread = Array.isArray(membership.thread) ? membership.thread[0] : membership.thread;
+      const latest = thread?.latestMessageAt ? new Date(thread.latestMessageAt).getTime() : 0;
+      const readAt = membership?.lastReadAt ? new Date(membership.lastReadAt).getTime() : 0;
+      return latest > readAt;
+    }).length;
+  }, [unreadMessagesQuery.data?.messageThreadMembers]);
 
   if (activationRequired) return <Redirect href="/activate" />;
   if (!isAuthenticated) return <Redirect href="/lock" />;
@@ -38,6 +60,8 @@ export default function TabsLayout() {
             ? colors.accentChores
             : route.name === 'calendar'
             ? colors.accentCalendar
+            : route.name === 'messages'
+            ? colors.accentDashboard
             : route.name === 'finance'
             ? colors.accentFinance
             : colors.accentMore,
@@ -50,7 +74,11 @@ export default function TabsLayout() {
         },
         sceneStyle: { backgroundColor: colors.bg },
         tabBarBadge:
-          route.name === 'more'
+          route.name === 'messages'
+            ? unreadMessageCount > 0
+              ? String(unreadMessageCount)
+              : undefined
+            : route.name === 'more'
             ? isOffline
               ? '!'
               : principalType === 'parent'
@@ -75,6 +103,7 @@ export default function TabsLayout() {
           tabBarButtonTestID: 'tab-calendar',
         }}
       />
+      <Tabs.Screen name="messages" options={{ title: 'Messages', tabBarButtonTestID: 'tab-messages' }} />
       <Tabs.Screen name="finance" options={{ title: 'Finance', tabBarButtonTestID: 'tab-finance' }} />
       <Tabs.Screen name="more" options={{ title: 'More', tabBarButtonTestID: 'tab-more' }} />
     </Tabs>

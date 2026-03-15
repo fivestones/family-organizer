@@ -3,8 +3,9 @@ import 'server-only';
 import type { NextRequest } from 'next/server';
 import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
 import { getCalendarSyncCronSecret } from '@/lib/apple-caldav/config';
-import { getInstantAdminDb, getParentPrincipalAuthEmail } from '@/lib/instant-admin';
+import { getInstantAdminDb } from '@/lib/instant-admin';
 import { CALENDAR_SYNC_PARENT_TOKEN_HEADER } from '@/lib/calendar-sync-constants';
+import { INSTANT_AUTH_TOKEN_HEADER } from '@/lib/request-family-member';
 
 export function isCalendarSyncCronAuthorized(request: NextRequest) {
     const secret = getCalendarSyncCronSecret();
@@ -17,21 +18,30 @@ export function isCalendarSyncCronAuthorized(request: NextRequest) {
 async function requestHasVerifiedParentPrincipalCookie(request: NextRequest) {
     try {
         const user = await getInstantAdminDb().auth.getUserFromRequest(request);
-        return user?.email === getParentPrincipalAuthEmail();
+        return (user as any)?.type === 'parent';
     } catch {
         return false;
     }
 }
 
 async function requestHasVerifiedParentPrincipalHeader(request: NextRequest) {
-    const token = request.headers.get(CALENDAR_SYNC_PARENT_TOKEN_HEADER) || '';
-    if (!token) return false;
-    try {
-        const user = await getInstantAdminDb().auth.verifyToken(token as any);
-        return user?.email === getParentPrincipalAuthEmail();
-    } catch {
-        return false;
+    const tokens = [
+        request.headers.get(CALENDAR_SYNC_PARENT_TOKEN_HEADER) || '',
+        request.headers.get(INSTANT_AUTH_TOKEN_HEADER) || '',
+    ].filter(Boolean);
+
+    for (const token of tokens) {
+        try {
+            const user = await getInstantAdminDb().auth.verifyToken(token as any);
+            if ((user as any)?.type === 'parent') {
+                return true;
+            }
+        } catch {
+            // ignore invalid header token
+        }
     }
+
+    return false;
 }
 
 export async function requireCalendarSyncRouteAuth(request: NextRequest) {

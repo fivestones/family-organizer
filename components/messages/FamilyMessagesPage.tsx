@@ -1,58 +1,77 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { id, tx } from '@instantdb/react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { id } from '@instantdb/react';
+import { Loader2, MessageSquarePlus, Search, Shield, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/components/ui/use-toast';
-import { useAuth } from '@/components/AuthProvider';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
+import { useAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/db';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
-import {
-    buildHistoryEventTransactions,
-    HISTORY_MESSAGE_EDIT_WINDOW_MS,
-    HISTORY_MESSAGE_THREAD_FAMILY_ID,
-} from '@/lib/history-events';
+import { acknowledge, bootstrapMessages, createThread, editMessage, joinThreadWatch, leaveThreadWatch, markRead, removeMessage, sendMessage, toggleReaction, updateThreadPreferences } from '@/lib/message-client';
+import { cn } from '@/lib/utils';
+import type { MessageNotificationLevel } from '@/lib/messaging-types';
+
+type MembershipRow = {
+    id: string;
+    familyMemberId?: string | null;
+    memberRole?: string | null;
+    notificationLevel?: MessageNotificationLevel | null;
+    isArchived?: boolean | null;
+    isPinned?: boolean | null;
+    lastReadAt?: string | null;
+    thread?: any;
+};
+
+type ThreadRecord = {
+    id: string;
+    title?: string | null;
+    threadType?: string | null;
+    visibility?: string | null;
+    latestMessageAt?: string | null;
+    latestMessagePreview?: string | null;
+    latestMessageAuthorId?: string | null;
+    members?: Array<any>;
+    membership?: MembershipRow | null;
+};
 
 type MessageRecord = {
     id: string;
     body?: string | null;
+    deletedAt?: string | null;
+    removedReason?: string | null;
     createdAt?: string | null;
     updatedAt?: string | null;
     editedAt?: string | null;
     editableUntil?: string | null;
+    importance?: string | null;
     authorFamilyMemberId?: string | null;
-    attachments?: Array<{
-        id: string;
-        name?: string | null;
-        url?: string | null;
-        type?: string | null;
-        kind?: string | null;
-        sizeBytes?: number | null;
-        width?: number | null;
-        height?: number | null;
-        durationSec?: number | null;
-        thumbnailUrl?: string | null;
-        thumbnailWidth?: number | null;
-        thumbnailHeight?: number | null;
-        blurhash?: string | null;
-        waveformPeaks?: number[] | null;
-    }>;
+    attachments?: Array<any>;
     author?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null;
+    reactions?: Array<{ id: string; emoji?: string | null; familyMember?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null }>;
+    acknowledgements?: Array<{ id: string; kind?: string | null; familyMember?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null }>;
+    replyTo?: Array<MessageRecord> | MessageRecord | null;
 };
 
 function formatMessageTime(value?: string | null) {
     if (!value) return '';
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return '';
-
     return parsed.toLocaleString(undefined, {
         month: 'short',
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
     });
+}
+
+function getNestedMemberName(member: any) {
+    if (Array.isArray(member) && member[0]?.name) return member[0].name || 'Unknown';
+    if (member && !Array.isArray(member) && member.name) return member.name || 'Unknown';
+    return 'Unknown';
 }
 
 function getAuthorName(message: MessageRecord, familyMemberNamesById: Map<string, string>) {
@@ -68,172 +87,293 @@ function getAuthorName(message: MessageRecord, familyMemberNamesById: Map<string
     return 'Unknown';
 }
 
+function getReplyToMessage(replyTo: MessageRecord['replyTo']) {
+    if (!replyTo) return null;
+    if (Array.isArray(replyTo)) return replyTo[0] || null;
+    return replyTo || null;
+}
+
+function isThreadUnread(thread: ThreadRecord) {
+    const latest = thread.latestMessageAt ? new Date(thread.latestMessageAt).getTime() : 0;
+    const readAt = thread.membership?.lastReadAt ? new Date(thread.membership.lastReadAt).getTime() : 0;
+    return latest > readAt;
+}
+
+function threadSubtitle(thread: ThreadRecord, familyMemberNamesById: Map<string, string>, currentUserId: string) {
+    if (thread.threadType === 'direct') {
+        const peers = (thread.members || [])
+            .map((membership: any) => membership?.familyMember?.[0] || membership?.familyMember || null)
+            .filter(Boolean)
+            .filter((member: any) => member.id !== currentUserId)
+            .map((member: any) => member.name || familyMemberNamesById.get(member.id) || 'Unknown');
+        if (peers.length > 0) {
+            return peers.join(', ');
+        }
+    }
+
+    return thread.latestMessagePreview || (thread.threadType === 'parents_only' ? 'Parents only' : 'No messages yet');
+}
+
+function sortThreads(threads: ThreadRecord[]) {
+    return threads.slice().sort((left, right) => {
+        const leftPinned = left.membership?.isPinned ? 1 : 0;
+        const rightPinned = right.membership?.isPinned ? 1 : 0;
+        if (leftPinned !== rightPinned) return rightPinned - leftPinned;
+        const leftTime = left.latestMessageAt ? new Date(left.latestMessageAt).getTime() : 0;
+        const rightTime = right.latestMessageAt ? new Date(right.latestMessageAt).getTime() : 0;
+        return rightTime - leftTime;
+    });
+}
+
+function DraftKey(threadId: string | null) {
+    return threadId ? `family-organizer.message-draft:${threadId}` : '';
+}
+
 export default function FamilyMessagesPage() {
     const { toast } = useToast();
     const { currentUser } = useAuth();
-    const [messageBody, setMessageBody] = useState('');
+    const [threadSearch, setThreadSearch] = useState('');
+    const [messageSearch, setMessageSearch] = useState('');
+    const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+    const [composerBody, setComposerBody] = useState('');
+    const [composerImportance, setComposerImportance] = useState<'normal' | 'urgent' | 'announcement' | 'needs_ack'>('normal');
     const [pendingFiles, setPendingFiles] = useState<File[]>([]);
     const [isSending, setIsSending] = useState(false);
+    const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editingBody, setEditingBody] = useState('');
-    const [isSavingEdit, setIsSavingEdit] = useState(false);
-    const bottomRef = useRef<HTMLDivElement | null>(null);
+    const [isOverseeMode, setIsOverseeMode] = useState(false);
+    const [creationMode, setCreationMode] = useState<'direct' | 'group' | null>(null);
+    const [newThreadTitle, setNewThreadTitle] = useState('');
+    const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
+    const [isCreatingThread, setIsCreatingThread] = useState(false);
 
-    const { data, isLoading } = db.useQuery({
-        messageThreads: {
-            $: {
-                where: {
-                    id: HISTORY_MESSAGE_THREAD_FAMILY_ID,
-                },
-            },
-            messages: {
-                attachments: {},
-                author: {},
-            },
-        },
-        familyMembers: {
-            $: {
-                order: {
-                    order: 'asc',
-                },
-            },
-        },
-    });
+    const membershipQuery = (db as any).useQuery(
+        currentUser
+            ? {
+                  messageThreadMembers: {
+                      $: {
+                          order: {
+                              sortTimestamp: 'desc',
+                          },
+                      },
+                      thread: {
+                          members: {
+                              familyMember: {},
+                          },
+                      },
+                      familyMember: {},
+                  },
+              }
+            : (null as any)
+    ) as any;
 
-    const thread = (data?.messageThreads as any[])?.[0] || null;
-    const familyMembers = (data?.familyMembers as any[]) || [];
+    const overseenThreadsQuery = (db as any).useQuery(
+        currentUser?.role === 'parent' && isOverseeMode
+            ? {
+                  messageThreads: {
+                      $: {
+                          order: {
+                              latestMessageAt: 'desc',
+                          },
+                      },
+                      members: {
+                          familyMember: {},
+                      },
+                  },
+              }
+            : (null as any)
+    ) as any;
+
+    const messagesQuery = (db as any).useQuery(
+        currentUser && selectedThreadId
+            ? {
+                  messages: {
+                      $: {
+                          where: {
+                              threadId: selectedThreadId,
+                          },
+                          order: {
+                              createdAt: 'asc',
+                          },
+                      },
+                      attachments: {},
+                      acknowledgements: {
+                          familyMember: {},
+                      },
+                      author: {},
+                      reactions: {
+                          familyMember: {},
+                      },
+                      replyTo: {
+                          author: {},
+                      },
+                  },
+              }
+            : (null as any)
+    ) as any;
+
+    const familyMembersQuery = (db as any).useQuery(
+        currentUser
+            ? {
+                  familyMembers: {
+                      $: {
+                          order: {
+                              order: 'asc',
+                          },
+                      },
+                  },
+              }
+            : (null as any)
+    ) as any;
+
+    const familyMembers = useMemo(() => (familyMembersQuery?.data?.familyMembers as any[]) || [], [familyMembersQuery?.data?.familyMembers]);
     const familyMemberNamesById = useMemo(
         () => new Map(familyMembers.map((member: any) => [member.id, member.name || 'Unknown'])),
         [familyMembers]
     );
-    const messages = useMemo(
-        () =>
-            ([...(thread?.messages || [])] as MessageRecord[]).sort((left, right) => {
-                const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
-                const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0;
-                return leftTime - rightTime;
-            }),
-        [thread?.messages]
+
+    const threads = useMemo(() => {
+        const memberships = ((membershipQuery?.data?.messageThreadMembers as unknown) as MembershipRow[]) || [];
+        const membershipMap = new Map<string, MembershipRow>();
+        const threadsById = new Map<string, ThreadRecord>();
+
+        for (const membership of memberships) {
+            if (!membership.thread) continue;
+            const thread = Array.isArray(membership.thread) ? membership.thread[0] : membership.thread;
+            if (!thread?.id) continue;
+            membershipMap.set(thread.id, membership);
+            threadsById.set(thread.id, {
+                ...thread,
+                membership,
+            });
+        }
+
+        if (currentUser?.role === 'parent' && isOverseeMode) {
+            const overseenThreads = (overseenThreadsQuery?.data?.messageThreads as ThreadRecord[]) || [];
+            for (const thread of overseenThreads) {
+                threadsById.set(thread.id, {
+                    ...thread,
+                    membership: membershipMap.get(thread.id) || null,
+                });
+            }
+        }
+
+        return sortThreads(Array.from(threadsById.values())).filter((thread) => {
+            if (thread.membership?.isArchived) return false;
+            const query = threadSearch.trim().toLowerCase();
+            if (!query) return true;
+            const haystack = [
+                thread.title || '',
+                thread.latestMessagePreview || '',
+                ...(thread.members || []).map((membership: any) => membership?.familyMember?.[0]?.name || membership?.familyMember?.name || ''),
+            ]
+                .join(' ')
+                .toLowerCase();
+            return haystack.includes(query);
+        });
+    }, [currentUser?.role, isOverseeMode, membershipQuery?.data?.messageThreadMembers, overseenThreadsQuery?.data?.messageThreads, threadSearch]);
+
+    const selectedThread = useMemo(
+        () => threads.find((thread) => thread.id === selectedThreadId) || null,
+        [selectedThreadId, threads]
+    );
+
+    const messages = useMemo(() => {
+        const rows = ((messagesQuery?.data?.messages as MessageRecord[]) || []).filter((message) => {
+            const query = messageSearch.trim().toLowerCase();
+            if (!query) return true;
+            return `${message.body || ''} ${getAuthorName(message, familyMemberNamesById)}`.toLowerCase().includes(query);
+        });
+        return rows;
+    }, [familyMemberNamesById, messageSearch, messagesQuery?.data?.messages]);
+
+    const selectedThreadMembership = selectedThread?.membership || null;
+    const canComposeInThread = Boolean(
+        currentUser &&
+            selectedThread &&
+            (selectedThreadMembership || !(currentUser.role === 'parent' && isOverseeMode))
+    );
+    const replyTarget = useMemo(
+        () => messages.find((message) => message.id === replyToMessageId) || null,
+        [messages, replyToMessageId]
     );
 
     useEffect(() => {
-        if (isLoading || thread) return;
-
-        const nowIso = new Date().toISOString();
-        void db
-            .transact([
-                tx.messageThreads[HISTORY_MESSAGE_THREAD_FAMILY_ID].update({
-                    createdAt: nowIso,
-                    threadType: 'family',
-                    title: 'Family',
-                    updatedAt: nowIso,
-                }),
-            ])
-            .catch((error: any) => {
-                console.error('Failed to initialize family message thread', error);
-            });
-    }, [db, isLoading, thread]);
+        void bootstrapMessages().catch((error) => {
+            console.error('Unable to bootstrap messages', error);
+        });
+    }, []);
 
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ block: 'end' });
-    }, [messages.length]);
+        if (!selectedThreadId && threads.length > 0) {
+            setSelectedThreadId(threads[0].id);
+        }
+    }, [selectedThreadId, threads]);
 
-    const removePendingFile = (index: number) => {
-        setPendingFiles((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
-    };
-
-    const handleSend = async () => {
-        const trimmedBody = messageBody.trim();
-        if (!currentUser?.id) {
-            toast({
-                title: 'Login Required',
-                description: 'Choose a family member before sending a message.',
-                variant: 'destructive',
-            });
+    useEffect(() => {
+        const draftKey = DraftKey(selectedThreadId);
+        if (!draftKey) {
+            setComposerBody('');
             return;
         }
-        if (!trimmedBody && pendingFiles.length === 0) return;
+        const stored = window.localStorage.getItem(draftKey);
+        setComposerBody(stored || '');
+        setPendingFiles([]);
+        setReplyToMessageId(null);
+        setEditingMessageId(null);
+        setEditingBody('');
+        setComposerImportance('normal');
+    }, [selectedThreadId]);
+
+    useEffect(() => {
+        const draftKey = DraftKey(selectedThreadId);
+        if (!draftKey) return;
+        if (!composerBody.trim()) {
+            window.localStorage.removeItem(draftKey);
+            return;
+        }
+        window.localStorage.setItem(draftKey, composerBody);
+    }, [composerBody, selectedThreadId]);
+
+    useEffect(() => {
+        if (!selectedThreadId || messages.length === 0 || !selectedThreadMembership) return;
+        const latestMessage = messages[messages.length - 1];
+        if (!latestMessage?.id) return;
+        void markRead({
+            threadId: selectedThreadId,
+            lastReadMessageId: latestMessage.id,
+        }).catch((error) => {
+            console.error('Unable to mark thread as read', error);
+        });
+    }, [messages, selectedThreadId, selectedThreadMembership]);
+
+    const availableParticipants = useMemo(
+        () => familyMembers.filter((member: any) => member.id !== currentUser?.id),
+        [currentUser?.id, familyMembers]
+    );
+
+    const sendCurrentMessage = async () => {
+        if (!currentUser || !selectedThreadId) return;
+        if (!canComposeInThread) return;
+        if (!composerBody.trim() && pendingFiles.length === 0) return;
 
         setIsSending(true);
         try {
-            const nowIso = new Date().toISOString();
-            const uploadedAttachments = pendingFiles.length ? await uploadFilesToS3(pendingFiles, id) : [];
-            const messageId = id();
-            const transactions: any[] = [];
-
-            if (!thread) {
-                transactions.push(
-                    tx.messageThreads[HISTORY_MESSAGE_THREAD_FAMILY_ID].update({
-                        createdAt: nowIso,
-                        threadType: 'family',
-                        title: 'Family',
-                        updatedAt: nowIso,
-                    })
-                );
-            } else {
-                transactions.push(
-                    tx.messageThreads[HISTORY_MESSAGE_THREAD_FAMILY_ID].update({
-                        updatedAt: nowIso,
-                    })
-                );
-            }
-
-            transactions.push(
-                tx.messages[messageId].update({
-                    authorFamilyMemberId: currentUser.id,
-                    body: trimmedBody,
-                    createdAt: nowIso,
-                    editableUntil: new Date(Date.now() + HISTORY_MESSAGE_EDIT_WINDOW_MS).toISOString(),
-                    editedAt: null,
-                    updatedAt: nowIso,
-                }),
-                tx.messageThreads[HISTORY_MESSAGE_THREAD_FAMILY_ID].link({ messages: messageId }),
-                tx.familyMembers[currentUser.id].link({ authoredMessages: messageId })
-            );
-
-            for (const attachment of uploadedAttachments) {
-                transactions.push(
-                    tx.messageAttachments[attachment.id].update({
-                        blurhash: attachment.blurhash || null,
-                        createdAt: nowIso,
-                        durationSec: attachment.durationSec ?? null,
-                        height: attachment.height ?? null,
-                        kind: attachment.kind || null,
-                        name: attachment.name,
-                        sizeBytes: attachment.sizeBytes ?? null,
-                        thumbnailHeight: attachment.thumbnailHeight ?? null,
-                        thumbnailUrl: attachment.thumbnailUrl || null,
-                        thumbnailWidth: attachment.thumbnailWidth ?? null,
-                        type: attachment.type,
-                        updatedAt: nowIso,
-                        url: attachment.url,
-                        waveformPeaks: attachment.waveformPeaks || null,
-                        width: attachment.width ?? null,
-                    }),
-                    tx.messages[messageId].link({ attachments: attachment.id })
-                );
-            }
-
-            const historyEvent = buildHistoryEventTransactions({
-                tx,
-                createId: id,
-                occurredAt: nowIso,
-                domain: 'messages',
-                actionType: 'message_posted',
-                summary: `${currentUser.name} posted in Family`,
-                source: 'manual',
-                actorFamilyMemberId: currentUser.id,
-                messageThreadId: HISTORY_MESSAGE_THREAD_FAMILY_ID,
-                messageId,
-                metadata: {
-                    threadType: 'family',
-                },
+            const attachments = pendingFiles.length ? await uploadFilesToS3(pendingFiles, id) : [];
+            await sendMessage({
+                threadId: selectedThreadId,
+                body: composerBody,
+                attachments,
+                replyToMessageId,
+                importance: composerImportance,
+                clientNonce: `${currentUser.id}:${Date.now()}`,
             });
-            transactions.push(...historyEvent.transactions);
-
-            await db.transact(transactions);
-            setMessageBody('');
+            setComposerBody('');
             setPendingFiles([]);
+            setReplyToMessageId(null);
+            setComposerImportance('normal');
+            window.localStorage.removeItem(DraftKey(selectedThreadId));
         } catch (error: any) {
             toast({
                 title: 'Message failed',
@@ -245,172 +385,569 @@ export default function FamilyMessagesPage() {
         }
     };
 
-    const beginEdit = (message: MessageRecord) => {
-        setEditingMessageId(message.id);
-        setEditingBody(message.body || '');
-    };
-
-    const cancelEdit = () => {
-        if (isSavingEdit) return;
-        setEditingMessageId(null);
-        setEditingBody('');
-    };
-
-    const handleSaveEdit = async () => {
-        if (!editingMessageId || !currentUser?.id) return;
-        const trimmedBody = editingBody.trim();
-        if (!trimmedBody) return;
-
-        setIsSavingEdit(true);
+    const handleCreateThread = async () => {
+        if (!currentUser || !creationMode) return;
+        setIsCreatingThread(true);
         try {
-            const nowIso = new Date().toISOString();
-            await db.transact([
-                tx.messages[editingMessageId].update({
-                    body: trimmedBody,
-                    editedAt: nowIso,
-                    updatedAt: nowIso,
-                }),
-            ]);
-            setEditingMessageId(null);
-            setEditingBody('');
+            const participantIds = creationMode === 'direct' ? selectedParticipantIds.slice(0, 1) : selectedParticipantIds;
+            const result = await createThread({
+                threadType: creationMode,
+                participantIds,
+                title: creationMode === 'group' ? newThreadTitle : undefined,
+            });
+            const threadId = result?.thread?.id;
+            if (threadId) {
+                setSelectedThreadId(threadId);
+            }
+            setCreationMode(null);
+            setNewThreadTitle('');
+            setSelectedParticipantIds([]);
         } catch (error: any) {
             toast({
-                title: 'Edit failed',
+                title: 'Unable to create thread',
                 description: error?.message || 'Please try again.',
                 variant: 'destructive',
             });
         } finally {
-            setIsSavingEdit(false);
+            setIsCreatingThread(false);
         }
     };
 
+    const activeMessagesLoading = selectedThreadId ? messagesQuery.isLoading : false;
+
     return (
-        <div className="container mx-auto flex h-full max-w-5xl flex-col p-6">
-            <div className="mb-4">
-                <h1 className="text-3xl font-bold">Messages</h1>
-                <p className="mt-1 text-sm text-slate-500">One family-wide thread for now. These messages also appear in History.</p>
-            </div>
-
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-                <ScrollArea className="min-h-0 flex-1">
-                    <div className="space-y-4 p-4">
-                        {messages.length === 0 ? (
-                            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                                No family messages yet.
+        <div className="h-full bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.12),_transparent_35%),linear-gradient(180deg,_#f8fbff_0%,_#eef5fb_100%)]">
+            <div className="mx-auto flex h-full max-w-[1440px] gap-6 p-6">
+                <aside className="flex w-[340px] shrink-0 flex-col overflow-hidden rounded-[32px] border border-slate-200/80 bg-white/90 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur">
+                    <div className="border-b border-slate-200 p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h1 className="text-2xl font-bold text-slate-950">Messages</h1>
+                                <p className="mt-1 text-sm text-slate-500">Family, DMs, groups, and oversight in one inbox.</p>
                             </div>
-                        ) : null}
-
-                        {messages.map((message) => {
-                            const isOwnMessage = currentUser?.id && message.authorFamilyMemberId === currentUser.id;
-                            const editableUntil = message.editableUntil ? new Date(message.editableUntil).getTime() : 0;
-                            const canEdit = isOwnMessage && Date.now() < editableUntil;
-                            const isEditing = editingMessageId === message.id;
-
-                            return (
-                                <div key={message.id} className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[80%] rounded-3xl px-4 py-3 shadow-sm ${isOwnMessage ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-900'}`}>
-                                        <div className={`mb-1 flex flex-wrap items-center gap-2 text-xs ${isOwnMessage ? 'text-sky-100' : 'text-slate-500'}`}>
-                                            <span className="font-semibold">{getAuthorName(message, familyMemberNamesById)}</span>
-                                            <span>{formatMessageTime(message.createdAt)}</span>
-                                            {message.editedAt ? <span>edited</span> : null}
-                                        </div>
-
-                                        {isEditing ? (
-                                            <div className="space-y-2">
-                                                <textarea
-                                                    value={editingBody}
-                                                    onChange={(event) => setEditingBody(event.target.value)}
-                                                    rows={4}
-                                                    className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                                                />
-                                                <div className="flex justify-end gap-2">
-                                                    <Button type="button" variant="outline" size="sm" onClick={cancelEdit} disabled={isSavingEdit}>
-                                                        Cancel
-                                                    </Button>
-                                                    <Button type="button" size="sm" onClick={handleSaveEdit} disabled={isSavingEdit}>
-                                                        {isSavingEdit ? 'Saving...' : 'Save'}
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                {message.body ? <div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div> : null}
-                                                {message.attachments?.length ? (
-                                                    <AttachmentCollection
-                                                        attachments={message.attachments}
-                                                        className="mt-3"
-                                                        variant={isOwnMessage ? 'bubble-own' : 'bubble-other'}
-                                                    />
-                                                ) : null}
-                                                {canEdit ? (
-                                                    <div className="mt-3 flex justify-end">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => beginEdit(message)}
-                                                            className={`text-xs font-semibold ${isOwnMessage ? 'text-sky-100 hover:text-white' : 'text-slate-500 hover:text-slate-700'}`}
-                                                        >
-                                                            Edit
-                                                        </button>
-                                                    </div>
-                                                ) : null}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                        <div ref={bottomRef} />
-                    </div>
-                </ScrollArea>
-
-                <div className="border-t border-slate-200 bg-slate-50 p-4">
-                    <div className="space-y-3">
-                        <textarea
-                            value={messageBody}
-                            onChange={(event) => setMessageBody(event.target.value)}
-                            rows={4}
-                            placeholder={currentUser ? 'Write a family message...' : 'Choose a family member before sending a message.'}
-                            className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm shadow-sm"
-                            disabled={!currentUser || isSending}
-                        />
-
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm">
-                                <span>Add files</span>
-                                <input
-                                    type="file"
-                                    multiple
-                                    className="hidden"
-                                    onChange={(event) => {
-                                        const files = Array.from(event.target.files || []);
-                                        setPendingFiles((prev) => [...prev, ...files]);
-                                        event.target.value = '';
-                                    }}
-                                    disabled={!currentUser || isSending}
-                                />
-                            </label>
-
-                            <Button type="button" onClick={handleSend} disabled={!currentUser || isSending || (!messageBody.trim() && pendingFiles.length === 0)}>
-                                {isSending ? 'Sending...' : 'Send message'}
+                            <div className="flex items-center gap-2">
+                                {currentUser?.role === 'parent' ? (
+                                    <Button
+                                        type="button"
+                                        variant={isOverseeMode ? 'default' : 'outline'}
+                                        size="sm"
+                                        onClick={() => setIsOverseeMode((value) => !value)}
+                                    >
+                                        <Shield className="mr-2 h-4 w-4" />
+                                        {isOverseeMode ? 'Oversee' : 'Inbox'}
+                                    </Button>
+                                ) : null}
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => setCreationMode('direct')}
+                                    aria-label="Start a conversation"
+                                >
+                                    <MessageSquarePlus className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        </div>
+                        <div className="mt-4 flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                            <Search className="h-4 w-4 text-slate-400" />
+                            <Input
+                                value={threadSearch}
+                                onChange={(event) => setThreadSearch(event.target.value)}
+                                placeholder="Search threads, names, or previews"
+                                className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                            />
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                            <Button type="button" variant="outline" size="sm" onClick={() => setSelectedThreadId('00000000-0000-4000-8000-000000000001')}>
+                                Family
+                            </Button>
+                            {currentUser?.role === 'parent' ? (
+                                <Button type="button" variant="outline" size="sm" onClick={() => setSelectedThreadId('00000000-0000-4000-8000-000000000002')}>
+                                    Parents
+                                </Button>
+                            ) : null}
+                            <Button type="button" variant="outline" size="sm" onClick={() => setCreationMode('group')}>
+                                <Users className="mr-2 h-4 w-4" />
+                                Group
                             </Button>
                         </div>
-
-                        {pendingFiles.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                                {pendingFiles.map((file, index) => (
-                                    <button
-                                        key={`${file.name}-${index}`}
-                                        type="button"
-                                        onClick={() => removePendingFile(index)}
-                                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700"
-                                    >
-                                        {file.name} x
-                                    </button>
-                                ))}
-                            </div>
-                        ) : null}
                     </div>
-                </div>
+
+                    {creationMode ? (
+                        <div className="border-b border-slate-200 bg-slate-50/70 p-4">
+                            <div className="space-y-3">
+                                <div className="text-sm font-semibold text-slate-900">
+                                    {creationMode === 'direct' ? 'Start a direct message' : 'Create a group thread'}
+                                </div>
+                                {creationMode === 'group' ? (
+                                    <Input
+                                        value={newThreadTitle}
+                                        onChange={(event) => setNewThreadTitle(event.target.value)}
+                                        placeholder="Group title"
+                                    />
+                                ) : null}
+                                <div className="max-h-40 space-y-2 overflow-auto rounded-2xl border border-slate-200 bg-white p-3">
+                                    {availableParticipants.map((member: any) => {
+                                        const checked = selectedParticipantIds.includes(member.id);
+                                        return (
+                                            <label key={member.id} className="flex items-center gap-3 text-sm text-slate-700">
+                                                <input
+                                                    type={creationMode === 'direct' ? 'radio' : 'checkbox'}
+                                                    name="message-thread-member"
+                                                    checked={checked}
+                                                    onChange={() => {
+                                                        if (creationMode === 'direct') {
+                                                            setSelectedParticipantIds([member.id]);
+                                                            return;
+                                                        }
+                                                        setSelectedParticipantIds((current) =>
+                                                            current.includes(member.id)
+                                                                ? current.filter((entry) => entry !== member.id)
+                                                                : [...current, member.id]
+                                                        );
+                                                    }}
+                                                />
+                                                <span>{member.name}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                                <div className="flex gap-2">
+                                    <Button type="button" variant="ghost" size="sm" onClick={() => {
+                                        setCreationMode(null);
+                                        setNewThreadTitle('');
+                                        setSelectedParticipantIds([]);
+                                    }}>
+                                        Cancel
+                                    </Button>
+                                    <Button type="button" size="sm" onClick={handleCreateThread} disabled={isCreatingThread || selectedParticipantIds.length === 0}>
+                                        {isCreatingThread ? 'Creating...' : 'Create'}
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <ScrollArea className="min-h-0 flex-1">
+                        <div className="space-y-2 p-3">
+                            {threads.map((thread) => (
+                                <button
+                                    key={thread.id}
+                                    type="button"
+                                    onClick={() => setSelectedThreadId(thread.id)}
+                                    className={cn(
+                                        'w-full rounded-[24px] border px-4 py-3 text-left transition-all',
+                                        selectedThreadId === thread.id
+                                            ? 'border-sky-300 bg-sky-50 shadow-sm'
+                                            : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50'
+                                    )}
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="truncate text-sm font-semibold text-slate-900">{thread.title || 'Untitled thread'}</div>
+                                            <div className="mt-1 truncate text-xs text-slate-500">
+                                                {threadSubtitle(thread, familyMemberNamesById, currentUser?.id || '')}
+                                            </div>
+                                        </div>
+                                        <div className="flex shrink-0 items-center gap-1">
+                                            {thread.membership?.isPinned ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Pinned</span> : null}
+                                            {isThreadUnread(thread) ? <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white">Unread</span> : null}
+                                        </div>
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                                        <span>{thread.threadType === 'parents_only' ? 'Parents only' : thread.threadType}</span>
+                                        <span>{formatMessageTime(thread.latestMessageAt)}</span>
+                                    </div>
+                                </button>
+                            ))}
+
+                            {!threads.length ? (
+                                <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                                    No visible threads yet.
+                                </div>
+                            ) : null}
+                        </div>
+                    </ScrollArea>
+                </aside>
+
+                <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[36px] border border-slate-200/80 bg-white shadow-[0_32px_80px_rgba(15,23,42,0.10)]">
+                    {selectedThread ? (
+                        <>
+                            <div className="border-b border-slate-200 px-6 py-5">
+                                <div className="flex flex-wrap items-start justify-between gap-4">
+                                    <div>
+                                        <div className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-700">{selectedThread.threadType}</div>
+                                        <h2 className="mt-1 text-3xl font-bold text-slate-950">{selectedThread.title || 'Untitled thread'}</h2>
+                                        <p className="mt-2 max-w-3xl text-sm text-slate-500">
+                                            {(selectedThread.members || [])
+                                                .map((membership: any) => membership?.familyMember?.[0]?.name || membership?.familyMember?.name || '')
+                                                .filter(Boolean)
+                                                .join(', ')}
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {currentUser?.role === 'parent' && isOverseeMode && !selectedThreadMembership ? (
+                                            <Button type="button" variant="outline" onClick={async () => {
+                                                try {
+                                                    await joinThreadWatch(selectedThread.id);
+                                                    toast({ title: 'Thread joined', description: 'You are now watching this thread.' });
+                                                } catch (error: any) {
+                                                    toast({ title: 'Unable to join thread', description: error?.message || 'Please try again.', variant: 'destructive' });
+                                                }
+                                            }}>
+                                                Join Thread
+                                            </Button>
+                                        ) : null}
+                                        {selectedThreadMembership?.memberRole === 'watcher' ? (
+                                            <Button type="button" variant="outline" onClick={async () => {
+                                                try {
+                                                    await leaveThreadWatch(selectedThread.id);
+                                                    toast({ title: 'Left thread', description: 'Watcher mode has been removed.' });
+                                                } catch (error: any) {
+                                                    toast({ title: 'Unable to leave watch mode', description: error?.message || 'Please try again.', variant: 'destructive' });
+                                                }
+                                            }}>
+                                                Leave Watch
+                                            </Button>
+                                        ) : null}
+                                        {selectedThreadMembership ? (
+                                            <>
+                                                <Button type="button" variant="outline" onClick={() => {
+                                                    void updateThreadPreferences({
+                                                        threadId: selectedThread.id,
+                                                        isPinned: !selectedThreadMembership.isPinned,
+                                                    }).catch((error) => {
+                                                        toast({ title: 'Unable to update thread', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+                                                    });
+                                                }}>
+                                                    {selectedThreadMembership.isPinned ? 'Unpin' : 'Pin'}
+                                                </Button>
+                                                <Button type="button" variant="outline" onClick={() => {
+                                                    void updateThreadPreferences({
+                                                        threadId: selectedThread.id,
+                                                        isArchived: true,
+                                                    }).catch((error) => {
+                                                        toast({ title: 'Unable to archive thread', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+                                                    });
+                                                }}>
+                                                    Archive
+                                                </Button>
+                                            </>
+                                        ) : null}
+                                    </div>
+                                </div>
+
+                                {selectedThreadMembership ? (
+                                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                                        <label className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Notifications</label>
+                                        <select
+                                            value={selectedThreadMembership.notificationLevel || 'all'}
+                                            onChange={(event) => {
+                                                void updateThreadPreferences({
+                                                    threadId: selectedThread.id,
+                                                    notificationLevel: event.target.value as MessageNotificationLevel,
+                                                }).catch((error) => {
+                                                    toast({ title: 'Unable to update notifications', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+                                                });
+                                            }}
+                                            className="rounded-full border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                                        >
+                                            <option value="all">All</option>
+                                            <option value="mentions">Mentions</option>
+                                            <option value="watch">Watch</option>
+                                            <option value="mute">Mute</option>
+                                        </select>
+                                        <div className="ml-auto flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                                            <Search className="h-4 w-4 text-slate-400" />
+                                            <input
+                                                value={messageSearch}
+                                                onChange={(event) => setMessageSearch(event.target.value)}
+                                                placeholder="Search in this thread"
+                                                className="bg-transparent text-sm outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+
+                            <ScrollArea className="min-h-0 flex-1 bg-[linear-gradient(180deg,_rgba(240,249,255,0.45)_0%,_rgba(255,255,255,1)_28%)]">
+                                <div className="space-y-4 px-6 py-6">
+                                    {activeMessagesLoading ? (
+                                        <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                            Loading conversation...
+                                        </div>
+                                    ) : null}
+
+                                    {messages.map((message) => {
+                                        const isOwnMessage = currentUser?.id && message.authorFamilyMemberId === currentUser.id;
+                                        const editableUntil = message.editableUntil ? new Date(message.editableUntil).getTime() : 0;
+                                        const canEdit = isOwnMessage && Date.now() < editableUntil && !message.deletedAt;
+                                        const canDelete = (isOwnMessage && Date.now() < editableUntil) || currentUser?.role === 'parent';
+                                        const isEditing = editingMessageId === message.id;
+                                        const replyTo = getReplyToMessage(message.replyTo);
+                                        return (
+                                            <div key={message.id} className={cn('flex', isOwnMessage ? 'justify-end' : 'justify-start')}>
+                                                <div
+                                                    className={cn(
+                                                        'max-w-[78%] rounded-[28px] border px-4 py-3 shadow-sm',
+                                                        isOwnMessage
+                                                            ? 'border-sky-500 bg-sky-600 text-white'
+                                                            : 'border-slate-200 bg-white text-slate-900'
+                                                    )}
+                                                >
+                                                    <div className={cn('mb-1 flex flex-wrap items-center gap-2 text-xs', isOwnMessage ? 'text-sky-100' : 'text-slate-500')}>
+                                                        <span className="font-semibold">{getAuthorName(message, familyMemberNamesById)}</span>
+                                                        <span>{formatMessageTime(message.createdAt)}</span>
+                                                        {message.editedAt ? <span>edited</span> : null}
+                                                        {message.importance === 'urgent' ? <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700">urgent</span> : null}
+                                                        {message.importance === 'announcement' ? <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">announcement</span> : null}
+                                                    </div>
+
+                                                    {replyTo ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setReplyToMessageId(replyTo.id || null)}
+                                                            className={cn(
+                                                                'mb-3 block w-full rounded-2xl border px-3 py-2 text-left text-xs',
+                                                                isOwnMessage ? 'border-white/20 bg-white/10 text-sky-50' : 'border-slate-200 bg-slate-50 text-slate-600'
+                                                            )}
+                                                        >
+                                                            Replying to {getAuthorName(replyTo, familyMemberNamesById)}: {(replyTo.body || '').slice(0, 80)}
+                                                        </button>
+                                                    ) : null}
+
+                                                    {isEditing ? (
+                                                        <div className="space-y-2">
+                                                            <textarea
+                                                                value={editingBody}
+                                                                onChange={(event) => setEditingBody(event.target.value)}
+                                                                rows={4}
+                                                                className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                                                            />
+                                                            <div className="flex justify-end gap-2">
+                                                                <Button type="button" variant="outline" size="sm" onClick={() => {
+                                                                    setEditingMessageId(null);
+                                                                    setEditingBody('');
+                                                                }}>
+                                                                    Cancel
+                                                                </Button>
+                                                                <Button
+                                                                    type="button"
+                                                                    size="sm"
+                                                                    onClick={async () => {
+                                                                        try {
+                                                                            await editMessage({
+                                                                                messageId: message.id,
+                                                                                body: editingBody,
+                                                                            });
+                                                                            setEditingMessageId(null);
+                                                                            setEditingBody('');
+                                                                        } catch (error: any) {
+                                                                            toast({ title: 'Unable to edit message', description: error?.message || 'Please try again.', variant: 'destructive' });
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    Save
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    ) : message.deletedAt ? (
+                                                        <div className={cn('rounded-2xl px-3 py-2 text-sm italic', isOwnMessage ? 'bg-white/10 text-sky-100' : 'bg-slate-50 text-slate-500')}>
+                                                            {message.removedReason || 'Message removed'}
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            {message.body ? <div className="whitespace-pre-wrap text-sm leading-6">{message.body}</div> : null}
+                                                            {message.attachments?.length ? (
+                                                                <AttachmentCollection
+                                                                    attachments={message.attachments}
+                                                                    className="mt-3"
+                                                                    variant={isOwnMessage ? 'bubble-own' : 'bubble-other'}
+                                                                />
+                                                            ) : null}
+                                                        </>
+                                                    )}
+
+                                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                        {['👍', '❤️', '😂', '🔥'].map((emoji) => {
+                                                            const count = (message.reactions || []).filter((reaction) => reaction.emoji === emoji).length;
+                                                            const isActive = (message.reactions || []).some((reaction) => {
+                                                                const member = Array.isArray(reaction.familyMember) ? reaction.familyMember[0] : reaction.familyMember;
+                                                                return reaction.emoji === emoji && member?.id === currentUser?.id;
+                                                            });
+                                                            return (
+                                                                <button
+                                                                    key={`${message.id}-${emoji}`}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        void toggleReaction({ messageId: message.id, emoji }).catch((error) => {
+                                                                            toast({ title: 'Unable to react', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+                                                                        });
+                                                                    }}
+                                                                    className={cn(
+                                                                        'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                                                                        isOwnMessage
+                                                                            ? isActive
+                                                                                ? 'border-white/30 bg-white/20 text-white'
+                                                                                : 'border-white/20 bg-white/10 text-sky-50'
+                                                                            : isActive
+                                                                            ? 'border-sky-300 bg-sky-50 text-sky-700'
+                                                                            : 'border-slate-200 bg-slate-50 text-slate-600'
+                                                                    )}
+                                                                >
+                                                                    {emoji} {count > 0 ? count : ''}
+                                                                </button>
+                                                            );
+                                                        })}
+
+                                                        {message.importance === 'needs_ack' ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    void acknowledge({ messageId: message.id, kind: 'acknowledged' }).catch((error) => {
+                                                                        toast({ title: 'Unable to acknowledge message', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+                                                                    });
+                                                                }}
+                                                                className={cn(
+                                                                    'rounded-full border px-2.5 py-1 text-xs font-medium',
+                                                                    isOwnMessage ? 'border-white/20 bg-white/10 text-sky-50' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                                                )}
+                                                            >
+                                                                {message.acknowledgements?.length ? `${message.acknowledgements.length} acknowledged` : 'Acknowledge'}
+                                                            </button>
+                                                        ) : null}
+
+                                                        <div className="ml-auto flex flex-wrap gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setReplyToMessageId(message.id)}
+                                                                className={cn('text-xs font-semibold', isOwnMessage ? 'text-sky-100 hover:text-white' : 'text-slate-500 hover:text-slate-700')}
+                                                            >
+                                                                Reply
+                                                            </button>
+                                                            {canEdit ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setEditingMessageId(message.id);
+                                                                        setEditingBody(message.body || '');
+                                                                    }}
+                                                                    className={cn('text-xs font-semibold', isOwnMessage ? 'text-sky-100 hover:text-white' : 'text-slate-500 hover:text-slate-700')}
+                                                                >
+                                                                    Edit
+                                                                </button>
+                                                            ) : null}
+                                                            {canDelete ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        void removeMessage(message.id).catch((error) => {
+                                                                            toast({ title: 'Unable to remove message', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+                                                                        });
+                                                                    }}
+                                                                    className={cn('text-xs font-semibold', isOwnMessage ? 'text-sky-100 hover:text-white' : 'text-slate-500 hover:text-slate-700')}
+                                                                >
+                                                                    Remove
+                                                                </button>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {!activeMessagesLoading && messages.length === 0 ? (
+                                        <div className="rounded-[28px] border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+                                            No messages in this thread yet.
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </ScrollArea>
+
+                            <div className="border-t border-slate-200 bg-slate-50/80 p-5">
+                                {!canComposeInThread ? (
+                                    <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                        Join this thread to reply or add a watch membership from oversee mode.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {replyTarget ? (
+                                            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                                                <div>
+                                                    Replying to <span className="font-semibold text-slate-900">{getAuthorName(replyTarget, familyMemberNamesById)}</span>
+                                                </div>
+                                                <button type="button" className="font-semibold text-slate-500" onClick={() => setReplyToMessageId(null)}>
+                                                    Clear
+                                                </button>
+                                            </div>
+                                        ) : null}
+
+                                        <textarea
+                                            value={composerBody}
+                                            onChange={(event) => setComposerBody(event.target.value)}
+                                            rows={4}
+                                            placeholder="Write a message..."
+                                            className="w-full rounded-[24px] border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-400"
+                                        />
+
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            {currentUser?.role === 'parent' ? (
+                                                <select
+                                                    value={composerImportance}
+                                                    onChange={(event) => setComposerImportance(event.target.value as any)}
+                                                    className="rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm"
+                                                >
+                                                    <option value="normal">Normal</option>
+                                                    <option value="urgent">Urgent</option>
+                                                    <option value="announcement">Announcement</option>
+                                                    <option value="needs_ack">Needs Ack</option>
+                                                </select>
+                                            ) : null}
+                                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm">
+                                                <span>Add files</span>
+                                                <input
+                                                    type="file"
+                                                    multiple
+                                                    className="hidden"
+                                                    onChange={(event) => {
+                                                        const files = Array.from(event.target.files || []);
+                                                        setPendingFiles((current) => [...current, ...files]);
+                                                        event.target.value = '';
+                                                    }}
+                                                    disabled={isSending}
+                                                />
+                                            </label>
+                                            <Button type="button" onClick={sendCurrentMessage} disabled={isSending || (!composerBody.trim() && pendingFiles.length === 0)}>
+                                                {isSending ? 'Sending...' : 'Send message'}
+                                            </Button>
+                                        </div>
+
+                                        {pendingFiles.length > 0 ? (
+                                            <div className="flex flex-wrap gap-2">
+                                                {pendingFiles.map((file, index) => (
+                                                    <button
+                                                        key={`${file.name}-${index}`}
+                                                        type="button"
+                                                        onClick={() => setPendingFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}
+                                                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700"
+                                                    >
+                                                        {file.name} x
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="flex h-full items-center justify-center px-8 text-center text-slate-500">
+                            Select a thread to start messaging.
+                        </div>
+                    )}
+                </section>
             </div>
         </div>
     );

@@ -32,6 +32,11 @@ function getParentPrincipalAuthId(): string {
     return process.env.INSTANT_PARENT_AUTH_ID || 'family-organizer-parent';
 }
 
+function getFamilyMemberAuthEmail(memberId: string) {
+    const normalizedMemberId = sanitizeEmailLocalPart(memberId);
+    return `${normalizedMemberId}@family-organizer.member.local`;
+}
+
 export function getKidPrincipalAuthEmail(): string {
     if (process.env.INSTANT_KID_AUTH_EMAIL) {
         return process.env.INSTANT_KID_AUTH_EMAIL;
@@ -61,6 +66,14 @@ export function getInstantAdminDb() {
 
 type PrincipalType = 'kid' | 'parent';
 
+type FamilyMemberRecord = {
+    id: string;
+    name?: string | null;
+    role?: string | null;
+    pinHash?: string | null;
+    photoUrls?: Record<string, string> | null;
+};
+
 function getPrincipalEmail(type: PrincipalType) {
     return type === 'kid' ? getKidPrincipalAuthEmail() : getParentPrincipalAuthEmail();
 }
@@ -83,12 +96,94 @@ export async function mintPrincipalToken(type: PrincipalType) {
     return token;
 }
 
+async function queryFamilyMembers() {
+    const adminDb = getInstantAdminDb();
+    const data = await adminDb.query({
+        familyMembers: {
+            authUser: {},
+        },
+    });
+    return (data.familyMembers as FamilyMemberRecord[]) || [];
+}
+
 export function hashPinServer(pin: string): string {
     return createHash('sha256').update(pin).digest('hex');
 }
 
 export async function getFamilyMemberById(memberId: string) {
+    const familyMembers = await queryFamilyMembers();
+    return familyMembers.find((member: any) => member.id === memberId) || null;
+}
+
+export async function listFamilyMemberRoster() {
+    const familyMembers = await queryFamilyMembers();
+    return familyMembers
+        .map((member: any) => ({
+            id: member.id,
+            name: member.name || 'Unknown',
+            role: member.role || 'child',
+            photoUrls: member.photoUrls || null,
+            hasPin: Boolean(member.pinHash),
+        }))
+        .sort((left, right) => String(left.name).localeCompare(String(right.name)));
+}
+
+export async function verifyFamilyMemberCredentials(memberId: string, pin: string | null | undefined) {
+    const member = (await getFamilyMemberById(memberId)) as FamilyMemberRecord | null;
+    if (!member) {
+        throw new Error('Family member not found');
+    }
+
+    if (member.pinHash) {
+        const providedPin = typeof pin === 'string' ? pin.trim() : '';
+        if (!providedPin) {
+            throw new Error('PIN is required');
+        }
+
+        if (hashPinServer(providedPin) !== member.pinHash) {
+            throw new Error('Incorrect PIN');
+        }
+    }
+
+    return member;
+}
+
+export async function mintFamilyMemberToken(memberId: string) {
     const adminDb = getInstantAdminDb();
-    const data = await adminDb.query({ familyMembers: {} });
-    return (data.familyMembers || []).find((member: any) => member.id === memberId) || null;
+    const member = (await getFamilyMemberById(memberId)) as FamilyMemberRecord | null;
+    if (!member) {
+        throw new Error('Family member not found');
+    }
+
+    const email = getFamilyMemberAuthEmail(member.id);
+    const token = await adminDb.auth.createToken({ email });
+    const user = await adminDb.auth.getUser({ email });
+    const principalType = member.role === 'parent' ? 'parent' : 'kid';
+
+    const transactions: any[] = [
+        adminDb.tx.$users[user.id].update({
+            familyMemberId: member.id,
+            imageURL:
+                typeof member.photoUrls?.['320'] === 'string'
+                    ? member.photoUrls['320']
+                    : typeof member.photoUrls?.['64'] === 'string'
+                    ? member.photoUrls['64']
+                    : null,
+            role: member.role || 'child',
+            type: principalType,
+        }),
+    ];
+
+    if (typeof adminDb.tx.familyMembers?.[member.id]?.link === 'function') {
+        transactions.push(adminDb.tx.familyMembers[member.id].link({ authUser: user.id }));
+    }
+
+    await adminDb.transact(transactions);
+
+    return {
+        token,
+        principalType,
+        member,
+        user,
+    };
 }
