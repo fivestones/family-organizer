@@ -23,7 +23,19 @@ import {
 import { Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/components/AuthProvider';
 import { isActionableTask, isTaskDone } from '@/lib/task-progress';
+import {
+    countTaskDayBlocks,
+    countCompletedTaskDayBlocks,
+    computePlannedEndDate,
+    computeLiveProjectedEndDate,
+    computeScheduleDrift,
+    buildCatchUpTransactions,
+    type ChoreScheduleInfo,
+    type ScheduleDrift,
+} from '@/lib/task-series-schedule';
+import type { Task as SchedulerTask } from '@/lib/task-scheduler';
 
 type Status = 'draft' | 'pending' | 'in_progress' | 'archived';
 
@@ -34,6 +46,7 @@ interface TaskSeriesManagerProps {
 const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
     const router = useRouter();
     const { toast } = useToast();
+    const { currentUser } = useAuth();
     const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all');
 
     // Selection State
@@ -190,12 +203,53 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
             const { totalTasks, completedTasks } = info;
             const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
 
+            // Task-day block progress and schedule drift
+            const tasks: SchedulerTask[] = (s.tasks || []).map((t: any) => ({
+                id: t.id,
+                text: t.text || '',
+                isDayBreak: !!t.isDayBreak,
+                isCompleted: !!t.isCompleted,
+                order: typeof t.order === 'number' ? t.order : 0,
+                workflowState: t.workflowState || undefined,
+                parentTask: t.parentTask,
+                subTasks: t.subTasks,
+            }));
+
+            const totalBlocks = countTaskDayBlocks(tasks);
+            const completedBlocks = countCompletedTaskDayBlocks(tasks);
+            const blockProgress = totalBlocks > 0 ? (completedBlocks / totalBlocks) * 100 : 0;
+            const pullForwardCount = s.pullForwardCount || 0;
+
+            let drift: ScheduleDrift = { status: 'on_target', days: 0, label: 'On target' };
+            const activity = s.scheduledActivity;
+            if (activity?.rrule) {
+                const todayKey = today.toISOString().slice(0, 10);
+                const schedule: ChoreScheduleInfo = {
+                    startDate: activity.startDate ? new Date(activity.startDate).toISOString().slice(0, 10) : todayKey,
+                    rruleString: activity.rrule,
+                    seriesStartDate: s.startDate ? new Date(s.startDate).toISOString().slice(0, 10) : null,
+                    exdates: Array.isArray(activity.exdates) ? activity.exdates : [],
+                };
+
+                const plannedEnd = s.plannedEndDate
+                    ? new Date(s.plannedEndDate).toISOString().slice(0, 10)
+                    : computePlannedEndDate(schedule, totalBlocks);
+
+                const liveEnd = computeLiveProjectedEndDate(schedule, totalBlocks, completedBlocks, pullForwardCount);
+                drift = computeScheduleDrift(plannedEnd, liveEnd, schedule);
+            }
+
             return {
                 raw: s,
                 status,
                 totalTasks,
                 completedTasks,
                 progress,
+                totalBlocks,
+                completedBlocks,
+                blockProgress,
+                drift,
+                pullForwardCount,
             };
         });
     }, [seriesList, today]);
@@ -301,6 +355,36 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
 
     const handleOpenSeries = (id: string) => {
         router.push(`/task-series/${id}`);
+    };
+
+    const handleCatchUp = async (item: (typeof enrichedSeries)[number], e: React.MouseEvent) => {
+        e.stopPropagation();
+        const s = item.raw;
+        const activity = s.scheduledActivity;
+        if (!activity?.rrule) return;
+
+        const todayKey = today.toISOString().slice(0, 10);
+        const schedule: ChoreScheduleInfo = {
+            startDate: activity.startDate ? new Date(activity.startDate).toISOString().slice(0, 10) : todayKey,
+            rruleString: activity.rrule,
+            seriesStartDate: s.startDate ? new Date(s.startDate).toISOString().slice(0, 10) : null,
+            exdates: Array.isArray(activity.exdates) ? activity.exdates : [],
+        };
+
+        const liveEnd = computeLiveProjectedEndDate(schedule, item.totalBlocks, item.completedBlocks, item.pullForwardCount);
+        if (!liveEnd) return;
+
+        const transactions = buildCatchUpTransactions({
+            tx,
+            seriesId: s.id,
+            newPlannedEndDate: liveEnd,
+            currentDayBreakCount: item.totalBlocks,
+            actorFamilyMemberId: currentUser?.id || null,
+            choreId: activity.id || null,
+        });
+
+        await db.transact(transactions);
+        toast({ title: 'Schedule caught up', description: 'Planned end date updated to match current progress.' });
     };
 
     const handleNewSeries = () => {
@@ -454,7 +538,7 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
             ) : (
                 <div className="space-y-3">
                     {filteredSeries.map((item) => {
-                        const { raw: s, status, totalTasks, completedTasks, progress } = item;
+                        const { raw: s, status, totalTasks, completedTasks, progress, totalBlocks, completedBlocks, blockProgress, drift, pullForwardCount } = item;
                         const isSelected = selectedSeriesIds.has(s.id);
 
                         return (
@@ -477,9 +561,24 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                                 <div className="space-y-1 pl-8">
                                     {' '}
                                     {/* Add padding left for checkbox */}
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                         <h2 className="text-base font-semibold">{s.name || 'Untitled series'}</h2>
                                         {renderStatusBadge(status)}
+                                        {drift.status !== 'on_target' && (
+                                            <Badge className={cn(
+                                                drift.status === 'ahead' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
+                                            )}>
+                                                {drift.label}
+                                            </Badge>
+                                        )}
+                                        {drift.status === 'on_target' && status === 'in_progress' && totalBlocks > 0 && (
+                                            <Badge className="bg-emerald-100 text-emerald-800">On target</Badge>
+                                        )}
+                                        {pullForwardCount > 0 && (
+                                            <Badge variant="outline" className="text-xs">
+                                                {pullForwardCount} pulled fwd
+                                            </Badge>
+                                        )}
                                     </div>
                                     {s.description && <p className="text-sm text-muted-foreground line-clamp-2">{s.description}</p>}
                                     <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mt-1">
@@ -491,18 +590,38 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
 
                                 <div className="w-full md:w-72 flex flex-col items-stretch gap-2 pl-8 md:pl-0">
                                     <div className="flex justify-between text-xs text-muted-foreground">
-                                        <span>Progress</span>
+                                        <span>Tasks</span>
                                         {totalTasks > 0 ? (
                                             <span>
-                                                {completedTasks}/{totalTasks} tasks
+                                                {completedTasks}/{totalTasks}
                                             </span>
                                         ) : (
                                             <span>No tasks yet</span>
                                         )}
                                     </div>
-                                    <Progress value={progress} />
+                                    <Progress value={progress} className="h-1.5" />
+
+                                    {totalBlocks > 0 && (
+                                        <>
+                                            <div className="flex justify-between text-xs text-muted-foreground">
+                                                <span>Days</span>
+                                                <span>{completedBlocks}/{totalBlocks}</span>
+                                            </div>
+                                            <Progress value={blockProgress} className="h-1.5" />
+                                        </>
+                                    )}
 
                                     <div className="flex justify-end gap-2 pt-2 md:pt-0">
+                                        {drift.status === 'behind' && (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="text-xs"
+                                                onClick={(e) => handleCatchUp(item, e)}
+                                            >
+                                                Catch up
+                                            </Button>
+                                        )}
                                         <Button
                                             size="sm"
                                             variant="ghost"

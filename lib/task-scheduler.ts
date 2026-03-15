@@ -73,8 +73,10 @@ export function getTasksForDate(
     startDateString: string,
     viewDate: Date,
     seriesStartDateString?: string | null,
-    exdates?: string[] | null
+    exdates?: string[] | null,
+    pullForwardCount?: number
 ): Task[] {
+    const blockOffset = pullForwardCount || 0;
     // 1. Normalize dates
     const utcViewDate = toUTCDate(viewDate);
     const viewDateString = utcViewDate.toISOString().slice(0, 10); // "YYYY-MM-DD"
@@ -144,7 +146,7 @@ export function getTasksForDate(
 
     // 6. "Current Block" Logic (Viewing Anchor Date)
     if (utcViewDate.getTime() === anchorDate.getTime()) {
-        return normalizedBlocks[0] || [];
+        return normalizedBlocks[blockOffset] || [];
     }
 
     // 9. Handle Future Dates Logic
@@ -187,7 +189,7 @@ export function getTasksForDate(
 
         // This simple indexing works! occurrenceIndex 0 -> Block 0.
 
-        return normalizedBlocks[occurrenceIndex] || [];
+        return normalizedBlocks[blockOffset + occurrenceIndex] || [];
     }
 
     return [];
@@ -208,7 +210,8 @@ export function isSeriesActiveForDate(
     choreStartDateString: string,
     viewDate: Date,
     seriesStartDateString?: string | null,
-    exdates?: string[] | null
+    exdates?: string[] | null,
+    pullForwardCount?: number
 ): boolean {
     if (!allTasks || allTasks.length === 0) return false;
 
@@ -228,7 +231,7 @@ export function isSeriesActiveForDate(
         if (!isScheduled) return false;
     }
 
-    const visibleTasks = getTasksForDate(allTasks, rruleString, choreStartDateString, viewDate, seriesStartDateString, exdates);
+    const visibleTasks = getTasksForDate(allTasks, rruleString, choreStartDateString, viewDate, seriesStartDateString, exdates, pullForwardCount);
     if (visibleTasks.length > 0) {
         return true;
     }

@@ -533,7 +533,8 @@ function ChoreList({
                                             chore.startDate,
                                             safeSelectedDate,
                                             targetSeries.startDate,
-                                            chore.exdates || null
+                                            chore.exdates || null,
+                                            targetSeries.pullForwardCount || 0
                                         );
                                     }
 
@@ -622,7 +623,8 @@ function ChoreList({
                                         chore.startDate,
                                         safeSelectedDate,
                                         series.startDate || null,
-                                        chore.exdates || null
+                                        chore.exdates || null,
+                                        series.pullForwardCount || 0
                                     );
 
                                     if (isActive) {
@@ -675,13 +677,15 @@ function ChoreList({
                                 }
 
                                 const allTasks = series.tasks || [];
+                                const seriesPullForwardCount = series.pullForwardCount || 0;
                                 const tasks = getTasksForDate(
                                     allTasks,
                                     chore.rrule,
                                     chore.startDate,
                                     safeSelectedDate,
                                     series.startDate,
-                                    chore.exdates || null
+                                    chore.exdates || null,
+                                    seriesPullForwardCount
                                 );
                                 const bucketCounts = getTaskBucketCounts(allTasks);
                                 const hasBucketedTasks = Object.values(bucketCounts).some((count) => count > 0);
@@ -799,6 +803,13 @@ function ChoreList({
                                             {selectedMember === 'All' && ownerName && assignedMembers.length > 1 && (
                                                 <div className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-wider pl-1">
                                                     {ownerName}'s Checklist
+                                                </div>
+                                            )}
+
+                                            {(series.pullForwardCount || 0) > 0 && !choreOccursOnDate({ startDate: chore.startDate, rrule: chore.rrule, exdates: chore.exdates }, safeSelectedDate) && (
+                                                <div className="mb-2 flex items-center gap-1.5 rounded bg-blue-50 border border-blue-200 px-2 py-1 text-xs text-blue-700">
+                                                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                                    Pulled forward
                                                 </div>
                                             )}
 

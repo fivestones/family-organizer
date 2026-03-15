@@ -16,6 +16,7 @@ import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/ad
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/components/AuthProvider';
 import TaskItemExtension, { TaskDateContext } from './TaskItem';
@@ -24,6 +25,8 @@ import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { cn } from '@/lib/utils';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 import { getTaskActorName, getTaskStatusLabel, isTaskWorkflowState, sortTaskProgressEntries } from '@/lib/task-progress';
+import { countTaskDayBlocks, computePlannedEndDate, type ChoreScheduleInfo } from '@/lib/task-series-schedule';
+import type { Task as SchedulerTask } from '@/lib/task-scheduler';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
 interface Task {
@@ -618,6 +621,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     const [description, setDescription] = useState('');
     const [startDate, setStartDate] = useState<Date>(defaultStartDate);
     const [targetEndDate, setTargetEndDate] = useState<Date | null>(null);
+    const [workAheadAllowed, setWorkAheadAllowed] = useState<boolean>(false);
     const initialStartDateRef = useRef(defaultStartDate);
 
     // Links
@@ -713,6 +717,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             } else {
                 setTargetEndDate(null);
             }
+
+            setWorkAheadAllowed(seriesData.workAheadAllowed === true);
 
             // Linked family member & chore, if present
             if (seriesData.familyMember) {
@@ -1343,7 +1349,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             String(seriesDataRef.current?.startDate ? startOfDay(ensureDate(seriesDataRef.current.startDate) || new Date()).toISOString() : '') !==
                 String(startDate ? startOfDay(startDate).toISOString() : '') ||
             String(seriesDataRef.current?.targetEndDate ? startOfDay(ensureDate(seriesDataRef.current.targetEndDate) || new Date()).toISOString() : '') !==
-                String(targetEndDate ? startOfDay(targetEndDate).toISOString() : '');
+                String(targetEndDate ? startOfDay(targetEndDate).toISOString() : '') ||
+            (seriesDataRef.current?.workAheadAllowed === true) !== workAheadAllowed;
 
         // Dates: InstantDB expects Date objects for i.date()
         if (startDate) {
@@ -1354,6 +1361,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         } else {
             seriesUpdate.targetEndDate = null;
         }
+
+        seriesUpdate.workAheadAllowed = workAheadAllowed;
 
         // If this is a brand new series, ensure createdAt is set
         if (!seriesData?.createdAt && !hasPersisted) {
@@ -1419,6 +1428,79 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 });
                 transactions.push(...historyEvent.transactions);
                 lastHistoryEventAtRef.current = nowMs;
+            }
+        }
+
+        // --- Planned end date lifecycle ---
+        // Compute and persist plannedEndDate + baselineDayBreakCount when we have
+        // both a linked chore and task structure with day-breaks.
+        if (scheduledActivityId && taskStructureChanged) {
+            const chore = data?.chores?.find((c: any) => c.id === scheduledActivityId);
+            if (chore?.rrule) {
+                // Build minimal Task[] for block counting
+                const schedulerTasks: SchedulerTask[] = [...dbTasks, ...Array.from(currentIds).filter(tid => !dbTasks.some(t => t.id === tid)).map(tid => {
+                    const node = editor?.state.doc.content.content?.find((n: any) => n.attrs?.id === tid);
+                    return {
+                        id: tid,
+                        text: node?.textContent || '',
+                        isDayBreak: node?.attrs?.isDayBreak || false,
+                        isCompleted: false,
+                        order: 0,
+                    } as SchedulerTask;
+                })].map((t: any) => ({
+                    id: t.id,
+                    text: t.text || '',
+                    isDayBreak: !!t.isDayBreak,
+                    isCompleted: !!t.isCompleted,
+                    order: typeof t.order === 'number' ? t.order : 0,
+                    workflowState: t.workflowState || undefined,
+                    parentTask: t.parentTask,
+                    subTasks: t.subTasks,
+                } as SchedulerTask));
+
+                const totalBlocks = countTaskDayBlocks(schedulerTasks);
+                const existingBaseline = seriesDataRef.current?.baselineDayBreakCount;
+
+                if (totalBlocks > 0) {
+                    const schedule: ChoreScheduleInfo = {
+                        startDate: chore.startDate ? new Date(chore.startDate).toISOString().slice(0, 10) : format(startDate, 'yyyy-MM-dd'),
+                        rruleString: chore.rrule,
+                        seriesStartDate: startDate ? format(startDate, 'yyyy-MM-dd') : null,
+                        exdates: Array.isArray(chore.exdates) ? chore.exdates : [],
+                    };
+
+                    if (existingBaseline == null) {
+                        // First time: compute fresh planned end date
+                        const endDate = computePlannedEndDate(schedule, totalBlocks);
+                        if (endDate) {
+                            transactions.push(
+                                tx.taskSeries[seriesId].update({
+                                    plannedEndDate: new Date(endDate + 'T00:00:00Z').valueOf(),
+                                    baselineDayBreakCount: totalBlocks,
+                                })
+                            );
+                        }
+                    } else if (totalBlocks !== existingBaseline) {
+                        // Parent added or removed day-breaks — adjust planned end date
+                        const diff = totalBlocks - existingBaseline;
+                        const currentPlanned = seriesDataRef.current?.plannedEndDate
+                            ? new Date(seriesDataRef.current.plannedEndDate).toISOString().slice(0, 10)
+                            : null;
+
+                        if (currentPlanned) {
+                            // Re-compute from current planned end + diff occurrences
+                            const newEndDate = computePlannedEndDate(schedule, totalBlocks);
+                            if (newEndDate) {
+                                transactions.push(
+                                    tx.taskSeries[seriesId].update({
+                                        plannedEndDate: new Date(newEndDate + 'T00:00:00Z').valueOf(),
+                                        baselineDayBreakCount: totalBlocks,
+                                    })
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1752,6 +1834,17 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                                 }}
                             />
                         </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-2">
+                        <Switch
+                            checked={workAheadAllowed}
+                            onCheckedChange={(checked: boolean) => {
+                                setWorkAheadAllowed(checked);
+                                triggerSave();
+                            }}
+                        />
+                        <label className="text-sm font-medium">Allow work-ahead (pull forward)</label>
                     </div>
                 </div>
             </div>

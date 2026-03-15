@@ -302,4 +302,53 @@ describe('task-scheduler date logic', () => {
             payload: { childTasksComplete: false },
         });
     });
+
+    // --- pullForwardCount tests ---
+
+    it('shifts blocks forward by pullForwardCount on anchor date', () => {
+        const tasks: Task[] = [
+            makeTask({ id: 'a', text: 'Block A', order: 1 }),
+            makeTask({ id: 'br1', text: 'Break', order: 2, isDayBreak: true }),
+            makeTask({ id: 'b', text: 'Block B', order: 3 }),
+            makeTask({ id: 'br2', text: 'Break', order: 4, isDayBreak: true }),
+            makeTask({ id: 'c', text: 'Block C', order: 5 }),
+        ];
+
+        // pullForwardCount=0 -> block A
+        const normal = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 10, 12, 0, 0), null, null, 0);
+        expect(normal.map((t) => t.id)).toEqual(['a']);
+
+        // pullForwardCount=1 -> block B
+        const pulled1 = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 10, 12, 0, 0), null, null, 1);
+        expect(pulled1.map((t) => t.id)).toEqual(['b']);
+
+        // pullForwardCount=2 -> block C
+        const pulled2 = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 10, 12, 0, 0), null, null, 2);
+        expect(pulled2.map((t) => t.id)).toEqual(['c']);
+    });
+
+    it('shifts blocks forward on future dates too', () => {
+        const tasks: Task[] = [
+            makeTask({ id: 'a', text: 'Block A', order: 1 }),
+            makeTask({ id: 'br1', text: 'Break', order: 2, isDayBreak: true }),
+            makeTask({ id: 'b', text: 'Block B', order: 3 }),
+            makeTask({ id: 'br2', text: 'Break', order: 4, isDayBreak: true }),
+            makeTask({ id: 'c', text: 'Block C', order: 5 }),
+        ];
+
+        // pullForwardCount=1: anchor date gets block B, next day gets block C
+        const nextDay = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 11, 12, 0, 0), null, null, 1);
+        expect(nextDay.map((t) => t.id)).toEqual(['c']);
+    });
+
+    it('returns empty when pullForwardCount exceeds available blocks', () => {
+        const tasks: Task[] = [
+            makeTask({ id: 'a', text: 'Block A', order: 1 }),
+            makeTask({ id: 'br1', text: 'Break', order: 2, isDayBreak: true }),
+            makeTask({ id: 'b', text: 'Block B', order: 3 }),
+        ];
+
+        const result = getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 10, 12, 0, 0), null, null, 5);
+        expect(result).toEqual([]);
+    });
 });

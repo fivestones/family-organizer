@@ -417,6 +417,7 @@ const _schema = i.schema({
             workflowState: i.string().optional().indexed(),
         }),
         taskSeries: i.entity({
+            baselineDayBreakCount: i.number().optional(),
             breakDelayUnit: i.string().optional(),
             breakDelayValue: i.number().optional(),
             breakStartDate: i.date().optional(),
@@ -425,6 +426,8 @@ const _schema = i.schema({
             description: i.string().optional(),
             dependsOnSeriesId: i.string().optional().indexed(),
             name: i.string(),
+            plannedEndDate: i.date().optional(),
+            pullForwardCount: i.number().optional(),
             startDate: i.date().optional(),
             targetEndDate: i.date().optional(),
             updatedAt: i.date().optional(),

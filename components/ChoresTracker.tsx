@@ -735,6 +735,19 @@ function ChoresTracker({
         if (pageMode === 'tasks' && (!chore.taskSeries || chore.taskSeries.length === 0)) {
             return false;
         }
+
+        // In tasks mode, also include chores with active pull-forwards for the selected member
+        if (pageMode === 'tasks' && chore.taskSeries) {
+            const hasActivePullForward = chore.taskSeries.some((series: any) => {
+                if (!series || (series.pullForwardCount || 0) <= 0) return false;
+                const ownerId = Array.isArray(series.familyMember)
+                    ? series.familyMember[0]?.id
+                    : series.familyMember?.id;
+                return selectedMember === 'All' || ownerId === selectedMember;
+            });
+            if (hasActivePullForward) return true;
+        }
+
         const assignedMembers = getAssignedMembersForChoreOnDate(chore, selectedDate);
         if (selectedMember === 'All') {
             // Show if anyone is assigned on this date
@@ -968,6 +981,14 @@ function ChoresTracker({
                                     <Link href="/chores">
                                         <Button variant="outline" size="sm">
                                             Back to day view
+                                        </Button>
+                                    </Link>
+                                ) : null}
+
+                                {pageMode === 'tasks' ? (
+                                    <Link href={`/my-tasks${selectedMember !== 'All' ? `?member=${selectedMember}` : ''}`}>
+                                        <Button variant="outline" size="sm">
+                                            <ListTodo className="mr-2 h-4 w-4" /> My Task Series
                                         </Button>
                                     </Link>
                                 ) : null}
