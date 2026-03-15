@@ -154,16 +154,12 @@ export default function FamilyMessagesPage() {
     const initialThreadId = searchParams.get('threadId');
     const searchParamString = searchParams.toString();
     const [showNotificationPrefs, setShowNotificationPrefs] = useState(false);
+    const [optimisticThreadsById, setOptimisticThreadsById] = useState<Record<string, ThreadRecord>>({});
 
     const membershipQuery = (db as any).useQuery(
         currentUser
             ? {
                   messageThreadMembers: {
-                      $: {
-                          order: {
-                              sortTimestamp: 'desc',
-                          },
-                      },
                       thread: {
                           members: {
                               familyMember: {},
@@ -184,6 +180,18 @@ export default function FamilyMessagesPage() {
                               latestMessageAt: 'desc',
                           },
                       },
+                      members: {
+                          familyMember: {},
+                      },
+                  },
+              }
+            : (null as any)
+    ) as any;
+
+    const visibleThreadsQuery = (db as any).useQuery(
+        currentUser
+            ? {
+                  messageThreads: {
                       members: {
                           familyMember: {},
                       },
@@ -256,6 +264,15 @@ export default function FamilyMessagesPage() {
             });
         }
 
+        const visibleThreads = (visibleThreadsQuery?.data?.messageThreads as ThreadRecord[]) || [];
+        for (const thread of visibleThreads) {
+            if (!thread?.id) continue;
+            threadsById.set(thread.id, {
+                ...thread,
+                membership: membershipMap.get(thread.id) || threadsById.get(thread.id)?.membership || null,
+            });
+        }
+
         if (currentUser?.role === 'parent' && isOverseeMode) {
             const overseenThreads = (overseenThreadsQuery?.data?.messageThreads as ThreadRecord[]) || [];
             for (const thread of overseenThreads) {
@@ -266,8 +283,19 @@ export default function FamilyMessagesPage() {
             }
         }
 
+        for (const thread of Object.values(optimisticThreadsById)) {
+            if (!thread?.id) continue;
+            threadsById.set(thread.id, {
+                ...thread,
+                membership: membershipMap.get(thread.id) || thread.membership || null,
+            });
+        }
+
         return sortThreads(Array.from(threadsById.values())).filter((thread) => {
             if (thread.membership?.isArchived) return false;
+            if (currentUser?.role === 'parent' && !isOverseeMode && !thread.membership && !optimisticThreadsById[thread.id]) {
+                return false;
+            }
             const query = threadSearch.trim().toLowerCase();
             if (!query) return true;
             const haystack = [
@@ -279,7 +307,15 @@ export default function FamilyMessagesPage() {
                 .toLowerCase();
             return haystack.includes(query);
         });
-    }, [currentUser?.role, isOverseeMode, membershipQuery?.data?.messageThreadMembers, overseenThreadsQuery?.data?.messageThreads, threadSearch]);
+    }, [
+        currentUser?.role,
+        isOverseeMode,
+        membershipQuery?.data?.messageThreadMembers,
+        optimisticThreadsById,
+        overseenThreadsQuery?.data?.messageThreads,
+        threadSearch,
+        visibleThreadsQuery?.data?.messageThreads,
+    ]);
 
     const selectedThread = useMemo(
         () => threads.find((thread) => thread.id === selectedThreadId) || null,
@@ -475,6 +511,10 @@ export default function FamilyMessagesPage() {
             });
             const threadId = result?.thread?.id;
             if (threadId) {
+                setOptimisticThreadsById((current) => ({
+                    ...current,
+                    [threadId]: result.thread,
+                }));
                 setSelectedThreadId(threadId);
             }
             setCreationMode(null);
@@ -498,6 +538,10 @@ export default function FamilyMessagesPage() {
             });
             const threadId = result?.thread?.id;
             if (threadId) {
+                setOptimisticThreadsById((current) => ({
+                    ...current,
+                    [threadId]: result.thread,
+                }));
                 setSelectedThreadId(threadId);
             }
         } catch (error: any) {

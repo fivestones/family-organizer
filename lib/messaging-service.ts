@@ -77,6 +77,47 @@ function createMessagePreview(body: string, attachments: UploadedMessageAttachme
     return 'New message';
 }
 
+function buildThreadSnapshot(params: {
+    id: string;
+    title: string;
+    threadKey: string;
+    threadType: string;
+    visibility: string;
+    createdByFamilyMemberId?: string | null;
+    latestMessageAt?: string | null;
+    latestMessageAuthorId?: string | null;
+    latestMessagePreview?: string | null;
+    linkedDomain?: string | null;
+    linkedEntityId?: string | null;
+    updatedAt: string;
+    participants: any[];
+}) {
+    return {
+        id: params.id,
+        title: params.title,
+        threadKey: params.threadKey,
+        threadType: params.threadType,
+        visibility: params.visibility,
+        createdByFamilyMemberId: params.createdByFamilyMemberId || null,
+        latestMessageAt: params.latestMessageAt || null,
+        latestMessageAuthorId: params.latestMessageAuthorId || null,
+        latestMessagePreview: params.latestMessagePreview || null,
+        linkedDomain: params.linkedDomain || null,
+        linkedEntityId: params.linkedEntityId || null,
+        updatedAt: params.updatedAt,
+        members: params.participants.map((member) => ({
+            id: deterministicUuid(getMembershipKey(params.id, member.id)),
+            familyMemberId: member.id,
+            familyMember: [
+                {
+                    id: member.id,
+                    name: member.name || 'Unknown',
+                },
+            ],
+        })),
+    };
+}
+
 async function queryFamilyMembers() {
     const adminDb = getInstantAdminDb();
     const data = await adminDb.query({
@@ -303,13 +344,40 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
     const nowIso = new Date().toISOString();
 
     if (input.threadType === 'family') {
-        return getThreadById(HISTORY_MESSAGE_THREAD_FAMILY_ID);
+        const existingThread = await getThreadByKey('family');
+        return (
+            existingThread ||
+            buildThreadSnapshot({
+                id: HISTORY_MESSAGE_THREAD_FAMILY_ID,
+                title: 'Family',
+                threadKey: 'family',
+                threadType: 'family',
+                visibility: 'family',
+                createdByFamilyMemberId: familyMembers.find((member: any) => member.role === 'parent')?.id || familyMembers[0]?.id || null,
+                updatedAt: nowIso,
+                participants: familyMembers,
+            })
+        );
     }
     if (input.threadType === 'parents_only') {
         if (actor.role !== 'parent') {
             throw new Error('Only parents can create or open parent-only threads');
         }
-        return getThreadById(PARENTS_ONLY_THREAD_ID);
+        const parents = familyMembers.filter((member: any) => member.role === 'parent');
+        const existingThread = await getThreadByKey('parents_only');
+        return (
+            existingThread ||
+            buildThreadSnapshot({
+                id: PARENTS_ONLY_THREAD_ID,
+                title: 'Parents',
+                threadKey: 'parents_only',
+                threadType: 'parents_only',
+                visibility: 'parents_only',
+                createdByFamilyMemberId: parents[0]?.id || null,
+                updatedAt: nowIso,
+                participants: parents,
+            })
+        );
     }
 
     let participantIds = Array.from(
@@ -402,7 +470,21 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
     }
 
     await adminDb.transact(transactions);
-    return getThreadById(threadId);
+    return (
+        (await getThreadByKey(threadKey)) ||
+        buildThreadSnapshot({
+            id: threadId,
+            title,
+            threadKey,
+            threadType: input.threadType,
+            visibility,
+            createdByFamilyMemberId: actor.id,
+            linkedDomain: input.linkedDomain || null,
+            linkedEntityId: input.linkedEntityId || null,
+            updatedAt: nowIso,
+            participants: participantIds.map((memberId) => familyMembersById.get(memberId)).filter(Boolean),
+        })
+    );
 }
 
 export async function sendThreadMessage(actor: any, input: SendMessageRequest) {

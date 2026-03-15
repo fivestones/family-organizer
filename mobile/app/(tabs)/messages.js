@@ -87,16 +87,12 @@ export default function MessagesTab() {
   const [selectedParticipantIds, setSelectedParticipantIds] = useState([]);
   const [newThreadTitle, setNewThreadTitle] = useState('');
   const [attachmentPreview, setAttachmentPreview] = useState(null);
+  const [optimisticThreadsById, setOptimisticThreadsById] = useState({});
 
   const membershipsQuery = db.useQuery(
     isAuthenticated && instantReady
       ? {
           messageThreadMembers: {
-            $: {
-              order: {
-                sortTimestamp: 'desc',
-              },
-            },
             thread: {
               members: {
                 familyMember: {},
@@ -116,6 +112,18 @@ export default function MessagesTab() {
                 latestMessageAt: 'desc',
               },
             },
+            members: {
+              familyMember: {},
+            },
+          },
+        }
+      : null
+  );
+
+  const visibleThreadsQuery = db.useQuery(
+    isAuthenticated && instantReady
+      ? {
+          messageThreads: {
             members: {
               familyMember: {},
             },
@@ -170,6 +178,7 @@ export default function MessagesTab() {
   const familyMemberNamesById = useMemo(() => new Map(familyMembers.map((member) => [member.id, member.name || 'Unknown'])), [familyMembers]);
   const membershipRows = useMemo(() => membershipsQuery.data?.messageThreadMembers || [], [membershipsQuery.data?.messageThreadMembers]);
   const overseenThreads = useMemo(() => threadsQuery.data?.messageThreads || [], [threadsQuery.data?.messageThreads]);
+  const visibleThreads = useMemo(() => visibleThreadsQuery.data?.messageThreads || [], [visibleThreadsQuery.data?.messageThreads]);
 
   const threads = useMemo(() => {
     const map = new Map();
@@ -185,6 +194,13 @@ export default function MessagesTab() {
       });
     });
 
+    visibleThreads.forEach((thread) => {
+      map.set(thread.id, {
+        ...thread,
+        membership: membershipMap.get(thread.id) || map.get(thread.id)?.membership || null,
+      });
+    });
+
     if (currentUser?.role === 'parent' && isOverseeMode) {
       overseenThreads.forEach((thread) => {
         map.set(thread.id, {
@@ -194,9 +210,20 @@ export default function MessagesTab() {
       });
     }
 
+    Object.values(optimisticThreadsById).forEach((thread) => {
+      if (!thread?.id) return;
+      map.set(thread.id, {
+        ...thread,
+        membership: membershipMap.get(thread.id) || thread.membership || null,
+      });
+    });
+
     return Array.from(map.values())
       .filter((thread) => {
         if (thread.membership?.isArchived) return false;
+        if (currentUser?.role === 'parent' && !isOverseeMode && !thread.membership && !optimisticThreadsById[thread.id]) {
+          return false;
+        }
         const query = threadSearch.trim().toLowerCase();
         if (!query) return true;
         const haystack = [
@@ -219,7 +246,7 @@ export default function MessagesTab() {
         const rightTime = right.latestMessageAt ? new Date(right.latestMessageAt).getTime() : 0;
         return rightTime - leftTime;
       });
-  }, [currentUser?.role, isOverseeMode, membershipRows, overseenThreads, threadSearch]);
+  }, [currentUser?.role, isOverseeMode, membershipRows, optimisticThreadsById, overseenThreads, threadSearch, visibleThreads]);
 
   const selectedThread = useMemo(() => threads.find((thread) => thread.id === selectedThreadId) || null, [selectedThreadId, threads]);
   const selectedMembership = selectedThread?.membership || null;
@@ -326,6 +353,10 @@ export default function MessagesTab() {
       const result = await createMobileMessageThread(payload);
       const threadId = result?.thread?.id;
       if (threadId) {
+        setOptimisticThreadsById((current) => ({
+          ...current,
+          [threadId]: result.thread,
+        }));
         setSelectedThreadId(threadId);
       }
       setCreationMode(null);
@@ -461,11 +492,11 @@ export default function MessagesTab() {
             </View>
           ) : (
             <View style={styles.quickRow}>
-              <Pressable style={styles.quickButton} onPress={() => setSelectedThreadId('00000000-0000-4000-8000-000000000001')}>
-                <Text style={styles.quickButtonText}>Family</Text>
-              </Pressable>
-              {currentUser?.role === 'parent' ? (
-                <Pressable style={styles.quickButton} onPress={() => setSelectedThreadId('00000000-0000-4000-8000-000000000002')}>
+                  <Pressable style={styles.quickButton} onPress={() => setSelectedThreadId('00000000-0000-4000-8000-000000000001')}>
+                    <Text style={styles.quickButtonText}>Family</Text>
+                  </Pressable>
+                  {currentUser?.role === 'parent' ? (
+                    <Pressable style={styles.quickButton} onPress={() => setSelectedThreadId('00000000-0000-4000-8000-000000000002')}>
                   <Text style={styles.quickButtonText}>Parents</Text>
                 </Pressable>
               ) : null}
