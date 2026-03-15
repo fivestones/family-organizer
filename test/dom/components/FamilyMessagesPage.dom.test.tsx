@@ -417,4 +417,22 @@ describe('FamilyMessagesPage', () => {
         expect(screen.getByText(hasExactText('Reply to Pat'))).toBeInTheDocument();
         expect(screen.getByText('Original context from Pat')).toBeInTheDocument();
     });
+
+    it('subscribes to reactions and calls the reaction toggle handler when an emoji is pressed', async () => {
+        familyMessagesMocks.getMessageServerTime.mockResolvedValue({
+            serverNow: '2026-03-15T10:04:00.000Z',
+        });
+
+        render(<FamilyMessagesPage />);
+        await flushMessagingPage();
+
+        const messageQueryCall = familyMessagesMocks.useQuery.mock.calls.find(([query]) => query?.messages);
+        expect(messageQueryCall?.[0]?.messages?.reactions).toEqual({
+            familyMember: {},
+        });
+
+        fireEvent.click(screen.getByRole('button', { name: '👍' }));
+
+        expect(familyMessagesMocks.toggleReaction).toHaveBeenCalledWith({ messageId: 'message-1', emoji: '👍' });
+    });
 });

@@ -192,6 +192,12 @@ async function getMessageById(messageId: string) {
             },
             author: {},
             attachments: {},
+            reactions: {
+                familyMember: {},
+            },
+            acknowledgements: {
+                familyMember: {},
+            },
             replyTo: {
                 author: {},
                 attachments: {},

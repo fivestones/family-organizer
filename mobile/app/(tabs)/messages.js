@@ -155,6 +155,12 @@ export default function MessagesTab() {
             },
             attachments: {},
             author: {},
+            reactions: {
+              familyMember: {},
+            },
+            acknowledgements: {
+              familyMember: {},
+            },
             replyTo: {
               author: {},
               attachments: {},

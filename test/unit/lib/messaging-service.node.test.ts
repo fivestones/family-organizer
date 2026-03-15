@@ -4,6 +4,7 @@ import { freezeTime } from '@/test/utils/fake-clock';
 const messagingServiceMocks = vi.hoisted(() => {
     const state = {
         message: null as any,
+        membership: null as any,
     };
 
     const query = vi.fn(async (request: any) => {
@@ -12,15 +13,32 @@ const messagingServiceMocks = vi.hoisted(() => {
                 messages: state.message ? [state.message] : [],
             };
         }
+        if (request?.messageThreadMembers) {
+            return {
+                messageThreadMembers: state.membership ? [state.membership] : [],
+            };
+        }
         return {};
     });
 
     const transact = vi.fn(async (operations: any[]) => {
         for (const operation of operations || []) {
-            if (operation?.entity === 'messages' && state.message?.id === operation.id) {
+            if (operation?.entity === 'messages' && operation.type === 'update' && state.message?.id === operation.id) {
                 state.message = {
                     ...state.message,
                     ...operation.payload,
+                };
+            }
+            if (operation?.entity === 'messageReactions' && operation.type === 'update' && state.message?.id === operation.payload?.messageId) {
+                state.message = {
+                    ...state.message,
+                    reactions: [...(state.message.reactions || []), { ...operation.payload, id: operation.id }],
+                };
+            }
+            if (operation?.entity === 'messageReactions' && operation.type === 'delete') {
+                state.message = {
+                    ...state.message,
+                    reactions: (state.message.reactions || []).filter((reaction: any) => reaction.id !== operation.id),
                 };
             }
         }
@@ -35,6 +53,57 @@ const messagingServiceMocks = vi.hoisted(() => {
                         return {
                             entity: 'messages',
                             id: String(key),
+                            type: 'update',
+                            payload,
+                        };
+                    },
+                    link(payload: Record<string, unknown>) {
+                        return {
+                            entity: 'messages',
+                            id: String(key),
+                            type: 'link',
+                            payload,
+                        };
+                    },
+                };
+            },
+        }
+    );
+
+    const txMessageReactions = new Proxy(
+        {},
+        {
+            get(_target, key) {
+                return {
+                    update(payload: Record<string, unknown>) {
+                        return {
+                            entity: 'messageReactions',
+                            id: String(key),
+                            type: 'update',
+                            payload,
+                        };
+                    },
+                    delete() {
+                        return {
+                            entity: 'messageReactions',
+                            id: String(key),
+                            type: 'delete',
+                        };
+                    },
+                };
+            },
+        }
+    );
+
+    const txFamilyMembers = new Proxy(
+        {},
+        {
+            get() {
+                return {
+                    link(payload: Record<string, unknown>) {
+                        return {
+                            entity: 'familyMembers',
+                            type: 'link',
                             payload,
                         };
                     },
@@ -48,6 +117,8 @@ const messagingServiceMocks = vi.hoisted(() => {
         transact,
         tx: {
             messages: txMessages,
+            messageReactions: txMessageReactions,
+            familyMembers: txFamilyMembers,
         },
     }));
 
@@ -68,6 +139,7 @@ describe('messaging-service', () => {
         vi.resetModules();
         freezeTime('2026-03-15T10:03:00.000Z');
         messagingServiceMocks.state.message = null;
+        messagingServiceMocks.state.membership = null;
         messagingServiceMocks.query.mockClear();
         messagingServiceMocks.transact.mockClear();
         messagingServiceMocks.getInstantAdminDb.mockClear();
@@ -133,5 +205,48 @@ describe('messaging-service', () => {
         expect(messagingServiceMocks.state.message.deletedAt).toBe('2026-03-15T10:06:00.000Z');
         expect(messagingServiceMocks.state.message.removedReason).toBe('Removed by parent');
         expect(result?.removedReason).toBe('Removed by parent');
+    });
+
+    it('toggles a reaction on and off using the existing message reactions snapshot', async () => {
+        messagingServiceMocks.state.membership = {
+            id: 'membership-1',
+            threadId: 'thread-1',
+            familyMemberId: 'member-1',
+        };
+        messagingServiceMocks.state.message = {
+            id: 'message-1',
+            thread: [{ id: 'thread-1', members: [{ familyMemberId: 'member-1' }] }],
+            reactions: [],
+        };
+
+        const { toggleMessageReaction } = await import('@/lib/messaging-service');
+
+        const added = await toggleMessageReaction(
+            { id: 'member-1', role: 'child' },
+            { messageId: 'message-1', emoji: '🔥' }
+        );
+
+        expect(added).toMatchObject({ active: true });
+        expect(messagingServiceMocks.state.message.reactions).toHaveLength(1);
+        expect(messagingServiceMocks.state.message.reactions[0].emoji).toBe('🔥');
+
+        messagingServiceMocks.state.message = {
+            ...messagingServiceMocks.state.message,
+            reactions: [
+                {
+                    id: added.reactionId,
+                    emoji: '🔥',
+                    reactionKey: `reaction:message-1:member-1:🔥`,
+                },
+            ],
+        };
+
+        const removed = await toggleMessageReaction(
+            { id: 'member-1', role: 'child' },
+            { messageId: 'message-1', emoji: '🔥' }
+        );
+
+        expect(removed).toMatchObject({ active: false, reactionId: added.reactionId });
+        expect(messagingServiceMocks.state.message.reactions).toHaveLength(0);
     });
 });

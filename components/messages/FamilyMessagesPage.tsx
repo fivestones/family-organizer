@@ -294,6 +294,12 @@ export default function FamilyMessagesPage() {
                       },
                       attachments: {},
                       author: {},
+                      reactions: {
+                          familyMember: {},
+                      },
+                      acknowledgements: {
+                          familyMember: {},
+                      },
                       replyTo: {
                           author: {},
                           attachments: {},
