@@ -167,6 +167,23 @@ async function getThreadByKey(threadKey: string) {
     return (data.messageThreads as any[])?.[0] || null;
 }
 
+async function getThreadMembership(threadId: string, familyMemberId: string) {
+    const adminDb = getInstantAdminDb();
+    const data = await adminDb.query({
+        messageThreadMembers: {
+            $: {
+                where: {
+                    threadId,
+                    familyMemberId,
+                },
+            },
+            familyMember: {},
+            thread: {},
+        },
+    });
+    return (data.messageThreadMembers as any[])?.[0] || null;
+}
+
 async function getMessageById(messageId: string) {
     const adminDb = getInstantAdminDb();
     const data = await adminDb.query({
@@ -328,8 +345,7 @@ function assertAllowedImportance(actor: any, importance: MessageImportance) {
     }
 }
 
-function requireThreadMembership(thread: any, familyMemberId: string) {
-    const membership = (thread?.members || []).find((entry: any) => entry.familyMemberId === familyMemberId);
+function requireThreadMembership(membership: any, familyMemberId: string) {
     if (!membership) {
         throw new Error('You are not a member of this thread');
     }
@@ -342,6 +358,11 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
     const familyMembers = await queryFamilyMembers();
     const familyMembersById = new Map(familyMembers.map((member: any) => [member.id, member]));
     const nowIso = new Date().toISOString();
+    console.info('[messaging-service] createMessageThread:start', {
+        actorId: actor?.id,
+        actorRole: actor?.role,
+        input,
+    });
 
     if (input.threadType === 'family') {
         const existingThread = await getThreadByKey('family');
@@ -433,6 +454,10 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
 
     const existingThread = await getThreadByKey(threadKey);
     if (existingThread) {
+        console.info('[messaging-service] createMessageThread:existing', {
+            threadId: existingThread.id,
+            threadKey,
+        });
         return existingThread;
     }
 
@@ -470,7 +495,7 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
     }
 
     await adminDb.transact(transactions);
-    return (
+    const snapshot =
         (await getThreadByKey(threadKey)) ||
         buildThreadSnapshot({
             id: threadId,
@@ -483,8 +508,13 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
             linkedEntityId: input.linkedEntityId || null,
             updatedAt: nowIso,
             participants: participantIds.map((memberId) => familyMembersById.get(memberId)).filter(Boolean),
-        })
-    );
+        });
+    console.info('[messaging-service] createMessageThread:done', {
+        threadId: snapshot?.id,
+        threadKey,
+        participantIds,
+    });
+    return snapshot;
 }
 
 export async function sendThreadMessage(actor: any, input: SendMessageRequest) {
@@ -495,7 +525,13 @@ export async function sendThreadMessage(actor: any, input: SendMessageRequest) {
         throw new Error('Thread not found');
     }
 
-    requireThreadMembership(thread, actor.id);
+    const actorMembership = await getThreadMembership(thread.id, actor.id);
+    console.info('[messaging-service] sendThreadMessage:membership', {
+        actorId: actor?.id,
+        threadId: thread?.id,
+        membershipId: actorMembership?.id || null,
+    });
+    requireThreadMembership(actorMembership, actor.id);
 
     const body = String(input.body || '').trim();
     const attachments = Array.isArray(input.attachments) ? input.attachments : [];
@@ -593,7 +629,13 @@ export async function sendThreadMessage(actor: any, input: SendMessageRequest) {
     }
 
     await adminDb.transact(transactions);
-    return getMessageById(messageId);
+    const message = await getMessageById(messageId);
+    console.info('[messaging-service] sendThreadMessage:done', {
+        messageId,
+        threadId: thread.id,
+        hasMessage: Boolean(message),
+    });
+    return message;
 }
 
 export async function editThreadMessage(actor: any, input: EditMessageRequest) {
@@ -666,7 +708,9 @@ export async function toggleMessageReaction(actor: any, input: ToggleReactionReq
     if (!message) {
         throw new Error('Message not found');
     }
-    requireThreadMembership(message.thread, actor.id);
+    const thread = Array.isArray(message.thread) ? message.thread[0] : message.thread;
+    const actorMembership = await getThreadMembership(thread?.id, actor.id);
+    requireThreadMembership(actorMembership, actor.id);
 
     const emoji = normalizeTitle(input.emoji);
     if (!emoji) {
@@ -703,7 +747,9 @@ export async function acknowledgeMessage(actor: any, input: AcknowledgeMessageRe
     if (!message) {
         throw new Error('Message not found');
     }
-    requireThreadMembership(message.thread, actor.id);
+    const thread = Array.isArray(message.thread) ? message.thread[0] : message.thread;
+    const actorMembership = await getThreadMembership(thread?.id, actor.id);
+    requireThreadMembership(actorMembership, actor.id);
 
     const acknowledgementKey = getAcknowledgementKey(message.id, actor.id, input.kind);
     const acknowledgementId = deterministicUuid(acknowledgementKey);
@@ -730,7 +776,7 @@ export async function markThreadRead(actor: any, input: MarkReadRequest) {
         throw new Error('Thread not found');
     }
 
-    const membership = requireThreadMembership(thread, actor.id);
+    const membership = requireThreadMembership(await getThreadMembership(thread.id, actor.id), actor.id);
     const nowIso = new Date().toISOString();
     await adminDb.transact([
         adminDb.tx.messageThreadMembers[membership.id].update({
@@ -755,7 +801,7 @@ export async function updateThreadPreferences(actor: any, input: ThreadPreferenc
         throw new Error('Thread not found');
     }
 
-    const membership = requireThreadMembership(thread, actor.id);
+    const membership = requireThreadMembership(await getThreadMembership(thread.id, actor.id), actor.id);
     const nowIso = new Date().toISOString();
     await adminDb.transact([
         adminDb.tx.messageThreadMembers[membership.id].update({
@@ -806,7 +852,7 @@ export async function leaveThreadWatchMode(actor: any, input: { threadId: string
     if (!thread) {
         throw new Error('Thread not found');
     }
-    const membership = (thread.members || []).find((entry: any) => entry.familyMemberId === actor.id);
+    const membership = await getThreadMembership(thread.id, actor.id);
     if (!membership) {
         return thread;
     }

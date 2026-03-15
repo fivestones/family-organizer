@@ -107,9 +107,10 @@ function threadSubtitle(thread: ThreadRecord, familyMemberNamesById: Map<string,
             .filter(Boolean)
             .filter((member: any) => member.id !== currentUserId)
             .map((member: any) => member.name || familyMemberNamesById.get(member.id) || 'Unknown');
-        if (peers.length > 0) {
+        if (peers.length > 0 && peers.some((name) => name !== 'Unknown')) {
             return peers.join(', ');
         }
+        return thread.latestMessagePreview || 'Direct message';
     }
 
     return thread.latestMessagePreview || (thread.threadType === 'parents_only' ? 'Parents only' : 'No messages yet');
@@ -213,16 +214,7 @@ export default function FamilyMessagesPage() {
                           },
                       },
                       attachments: {},
-                      acknowledgements: {
-                          familyMember: {},
-                      },
                       author: {},
-                      reactions: {
-                          familyMember: {},
-                      },
-                      replyTo: {
-                          author: {},
-                      },
                   },
               }
             : (null as any)
@@ -381,12 +373,31 @@ export default function FamilyMessagesPage() {
         () => messages.find((message) => message.id === replyToMessageId) || null,
         [messages, replyToMessageId]
     );
+    const activeMessagesError = selectedThreadId ? messagesQuery?.error : null;
 
     useEffect(() => {
         void bootstrapMessages().catch((error) => {
             console.error('Unable to bootstrap messages', error);
         });
     }, []);
+
+    useEffect(() => {
+        if (membershipQuery?.error) {
+            console.error('[messages] membershipQuery error', membershipQuery.error);
+        }
+    }, [membershipQuery?.error]);
+
+    useEffect(() => {
+        if (visibleThreadsQuery?.error) {
+            console.error('[messages] visibleThreadsQuery error', visibleThreadsQuery.error);
+        }
+    }, [visibleThreadsQuery?.error]);
+
+    useEffect(() => {
+        if (messagesQuery?.error) {
+            console.error('[messages] messagesQuery error', messagesQuery.error, { selectedThreadId });
+        }
+    }, [messagesQuery?.error, selectedThreadId]);
 
     useEffect(() => {
         if (typeof window === 'undefined' || !('Notification' in window)) return;
@@ -461,7 +472,7 @@ export default function FamilyMessagesPage() {
         setIsSending(true);
         try {
             const attachments = pendingFiles.length ? await uploadFilesToS3(pendingFiles, id) : [];
-            await sendMessage({
+            const result = await sendMessage({
                 threadId: selectedThreadId,
                 body: composerBody,
                 attachments,
@@ -469,6 +480,7 @@ export default function FamilyMessagesPage() {
                 importance: composerImportance,
                 clientNonce: `${currentUser.id}:${Date.now()}`,
             });
+            console.info('[messages] sendMessage result', result);
             setComposerBody('');
             setPendingFiles([]);
             setReplyToMessageId(null);
@@ -509,6 +521,7 @@ export default function FamilyMessagesPage() {
                 participantIds,
                 title: creationMode === 'group' ? newThreadTitle : undefined,
             });
+            console.info('[messages] createThread result', result);
             const threadId = result?.thread?.id;
             if (threadId) {
                 setOptimisticThreadsById((current) => ({
@@ -536,6 +549,7 @@ export default function FamilyMessagesPage() {
             const result = await createThread({
                 threadType,
             });
+            console.info('[messages] openCanonicalThread result', result);
             const threadId = result?.thread?.id;
             if (threadId) {
                 setOptimisticThreadsById((current) => ({
@@ -922,6 +936,11 @@ export default function FamilyMessagesPage() {
 
                             <ScrollArea className="min-h-0 flex-1 bg-[linear-gradient(180deg,_rgba(240,249,255,0.45)_0%,_rgba(255,255,255,1)_28%)]">
                                 <div className="space-y-4 px-6 py-6">
+                                    {activeMessagesError ? (
+                                        <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                                            Could not load this thread&apos;s messages: {activeMessagesError.message || 'Unknown query error'}
+                                        </div>
+                                    ) : null}
                                     {activeMessagesLoading ? (
                                         <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
                                             <Loader2 className="h-4 w-4 animate-spin" />
