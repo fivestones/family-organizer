@@ -216,6 +216,11 @@ const _schema = i.schema({
             color: i.string().optional(),
             email: i.string().indexed().optional(),
             lastDisplayCurrency: i.string().optional(),
+            messageDigestMode: i.string().optional(),
+            messageDigestWindowMinutes: i.number().optional(),
+            messageQuietHoursEnabled: i.boolean().optional(),
+            messageQuietHoursEnd: i.string().optional(),
+            messageQuietHoursStart: i.string().optional(),
             name: i.string(),
             order: i.number().indexed(),
             photoUrls: i.json().optional(),
@@ -455,6 +460,18 @@ const _schema = i.schema({
             platform: i.string().indexed().optional(),
             revokedAt: i.number().indexed().optional(),
         }),
+    },
+    rooms: {
+        messageThreads: {
+            presence: i.entity({
+                activeThread: i.boolean().optional(),
+                avatarUrl: i.string().optional(),
+                composer: i.boolean().optional(),
+                familyMemberId: i.string(),
+                name: i.string(),
+            }),
+            topics: {},
+        },
     },
     links: {
         $usersLinkedPrimaryUser: {
@@ -927,7 +944,6 @@ const _schema = i.schema({
             },
         },
     },
-    rooms: {},
 });
 
 // This helps Typescript display nicer intellisense

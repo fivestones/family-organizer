@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { id } from '@instantdb/react';
+import { id, tx } from '@instantdb/react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, MessageSquarePlus, Search, Shield, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -130,6 +131,8 @@ function DraftKey(threadId: string | null) {
 }
 
 export default function FamilyMessagesPage() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
     const { toast } = useToast();
     const { currentUser } = useAuth();
     const [threadSearch, setThreadSearch] = useState('');
@@ -147,6 +150,10 @@ export default function FamilyMessagesPage() {
     const [newThreadTitle, setNewThreadTitle] = useState('');
     const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
     const [isCreatingThread, setIsCreatingThread] = useState(false);
+    const [browserNotificationPermission, setBrowserNotificationPermission] = useState<string>('default');
+    const initialThreadId = searchParams.get('threadId');
+    const searchParamString = searchParams.toString();
+    const [showNotificationPrefs, setShowNotificationPrefs] = useState(false);
 
     const membershipQuery = (db as any).useQuery(
         currentUser
@@ -294,6 +301,46 @@ export default function FamilyMessagesPage() {
             selectedThread &&
             (selectedThreadMembership || !(currentUser.role === 'parent' && isOverseeMode))
     );
+    const threadRoom = useMemo(
+        () => (db as any).room('messageThreads', selectedThreadId || '_idle'),
+        [selectedThreadId]
+    );
+    const threadPresence = (db as any).rooms.usePresence(threadRoom, {
+        initialPresence: {
+            activeThread: Boolean(selectedThreadId),
+            avatarUrl: currentUser?.photoUrls?.['64'] || currentUser?.photoUrls?.['320'] || '',
+            composer: false,
+            familyMemberId: currentUser?.id || '_idle',
+            name: currentUser?.name || 'Guest',
+        },
+        keys: ['activeThread', 'composer', 'familyMemberId', 'name'],
+    }) as any;
+    (db as any).rooms.useSyncPresence(
+        threadRoom,
+        {
+            activeThread: Boolean(selectedThreadId),
+            avatarUrl: currentUser?.photoUrls?.['64'] || currentUser?.photoUrls?.['320'] || '',
+            familyMemberId: currentUser?.id || '_idle',
+            name: currentUser?.name || 'Guest',
+        },
+        [currentUser?.id, currentUser?.name, currentUser?.photoUrls?.['64'], selectedThreadId]
+    );
+    const typingIndicator = (db as any).rooms.useTypingIndicator(threadRoom, 'composer', {
+        timeout: 1500,
+        stopOnEnter: false,
+    }) as any;
+    const typingPeers = useMemo(
+        () =>
+            (typingIndicator?.active || []).filter((peer: any) => peer?.familyMemberId && peer.familyMemberId !== currentUser?.id),
+        [currentUser?.id, typingIndicator?.active]
+    );
+    const presentPeers = useMemo(
+        () =>
+            Object.values(threadPresence?.peers || {}).filter(
+                (peer: any) => peer?.familyMemberId && peer.familyMemberId !== currentUser?.id
+            ),
+        [currentUser?.id, threadPresence?.peers]
+    );
     const replyTarget = useMemo(
         () => messages.find((message) => message.id === replyToMessageId) || null,
         [messages, replyToMessageId]
@@ -306,10 +353,27 @@ export default function FamilyMessagesPage() {
     }, []);
 
     useEffect(() => {
+        if (typeof window === 'undefined' || !('Notification' in window)) return;
+        setBrowserNotificationPermission(window.Notification.permission);
+    }, []);
+
+    useEffect(() => {
+        if (initialThreadId && threads.some((thread) => thread.id === initialThreadId)) {
+            setSelectedThreadId(initialThreadId);
+            return;
+        }
+
         if (!selectedThreadId && threads.length > 0) {
             setSelectedThreadId(threads[0].id);
         }
-    }, [selectedThreadId, threads]);
+    }, [initialThreadId, selectedThreadId, threads]);
+
+    useEffect(() => {
+        if (!selectedThreadId) return;
+        const params = new URLSearchParams(searchParamString);
+        params.set('threadId', selectedThreadId);
+        router.replace(`/messages?${params.toString()}`, { scroll: false });
+    }, [router, searchParamString, selectedThreadId]);
 
     useEffect(() => {
         const draftKey = DraftKey(selectedThreadId);
@@ -373,6 +437,7 @@ export default function FamilyMessagesPage() {
             setPendingFiles([]);
             setReplyToMessageId(null);
             setComposerImportance('normal');
+            typingIndicator?.setActive?.(false);
             window.localStorage.removeItem(DraftKey(selectedThreadId));
         } catch (error: any) {
             toast({
@@ -382,6 +447,19 @@ export default function FamilyMessagesPage() {
             });
         } finally {
             setIsSending(false);
+        }
+    };
+
+    const saveNotificationPrefs = async (patch: Record<string, any>) => {
+        if (!currentUser?.id) return;
+        try {
+            await db.transact([tx.familyMembers[currentUser.id].update(patch)]);
+        } catch (error: any) {
+            toast({
+                title: 'Unable to save notification preferences',
+                description: error?.message || 'Please try again.',
+                variant: 'destructive',
+            });
         }
     };
 
@@ -426,6 +504,27 @@ export default function FamilyMessagesPage() {
                                 <p className="mt-1 text-sm text-slate-500">Family, DMs, groups, and oversight in one inbox.</p>
                             </div>
                             <div className="flex items-center gap-2">
+                                {typeof window !== 'undefined' && 'Notification' in window && browserNotificationPermission !== 'granted' ? (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={async () => {
+                                            const result = await window.Notification.requestPermission();
+                                            setBrowserNotificationPermission(result);
+                                        }}
+                                    >
+                                        Alerts
+                                    </Button>
+                                ) : null}
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowNotificationPrefs((value) => !value)}
+                                >
+                                    Notify
+                                </Button>
                                 {currentUser?.role === 'parent' ? (
                                     <Button
                                         type="button"
@@ -471,6 +570,83 @@ export default function FamilyMessagesPage() {
                                 Group
                             </Button>
                         </div>
+                        {showNotificationPrefs && currentUser ? (
+                            <div className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Notification preferences</div>
+                                <div className="mt-3 grid gap-3">
+                                    <label className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                                        <span>Quiet hours</span>
+                                        <input
+                                            type="checkbox"
+                                            checked={Boolean(currentUser.messageQuietHoursEnabled)}
+                                            onChange={(event) => {
+                                                void saveNotificationPrefs({
+                                                    messageQuietHoursEnabled: event.target.checked,
+                                                });
+                                            }}
+                                        />
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <label className="text-xs text-slate-500">
+                                            Start
+                                            <input
+                                                type="time"
+                                                value={currentUser.messageQuietHoursStart || '22:00'}
+                                                onChange={(event) => {
+                                                    void saveNotificationPrefs({
+                                                        messageQuietHoursStart: event.target.value,
+                                                    });
+                                                }}
+                                                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                                            />
+                                        </label>
+                                        <label className="text-xs text-slate-500">
+                                            End
+                                            <input
+                                                type="time"
+                                                value={currentUser.messageQuietHoursEnd || '07:00'}
+                                                onChange={(event) => {
+                                                    void saveNotificationPrefs({
+                                                        messageQuietHoursEnd: event.target.value,
+                                                    });
+                                                }}
+                                                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                                            />
+                                        </label>
+                                    </div>
+                                    <label className="text-xs text-slate-500">
+                                        Delivery
+                                        <select
+                                            value={currentUser.messageDigestMode || 'immediate'}
+                                            onChange={(event) => {
+                                                void saveNotificationPrefs({
+                                                    messageDigestMode: event.target.value,
+                                                });
+                                            }}
+                                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                                        >
+                                            <option value="immediate">Immediate</option>
+                                            <option value="digest">Digest</option>
+                                        </select>
+                                    </label>
+                                    <label className="text-xs text-slate-500">
+                                        Digest every (minutes)
+                                        <input
+                                            type="number"
+                                            min={5}
+                                            max={240}
+                                            value={currentUser.messageDigestWindowMinutes ?? 30}
+                                            onChange={(event) => {
+                                                void saveNotificationPrefs({
+                                                    messageDigestWindowMinutes: Number(event.target.value || 30),
+                                                });
+                                            }}
+                                            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+                        ) : null}
                     </div>
 
                     {creationMode ? (
@@ -584,6 +760,18 @@ export default function FamilyMessagesPage() {
                                                 .filter(Boolean)
                                                 .join(', ')}
                                         </p>
+                                        {presentPeers.length > 0 ? (
+                                            <p className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-emerald-700">
+                                                Online now: {presentPeers.map((peer: any) => peer.name || 'Unknown').join(', ')}
+                                            </p>
+                                        ) : null}
+                                        {typingPeers.length > 0 ? (
+                                            <p className="mt-2 text-sm text-sky-700">
+                                                {typingPeers.length === 1
+                                                    ? `${typingPeers[0].name} is typing...`
+                                                    : `${typingPeers[0].name} and ${typingPeers.length - 1} others are typing...`}
+                                            </p>
+                                        ) : null}
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {currentUser?.role === 'parent' && isOverseeMode && !selectedThreadMembership ? (
@@ -887,6 +1075,8 @@ export default function FamilyMessagesPage() {
                                         <textarea
                                             value={composerBody}
                                             onChange={(event) => setComposerBody(event.target.value)}
+                                            onBlur={() => typingIndicator?.inputProps?.onBlur?.()}
+                                            onKeyDown={(event) => typingIndicator?.inputProps?.onKeyDown?.(event)}
                                             rows={4}
                                             placeholder="Write a message..."
                                             className="w-full rounded-[24px] border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-400"

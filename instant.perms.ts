@@ -310,7 +310,7 @@ const rules = {
             isKid: IS_KID,
             isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
             kidSafeFamilyMemberUpdate:
-                "request.modifiedFields.all(field, field in ['lastDisplayCurrency', 'viewShowChoreDescriptions', 'viewShowTaskDetails'])",
+                "request.modifiedFields.all(field, field in ['lastDisplayCurrency', 'viewShowChoreDescriptions', 'viewShowTaskDetails', 'messageQuietHoursEnabled', 'messageQuietHoursStart', 'messageQuietHoursEnd', 'messageDigestMode', 'messageDigestWindowMinutes'])",
         },
         allow: {
             view: 'isFamilyPrincipal',

@@ -334,3 +334,16 @@ export async function leaveMobileThreadWatch(threadId) {
   });
   return parseJson(response);
 }
+
+export async function registerMobilePushDevice(payload) {
+  const response = await fetch(`${getApiBaseUrl()}/api/messages/push-devices`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
+}

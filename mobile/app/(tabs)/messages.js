@@ -2,13 +2,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { tx } from '@instantdb/react-native';
 import { ScreenScaffold } from '../../src/components/ScreenScaffold';
 import { AttachmentPreviewModal } from '../../src/components/AttachmentPreviewModal';
 import { useAppSession } from '../../src/providers/AppProviders';
@@ -79,6 +82,7 @@ export default function MessagesTab() {
   const [editingBody, setEditingBody] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isOverseeMode, setIsOverseeMode] = useState(false);
+  const [showNotificationPrefs, setShowNotificationPrefs] = useState(false);
   const [creationMode, setCreationMode] = useState(null);
   const [selectedParticipantIds, setSelectedParticipantIds] = useState([]);
   const [newThreadTitle, setNewThreadTitle] = useState('');
@@ -227,6 +231,39 @@ export default function MessagesTab() {
   }, [familyMemberNamesById, messageSearch, messagesQuery.data?.messages]);
   const availableParticipants = useMemo(() => familyMembers.filter((member) => member.id !== currentUser?.id), [currentUser?.id, familyMembers]);
   const replyTarget = useMemo(() => messages.find((message) => message.id === replyToMessageId) || null, [messages, replyToMessageId]);
+  const threadRoom = useMemo(() => db.room('messageThreads', selectedThreadId || '_idle'), [selectedThreadId]);
+  const threadPresence = db.rooms.usePresence(threadRoom, {
+    initialPresence: {
+      activeThread: Boolean(selectedThreadId),
+      avatarUrl: currentUser?.photoUrls?.['64'] || currentUser?.photoUrls?.['320'] || '',
+      composer: false,
+      familyMemberId: currentUser?.id || '_idle',
+      name: currentUser?.name || 'Guest',
+    },
+    keys: ['activeThread', 'composer', 'familyMemberId', 'name'],
+  });
+  db.rooms.useSyncPresence(
+    threadRoom,
+    {
+      activeThread: Boolean(selectedThreadId),
+      avatarUrl: currentUser?.photoUrls?.['64'] || currentUser?.photoUrls?.['320'] || '',
+      familyMemberId: currentUser?.id || '_idle',
+      name: currentUser?.name || 'Guest',
+    },
+    [currentUser?.id, currentUser?.name, currentUser?.photoUrls?.['64'], selectedThreadId]
+  );
+  const typingIndicator = db.rooms.useTypingIndicator(threadRoom, 'composer', {
+    timeout: 1500,
+    stopOnEnter: false,
+  });
+  const typingPeers = useMemo(
+    () => (typingIndicator.active || []).filter((peer) => peer?.familyMemberId && peer.familyMemberId !== currentUser?.id),
+    [currentUser?.id, typingIndicator.active]
+  );
+  const presentPeers = useMemo(
+    () => Object.values(threadPresence.peers || {}).filter((peer) => peer?.familyMemberId && peer.familyMemberId !== currentUser?.id),
+    [currentUser?.id, threadPresence.peers]
+  );
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -318,10 +355,20 @@ export default function MessagesTab() {
       setPendingFiles([]);
       setReplyToMessageId(null);
       setComposerImportance('normal');
+      typingIndicator.setActive(false);
     } catch (error) {
       Alert.alert('Unable to send message', error?.message || 'Please try again.');
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function saveNotificationPrefs(patch) {
+    if (!currentUser?.id) return;
+    try {
+      await db.transact([tx.familyMembers[currentUser.id].update(patch)]);
+    } catch (error) {
+      Alert.alert('Unable to save notification preferences', error?.message || 'Please try again.');
     }
   }
 
@@ -339,6 +386,9 @@ export default function MessagesTab() {
       headerMode="compact"
       headerAction={
         <View style={styles.headerActions}>
+          <Pressable style={styles.headerChip} onPress={() => setShowNotificationPrefs(true)}>
+            <Text style={styles.headerChipText}>Notify</Text>
+          </Pressable>
           {currentUser?.role === 'parent' ? (
             <Pressable style={[styles.headerChip, isOverseeMode && styles.headerChipActive]} onPress={() => setIsOverseeMode((value) => !value)}>
               <Text style={[styles.headerChipText, isOverseeMode && styles.headerChipTextActive]}>{isOverseeMode ? 'Oversee' : 'Inbox'}</Text>
@@ -498,6 +548,17 @@ export default function MessagesTab() {
             </View>
           </View>
 
+          {presentPeers.length > 0 ? (
+            <Text style={styles.presenceText}>Online now: {presentPeers.map((peer) => peer.name || 'Unknown').join(', ')}</Text>
+          ) : null}
+          {typingPeers.length > 0 ? (
+            <Text style={styles.typingText}>
+              {typingPeers.length === 1
+                ? `${typingPeers[0].name} is typing...`
+                : `${typingPeers[0].name} and ${typingPeers.length - 1} others are typing...`}
+            </Text>
+          ) : null}
+
           <TextInput
             value={messageSearch}
             onChangeText={setMessageSearch}
@@ -649,10 +710,14 @@ export default function MessagesTab() {
               ) : null}
               <TextInput
                 value={composerBody}
-                onChangeText={setComposerBody}
+                onChangeText={(value) => {
+                  setComposerBody(value);
+                  typingIndicator.setActive(Boolean(value));
+                }}
                 placeholder="Write a message"
                 placeholderTextColor={withAlpha(colors.inkMuted, 0.7)}
                 multiline
+                onBlur={() => typingIndicator.setActive(false)}
                 style={styles.composerInput}
               />
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pendingFilesRow}>
@@ -719,6 +784,77 @@ export default function MessagesTab() {
       )}
 
       <AttachmentPreviewModal attachment={attachmentPreview} visible={!!attachmentPreview} onClose={() => setAttachmentPreview(null)} />
+      <Modal visible={showNotificationPrefs} transparent animationType="fade" onRequestClose={() => setShowNotificationPrefs(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setShowNotificationPrefs(false)} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Notification preferences</Text>
+            <View style={styles.modalRow}>
+              <Text style={styles.modalLabel}>Quiet hours</Text>
+              <Switch
+                value={Boolean(currentUser?.messageQuietHoursEnabled)}
+                onValueChange={(value) => {
+                  void saveNotificationPrefs({ messageQuietHoursEnabled: value });
+                }}
+              />
+            </View>
+            <View style={styles.modalSplitRow}>
+              <View style={styles.modalField}>
+                <Text style={styles.modalFieldLabel}>Start</Text>
+                <TextInput
+                  value={currentUser?.messageQuietHoursStart || '22:00'}
+                  onChangeText={(value) => {
+                    void saveNotificationPrefs({ messageQuietHoursStart: value });
+                  }}
+                  placeholder="22:00"
+                  placeholderTextColor={withAlpha(colors.inkMuted, 0.7)}
+                  style={styles.modalInput}
+                />
+              </View>
+              <View style={styles.modalField}>
+                <Text style={styles.modalFieldLabel}>End</Text>
+                <TextInput
+                  value={currentUser?.messageQuietHoursEnd || '07:00'}
+                  onChangeText={(value) => {
+                    void saveNotificationPrefs({ messageQuietHoursEnd: value });
+                  }}
+                  placeholder="07:00"
+                  placeholderTextColor={withAlpha(colors.inkMuted, 0.7)}
+                  style={styles.modalInput}
+                />
+              </View>
+            </View>
+            <Text style={styles.modalFieldLabel}>Delivery</Text>
+            <View style={styles.quickRow}>
+              {['immediate', 'digest'].map((mode) => (
+                <Pressable
+                  key={mode}
+                  style={[styles.quickButton, (currentUser?.messageDigestMode || 'immediate') === mode && styles.quickButtonActive]}
+                  onPress={() => {
+                    void saveNotificationPrefs({ messageDigestMode: mode });
+                  }}
+                >
+                  <Text style={[styles.quickButtonText, (currentUser?.messageDigestMode || 'immediate') === mode && styles.quickButtonTextActive]}>{mode}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.modalFieldLabel}>Digest every (minutes)</Text>
+            <TextInput
+              value={String(currentUser?.messageDigestWindowMinutes ?? 30)}
+              keyboardType="number-pad"
+              onChangeText={(value) => {
+                void saveNotificationPrefs({ messageDigestWindowMinutes: Number(value || 30) });
+              }}
+              placeholder="30"
+              placeholderTextColor={withAlpha(colors.inkMuted, 0.7)}
+              style={styles.modalInput}
+            />
+            <Pressable style={[styles.primaryButton, { alignSelf: 'flex-end' }]} onPress={() => setShowNotificationPrefs(false)}>
+              <Text style={styles.primaryButtonText}>Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScreenScaffold>
   );
 }
@@ -1082,6 +1218,16 @@ const createStyles = (colors) =>
       color: colors.warning,
       fontWeight: '700',
     },
+    presenceText: {
+      color: colors.success,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    typingText: {
+      color: colors.accentDashboard,
+      fontSize: 13,
+      fontWeight: '700',
+    },
     headerActions: {
       flexDirection: 'row',
       gap: spacing.xs,
@@ -1107,6 +1253,59 @@ const createStyles = (colors) =>
     },
     headerChipTextActive: {
       color: colors.accentDashboard,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(10, 16, 24, 0.64)',
+      justifyContent: 'center',
+      padding: spacing.lg,
+    },
+    modalCard: {
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.panel,
+      padding: spacing.lg,
+      gap: spacing.sm,
+    },
+    modalTitle: {
+      color: colors.ink,
+      fontSize: 18,
+      fontWeight: '800',
+    },
+    modalRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.md,
+    },
+    modalLabel: {
+      color: colors.ink,
+      fontWeight: '700',
+      fontSize: 14,
+    },
+    modalSplitRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    modalField: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    modalFieldLabel: {
+      color: colors.inkMuted,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    modalInput: {
+      minHeight: 42,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.panelElevated,
+      color: colors.ink,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
     },
     editWrap: {
       gap: spacing.sm,

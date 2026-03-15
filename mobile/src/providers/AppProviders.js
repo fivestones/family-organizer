@@ -5,6 +5,8 @@ import { DeviceSessionProvider, useDeviceSession } from './DeviceSessionProvider
 import { NetworkStatusProvider, useNetworkStatus } from './NetworkStatusProvider';
 import { InstantPrincipalProvider, InstantPrincipalContext, useInstantPrincipal } from './InstantPrincipalProvider';
 import { FamilyAuthProvider, FamilyAuthContext, useFamilyAuth } from './FamilyAuthProvider';
+import { PushRegistrationBridge } from './PushRegistrationBridge';
+import { MessageNotificationBridge } from './MessageNotificationBridge';
 
 const NOOP = () => {};
 const NOOP_ASYNC = async () => {};
@@ -75,6 +77,8 @@ function InstantProviders({ children }) {
   return (
     <InstantPrincipalProvider>
       <FamilyAuthProvider>
+        <PushRegistrationBridge />
+        <MessageNotificationBridge />
         <InteractionCapture>{children}</InteractionCapture>
       </FamilyAuthProvider>
     </InstantPrincipalProvider>

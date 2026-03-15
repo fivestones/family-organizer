@@ -9,6 +9,11 @@ import { isEffectiveParentMode } from '@/lib/parent-mode';
 export interface FamilyMemberUser {
     id: string;
     name: string;
+    messageDigestMode?: string | null;
+    messageDigestWindowMinutes?: number | null;
+    messageQuietHoursEnabled?: boolean | null;
+    messageQuietHoursEnd?: string | null;
+    messageQuietHoursStart?: string | null;
     role?: 'parent' | 'child' | string;
     photoUrls?: any;
 }
@@ -56,6 +61,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return {
             id: member.id,
             name: member.name,
+            messageDigestMode: member.messageDigestMode,
+            messageDigestWindowMinutes: member.messageDigestWindowMinutes,
+            messageQuietHoursEnabled: member.messageQuietHoursEnabled,
+            messageQuietHoursEnd: member.messageQuietHoursEnd,
+            messageQuietHoursStart: member.messageQuietHoursStart,
             role: member.role,
             photoUrls: member.photoUrls,
         };

@@ -303,12 +303,23 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
         return getThreadById(PARENTS_ONLY_THREAD_ID);
     }
 
-    const participantIds = Array.from(
+    let participantIds = Array.from(
         new Set([actor.id, ...((input.participantIds || []).filter(Boolean) as string[])])
     ).filter((memberId) => familyMembersById.has(memberId));
 
     if (input.threadType === 'direct' && participantIds.length !== 2) {
         throw new Error('Direct messages require exactly two participants');
+    }
+
+    if (input.threadType === 'linked' && participantIds.length < 2) {
+        participantIds = Array.from(
+            new Set([
+                actor.id,
+                ...familyMembers
+                    .filter((member: any) => member.role === 'parent')
+                    .map((member: any) => member.id),
+            ])
+        ).filter((memberId) => familyMembersById.has(memberId));
     }
 
     if ((input.threadType === 'group' || input.threadType === 'linked') && participantIds.length < 2) {

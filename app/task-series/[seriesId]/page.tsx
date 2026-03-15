@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { db } from '@/lib/db';
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 import { ParentGate } from '@/components/auth/ParentGate';
+import { OpenLinkedThreadButton } from '@/components/messages/OpenLinkedThreadButton';
 
 export default function TaskSeriesDetailPage() {
     const params = useParams();
@@ -18,7 +19,12 @@ export default function TaskSeriesDetailPage() {
 
     return (
         <ParentGate>
-            <TaskSeriesEditor db={db} initialSeriesId={seriesId} onClose={() => router.push('/task-series')} />
+            <div className="space-y-4 p-4">
+                <div className="flex justify-end">
+                    <OpenLinkedThreadButton linkedDomain="tasks" linkedEntityId={`task-series:${seriesId}`} title="Task Series Discussion" />
+                </div>
+                <TaskSeriesEditor db={db} initialSeriesId={seriesId} onClose={() => router.push('/task-series')} />
+            </div>
         </ParentGate>
     );
 }

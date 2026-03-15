@@ -8,6 +8,7 @@ import { AuthProvider } from '@/components/AuthProvider';
 import { InstantFamilySessionProvider } from '@/components/InstantFamilySessionProvider';
 import { UserMenu } from '@/components/auth/UserMenu';
 import { FamilyAppGate } from '@/components/auth/FamilyAppGate';
+import { MessageNotificationBridge } from '@/components/messages/MessageNotificationBridge';
 import { SyncStatusBadge } from '@/components/SyncStatusBadge';
 import { PwaServiceWorkerRegistration } from '@/components/PwaServiceWorkerRegistration';
 import Link from 'next/link';
@@ -151,6 +152,7 @@ export default function RootLayout({
 
                         <Toaster />
                         <DebugTimeWidget />
+                        <MessageNotificationBridge />
                         <PwaServiceWorkerRegistration />
                     </AuthProvider>
                 </InstantFamilySessionProvider>

@@ -11,6 +11,11 @@ function mapMember(member) {
   return {
     id: member.id,
     name: member.name,
+    messageDigestMode: member.messageDigestMode,
+    messageDigestWindowMinutes: member.messageDigestWindowMinutes,
+    messageQuietHoursEnabled: member.messageQuietHoursEnabled,
+    messageQuietHoursEnd: member.messageQuietHoursEnd,
+    messageQuietHoursStart: member.messageQuietHoursStart,
     role: member.role,
     photoUrls: member.photoUrls,
     pinHash: member.pinHash,
