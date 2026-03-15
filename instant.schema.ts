@@ -668,18 +668,6 @@ const _schema = i.schema({
                 label: 'affectedFamilyMembers',
             },
         },
-        familyMembersAuthUsers: {
-            forward: {
-                on: 'familyMembers',
-                has: 'one',
-                label: 'authUser',
-            },
-            reverse: {
-                on: '$users',
-                has: 'one',
-                label: 'familyMember',
-            },
-        },
         familyMembersAuthoredMessages: {
             forward: {
                 on: 'familyMembers',

@@ -24,6 +24,7 @@ type MembershipRow = {
     isArchived?: boolean | null;
     isPinned?: boolean | null;
     lastReadAt?: string | null;
+    threadId?: string | null;
     thread?: any;
 };
 
@@ -101,7 +102,7 @@ function isThreadUnread(thread: ThreadRecord) {
 }
 
 function threadSubtitle(thread: ThreadRecord, familyMemberNamesById: Map<string, string>, currentUserId: string) {
-    if (thread.threadType === 'direct') {
+    if (thread.threadType === 'direct' && Array.isArray(thread.members) && thread.members.length > 0) {
         const peers = (thread.members || [])
             .map((membership: any) => membership?.familyMember?.[0] || membership?.familyMember || null)
             .filter(Boolean)
@@ -161,12 +162,6 @@ export default function FamilyMessagesPage() {
         currentUser
             ? {
                   messageThreadMembers: {
-                      thread: {
-                          members: {
-                              familyMember: {},
-                          },
-                      },
-                      familyMember: {},
                   },
               }
             : (null as any)
@@ -193,9 +188,6 @@ export default function FamilyMessagesPage() {
         currentUser
             ? {
                   messageThreads: {
-                      members: {
-                          familyMember: {},
-                      },
                   },
               }
             : (null as any)
@@ -246,14 +238,8 @@ export default function FamilyMessagesPage() {
         const threadsById = new Map<string, ThreadRecord>();
 
         for (const membership of memberships) {
-            if (!membership.thread) continue;
-            const thread = Array.isArray(membership.thread) ? membership.thread[0] : membership.thread;
-            if (!thread?.id) continue;
-            membershipMap.set(thread.id, membership);
-            threadsById.set(thread.id, {
-                ...thread,
-                membership,
-            });
+            if (!membership?.threadId) continue;
+            membershipMap.set(membership.threadId, membership);
         }
 
         const visibleThreads = (visibleThreadsQuery?.data?.messageThreads as ThreadRecord[]) || [];
@@ -830,12 +816,14 @@ export default function FamilyMessagesPage() {
                                     <div>
                                         <div className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-700">{selectedThread.threadType}</div>
                                         <h2 className="mt-1 text-3xl font-bold text-slate-950">{selectedThread.title || 'Untitled thread'}</h2>
-                                        <p className="mt-2 max-w-3xl text-sm text-slate-500">
-                                            {(selectedThread.members || [])
-                                                .map((membership: any) => membership?.familyMember?.[0]?.name || membership?.familyMember?.name || '')
-                                                .filter(Boolean)
-                                                .join(', ')}
-                                        </p>
+                                        {selectedThread.members?.length ? (
+                                            <p className="mt-2 max-w-3xl text-sm text-slate-500">
+                                                {(selectedThread.members || [])
+                                                    .map((membership: any) => membership?.familyMember?.[0]?.name || membership?.familyMember?.name || '')
+                                                    .filter(Boolean)
+                                                    .join(', ')}
+                                            </p>
+                                        ) : null}
                                         {presentPeers.length > 0 ? (
                                             <p className="mt-2 text-xs font-medium uppercase tracking-[0.18em] text-emerald-700">
                                                 Online now: {presentPeers.map((peer: any) => peer.name || 'Unknown').join(', ')}

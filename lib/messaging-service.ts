@@ -141,9 +141,7 @@ async function getThreadById(threadId: string) {
                     id: threadId,
                 },
             },
-            members: {
-                familyMember: {},
-            },
+            members: {},
             messages: {},
         },
     });
@@ -159,9 +157,7 @@ async function getThreadByKey(threadKey: string) {
                     threadKey,
                 },
             },
-            members: {
-                familyMember: {},
-            },
+            members: {},
         },
     });
     return (data.messageThreads as any[])?.[0] || null;
@@ -177,8 +173,6 @@ async function getThreadMembership(threadId: string, familyMemberId: string) {
                     familyMemberId,
                 },
             },
-            familyMember: {},
-            thread: {},
         },
     });
     return (data.messageThreadMembers as any[])?.[0] || null;
@@ -194,19 +188,10 @@ async function getMessageById(messageId: string) {
                 },
             },
             thread: {
-                members: {
-                    familyMember: {},
-                },
+                members: {},
             },
             author: {},
             attachments: {},
-            reactions: {
-                familyMember: {},
-            },
-            acknowledgements: {
-                familyMember: {},
-            },
-            replyTo: {},
         },
     });
     return (data.messages as any[])?.[0] || null;

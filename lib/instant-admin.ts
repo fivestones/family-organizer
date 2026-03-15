@@ -98,11 +98,7 @@ export async function mintPrincipalToken(type: PrincipalType) {
 
 async function queryFamilyMembers() {
     const adminDb = getInstantAdminDb();
-    const data = await adminDb.query({
-        familyMembers: {
-            authUser: {},
-        },
-    });
+    const data = await adminDb.query({ familyMembers: {} });
     return (data.familyMembers as FamilyMemberRecord[]) || [];
 }
 
@@ -160,7 +156,7 @@ export async function mintFamilyMemberToken(memberId: string) {
     const user = await adminDb.auth.getUser({ email });
     const principalType = member.role === 'parent' ? 'parent' : 'kid';
 
-    const transactions: any[] = [
+    await adminDb.transact([
         adminDb.tx.$users[user.id].update({
             familyMemberId: member.id,
             imageURL:
@@ -172,13 +168,7 @@ export async function mintFamilyMemberToken(memberId: string) {
             role: member.role || 'child',
             type: principalType,
         }),
-    ];
-
-    if (typeof adminDb.tx.familyMembers?.[member.id]?.link === 'function') {
-        transactions.push(adminDb.tx.familyMembers[member.id].link({ authUser: user.id }));
-    }
-
-    await adminDb.transact(transactions);
+    ]);
 
     return {
         token,

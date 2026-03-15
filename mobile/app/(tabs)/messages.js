@@ -93,11 +93,6 @@ export default function MessagesTab() {
     isAuthenticated && instantReady
       ? {
           messageThreadMembers: {
-            thread: {
-              members: {
-                familyMember: {},
-              },
-            },
           },
         }
       : null
@@ -124,9 +119,6 @@ export default function MessagesTab() {
     isAuthenticated && instantReady
       ? {
           messageThreads: {
-            members: {
-              familyMember: {},
-            },
           },
         }
       : null
@@ -185,13 +177,8 @@ export default function MessagesTab() {
     const membershipMap = new Map();
 
     membershipRows.forEach((membership) => {
-      const thread = Array.isArray(membership.thread) ? membership.thread[0] : membership.thread;
-      if (!thread?.id) return;
-      membershipMap.set(thread.id, membership);
-      map.set(thread.id, {
-        ...thread,
-        membership,
-      });
+      if (!membership?.threadId) return;
+      membershipMap.set(membership.threadId, membership);
     });
 
     visibleThreads.forEach((thread) => {
