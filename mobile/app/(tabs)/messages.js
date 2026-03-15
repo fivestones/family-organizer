@@ -65,6 +65,22 @@ function getReplyTo(replyTo) {
   return Array.isArray(replyTo) ? replyTo[0] || null : replyTo;
 }
 
+function getReplyPreviewText(message) {
+  if (message?.deletedAt) {
+    return message.removedReason || 'Original message removed';
+  }
+  const body = String(message?.body || '').trim();
+  if (body) return body;
+  const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+  if (attachments.length === 1) {
+    return `Attachment: ${attachments[0]?.name || 'Attachment'}`;
+  }
+  if (attachments.length > 1) {
+    return `${attachments.length} attachments`;
+  }
+  return 'Message';
+}
+
 function getDraftKey(threadId) {
   return threadId ? `familyOrganizer.messageDraft.${threadId}` : '';
 }
@@ -139,6 +155,10 @@ export default function MessagesTab() {
             },
             attachments: {},
             author: {},
+            replyTo: {
+              author: {},
+              attachments: {},
+            },
           },
         }
       : null
@@ -633,11 +653,14 @@ export default function MessagesTab() {
                   </View>
 
                   {replyTo ? (
-                    <Pressable style={[styles.replyCard, isOwnMessage && styles.replyCardOwn]} onPress={() => setReplyToMessageId(replyTo.id || null)}>
-                      <Text style={[styles.replyText, isOwnMessage && styles.replyTextOwn]} numberOfLines={2}>
-                        Replying to {getAuthorName(replyTo, familyMemberNamesById)}: {replyTo.body || ''}
+                    <View style={[styles.replyCard, isOwnMessage && styles.replyCardOwn]}>
+                      <Text style={[styles.replyLabel, isOwnMessage && styles.replyLabelOwn]}>
+                        Reply to {getAuthorName(replyTo, familyMemberNamesById)}
                       </Text>
-                    </Pressable>
+                      <Text style={[styles.replyText, isOwnMessage && styles.replyTextOwn]} numberOfLines={2}>
+                        {getReplyPreviewText(replyTo)}
+                      </Text>
+                    </View>
                   ) : null}
 
                   {isEditing ? (
@@ -737,7 +760,10 @@ export default function MessagesTab() {
 
           {replyTarget ? (
             <View style={styles.replyBanner}>
-              <Text style={styles.replyBannerText}>Replying to {getAuthorName(replyTarget, familyMemberNamesById)}</Text>
+              <View style={styles.replyBannerContent}>
+                <Text style={styles.replyBannerLabel}>Replying to {getAuthorName(replyTarget, familyMemberNamesById)}</Text>
+                <Text style={styles.replyBannerText} numberOfLines={2}>{getReplyPreviewText(replyTarget)}</Text>
+              </View>
               <Pressable onPress={() => setReplyToMessageId(null)}>
                 <Text style={styles.inlineActionText}>Clear</Text>
               </Pressable>
@@ -1163,6 +1189,17 @@ const createStyles = (colors) =>
       fontSize: 12,
       lineHeight: 16,
     },
+    replyLabel: {
+      color: colors.accentDashboard,
+      fontSize: 11,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginBottom: 4,
+    },
+    replyLabelOwn: {
+      color: withAlpha(colors.onAccent, 0.78),
+    },
     replyTextOwn: {
       color: withAlpha(colors.onAccent, 0.84),
     },
@@ -1199,7 +1236,7 @@ const createStyles = (colors) =>
     },
     replyBanner: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: spacing.md,
       borderRadius: radii.md,
@@ -1209,10 +1246,22 @@ const createStyles = (colors) =>
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
     },
-    replyBannerText: {
-      color: colors.ink,
-      fontWeight: '700',
+    replyBannerContent: {
       flex: 1,
+      gap: 2,
+    },
+    replyBannerLabel: {
+      color: colors.accentDashboard,
+      fontWeight: '800',
+      fontSize: 12,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+    },
+    replyBannerText: {
+      color: colors.inkMuted,
+      fontWeight: '600',
+      flex: 1,
+      lineHeight: 18,
     },
     composerCard: {
       borderRadius: radii.md,

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { advanceTimeByAsync, freezeTime } from '@/test/utils/fake-clock';
 
@@ -211,6 +211,10 @@ async function flushMessagingPage() {
     });
 }
 
+function hasExactText(text: string) {
+    return (_content: string, node: Element | null) => node?.textContent === text;
+}
+
 describe('FamilyMessagesPage', () => {
     beforeEach(() => {
         freezeTime('2026-03-15T11:30:00.000Z');
@@ -368,5 +372,49 @@ describe('FamilyMessagesPage', () => {
 
         expect(screen.getByText(longPreview)).toHaveClass('line-clamp-2');
         expect(screen.getByText(longPreview)).toHaveClass('break-words');
+    });
+
+    it('shows a quoted reply preview while composing', async () => {
+        familyMessagesMocks.getMessageServerTime.mockResolvedValue({
+            serverNow: '2026-03-15T10:04:00.000Z',
+        });
+
+        render(<FamilyMessagesPage />);
+        await flushMessagingPage();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+
+        expect(screen.getByText(hasExactText('Replying to Alex'))).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Clear' })).toBeInTheDocument();
+    });
+
+    it('requests nested reply data and renders quoted reply context on sent messages', async () => {
+        familyMessagesMocks.getMessageServerTime.mockResolvedValue({
+            serverNow: '2026-03-15T10:04:00.000Z',
+        });
+        installQueryMocks({
+            id: 'message-2',
+            body: 'Following up here',
+            replyTo: {
+                id: 'message-1',
+                body: 'Original context from Pat',
+                createdAt: '2026-03-15T09:59:00.000Z',
+                authorFamilyMemberId: 'member-2',
+                author: { id: 'member-2', name: 'Pat' },
+                attachments: [],
+                deletedAt: null,
+            },
+        });
+
+        render(<FamilyMessagesPage />);
+        await flushMessagingPage();
+
+        const messageQueryCall = familyMessagesMocks.useQuery.mock.calls.find(([query]) => query?.messages);
+        expect(messageQueryCall?.[0]?.messages?.replyTo).toEqual({
+            author: {},
+            attachments: {},
+        });
+        expect(screen.getByText(hasExactText('Reply to Pat'))).toBeInTheDocument();
+        expect(screen.getByText('Original context from Pat')).toBeInTheDocument();
     });
 });

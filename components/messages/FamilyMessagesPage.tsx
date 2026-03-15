@@ -60,6 +60,8 @@ type MessageRecord = {
     replyTo?: Array<MessageRecord> | MessageRecord | null;
 };
 
+type ReplyPreviewVariant = 'composer' | 'bubble-own' | 'bubble-other';
+
 function formatMessageTime(value?: string | null) {
     if (!value) return '';
     const parsed = new Date(value);
@@ -95,6 +97,88 @@ function getReplyToMessage(replyTo: MessageRecord['replyTo']) {
     if (!replyTo) return null;
     if (Array.isArray(replyTo)) return replyTo[0] || null;
     return replyTo || null;
+}
+
+function getReplyPreviewText(message: MessageRecord) {
+    if (message.deletedAt) {
+        return message.removedReason || 'Original message removed';
+    }
+    const body = String(message.body || '').trim();
+    if (body) return body;
+    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    if (attachments.length === 1) {
+        return `Attachment: ${attachments[0]?.name || 'Attachment'}`;
+    }
+    if (attachments.length > 1) {
+        return `${attachments.length} attachments`;
+    }
+    return 'Message';
+}
+
+function ReplyPreviewCard({
+    message,
+    familyMemberNamesById,
+    label,
+    variant,
+    onClear,
+}: {
+    message: MessageRecord;
+    familyMemberNamesById: Map<string, string>;
+    label: string;
+    variant: ReplyPreviewVariant;
+    onClear?: (() => void) | null;
+}) {
+    const isComposer = variant === 'composer';
+    const isOwn = variant === 'bubble-own';
+
+    return (
+        <div
+            className={cn(
+                'min-w-0 rounded-2xl border px-3 py-2',
+                isComposer
+                    ? 'flex items-start justify-between gap-3 border-slate-200 bg-white'
+                    : isOwn
+                    ? 'border-white/20 bg-white/10'
+                    : 'border-slate-200 bg-slate-50'
+            )}
+        >
+            <div className="min-w-0 flex-1">
+                <div
+                    className={cn(
+                        'text-[11px] font-semibold uppercase tracking-[0.14em]',
+                        isComposer ? 'text-sky-700' : isOwn ? 'text-sky-100' : 'text-sky-700'
+                    )}
+                >
+                    {label}{' '}
+                    <span
+                        className={cn(
+                            'normal-case tracking-normal',
+                            isComposer ? 'text-slate-900' : isOwn ? 'text-white' : 'text-slate-900'
+                        )}
+                    >
+                        {getAuthorName(message, familyMemberNamesById)}
+                    </span>
+                </div>
+                <div
+                    className={cn(
+                        'mt-1 line-clamp-2 whitespace-pre-wrap break-words text-sm leading-5',
+                        isComposer ? 'text-slate-600' : isOwn ? 'text-sky-50' : 'text-slate-600'
+                    )}
+                >
+                    {getReplyPreviewText(message)}
+                </div>
+            </div>
+            {onClear ? (
+                <button
+                    type="button"
+                    className="shrink-0 text-xs font-semibold text-slate-500 hover:text-slate-700"
+                    onClick={onClear}
+                >
+                    Clear
+                </button>
+            ) : null}
+        </div>
+    );
 }
 
 function isThreadUnread(thread: ThreadRecord) {
@@ -210,6 +294,10 @@ export default function FamilyMessagesPage() {
                       },
                       attachments: {},
                       author: {},
+                      replyTo: {
+                          author: {},
+                          attachments: {},
+                      },
                   },
               }
             : (null as any)
@@ -515,6 +603,7 @@ export default function FamilyMessagesPage() {
         const messageBody = composerBody;
         const messageImportance = composerImportance;
         const messageReplyToId = replyToMessageId;
+        const messageReplyTarget = replyTarget;
         const messageFiles = pendingFiles;
         const clientTimestamp = new Date().toISOString();
         const optimisticId = id();
@@ -538,6 +627,7 @@ export default function FamilyMessagesPage() {
                 removedByFamilyMemberId: null,
                 removedReason: null,
                 replyToMessageId: messageReplyToId || null,
+                replyTo: messageReplyTarget ? { ...messageReplyTarget } : null,
                 author: { id: currentUser.id, name: currentUser.name } as any,
                 attachments: [],
                 _optimistic: true,
@@ -1082,16 +1172,14 @@ export default function FamilyMessagesPage() {
                                                     </div>
 
                                                     {replyTo ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setReplyToMessageId(replyTo.id || null)}
-                                                            className={cn(
-                                                                'mb-3 block w-full rounded-2xl border px-3 py-2 text-left text-xs',
-                                                                isOwnMessage ? 'border-white/20 bg-white/10 text-sky-50' : 'border-slate-200 bg-slate-50 text-slate-600'
-                                                            )}
-                                                        >
-                                                            Replying to {getAuthorName(replyTo, familyMemberNamesById)}: {(replyTo.body || '').slice(0, 80)}
-                                                        </button>
+                                                        <div className="mb-3">
+                                                            <ReplyPreviewCard
+                                                                message={replyTo}
+                                                                familyMemberNamesById={familyMemberNamesById}
+                                                                label="Reply to"
+                                                                variant={isOwnMessage ? 'bubble-own' : 'bubble-other'}
+                                                            />
+                                                        </div>
                                                     ) : null}
 
                                                     {isEditing ? (
@@ -1251,14 +1339,13 @@ export default function FamilyMessagesPage() {
                                 ) : (
                                     <div className="space-y-3">
                                         {replyTarget ? (
-                                            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-                                                <div>
-                                                    Replying to <span className="font-semibold text-slate-900">{getAuthorName(replyTarget, familyMemberNamesById)}</span>
-                                                </div>
-                                                <button type="button" className="font-semibold text-slate-500" onClick={() => setReplyToMessageId(null)}>
-                                                    Clear
-                                                </button>
-                                            </div>
+                                            <ReplyPreviewCard
+                                                message={replyTarget}
+                                                familyMemberNamesById={familyMemberNamesById}
+                                                label="Replying to"
+                                                variant="composer"
+                                                onClear={() => setReplyToMessageId(null)}
+                                            />
                                         ) : null}
 
                                         <textarea

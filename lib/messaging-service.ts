@@ -192,6 +192,10 @@ async function getMessageById(messageId: string) {
             },
             author: {},
             attachments: {},
+            replyTo: {
+                author: {},
+                attachments: {},
+            },
         },
     });
     return (data.messages as any[])?.[0] || null;
