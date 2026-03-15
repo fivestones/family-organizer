@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { getInstantAdminDb } from '@/lib/instant-admin';
 import {
     AcknowledgeMessageRequest,
@@ -22,15 +22,22 @@ import {
 
 export const PARENTS_ONLY_THREAD_ID = '00000000-0000-4000-8000-000000000002';
 
-function getMembershipId(threadId: string, familyMemberId: string) {
+function deterministicUuid(key: string) {
+    const hex = createHash('sha256').update(key).digest('hex').slice(0, 32).split('');
+    hex[12] = '4';
+    hex[16] = ['8', '9', 'a', 'b'][parseInt(hex[16], 16) % 4];
+    return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20, 32).join('')}`;
+}
+
+function getMembershipKey(threadId: string, familyMemberId: string) {
     return `member:${threadId}:${familyMemberId}`;
 }
 
-function getReactionId(messageId: string, familyMemberId: string, emoji: string) {
+function getReactionKey(messageId: string, familyMemberId: string, emoji: string) {
     return `reaction:${messageId}:${familyMemberId}:${emoji}`;
 }
 
-function getAcknowledgementId(messageId: string, familyMemberId: string, kind: string) {
+function getAcknowledgementKey(messageId: string, familyMemberId: string, kind: string) {
     return `ack:${messageId}:${familyMemberId}:${kind}`;
 }
 
@@ -157,7 +164,8 @@ async function upsertMembershipTransactions(params: {
     sortTimestamp?: string;
 }) {
     const adminDb = getInstantAdminDb();
-    const membershipId = getMembershipId(params.threadId, params.familyMemberId);
+    const membershipKey = getMembershipKey(params.threadId, params.familyMemberId);
+    const membershipId = deterministicUuid(membershipKey);
     const nowIso = params.sortTimestamp || new Date().toISOString();
     return [
         adminDb.tx.messageThreadMembers[membershipId].update({
@@ -166,6 +174,7 @@ async function upsertMembershipTransactions(params: {
             isPinned: params.isPinned ?? false,
             joinedAt: nowIso,
             memberRole: params.memberRole || 'member',
+            membershipKey,
             notificationLevel: params.notificationLevel || 'all',
             pinnedAt: params.isPinned ? nowIso : null,
             sortTimestamp: nowIso,
@@ -473,7 +482,7 @@ export async function sendThreadMessage(actor: any, input: SendMessageRequest) {
     }
 
     for (const membership of thread.members || []) {
-        const membershipId = getMembershipId(thread.id, membership.familyMemberId);
+        const membershipId = deterministicUuid(getMembershipKey(thread.id, membership.familyMemberId));
         transactions.push(
             adminDb.tx.messageThreadMembers[membershipId].update({
                 sortTimestamp: nowIso,
@@ -582,8 +591,9 @@ export async function toggleMessageReaction(actor: any, input: ToggleReactionReq
         throw new Error('Emoji is required');
     }
 
-    const reactionId = getReactionId(message.id, actor.id, emoji);
-    const existing = (message.reactions || []).find((reaction: any) => reaction.id === reactionId);
+    const reactionKey = getReactionKey(message.id, actor.id, emoji);
+    const reactionId = deterministicUuid(reactionKey);
+    const existing = (message.reactions || []).find((reaction: any) => reaction.reactionKey === reactionKey);
     if (existing) {
         await adminDb.transact([adminDb.tx.messageReactions[reactionId].delete()]);
         return { active: false, reactionId };
@@ -596,7 +606,7 @@ export async function toggleMessageReaction(actor: any, input: ToggleReactionReq
             emoji,
             familyMemberId: actor.id,
             messageId: message.id,
-            reactionKey: reactionId,
+            reactionKey,
         }),
         adminDb.tx.messages[message.id].link({ reactions: reactionId }),
         adminDb.tx.familyMembers[actor.id].link({ messageReactions: reactionId }),
@@ -613,11 +623,12 @@ export async function acknowledgeMessage(actor: any, input: AcknowledgeMessageRe
     }
     requireThreadMembership(message.thread, actor.id);
 
-    const acknowledgementId = getAcknowledgementId(message.id, actor.id, input.kind);
+    const acknowledgementKey = getAcknowledgementKey(message.id, actor.id, input.kind);
+    const acknowledgementId = deterministicUuid(acknowledgementKey);
     const nowIso = new Date().toISOString();
     await adminDb.transact([
         adminDb.tx.messageAcknowledgements[acknowledgementId].update({
-            ackKey: acknowledgementId,
+            ackKey: acknowledgementKey,
             createdAt: nowIso,
             familyMemberId: actor.id,
             kind: input.kind,
@@ -734,15 +745,16 @@ export async function leaveThreadWatchMode(actor: any, input: { threadId: string
 export async function upsertPushDevice(actor: any, input: { token: string; platform: string; isEnabled?: boolean }) {
     const adminDb = getInstantAdminDb();
     const nowIso = new Date().toISOString();
+    const pushDeviceId = deterministicUuid(`push:${input.token}`);
     await adminDb.transact([
-        adminDb.tx.pushDevices[input.token].update({
+        adminDb.tx.pushDevices[pushDeviceId].update({
             familyMemberId: actor.id,
             isEnabled: input.isEnabled ?? true,
             lastSeenAt: nowIso,
             platform: input.platform,
             token: input.token,
         }),
-        adminDb.tx.familyMembers[actor.id].link({ pushDevices: input.token }),
+        adminDb.tx.familyMembers[actor.id].link({ pushDevices: pushDeviceId }),
     ]);
 
     return {

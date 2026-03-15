@@ -306,6 +306,7 @@ const _schema = i.schema({
             lastReadAt: i.string().indexed().optional(),
             lastReadMessageId: i.string().indexed().optional(),
             memberRole: i.string().indexed(),
+            membershipKey: i.string().unique().indexed(),
             notificationLevel: i.string().indexed(),
             pinnedAt: i.string().indexed().optional(),
             sortTimestamp: i.string().indexed(),

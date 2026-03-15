@@ -516,12 +516,12 @@ export default function FamilyMessagesPage() {
             <div className="mx-auto flex h-full max-w-[1440px] gap-6 p-6">
                 <aside className="flex w-[340px] shrink-0 flex-col overflow-hidden rounded-[32px] border border-slate-200/80 bg-white/90 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur">
                     <div className="border-b border-slate-200 p-5">
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="space-y-4">
                             <div>
                                 <h1 className="text-2xl font-bold text-slate-950">Messages</h1>
                                 <p className="mt-1 text-sm text-slate-500">Family, DMs, groups, and oversight in one inbox.</p>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 {typeof window !== 'undefined' && 'Notification' in window && browserNotificationPermission !== 'granted' ? (
                                     <Button
                                         type="button"
