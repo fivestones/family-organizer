@@ -19,7 +19,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import CurrencySelector from '@/components/CurrencySelector';
 import ChoreRecurrenceFields from './ChoreRecurrenceFields';
 import ChoreScheduleActions from './ChoreScheduleActions';
-import ChoreCalendarView from './ChoreCalendarView';
+import ChoreAssignmentPreviewSection from './ChoreAssignmentPreviewSection';
 import { toUTCDate } from '@/lib/chore-utils';
 import type { ChorePauseState, ChoreSchedulePatch } from '@/lib/chore-schedule';
 import { getChorePauseStatus } from '@/lib/chore-schedule';
@@ -613,11 +613,12 @@ function DetailedChoreForm({
 
             {/* Chore Calendar Preview - Only show if recurrence is set */}
             {showPreview && (
-                <div className="space-y-2 pt-3 border-t">
-                    <Label className="block font-semibold">Assignment Preview:</Label>
-                    <div className="border rounded-md overflow-x-auto max-w-full bg-background" style={{ maxHeight: '300px' }}>
-                        <ChoreCalendarView chore={choreForPreview} />
-                    </div>
+                <div className="pt-3 border-t">
+                    <ChoreAssignmentPreviewSection
+                        chore={choreForPreview}
+                        anchorDate={startDate}
+                        description="Preview how this chore will be assigned over time, including completion state for each occurrence."
+                    />
                 </div>
             )}
 

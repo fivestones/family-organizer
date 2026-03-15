@@ -7,11 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
-import { getChoreNextOccurrenceFromBaseSchedule, getChorePauseStatus, type ChorePauseStatus, type ChoreScheduleLike } from '@/lib/chore-schedule';
+import { getChorePauseStatus, getNextChoreOccurrence, type ChorePauseStatus, type ChoreScheduleLike } from '@/lib/chore-schedule';
 import { recurrenceSummary, parseRecurrenceUiStateFromRrule } from '@/lib/recurrence';
 import { getTaskSeriesProgress } from '@/lib/task-series-progress';
 import { getTasksForDate, type Task } from '@/lib/task-scheduler';
 import { isTaskDone } from '@/lib/task-progress';
+import ChoreAssignmentPreviewSection from './ChoreAssignmentPreviewSection';
 
 type FamilyMemberLike = {
     id: string;
@@ -295,7 +296,7 @@ export default function ChoreDetailDialog({ chore, familyMembers, open, onOpenCh
 
         const recurrenceDetails = getRecurrenceDetails(chore);
         const scheduleStatus = getChorePauseStatus(chore, selectedDate);
-        const nextOccurrence = getChoreNextOccurrenceFromBaseSchedule(chore, selectedDate, true);
+        const nextOccurrence = getNextChoreOccurrence(chore, selectedDate, true);
         const exdateCount = Array.isArray(chore.exdates) ? chore.exdates.length : 0;
 
         const taskSeriesDetails = (chore.taskSeries || [])
@@ -541,6 +542,12 @@ export default function ChoreDetailDialog({ chore, familyMembers, open, onOpenCh
                                     </div>
                                 </Section>
                             ) : null}
+
+                            <ChoreAssignmentPreviewSection
+                                chore={chore}
+                                anchorDate={selectedDate}
+                                description="Scroll through the schedule to see assignments and completion status across past and future dates."
+                            />
 
                             {detailState.latestCompletions.length > 0 ? (
                                 <Section title="Recent Activity">

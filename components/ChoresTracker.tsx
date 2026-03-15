@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import FamilyMembersList from './FamilyMembersList';
 import ChoreList from './ChoreList';
+import AllChoresInventory from './AllChoresInventory';
 import DetailedChoreForm from './DetailedChoreForm';
 import DateCarousel from '@/components/ui/DateCarousel';
 import { toUTCDate, calculateDailyXP } from '@/lib/chore-utils';
@@ -76,6 +77,7 @@ interface Chore {
     id: string;
     title: string;
     description?: string;
+    createdAt?: string;
     startDate: string; // Keep as string to match DetailedChoreForm/utils expectations
     done: boolean; // Assuming this exists, though not used directly here
     rrule?: string;
@@ -121,6 +123,7 @@ interface ChoreCompletion {
 
 interface ChoresTrackerProps {
     pageMode?: 'chores' | 'tasks';
+    viewScope?: 'daily' | 'all';
     initialSelectedMember?: string | null;
     initialSelectedDate?: string | null;
     focusedChoreId?: string | null;
@@ -128,11 +131,12 @@ interface ChoresTrackerProps {
 
 function ChoresTracker({
     pageMode = 'chores',
+    viewScope = 'daily',
     initialSelectedMember = null,
     initialSelectedDate = null,
     focusedChoreId = null,
 }: ChoresTrackerProps) {
-    const [selectedMember, setSelectedMember] = useState<string>(initialSelectedMember || 'All');
+    const [selectedMember, setSelectedMember] = useState<string>(viewScope === 'all' ? 'All' : initialSelectedMember || 'All');
     const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
     // --- Remove state for simple add form ---
     // const [newChoreTitle, setNewChoreTitle] = useState<string>('');
@@ -160,18 +164,27 @@ function ChoresTracker({
     const { isParentMode } = useParentMode();
 
     React.useEffect(() => {
+        if (viewScope === 'all') {
+            setSelectedMember('All');
+            return;
+        }
         if (initialSelectedMember) {
             setSelectedMember(initialSelectedMember);
         }
-    }, [initialSelectedMember]);
+    }, [initialSelectedMember, viewScope]);
 
     React.useEffect(() => {
+        if (viewScope === 'all') {
+            const now = new Date();
+            setSelectedDate(new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())));
+            return;
+        }
         if (!initialSelectedDate) return;
         const parsed = new Date(`${initialSelectedDate}T00:00:00Z`);
         if (!Number.isNaN(parsed.getTime())) {
             setSelectedDate(parsed);
         }
-    }, [initialSelectedDate]);
+    }, [initialSelectedDate, viewScope]);
 
     // **** UPDATED QUERY: Fetch members + linked envelopes, chores, and unit definitions ****
     const { isLoading, error, data } = db.useQuery({
@@ -307,9 +320,11 @@ function ChoresTracker({
 
     const addChore = (choreData: Partial<Chore>) => {
         const choreId = id();
+        const nowIso = new Date().toISOString();
         const transactions: any[] = [
             tx.chores[choreId].update({
                 title: choreData.title!,
+                createdAt: nowIso,
                 description: choreData.description || '',
                 startDate: new Date(choreData.startDate || Date.now()).toISOString(),
                 // gemini wants the below instead of the above. It looks like it doesn't make a choreData.startDate into an ISOString. Not sure about this one.
@@ -735,8 +750,23 @@ function ChoresTracker({
     const canAddChore = isParent;
     const pageTitle = pageMode === 'tasks' ? 'Tasks' : 'Chores';
     const selectedMemberName = familyMembers.find((m) => m.id === selectedMember)?.name;
+    const selectedDateLabel = selectedDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     const pageHeading =
-        selectedMember === 'All' ? `All ${pageTitle}` : `${selectedMemberName || 'Selected Member'}'s ${pageTitle}`;
+        viewScope === 'all' && pageMode === 'chores'
+            ? 'All Chores'
+            : pageMode === 'chores'
+              ? `Chores for ${selectedDateLabel}`
+              : selectedMember === 'All'
+                ? `All ${pageTitle}`
+                : `${selectedMemberName || 'Selected Member'}'s ${pageTitle}`;
+    const pageSubheading =
+        viewScope === 'all' && pageMode === 'chores'
+            ? `All family members as of ${selectedDateLabel}`
+            : pageMode === 'chores'
+              ? selectedMember === 'All'
+                  ? 'All family members'
+                  : selectedMemberName || 'Selected member'
+              : null;
     const tasksHistoryHref = (() => {
         const params = new URLSearchParams();
         params.set('domain', 'tasks');
@@ -768,24 +798,26 @@ function ChoresTracker({
     return (
         <div className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col md:flex-row md:px-4">
             {/* Left Sidebar (Desktop Only) */}
-            <div className="hidden md:flex md:w-[clamp(260px,24vw,360px)] md:flex-shrink-0 md:py-4">
-                <div className="w-full h-full min-h-0 rounded-lg border bg-card p-4 shadow-sm">
-                    <FamilyMembersList
-                        familyMembers={familyMembers}
-                        selectedMember={selectedMember}
-                        setSelectedMember={setSelectedMember}
-                        // **** REMOVED: addFamilyMember and deleteFamilyMember props ****
-                        db={db}
-                        // **** NEW: Pass balance data ****
-                        showBalances={true} // Enable balance display
-                        membersBalances={membersBalances}
-                        unitDefinitions={unitDefinitions}
-                    />
+            {viewScope === 'daily' ? (
+                <div className="hidden md:flex md:w-[clamp(260px,24vw,360px)] md:flex-shrink-0 md:py-4">
+                    <div className="w-full h-full min-h-0 rounded-lg border bg-card p-4 shadow-sm">
+                        <FamilyMembersList
+                            familyMembers={familyMembers}
+                            selectedMember={selectedMember}
+                            setSelectedMember={setSelectedMember}
+                            // **** REMOVED: addFamilyMember and deleteFamilyMember props ****
+                            db={db}
+                            // **** NEW: Pass balance data ****
+                            showBalances={true} // Enable balance display
+                            membersBalances={membersBalances}
+                            unitDefinitions={unitDefinitions}
+                        />
+                    </div>
                 </div>
-            </div>
+            ) : null}
 
             {/* Mobile Menu Modal (New Layout) */}
-            <Dialog open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+            <Dialog open={viewScope === 'daily' && isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
                 <DialogContent
                     className={cn(
                         'fixed z-50 flex flex-col gap-4 bg-background shadow-lg transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',
@@ -854,24 +886,24 @@ function ChoresTracker({
                         </DropdownMenu>
                     </div>
 
-                    {/* 2. Family Members (Takes remaining space) */}
-                    <div className="flex-grow flex flex-col min-h-0 bg-gray-50/50 rounded-xl border p-2 overflow-hidden">
-                        {/* Removed Label "Family & Balance" */}
-                        <div className="flex-grow overflow-y-auto">
-                            <FamilyMembersList
-                                familyMembers={familyMembers}
-                                selectedMember={selectedMember}
-                                setSelectedMember={(id) => {
-                                    setSelectedMember(id);
-                                    setIsMobileMenuOpen(false); // Close menu on selection
-                                }}
-                                db={db}
-                                showBalances={true}
-                                membersBalances={membersBalances}
-                                unitDefinitions={unitDefinitions}
-                            />
+                    {viewScope === 'daily' ? (
+                        <div className="flex-grow flex flex-col min-h-0 bg-gray-50/50 rounded-xl border p-2 overflow-hidden">
+                            <div className="flex-grow overflow-y-auto">
+                                <FamilyMembersList
+                                    familyMembers={familyMembers}
+                                    selectedMember={selectedMember}
+                                    setSelectedMember={(id) => {
+                                        setSelectedMember(id);
+                                        setIsMobileMenuOpen(false);
+                                    }}
+                                    db={db}
+                                    showBalances={true}
+                                    membersBalances={membersBalances}
+                                    unitDefinitions={unitDefinitions}
+                                />
+                            </div>
                         </div>
-                    </div>
+                    ) : null}
                 </DialogContent>
             </Dialog>
 
@@ -882,12 +914,15 @@ function ChoresTracker({
                     {/* 1. Header Title & Add Chore Button Column */}
                     <div className="flex items-center gap-3">
                         {/* Mobile Menu Button */}
-                        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsMobileMenuOpen(true)}>
-                            <Menu className="h-5 w-5" />
-                        </Button>
+                        {viewScope === 'daily' ? (
+                            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsMobileMenuOpen(true)}>
+                                <Menu className="h-5 w-5" />
+                            </Button>
+                        ) : null}
 
                         <div className="flex flex-col gap-2">
                             <h2 className="text-lg md:text-xl font-bold whitespace-nowrap">{pageHeading}</h2>
+                            {pageSubheading ? <p className="text-sm text-muted-foreground">{pageSubheading}</p> : null}
 
                             <div className="flex flex-wrap items-center gap-2">
                                 <Dialog open={isDetailedChoreModalOpen} onOpenChange={setIsDetailedChoreModalOpen}>
@@ -921,6 +956,22 @@ function ChoresTracker({
                                     </DialogContent>
                                 </Dialog>
 
+                                {pageMode === 'chores' && viewScope === 'daily' ? (
+                                    <Link href="/chores/all">
+                                        <Button variant="outline" size="sm">
+                                            View all chores
+                                        </Button>
+                                    </Link>
+                                ) : null}
+
+                                {pageMode === 'chores' && viewScope === 'all' ? (
+                                    <Link href="/chores">
+                                        <Button variant="outline" size="sm">
+                                            Back to day view
+                                        </Button>
+                                    </Link>
+                                ) : null}
+
                                 {pageMode === 'tasks' && isParent ? (
                                     <>
                                         <Link href="/task-series">
@@ -941,68 +992,87 @@ function ChoresTracker({
 
                     {/* 2. DateCarousel (Centered and Flexible) */}
                     {/* Desktop: Visible / Mobile: Controlled by toggle */}
-                    <div
-                        className={`
+                    {viewScope === 'daily' ? (
+                        <div
+                            className={`
                         absolute md:static top-[120px] left-0 right-0 z-20 bg-background md:bg-transparent shadow-md md:shadow-none p-2 md:p-0
                         ${isMobileDateVisible ? 'flex' : 'hidden'} md:flex
                         flex-grow justify-center min-w-0
                     `}
-                    >
-                        {/* Pass UTC date to initialDate */}
-                        <DateCarousel onDateSelect={handleDateSelect} initialDate={selectedDate} />
-                    </div>
+                        >
+                            <DateCarousel onDateSelect={handleDateSelect} initialDate={selectedDate} />
+                        </div>
+                    ) : (
+                        <div className="hidden md:block flex-grow" />
+                    )}
 
                     {/* 3. Settings & Mobile Calendar Toggle (Right side) */}
                     <div className="flex-shrink-0 flex items-center gap-2">
                         {/* Mobile Date Toggle */}
-                        <Button
-                            variant={isMobileDateVisible ? 'secondary' : 'outline'}
-                            size="icon"
-                            className="md:hidden"
-                            onClick={() => setIsMobileDateVisible(!isMobileDateVisible)}
-                        >
-                            <CalendarIcon className="h-4 w-4" />
-                        </Button>
-
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <Button variant="outline" size="icon">
-                                    <SlidersHorizontal className="h-4 w-4" />
+                        {viewScope === 'daily' ? (
+                            <>
+                                <Button
+                                    variant={isMobileDateVisible ? 'secondary' : 'outline'}
+                                    size="icon"
+                                    className="md:hidden"
+                                    onClick={() => setIsMobileDateVisible(!isMobileDateVisible)}
+                                >
+                                    <CalendarIcon className="h-4 w-4" />
                                 </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-60" align="end">
-                                <div className="grid gap-4">
-                                    <div className="space-y-2">
-                                        <h4 className="font-medium leading-none">View Options</h4>
-                                        <p className="text-sm text-muted-foreground">Customize your chore list view.</p>
-                                    </div>
-                                    <div className="grid gap-2">
-                                        <div className="flex items-center justify-between">
-                                            <Label htmlFor="show-descriptions">Chore Descriptions</Label>
-                                            <Switch
-                                                id="show-descriptions"
-                                                checked={showChoreDescriptions}
-                                                onCheckedChange={(val) => toggleViewSetting('viewShowChoreDescriptions', val)}
-                                                disabled={!loggedInMember} // Disable if not logged in
-                                            />
+
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" size="icon">
+                                            <SlidersHorizontal className="h-4 w-4" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-60" align="end">
+                                        <div className="grid gap-4">
+                                            <div className="space-y-2">
+                                                <h4 className="font-medium leading-none">View Options</h4>
+                                                <p className="text-sm text-muted-foreground">Customize your chore list view.</p>
+                                            </div>
+                                            <div className="grid gap-2">
+                                                <div className="flex items-center justify-between">
+                                                    <Label htmlFor="show-descriptions">Chore Descriptions</Label>
+                                                    <Switch
+                                                        id="show-descriptions"
+                                                        checked={showChoreDescriptions}
+                                                        onCheckedChange={(val) => toggleViewSetting('viewShowChoreDescriptions', val)}
+                                                        disabled={!loggedInMember}
+                                                    />
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <Label htmlFor="show-details">Show Task Details</Label>
+                                                    <Switch
+                                                        id="show-details"
+                                                        checked={showTaskDetails}
+                                                        onCheckedChange={(val) => toggleViewSetting('viewShowTaskDetails', val)}
+                                                        disabled={!loggedInMember}
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center justify-between">
-                                            <Label htmlFor="show-details">Show Task Details</Label>
-                                            <Switch
-                                                id="show-details"
-                                                checked={showTaskDetails}
-                                                onCheckedChange={(val) => toggleViewSetting('viewShowTaskDetails', val)}
-                                                disabled={!loggedInMember}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            </PopoverContent>
-                        </Popover>
+                                    </PopoverContent>
+                                </Popover>
+                            </>
+                        ) : null}
                     </div>
                 </div>
                 {/* Chores List Area */}
-                {viewMode === 'list' ? (
+                {viewScope === 'all' && pageMode === 'chores' ? (
+                    <AllChoresInventory
+                        chores={chores as any}
+                        familyMembers={familyMembers as any}
+                        referenceDate={selectedDate}
+                        updateChore={updateChore}
+                        updateChoreSchedule={updateChoreSchedule}
+                        db={db}
+                        unitDefinitions={unitDefinitions}
+                        currencyOptions={currencyOptions}
+                        canEditChores={isParent}
+                    />
+                ) : viewMode === 'list' ? (
                     <div className="flex flex-col gap-4 grow min-h-0">
                         {' '}
                         {/* grow min-h-0 */}

@@ -181,6 +181,7 @@ const _schema = i.schema({
             area: i.any().optional(),
             canCompleteInAdvance: i.any().optional(),
             canCompletePast: i.any().optional(),
+            createdAt: i.string().indexed().optional(),
             description: i.string().optional(),
             difficultyRating: i.any().optional(),
             done: i.boolean(),

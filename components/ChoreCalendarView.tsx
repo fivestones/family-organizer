@@ -25,8 +25,14 @@ const DOT_CLASSES: Record<DotStatus, string> = {
   future: 'bg-gray-300',
 };
 
-const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
+const ChoreCalendarView: React.FC<{ chore: any; anchorDate?: Date }> = ({ chore, anchorDate }) => {
   const today = useMemo(() => toUTCDate(new Date()), []);
+  const scrollAnchorDate = useMemo(() => {
+    if (anchorDate instanceof Date && !Number.isNaN(anchorDate.getTime())) {
+      return toUTCDate(anchorDate);
+    }
+    return today;
+  }, [anchorDate, today]);
 
   const [dateAssignments, setDateAssignments] = useState<Record<string, Record<string, { assigned: boolean; completed: boolean }>>>({});
   const [dates, setDates] = useState<Date[]>([]);
@@ -39,8 +45,8 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
   const [loadingRight, setLoadingRight] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const todayColRef = useRef<HTMLTableCellElement>(null);
-  const hasScrolledToToday = useRef(false);
+  const anchorColRef = useRef<HTMLTableCellElement>(null);
+  const hasScrolledToAnchor = useRef(false);
   const pendingScrollAdjust = useRef<{ prevScrollLeft: number; prevScrollWidth: number } | null>(null);
   const observersReady = useRef(false);
 
@@ -85,18 +91,18 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
   // Initial load: compute range and grid data
   useEffect(() => {
     const choreStart = toUTCDate(chore.startDate);
-    const oneMonthAgo = toUTCDate(new Date());
-    oneMonthAgo.setUTCMonth(oneMonthAgo.getUTCMonth() - 1);
-    const initialStart = choreStart.getTime() > oneMonthAgo.getTime() ? choreStart : oneMonthAgo;
+    const oneMonthBeforeAnchor = toUTCDate(scrollAnchorDate);
+    oneMonthBeforeAnchor.setUTCMonth(oneMonthBeforeAnchor.getUTCMonth() - 1);
+    const initialStart = choreStart.getTime() > oneMonthBeforeAnchor.getTime() ? choreStart : oneMonthBeforeAnchor;
 
-    const threeMonthsForward = toUTCDate(new Date());
+    const threeMonthsForward = toUTCDate(scrollAnchorDate);
     threeMonthsForward.setUTCMonth(threeMonthsForward.getUTCMonth() + 3);
 
     setChoreStartDate(choreStart);
     setRangeStart(initialStart);
     setRangeEnd(threeMonthsForward);
     setAtLeftBoundary(initialStart.getTime() <= choreStart.getTime());
-    hasScrolledToToday.current = false;
+    hasScrolledToAnchor.current = false;
     observersReady.current = false;
 
     (async () => {
@@ -104,13 +110,15 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
       setDateAssignments(assignments);
       setDates(generateDatesArray(initialStart, threeMonthsForward));
     })();
-  }, [chore, generateDatesArray]);
+  }, [chore, generateDatesArray, scrollAnchorDate]);
 
-  // Auto-scroll to today on initial render
+  // Auto-scroll to the requested anchor date on initial render
   useLayoutEffect(() => {
-    if (!hasScrolledToToday.current && todayColRef.current && scrollContainerRef.current && dates.length > 0) {
-      todayColRef.current.scrollIntoView({ inline: 'center', block: 'nearest' });
-      hasScrolledToToday.current = true;
+    if (!hasScrolledToAnchor.current && anchorColRef.current && scrollContainerRef.current && dates.length > 0) {
+      if (typeof anchorColRef.current.scrollIntoView === 'function') {
+        anchorColRef.current.scrollIntoView({ inline: 'center', block: 'nearest' });
+      }
+      hasScrolledToAnchor.current = true;
       // Enable observers after a short delay to avoid immediate triggering
       requestAnimationFrame(() => {
         observersReady.current = true;
@@ -191,6 +199,10 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container || dates.length === 0) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      observersReady.current = true;
+      return;
+    }
 
     const leftSentinel = container.querySelector('[data-sentinel="left"]');
     const rightSentinel = container.querySelector('[data-sentinel="right"]');
@@ -256,13 +268,14 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
             {dates.map(date => {
               const dateStr = date.toISOString().split('T')[0];
               const todayMatch = isSameDay(date, today);
+              const anchorMatch = isSameDay(date, scrollAnchorDate);
               return (
                 <th
                   key={dateStr}
-                  ref={todayMatch ? todayColRef : undefined}
+                  ref={anchorMatch ? anchorColRef : undefined}
                   className={cn(
                     'px-1 py-1 text-center min-w-[2rem]',
-                    todayMatch ? 'bg-blue-100 dark:bg-blue-900' : 'bg-gray-100 dark:bg-gray-800'
+                    anchorMatch ? 'bg-blue-100 dark:bg-blue-900' : 'bg-gray-100 dark:bg-gray-800'
                   )}
                 >
                   <div className="text-sm">{date.getUTCDate()}</div>
@@ -286,7 +299,7 @@ const ChoreCalendarView: React.FC<{ chore: any }> = ({ chore }) => {
                     key={dateStr}
                     className={cn(
                       'px-1 py-1 text-center',
-                      isSameDay(date, today) && 'bg-blue-50 dark:bg-blue-900/30'
+                      isSameDay(date, scrollAnchorDate) && 'bg-blue-50 dark:bg-blue-900/30'
                     )}
                   >
                     {status && (
