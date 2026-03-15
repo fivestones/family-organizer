@@ -15,6 +15,12 @@ const INSTANT_AUTH_TOKEN_HEADER = 'x-instant-auth-token';
 
 async function parseJson(response: Response) {
     const payload = await response.json().catch(() => ({}));
+    console.info('[message-client] response', {
+        ok: response.ok,
+        status: response.status,
+        payload,
+        url: response.url,
+    });
     if (!response.ok) {
         throw new Error(payload?.error || `Request failed (${response.status})`);
     }
@@ -31,6 +37,7 @@ function messageAuthHeaders() {
 }
 
 async function postJson(path: string, body: unknown) {
+    console.info('[message-client] request:start', { path, body });
     const response = await fetch(path, {
         method: 'POST',
         cache: 'no-store',
@@ -41,6 +48,7 @@ async function postJson(path: string, body: unknown) {
         },
         body: JSON.stringify(body),
     });
+    console.info('[message-client] request:sent', { path });
     return parseJson(response);
 }
 

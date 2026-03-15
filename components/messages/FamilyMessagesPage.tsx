@@ -176,9 +176,6 @@ export default function FamilyMessagesPage() {
                               latestMessageAt: 'desc',
                           },
                       },
-                      members: {
-                          familyMember: {},
-                      },
                   },
               }
             : (null as any)
@@ -554,6 +551,28 @@ export default function FamilyMessagesPage() {
     };
 
     const activeMessagesLoading = selectedThreadId ? messagesQuery.isLoading : false;
+
+    useEffect(() => {
+        console.info('[messages] state snapshot', {
+            currentUserId: currentUser?.id || null,
+            membershipCount: ((membershipQuery?.data?.messageThreadMembers as any[]) || []).length,
+            visibleThreadCount: ((visibleThreadsQuery?.data?.messageThreads as any[]) || []).length,
+            overseenThreadCount: ((overseenThreadsQuery?.data?.messageThreads as any[]) || []).length,
+            renderedThreadCount: threads.length,
+            selectedThreadId,
+            messageCount: ((messagesQuery?.data?.messages as any[]) || []).length,
+            activeMessagesLoading,
+        });
+    }, [
+        activeMessagesLoading,
+        currentUser?.id,
+        membershipQuery?.data?.messageThreadMembers,
+        messagesQuery?.data?.messages,
+        overseenThreadsQuery?.data?.messageThreads,
+        selectedThreadId,
+        threads.length,
+        visibleThreadsQuery?.data?.messageThreads,
+    ]);
 
     return (
         <div className="h-full bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.12),_transparent_35%),linear-gradient(180deg,_#f8fbff_0%,_#eef5fb_100%)]">

@@ -22,21 +22,23 @@ export default function TabsLayout() {
     isAuthenticated && instantReady && currentUser
       ? {
           messageThreadMembers: {
-            thread: {},
           },
+          messageThreads: {},
         }
       : null
   );
 
   const unreadMessageCount = React.useMemo(() => {
     const memberships = unreadMessagesQuery.data?.messageThreadMembers || [];
+    const threads = unreadMessagesQuery.data?.messageThreads || [];
+    const threadsById = new Map(threads.map((thread) => [thread.id, thread]));
     return memberships.filter((membership) => {
-      const thread = Array.isArray(membership.thread) ? membership.thread[0] : membership.thread;
+      const thread = threadsById.get(membership.threadId);
       const latest = thread?.latestMessageAt ? new Date(thread.latestMessageAt).getTime() : 0;
       const readAt = membership?.lastReadAt ? new Date(membership.lastReadAt).getTime() : 0;
       return latest > readAt;
     }).length;
-  }, [unreadMessagesQuery.data?.messageThreadMembers]);
+  }, [unreadMessagesQuery.data?.messageThreadMembers, unreadMessagesQuery.data?.messageThreads]);
 
   if (activationRequired) return <Redirect href="/activate" />;
   if (!isAuthenticated) return <Redirect href="/lock" />;

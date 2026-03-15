@@ -107,9 +107,6 @@ export default function MessagesTab() {
                 latestMessageAt: 'desc',
               },
             },
-            members: {
-              familyMember: {},
-            },
           },
         }
       : null
@@ -137,16 +134,7 @@ export default function MessagesTab() {
               },
             },
             attachments: {},
-            acknowledgements: {
-              familyMember: {},
-            },
             author: {},
-            reactions: {
-              familyMember: {},
-            },
-            replyTo: {
-              author: {},
-            },
           },
         }
       : null

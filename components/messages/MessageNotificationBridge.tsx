@@ -70,7 +70,6 @@ export function MessageNotificationBridge() {
         currentUser
             ? {
                   messageThreadMembers: {
-                      thread: {},
                   },
               }
             : null
@@ -79,16 +78,15 @@ export function MessageNotificationBridge() {
     const threads = useMemo(() => {
         const memberships = membershipQuery?.data?.messageThreadMembers || [];
         return memberships
-            .map((membership: any) => {
-                const thread = Array.isArray(membership.thread) ? membership.thread[0] : membership.thread;
-                return thread
-                    ? {
-                          ...thread,
-                          membership,
-                      }
-                    : null;
-            })
-            .filter(Boolean);
+            .filter((membership: any) => membership?.threadId)
+            .map((membership: any) => ({
+                id: membership.threadId,
+                latestMessageAt: membership.lastReadAt || '',
+                latestMessageAuthorId: null,
+                latestMessagePreview: '',
+                title: 'Message thread',
+                membership,
+            }));
     }, [membershipQuery?.data?.messageThreadMembers]);
 
     const prefs = currentUser || ({} as MessageNotificationPreferences & { id?: string | null });
