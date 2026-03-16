@@ -898,6 +898,8 @@ function ChoreList({
                                                 familyMemberNamesById={familyMemberNamesById}
                                                 isReadOnly={isPastDate}
                                                 selectedMember={selectedMember}
+                                                currentMemberId={currentUser?.id || null}
+                                                currentMemberName={currentUser?.id ? familyMemberNamesById[currentUser.id] : undefined}
                                                 showDetails={showDetails}
                                                 selectedDateKey={safeSelectedDate.toISOString().slice(0, 10)}
                                                 detailContext={{

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Task } from '@/lib/task-scheduler';
-import { RotateCcw, Upload } from 'lucide-react';
+import { ClipboardList, RotateCcw, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
@@ -42,6 +42,10 @@ interface Props {
     familyMemberNamesById?: Record<string, string>;
     isReadOnly?: boolean;
     selectedMember: string | null | 'All';
+    /** The logged-in family member's ID (independent of the sidebar filter). */
+    currentMemberId?: string | null;
+    /** The logged-in family member's display name. */
+    currentMemberName?: string;
     showDetails: boolean;
     isParentReviewer?: boolean;
     selectedDateKey?: string;
@@ -149,12 +153,16 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     familyMemberNamesById,
     isReadOnly,
     selectedMember,
+    currentMemberId,
+    currentMemberName,
     showDetails,
     isParentReviewer = false,
     selectedDateKey,
     gradeTypes = [],
     detailContext,
 }) => {
+    // Use the logged-in member for response authoring; fall back to sidebar selection for backwards compat
+    const effectiveMemberId = currentMemberId || (selectedMember !== 'All' ? selectedMember : null);
     const [localExpandedIds, setLocalExpandedIds] = useState<Set<string>>(new Set());
     const [expandedBuckets, setExpandedBuckets] = useState<Record<TaskBucketState, boolean>>({
         blocked: true,
@@ -395,6 +403,52 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         );
     };
 
+    const renderResponseFieldBadge = (task: Task) => {
+        const fields = task.responseFields;
+        if (!fields || fields.length === 0) return null;
+
+        const responses = task.responses || [];
+        const hasSubmitted = responses.some((r) => r.status === 'submitted' || r.status === 'graded');
+        const hasGraded = responses.some((r) => r.status === 'graded');
+        const hasDraft = responses.some((r) => r.status === 'draft');
+        const hasRevisionRequested = responses.some((r) => r.status === 'revision_requested');
+        const requiredCount = fields.filter((f) => f.required).length;
+
+        let label: string;
+        let badgeClass: string;
+
+        if (hasGraded) {
+            label = 'Graded';
+            badgeClass = 'border-emerald-200 bg-emerald-50 text-emerald-700';
+        } else if (hasSubmitted) {
+            label = 'Submitted';
+            badgeClass = 'border-amber-200 bg-amber-50 text-amber-700';
+        } else if (hasRevisionRequested) {
+            label = 'Revision requested';
+            badgeClass = 'border-rose-200 bg-rose-50 text-rose-700';
+        } else if (hasDraft) {
+            label = 'Draft response';
+            badgeClass = 'border-slate-200 bg-slate-50 text-slate-600';
+        } else {
+            label = requiredCount > 0 ? 'Response required' : 'Response available';
+            badgeClass = requiredCount > 0 ? 'border-purple-200 bg-purple-50 text-purple-700' : 'border-purple-100 bg-purple-50/50 text-purple-600';
+        }
+
+        return (
+            <button
+                type="button"
+                onClick={() => openComposer(task, { intent: 'details' })}
+                className={cn(
+                    'mt-1.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors hover:opacity-80',
+                    badgeClass,
+                )}
+            >
+                <ClipboardList className="h-3 w-3" />
+                {label}
+            </button>
+        );
+    };
+
     const renderProgressMeta = (task: Task) => {
         const latestEntry = getLatestTaskProgressEntry(task);
         if (!latestEntry) return null;
@@ -439,6 +493,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                         >
                             {task.text}
                         </button>
+                        {renderResponseFieldBadge(task)}
                         {renderReferenceDetails(task)}
                     </div>
                 </div>
@@ -481,6 +536,24 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                             {renderProgressMeta(task)}
                         </div>
                     </div>
+
+                    {/* Inline response fields — shown directly in the card */}
+                    {task.responseFields && task.responseFields.length > 0 && effectiveMemberId ? (
+                        <div className="mt-3 rounded-lg border border-purple-100 bg-purple-50/30 p-3">
+                            <TaskResponseComposer
+                                taskId={task.id}
+                                responseFields={task.responseFields as any}
+                                responses={(task.responses || []) as any}
+                                currentMemberId={effectiveMemberId}
+                                currentMemberName={currentMemberName || familyMemberNamesById?.[effectiveMemberId]}
+                                isParentReviewer={isParentReviewer}
+                                allTasks={allTasks}
+                                selectedDateKey={selectedDateKey}
+                            />
+                        </div>
+                    ) : task.responseFields && task.responseFields.length > 0 && !effectiveMemberId ? (
+                        renderResponseFieldBadge(task)
+                    ) : null}
 
                     {canMutate ? (
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -543,6 +616,22 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                             {actorName ? <span>Latest by {actorName}</span> : null}
                             {createdAt ? <span>{createdAt}</span> : null}
                         </div>
+                        {task.responseFields && task.responseFields.length > 0 && effectiveMemberId ? (
+                            <div className="mt-2 rounded-lg border border-purple-100 bg-purple-50/30 p-3">
+                                <TaskResponseComposer
+                                    taskId={task.id}
+                                    responseFields={task.responseFields as any}
+                                    responses={(task.responses || []) as any}
+                                    currentMemberId={effectiveMemberId}
+                                    currentMemberName={currentMemberName || familyMemberNamesById?.[effectiveMemberId]}
+                                    isParentReviewer={isParentReviewer}
+                                    allTasks={allTasks}
+                                    selectedDateKey={selectedDateKey}
+                                />
+                            </div>
+                        ) : task.responseFields && task.responseFields.length > 0 ? (
+                            renderResponseFieldBadge(task)
+                        ) : null}
                         {latestEntry?.note ? <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{latestEntry.note}</div> : null}
                         {latestEntry?.attachments?.length ? (
                             <AttachmentCollection attachments={latestEntry.attachments} className="mt-2" variant="compact" />
@@ -789,7 +878,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                             )}
                                         </section>
 
-                                        {composerTask?.responseFields && composerTask.responseFields.length > 0 && selectedMember && selectedMember !== 'All' ? (
+                                        {composerTask?.responseFields && composerTask.responseFields.length > 0 && effectiveMemberId ? (
                                             <section className="rounded-2xl border border-purple-200 bg-white/90 p-4 shadow-sm">
                                                 <div className="mb-3 flex items-center gap-2">
                                                     <h3 className="text-sm font-semibold text-slate-900">Response</h3>
@@ -801,8 +890,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                     taskId={composerTask.id}
                                                     responseFields={composerTask.responseFields as any}
                                                     responses={(composerTask.responses || []) as any}
-                                                    currentMemberId={selectedMember}
-                                                    currentMemberName={familyMemberNamesById?.[selectedMember]}
+                                                    currentMemberId={effectiveMemberId}
+                                                    currentMemberName={currentMemberName || familyMemberNamesById?.[effectiveMemberId]}
                                                     isParentReviewer={isParentReviewer}
                                                     allTasks={allTasks}
                                                     selectedDateKey={selectedDateKey}
@@ -821,7 +910,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                                 response={latestSubmitted}
                                                                 responseFields={composerTask.responseFields as any}
                                                                 gradeTypes={gradeTypes}
-                                                                currentMemberId={selectedMember}
+                                                                currentMemberId={effectiveMemberId}
                                                                 allTasks={allTasks}
                                                                 selectedDateKey={selectedDateKey}
                                                             />
