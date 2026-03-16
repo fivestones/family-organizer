@@ -4,7 +4,7 @@
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { Node, mergeAttributes } from '@tiptap/core';
 import React, { useContext, useEffect, useRef, useState } from 'react';
-import { GripVertical, Paperclip } from 'lucide-react';
+import { ClipboardList, GripVertical, Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { id as generateId } from '@instantdb/react'; // Import the InstantDB ID generator
@@ -47,6 +47,7 @@ const TaskItemComponent = (props: any) => {
         tasks: {
             $: { where: { id: id } },
             attachments: {},
+            responseFields: {},
         },
     });
     const taskRecord = metaData?.tasks?.[0] as
@@ -54,11 +55,13 @@ const TaskItemComponent = (props: any) => {
               id: string;
               notes?: string | null;
               attachments?: Array<{ id: string }>;
+              responseFields?: Array<{ id: string }>;
           }
         | undefined;
     const hasNotes = taskRecord?.notes && taskRecord.notes.trim().length > 0;
     const hasAttachments = taskRecord?.attachments && taskRecord.attachments.length > 0;
-    const hasMetadata = hasNotes || hasAttachments;
+    const hasResponseFields = taskRecord?.responseFields && taskRecord.responseFields.length > 0;
+    const hasMetadata = hasNotes || hasAttachments || hasResponseFields;
 
     const dateMap = useContext(TaskDateContext);
 
@@ -209,9 +212,18 @@ const TaskItemComponent = (props: any) => {
                     />
                 </div>
 
+                {/* Response Fields Indicator */}
+                {hasResponseFields && (
+                    <div className="ml-1 flex items-center" contentEditable={false}>
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded text-purple-600 bg-purple-50/60">
+                            <ClipboardList className="h-3 w-3" />
+                        </span>
+                    </div>
+                )}
+
                 {/* Metadata Trigger */}
                 <div
-                    className={cn('transition-opacity ml-2', hasMetadata || isDetailsOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
+                    className={cn('transition-opacity ml-1', hasMetadata || isDetailsOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
                     contentEditable={false}
                 >
                     <Button

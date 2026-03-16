@@ -249,6 +249,11 @@ export default function WebFamilyDashboard() {
             taskSeries: {
                 tasks: {
                     parentTask: {},
+                    responseFields: {},
+                    responses: {
+                        author: {},
+                        grades: { gradeType: {}, field: {} },
+                    },
                 },
                 familyMember: {},
             },
@@ -472,6 +477,45 @@ export default function WebFamilyDashboard() {
         };
     }, [snapshot.memberSnapshots.length]);
 
+    // Response/grading dashboard data
+    const responseStats = useMemo(() => {
+        const chores = (data?.chores || []) as any[];
+        const allTasks: any[] = [];
+        for (const chore of chores) {
+            for (const series of chore.taskSeries || []) {
+                for (const task of series.tasks || []) {
+                    allTasks.push(task);
+                }
+            }
+        }
+
+        // Needs review count (tasks with submitted responses)
+        const needsReviewCount = allTasks.filter((task) =>
+            (task.responses || []).some((r: any) => r.status === 'submitted')
+        ).length;
+
+        // Recently graded tasks (max 5)
+        const recentlyGraded: Array<{ taskText: string; grade: string; gradedAt: number }> = [];
+        for (const task of allTasks) {
+            const responses = task.responses || [];
+            const graded = responses
+                .filter((r: any) => r.status === 'graded' && r.grades?.length)
+                .sort((a: any, b: any) => (b.submittedAt || 0) - (a.submittedAt || 0))[0];
+            if (!graded) continue;
+            recentlyGraded.push({
+                taskText: task.text || 'Task',
+                grade: graded.grades[0]?.displayValue || String(graded.grades[0]?.numericValue),
+                gradedAt: graded.submittedAt || 0,
+            });
+        }
+        recentlyGraded.sort((a, b) => b.gradedAt - a.gradedAt);
+
+        return {
+            needsReviewCount,
+            recentlyGraded: recentlyGraded.slice(0, 5),
+        };
+    }, [data?.chores]);
+
     const featuredPassage = useMemo(() => {
         if (BEATITUDES_ESV.length === 0) return null;
         const index = todayUtc.getUTCDate() % BEATITUDES_ESV.length;
@@ -586,6 +630,42 @@ export default function WebFamilyDashboard() {
                         ) : null}
                     </aside>
                 </section>
+
+                {(responseStats.needsReviewCount > 0 || responseStats.recentlyGraded.length > 0) && (
+                    <section className="grid shrink-0 gap-2.5 sm:grid-cols-2">
+                        {responseStats.needsReviewCount > 0 && (
+                            <div className="rounded-xl border border-violet-200 bg-white/95 p-3 shadow-sm">
+                                <div className="flex items-center gap-2">
+                                    <div className="rounded-full bg-violet-100 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+                                        Needs Review
+                                    </div>
+                                    <span className="text-xl font-semibold text-violet-900">{responseStats.needsReviewCount}</span>
+                                </div>
+                                <p className="mt-1 text-xs text-slate-600">
+                                    {responseStats.needsReviewCount} task{responseStats.needsReviewCount !== 1 ? 's have' : ' has'} submitted responses awaiting review.
+                                </p>
+                                <Link href="/task-series" className="mt-2 inline-block rounded-full border border-violet-200 px-2.5 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-50">
+                                    Review now
+                                </Link>
+                            </div>
+                        )}
+                        {responseStats.recentlyGraded.length > 0 && (
+                            <div className="rounded-xl border border-emerald-200 bg-white/95 p-3 shadow-sm">
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                                    Recently Graded
+                                </div>
+                                <ul className="mt-2 space-y-1.5">
+                                    {responseStats.recentlyGraded.map((item, i) => (
+                                        <li key={i} className="flex items-center justify-between gap-2 text-xs">
+                                            <span className="truncate text-slate-700">{item.taskText}</span>
+                                            <span className="shrink-0 font-semibold text-emerald-700">{item.grade}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </section>
+                )}
 
                 {snapshot.memberSnapshots.length === 0 ? (
                     <section className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white/95 p-4 shadow-sm">

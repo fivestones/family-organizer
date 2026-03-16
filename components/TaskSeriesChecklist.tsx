@@ -6,6 +6,9 @@ import { RotateCcw, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
+import { TaskResponseComposer } from '@/components/responses/TaskResponseComposer';
+import { GradingPanel } from '@/components/responses/GradingPanel';
+import type { GradeTypeLike } from '@/lib/task-response-types';
 import {
     getBucketedTasks,
     getLatestTaskProgressEntry,
@@ -41,6 +44,8 @@ interface Props {
     selectedMember: string | null | 'All';
     showDetails: boolean;
     isParentReviewer?: boolean;
+    selectedDateKey?: string;
+    gradeTypes?: GradeTypeLike[];
     detailContext?: {
         choreTitle?: string;
         seriesName?: string;
@@ -143,8 +148,11 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     onRequireTaskAuth,
     familyMemberNamesById,
     isReadOnly,
+    selectedMember,
     showDetails,
     isParentReviewer = false,
+    selectedDateKey,
+    gradeTypes = [],
     detailContext,
 }) => {
     const [localExpandedIds, setLocalExpandedIds] = useState<Set<string>>(new Set());
@@ -780,6 +788,48 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                 </div>
                                             )}
                                         </section>
+
+                                        {composerTask?.responseFields && composerTask.responseFields.length > 0 && selectedMember && selectedMember !== 'All' ? (
+                                            <section className="rounded-2xl border border-purple-200 bg-white/90 p-4 shadow-sm">
+                                                <div className="mb-3 flex items-center gap-2">
+                                                    <h3 className="text-sm font-semibold text-slate-900">Response</h3>
+                                                    <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-700">
+                                                        {composerTask.responseFields.length} field{composerTask.responseFields.length !== 1 ? 's' : ''}
+                                                    </span>
+                                                </div>
+                                                <TaskResponseComposer
+                                                    taskId={composerTask.id}
+                                                    responseFields={composerTask.responseFields as any}
+                                                    responses={(composerTask.responses || []) as any}
+                                                    currentMemberId={selectedMember}
+                                                    currentMemberName={familyMemberNamesById?.[selectedMember]}
+                                                    isParentReviewer={isParentReviewer}
+                                                    allTasks={allTasks}
+                                                    selectedDateKey={selectedDateKey}
+                                                />
+                                                {/* Grading panel for parent reviewers */}
+                                                {isParentReviewer && gradeTypes.length > 0 && (() => {
+                                                    const responses = (composerTask.responses || []) as any[];
+                                                    const latestSubmitted = responses
+                                                        .filter((r: any) => r.status === 'submitted' || r.status === 'graded')
+                                                        .sort((a: any, b: any) => (b.submittedAt || 0) - (a.submittedAt || 0))[0];
+                                                    if (!latestSubmitted) return null;
+                                                    return (
+                                                        <div className="mt-4 border-t border-purple-100 pt-4">
+                                                            <GradingPanel
+                                                                taskId={composerTask.id}
+                                                                response={latestSubmitted}
+                                                                responseFields={composerTask.responseFields as any}
+                                                                gradeTypes={gradeTypes}
+                                                                currentMemberId={selectedMember}
+                                                                allTasks={allTasks}
+                                                                selectedDateKey={selectedDateKey}
+                                                            />
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </section>
+                                        ) : null}
 
                                         {composerLatestEntry ? (
                                             <section className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">

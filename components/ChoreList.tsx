@@ -42,6 +42,7 @@ function ChoreList({
     showTaskDetails, // View Setting
     pageMode = 'chores',
     focusedChoreId = null,
+    gradeTypes = [],
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
     const [detailChoreId, setDetailChoreId] = useState<string | null>(null);
@@ -53,6 +54,12 @@ function ChoreList({
         choreId: string;
         memberId: string;
         incompleteTaskIds: string[];
+    } | null>(null);
+
+    // State for when chore completion is blocked by required unfilled responses
+    const [responseBlockedCompletion, setResponseBlockedCompletion] = useState<{
+        choreId: string;
+        tasksWithUnfilledResponses: Array<{ id: string; text: string }>;
     } | null>(null);
 
     // +++ NEW STATE: Track chore for deletion confirmation +++
@@ -326,6 +333,35 @@ function ChoreList({
     };
 
     // Updated: Accepts allTasks to properly identify parent/header relationships
+    /** Check if a task has required response fields that lack a submitted/graded response. */
+    const getTasksWithUnfilledRequiredResponses = (visibleTasks: Task[], scheduledIds: Set<string>, allTasks: Task[]): Array<{ id: string; text: string }> => {
+        return visibleTasks.filter((task) => {
+            // Skip headers (tasks with visible children)
+            if (hasScheduledChildren(task.id, scheduledIds, allTasks)) return false;
+            // Skip completed tasks
+            if (task.isCompleted) return false;
+            // Check for required response fields
+            const fields = (task as any).responseFields || [];
+            const requiredFields = fields.filter((f: any) => f.required);
+            if (requiredFields.length === 0) return false;
+            // Check if there's a submitted or graded response with all required fields filled
+            const responses = (task as any).responses || [];
+            const hasSubmitted = responses.some((r: any) => {
+                if (r.status !== 'submitted' && r.status !== 'graded') return false;
+                // Check all required fields have values
+                return requiredFields.every((field: any) => {
+                    const value = (r.fieldValues || []).find((fv: any) =>
+                        fv.field?.some((f: any) => f.id === field.id)
+                    );
+                    if (!value) return false;
+                    if (field.type === 'rich_text') return !!value.richTextContent?.trim();
+                    return !!value.fileUrl;
+                });
+            });
+            return !hasSubmitted;
+        }).map((t) => ({ id: t.id, text: t.text }));
+    };
+
     const handleAvatarClick = (chore, memberId, visibleTasks: Task[], allTasks: Task[]) => {
         // +++ CHECK AUTH +++
         if (!currentUser) {
@@ -361,6 +397,18 @@ function ChoreList({
             })
             .map((t) => t.id);
 
+        // Check for tasks with required unfilled response fields — these block completion
+        const tasksWithUnfilledResponses = getTasksWithUnfilledRequiredResponses(visibleTasks, scheduledIds, allTasks);
+
+        if (tasksWithUnfilledResponses.length > 0) {
+            // Block completion entirely — required responses must be filled first
+            setResponseBlockedCompletion({
+                choreId: chore.id,
+                tasksWithUnfilledResponses,
+            });
+            return;
+        }
+
         if (incompleteIds.length > 0) {
             // Guardrail triggered!
             setPendingCompletion({
@@ -391,7 +439,28 @@ function ChoreList({
         });
         const allTasks: Task[] = targetSeries?.tasks || [];
 
-        const transactions = incompleteTaskIds.flatMap((taskId) =>
+        // Filter out tasks that have required unfilled response fields — those cannot be bulk-completed
+        const completableTaskIds = incompleteTaskIds.filter((taskId) => {
+            const task = allTasks.find((t) => t.id === taskId);
+            if (!task) return true;
+            const fields = (task as any).responseFields || [];
+            const requiredFields = fields.filter((f: any) => f.required);
+            if (requiredFields.length === 0) return true;
+            const responses = (task as any).responses || [];
+            return responses.some((r: any) => {
+                if (r.status !== 'submitted' && r.status !== 'graded') return false;
+                return requiredFields.every((field: any) => {
+                    const value = (r.fieldValues || []).find((fv: any) =>
+                        fv.field?.some((f: any) => f.id === field.id)
+                    );
+                    if (!value) return false;
+                    if (field.type === 'rich_text') return !!value.richTextContent?.trim();
+                    return !!value.fileUrl;
+                });
+            });
+        });
+
+        const transactions = completableTaskIds.flatMap((taskId) =>
             buildTaskProgressUpdateTransactions({
                 tx,
                 createId: id,
@@ -830,6 +899,7 @@ function ChoreList({
                                                 isReadOnly={isPastDate}
                                                 selectedMember={selectedMember}
                                                 showDetails={showDetails}
+                                                selectedDateKey={safeSelectedDate.toISOString().slice(0, 10)}
                                                 detailContext={{
                                                     choreTitle: chore.title,
                                                     seriesName: series.name,
@@ -842,6 +912,7 @@ function ChoreList({
                                                     }),
                                                 }}
                                                 isParentReviewer={canEditChores}
+                                                gradeTypes={gradeTypes}
                                             />
 
                                             {hasMoreThanTwoTasks && (
@@ -961,6 +1032,29 @@ function ChoreList({
                             Cancel
                         </Button>
                         <Button onClick={confirmMarkAllAndComplete}>Mark All Done & Complete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            {/* Response-blocked completion dialog */}
+            <Dialog open={responseBlockedCompletion !== null} onOpenChange={(open) => !open && setResponseBlockedCompletion(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Required Responses Missing</DialogTitle>
+                        <DialogDescription>
+                            This chore cannot be marked complete because {responseBlockedCompletion?.tasksWithUnfilledResponses.length} task{(responseBlockedCompletion?.tasksWithUnfilledResponses.length || 0) !== 1 ? 's have' : ' has'} required responses that haven&apos;t been submitted yet.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 px-1">
+                        {responseBlockedCompletion?.tasksWithUnfilledResponses.map((task) => (
+                            <div key={task.id} className="flex items-center gap-2 rounded-lg border border-purple-100 bg-purple-50 px-3 py-2 text-sm text-purple-800">
+                                <span className="font-medium">{task.text}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setResponseBlockedCompletion(null)}>
+                            OK
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

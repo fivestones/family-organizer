@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { useDebouncedCallback } from 'use-debounce';
 
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
+import { ResponseFieldEditor } from '@/components/task-series/ResponseFieldEditor';
 import { Button } from '@/components/ui/button';
 import { db } from '@/lib/db';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
@@ -60,6 +61,7 @@ const TaskMetadataManager = ({
         tasks: {
             $: { where: { id: taskId } },
             attachments: {},
+            responseFields: {},
         },
     });
 
@@ -67,7 +69,17 @@ const TaskMetadataManager = ({
         | {
               id: string;
               notes?: string | null;
+              weight?: number | null;
               attachments?: Array<{ id: string; name?: string; url?: string; type?: string }>;
+              responseFields?: Array<{
+                  id: string;
+                  type: string;
+                  label: string;
+                  description?: string | null;
+                  weight: number;
+                  required: boolean;
+                  order: number;
+              }>;
           }
         | undefined;
     const [notes, setNotes] = useState(task?.notes || '');
@@ -170,6 +182,10 @@ const TaskMetadataManager = ({
         return <div className="p-4 text-xs text-muted-foreground">Loading details...</div>;
     }
 
+    const saveWeight = useDebouncedCallback((newWeight: number) => {
+        db.transact(tx.tasks[taskId].update({ weight: newWeight }));
+    }, 1000);
+
     return (
         <div className="flex flex-col gap-4">
             <div className="space-y-1.5">
@@ -211,6 +227,24 @@ const TaskMetadataManager = ({
                             </button>
                         </div>
                     ))}
+                </div>
+            </div>
+
+            <div className="border-t border-gray-100 pt-3">
+                <ResponseFieldEditor taskId={taskId} responseFields={task?.responseFields || []} />
+            </div>
+
+            <div className="border-t border-gray-100 pt-3">
+                <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-gray-700">Task Weight</label>
+                    <input
+                        type="number"
+                        min={0}
+                        className="w-16 rounded border border-gray-200 bg-white/50 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        defaultValue={task?.weight ?? 0}
+                        onChange={(e) => saveWeight(Math.max(0, Number(e.target.value) || 0))}
+                    />
+                    <span className="text-[10px] text-gray-400">For series grade weighting</span>
                 </div>
             </div>
         </div>

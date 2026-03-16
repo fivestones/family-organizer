@@ -217,9 +217,27 @@ function ChoresTracker({
                         actor: {},
                     },
                     // Note: notes is a direct field, so it comes automatically with the entity
+                    responseFields: {},
+                    responses: {
+                        fieldValues: { field: {} },
+                        author: {},
+                        grades: {
+                            gradeType: {},
+                            field: {},
+                            grader: {},
+                            feedback: {
+                                attachments: {},
+                                author: {},
+                            },
+                        },
+                    },
                 },
                 familyMember: {},
             },
+        },
+        // Fetch grade types for grading panel
+        gradeTypes: {
+            $: { order: { createdAt: 'asc' } },
         },
         // **** Fetch unit definitions ****
         unitDefinitions: {},
@@ -247,6 +265,7 @@ function ChoresTracker({
     const familyMembers: FamilyMember[] = useMemo(() => (data?.familyMembers as any) || [], [data?.familyMembers]);
     const chores: Chore[] = useMemo(() => (data?.chores as any) || [], [data?.chores]);
     const unitDefinitions: UnitDefinition[] = useMemo(() => (data?.unitDefinitions as any) || [], [data?.unitDefinitions]);
+    const gradeTypes = useMemo(() => (data?.gradeTypes as any[]) || [], [data?.gradeTypes]);
     const allEnvelopes: Envelope[] = useMemo(() => (data?.allowanceEnvelopes as any) || [], [data?.allowanceEnvelopes]); // Get all envelopes from data
     // +++ Get top-level completions for the check +++
     const allChoreCompletions: ChoreCompletion[] = useMemo(() => (data?.choreCompletions as any) || [], [data?.choreCompletions]);
@@ -1122,6 +1141,7 @@ function ChoresTracker({
                                 showTaskDetails={showTaskDetails}
                                 pageMode={pageMode}
                                 focusedChoreId={focusedChoreId}
+                                gradeTypes={gradeTypes}
                             />
                             {/* Optional: Add back allowance balance display if needed */}
                             {/* {selectedMember !== 'All' && ( ... allowance display ... )} */}

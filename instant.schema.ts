@@ -230,6 +230,19 @@ const _schema = i.schema({
             viewShowChoreDescriptions: i.boolean().optional(),
             viewShowTaskDetails: i.boolean().optional(),
         }),
+        gradeTypes: i.entity({
+            createdAt: i.number().indexed(),
+            highLabel: i.string(),
+            highValue: i.number(),
+            isDefault: i.boolean().indexed(),
+            kind: i.string().indexed(),
+            lowLabel: i.string(),
+            lowValue: i.number(),
+            name: i.string(),
+            order: i.number(),
+            steps: i.json().optional(),
+            updatedAt: i.number().indexed(),
+        }),
         historyEventAttachments: i.entity({
             blurhash: i.string().optional(),
             createdAt: i.string().indexed(),
@@ -414,7 +427,63 @@ const _schema = i.schema({
             specificTime: i.string().optional(),
             text: i.string(),
             updatedAt: i.date().optional(),
+            weight: i.number().optional(),
             workflowState: i.string().optional().indexed(),
+        }),
+        taskResponseFeedback: i.entity({
+            createdAt: i.number().indexed(),
+            text: i.string().optional(),
+            updatedAt: i.number().indexed(),
+        }),
+        taskResponseFeedbackAttachments: i.entity({
+            blurhash: i.string().optional(),
+            createdAt: i.number().indexed(),
+            durationSec: i.number().optional(),
+            height: i.number().optional(),
+            kind: i.string().optional(),
+            name: i.string(),
+            sizeBytes: i.number().optional(),
+            thumbnailHeight: i.number().optional(),
+            thumbnailUrl: i.string().optional(),
+            thumbnailWidth: i.number().optional(),
+            type: i.string(),
+            updatedAt: i.number().indexed(),
+            url: i.string(),
+            waveformPeaks: i.json().optional(),
+            width: i.number().optional(),
+        }),
+        taskResponseFieldValues: i.entity({
+            createdAt: i.number().indexed(),
+            fileName: i.string().optional(),
+            fileSizeBytes: i.number().optional(),
+            fileType: i.string().optional(),
+            fileUrl: i.string().optional(),
+            richTextContent: i.string().optional(),
+            thumbnailUrl: i.string().optional(),
+            updatedAt: i.number().indexed(),
+        }),
+        taskResponseFields: i.entity({
+            createdAt: i.number().indexed(),
+            description: i.string().optional(),
+            label: i.string(),
+            order: i.number(),
+            required: i.boolean(),
+            type: i.string().indexed(),
+            updatedAt: i.number().indexed(),
+            weight: i.number(),
+        }),
+        taskResponseGrades: i.entity({
+            createdAt: i.number().indexed(),
+            displayValue: i.string(),
+            numericValue: i.number(),
+            updatedAt: i.number().indexed(),
+        }),
+        taskResponses: i.entity({
+            createdAt: i.number().indexed(),
+            status: i.string().indexed(),
+            submittedAt: i.number().optional().indexed(),
+            updatedAt: i.number().indexed(),
+            version: i.number(),
         }),
         taskSeries: i.entity({
             baselineDayBreakCount: i.number().optional(),
@@ -898,6 +967,154 @@ const _schema = i.schema({
                 on: 'tasks',
                 has: 'many',
                 label: 'subsequentTasks',
+            },
+        },
+        taskResponseFeedbackAttachmentsFeedback: {
+            forward: {
+                on: 'taskResponseFeedbackAttachments',
+                has: 'one',
+                label: 'feedback',
+                onDelete: 'cascade',
+            },
+            reverse: {
+                on: 'taskResponseFeedback',
+                has: 'many',
+                label: 'attachments',
+            },
+        },
+        taskResponseFeedbackAuthor: {
+            forward: {
+                on: 'taskResponseFeedback',
+                has: 'one',
+                label: 'author',
+            },
+            reverse: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'responseFeedback',
+            },
+        },
+        taskResponseFeedbackGrade: {
+            forward: {
+                on: 'taskResponseFeedback',
+                has: 'one',
+                label: 'grade',
+                onDelete: 'cascade',
+            },
+            reverse: {
+                on: 'taskResponseGrades',
+                has: 'many',
+                label: 'feedback',
+            },
+        },
+        taskResponseFieldValuesField: {
+            forward: {
+                on: 'taskResponseFieldValues',
+                has: 'one',
+                label: 'field',
+            },
+            reverse: {
+                on: 'taskResponseFields',
+                has: 'many',
+                label: 'values',
+            },
+        },
+        taskResponseFieldValuesResponse: {
+            forward: {
+                on: 'taskResponseFieldValues',
+                has: 'one',
+                label: 'response',
+                onDelete: 'cascade',
+            },
+            reverse: {
+                on: 'taskResponses',
+                has: 'many',
+                label: 'fieldValues',
+            },
+        },
+        taskResponseFieldsTask: {
+            forward: {
+                on: 'taskResponseFields',
+                has: 'one',
+                label: 'task',
+            },
+            reverse: {
+                on: 'tasks',
+                has: 'many',
+                label: 'responseFields',
+            },
+        },
+        taskResponseGradesField: {
+            forward: {
+                on: 'taskResponseGrades',
+                has: 'one',
+                label: 'field',
+            },
+            reverse: {
+                on: 'taskResponseFields',
+                has: 'many',
+                label: 'grades',
+            },
+        },
+        taskResponseGradesGradeType: {
+            forward: {
+                on: 'taskResponseGrades',
+                has: 'one',
+                label: 'gradeType',
+            },
+            reverse: {
+                on: 'gradeTypes',
+                has: 'many',
+                label: 'grades',
+            },
+        },
+        taskResponseGradesGrader: {
+            forward: {
+                on: 'taskResponseGrades',
+                has: 'one',
+                label: 'grader',
+            },
+            reverse: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'gradesGiven',
+            },
+        },
+        taskResponseGradesResponse: {
+            forward: {
+                on: 'taskResponseGrades',
+                has: 'one',
+                label: 'response',
+                onDelete: 'cascade',
+            },
+            reverse: {
+                on: 'taskResponses',
+                has: 'many',
+                label: 'grades',
+            },
+        },
+        taskResponsesAuthor: {
+            forward: {
+                on: 'taskResponses',
+                has: 'one',
+                label: 'author',
+            },
+            reverse: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'taskResponses',
+            },
+        },
+        taskResponsesTask: {
+            forward: {
+                on: 'taskResponses',
+                has: 'one',
+                label: 'task',
+            },
+            reverse: {
+                on: 'tasks',
+                has: 'many',
+                label: 'responses',
             },
         },
         taskSeriesFamilyMember: {

@@ -23,6 +23,7 @@ export interface Task {
     order: number;
     indentationLevel?: number;
     notes?: string;
+    weight?: number;
     attachments?: Array<{ id: string; name?: string; type?: string; url: string }>;
     parentTask?: { id: string }[];
     subTasks?: { id: string }[];
@@ -32,6 +33,37 @@ export interface Task {
     lastActiveState?: string;
     deferredUntilDate?: string;
     progressEntries?: TaskProgressEntryLike[];
+    responseFields?: Array<{
+        id: string;
+        type: string;
+        label: string;
+        description?: string;
+        weight: number;
+        required: boolean;
+        order: number;
+    }>;
+    responses?: Array<{
+        id: string;
+        status: string;
+        version: number;
+        submittedAt?: number;
+        author?: Array<{ id: string; name?: string }>;
+        fieldValues?: Array<{
+            id: string;
+            richTextContent?: string;
+            fileUrl?: string;
+            fileName?: string;
+            fileType?: string;
+            field?: Array<{ id: string }>;
+        }>;
+        grades?: Array<{
+            id: string;
+            numericValue: number;
+            displayValue: string;
+            gradeType?: Array<{ id: string; kind: string; name: string }>;
+            field?: Array<{ id: string }>;
+        }>;
+    }>;
 }
 
 // FIX: Helper to convert any timestamp (string or date) into a Date object representing

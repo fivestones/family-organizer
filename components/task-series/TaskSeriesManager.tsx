@@ -36,6 +36,8 @@ import {
     type ScheduleDrift,
 } from '@/lib/task-series-schedule';
 import type { Task as SchedulerTask } from '@/lib/task-scheduler';
+import { computeSeriesGrade } from '@/lib/task-response-aggregation';
+import { formatGradeDisplay } from '@/lib/grade-utils';
 
 type Status = 'draft' | 'pending' | 'in_progress' | 'archived';
 
@@ -59,7 +61,12 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
 
     const { data, isLoading, error } = db.useQuery({
         taskSeries: {
-            tasks: {},
+            tasks: {
+                responseFields: {},
+                responses: {
+                    grades: { gradeType: {}, field: {} },
+                },
+            },
             familyMember: {},
             scheduledActivity: {},
         },
@@ -239,6 +246,9 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                 drift = computeScheduleDrift(plannedEnd, liveEnd, schedule);
             }
 
+            // Compute series-level grade
+            const seriesGrade = computeSeriesGrade(s.tasks || []);
+
             return {
                 raw: s,
                 status,
@@ -250,6 +260,7 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                 blockProgress,
                 drift,
                 pullForwardCount,
+                seriesGrade,
             };
         });
     }, [seriesList, today]);
@@ -538,7 +549,7 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
             ) : (
                 <div className="space-y-3">
                     {filteredSeries.map((item) => {
-                        const { raw: s, status, totalTasks, completedTasks, progress, totalBlocks, completedBlocks, blockProgress, drift, pullForwardCount } = item;
+                        const { raw: s, status, totalTasks, completedTasks, progress, totalBlocks, completedBlocks, blockProgress, drift, pullForwardCount, seriesGrade } = item;
                         const isSelected = selectedSeriesIds.has(s.id);
 
                         return (
@@ -609,6 +620,20 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                                             </div>
                                             <Progress value={blockProgress} className="h-1.5" />
                                         </>
+                                    )}
+
+                                    {seriesGrade && seriesGrade.gradedCount > 0 && (
+                                        <div className="flex justify-between items-center text-xs text-muted-foreground">
+                                            <span>Grade</span>
+                                            <span className="font-semibold text-emerald-700">
+                                                {seriesGrade.gradeType
+                                                    ? formatGradeDisplay(seriesGrade.average, seriesGrade.gradeType)
+                                                    : seriesGrade.average.toFixed(1)}
+                                                <span className="ml-1 font-normal text-slate-500">
+                                                    ({seriesGrade.gradedCount}/{seriesGrade.totalGradable} graded)
+                                                </span>
+                                            </span>
+                                        </div>
                                     )}
 
                                     <div className="flex justify-end gap-2 pt-2 md:pt-0">
