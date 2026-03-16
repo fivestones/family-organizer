@@ -47,7 +47,7 @@ interface TaskResponse {
     status: string;
     version: number;
     submittedAt?: number;
-    author?: Array<{ id: string; name?: string }>;
+    author?: { id: string; name?: string };
     fieldValues?: FieldValue[];
     grades?: Array<{
         id: string;
@@ -59,7 +59,7 @@ interface TaskResponse {
         feedback?: Array<{
             id: string;
             text?: string | null;
-            author?: Array<{ id: string; name?: string }>;
+            author?: { id: string; name?: string };
             attachments?: Array<{ id: string; name: string; type: string; url: string }>;
         }>;
     }>;
@@ -294,7 +294,7 @@ export const GradingPanel: React.FC<Props> = ({
         event.target.value = '';
     };
 
-    const authorName = response.author?.[0]?.name || 'Student';
+    const authorName = response.author?.name || 'Student';
     const submittedAt = response.submittedAt ? new Date(response.submittedAt).toLocaleString() : null;
     const isAlreadyGraded = response.status === 'graded';
 
@@ -473,7 +473,7 @@ export const GradingPanel: React.FC<Props> = ({
             {existingGrades.flatMap((g) => g.feedback || []).map((fb) => (
                 <div key={fb.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3">
                     <div className="text-xs font-medium text-blue-700">
-                        Feedback{fb.author?.[0]?.name ? ` from ${fb.author[0].name}` : ''}
+                        Feedback{fb.author?.name ? ` from ${fb.author.name}` : ''}
                     </div>
                     {fb.text && <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{fb.text}</div>}
                     {fb.attachments?.length ? (
