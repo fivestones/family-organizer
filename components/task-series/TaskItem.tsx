@@ -302,6 +302,44 @@ export const TaskItemExtension = Node.create({
                 return openAdjacentTaskDetails(this.editor, currentTaskPos, 'next');
             },
             Enter: () => {
+                const { $from } = this.editor.state.selection;
+                const currentNode = $from.node();
+
+                if (currentNode.type.name !== 'taskItem') return false;
+                if (currentNode.attrs.isDayBreak) return true;
+
+                const cursorAtStart = $from.parentOffset === 0;
+                const hasContent = currentNode.content.size > 0;
+
+                if (cursorAtStart && hasContent && currentNode.attrs.id) {
+                    // When cursor is at the start, splitBlock would create an
+                    // empty first half that inherits the original ID while the
+                    // text-bearing second half gets the new ID.  This detaches
+                    // metadata (attachments, response fields) from the task text.
+                    //
+                    // Fix: insert a new empty node *above* so the original node
+                    // (and its ID / linked metadata) stays intact.
+                    return this.editor.commands.command(({ state, dispatch }) => {
+                        if (!dispatch) return true;
+
+                        const nodePos = $from.before(1);
+                        const newNode = currentNode.type.create(
+                            {
+                                ...currentNode.attrs,
+                                id: generateId(),
+                                isDayBreak: false,
+                            },
+                            null, // empty content
+                        );
+                        const tr = state.tr.insert(nodePos, newNode);
+                        // Place cursor inside the new empty node
+                        tr.setSelection(TextSelection.create(tr.doc, nodePos + 1));
+                        dispatch(tr);
+                        return true;
+                    });
+                }
+
+                // Default: split at cursor and give the new (second-half) node a fresh ID
                 return this.editor.chain().splitBlock().updateAttributes('taskItem', { id: generateId(), isDayBreak: false }).run();
             },
 

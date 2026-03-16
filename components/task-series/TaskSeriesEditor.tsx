@@ -21,6 +21,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/components/AuthProvider';
 import TaskItemExtension, { TaskDateContext } from './TaskItem';
 import { TaskDetailsPopover } from './TaskDetailsPopover';
+import { ResponseFieldEditor } from './ResponseFieldEditor';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { cn } from '@/lib/utils';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
@@ -72,11 +73,22 @@ interface TaskProgressEntry {
     actorFamilyMemberId?: string | null;
 }
 
+interface ResponseField {
+    id: string;
+    type: string;
+    label: string;
+    description?: string | null;
+    weight: number;
+    required: boolean;
+    order: number;
+}
+
 interface PersistedTask extends Task {
     notes?: string | null;
     specificTime?: string | null;
     overrideWorkAhead?: boolean | null;
     attachments?: TaskAttachment[];
+    responseFields?: ResponseField[];
     progressEntries?: TaskProgressEntry[] | null;
 }
 
@@ -486,7 +498,8 @@ const TaskSeriesCard = ({
                         <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Timing</div>
                         <div className="mt-3 space-y-3">
                             <div>
-                                <label className="text-xs font-medium text-slate-600">Specific time</label>
+                                <label className="text-xs font-medium text-slate-600">Time of day</label>
+                                <p className="text-[10px] text-slate-400 mt-0.5 mb-1">When during the day this task should be done (shown as a reminder, not enforced).</p>
                                 <Input
                                     type="time"
                                     value={specificTime}
@@ -496,15 +509,20 @@ const TaskSeriesCard = ({
                                     className="mt-1 border-slate-200 bg-white"
                                 />
                             </div>
-                            <label className="flex items-center gap-2 text-sm text-slate-700">
-                                <input
-                                    type="checkbox"
-                                    checked={overrideWorkAhead}
-                                    onChange={(event) => handleOverrideWorkAheadChange(event.target.checked)}
-                                    disabled={!metadataReady}
-                                />
-                                Allow work ahead override
-                            </label>
+                            <div>
+                                <label className="flex items-center gap-2 text-sm text-slate-700">
+                                    <input
+                                        type="checkbox"
+                                        checked={overrideWorkAhead}
+                                        onChange={(event) => handleOverrideWorkAheadChange(event.target.checked)}
+                                        disabled={!metadataReady}
+                                    />
+                                    Allow early completion
+                                </label>
+                                <p className="text-[10px] text-slate-400 mt-1 ml-6">
+                                    When the series has &quot;work ahead&quot; disabled, this task can still be completed before its scheduled date.
+                                </p>
+                            </div>
                         </div>
                     </div>
 
@@ -549,6 +567,19 @@ const TaskSeriesCard = ({
                                 </div>
                             )}
                         </div>
+                    </div>
+
+                    <div className="rounded-xl border border-purple-100 bg-purple-50/30 p-3">
+                        {metadataReady ? (
+                            <ResponseFieldEditor taskId={item.id} responseFields={persistedTask?.responseFields || []} />
+                        ) : (
+                            <div className="space-y-1.5">
+                                <div className="text-xs font-semibold text-gray-700">Response Fields</div>
+                                <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+                                    Response fields unlock after the task saves.
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -656,6 +687,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             tasks: {
                 parentTask: {}, // Fetch parentTask so we can unlink if hierarchy changes
                 attachments: {},
+                responseFields: {},
                 progressEntries: {
                     attachments: {},
                     actor: {},
@@ -1637,30 +1669,21 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         (taskId: string, value: string) => {
             if (!editor || editor.isDestroyed) return;
 
-            const updated = editor
-                .chain()
-                .focus()
-                .command(({ state, dispatch }) => {
-                    let pos = 0;
+            // Use a direct ProseMirror transaction instead of editor.chain().focus()
+            // to avoid stealing focus from the card's <Input> field.
+            const { state } = editor;
+            let pos = 0;
 
-                    for (let index = 0; index < state.doc.childCount; index += 1) {
-                        const node = state.doc.child(index);
-                        if (node.type.name === 'taskItem' && node.attrs.id === taskId) {
-                            const replacement = node.type.create(node.attrs, value ? [state.schema.text(value)] : undefined);
-                            if (dispatch) {
-                                dispatch(state.tr.replaceWith(pos, pos + node.nodeSize, replacement));
-                            }
-                            return true;
-                        }
-                        pos += node.nodeSize;
-                    }
-
-                    return false;
-                })
-                .run();
-
-            if (updated) {
-                syncEditorSurface();
+            for (let index = 0; index < state.doc.childCount; index += 1) {
+                const node = state.doc.child(index);
+                if (node.type.name === 'taskItem' && node.attrs.id === taskId) {
+                    const replacement = node.type.create(node.attrs, value ? [state.schema.text(value)] : undefined);
+                    const tr = state.tr.replaceWith(pos, pos + node.nodeSize, replacement);
+                    editor.view.dispatch(tr);
+                    syncEditorSurface();
+                    return;
+                }
+                pos += node.nodeSize;
             }
         },
         [editor, syncEditorSurface]
