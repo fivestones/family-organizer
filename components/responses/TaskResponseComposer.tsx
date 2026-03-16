@@ -47,7 +47,7 @@ interface TaskResponse {
     submittedAt?: number;
     createdAt?: number;
     updatedAt?: number;
-    author?: Array<{ id: string; name?: string }>;
+    author?: { id: string; name?: string };
     fieldValues?: FieldValue[];
     grades?: Array<{
         id: string;
@@ -59,7 +59,7 @@ interface TaskResponse {
         feedback?: Array<{
             id: string;
             text?: string | null;
-            author?: Array<{ id: string; name?: string }>;
+            author?: { id: string; name?: string };
             attachments?: Array<{
                 id: string;
                 name: string;
@@ -108,7 +108,7 @@ export const TaskResponseComposer: React.FC<Props> = ({
     const myResponses = useMemo(
         () =>
             responses
-                .filter((r) => r.author?.some((a) => a.id === currentMemberId))
+                .filter((r) => r.author?.id === currentMemberId)
                 .sort((a, b) => (b.version || 0) - (a.version || 0)),
         [responses, currentMemberId]
     );
@@ -303,7 +303,7 @@ export const TaskResponseComposer: React.FC<Props> = ({
 
     // --- OTHER MEMBERS' SUBMITTED RESPONSES (visible to parent reviewers) ---
     const otherSubmittedResponses = useMemo(
-        () => allSubmittedResponses.filter((r) => !r.author?.some((a) => a.id === currentMemberId)),
+        () => allSubmittedResponses.filter((r) => r.author?.id !== currentMemberId),
         [allSubmittedResponses, currentMemberId]
     );
 
@@ -478,7 +478,7 @@ function SubmittedResponseCard({
     const submittedAt = response.submittedAt
         ? new Date(response.submittedAt).toLocaleString()
         : null;
-    const authorName = response.author?.[0]?.name;
+    const authorName = response.author?.name;
 
     return (
         <div className={`rounded-xl border ${isHistorical ? 'border-slate-100 bg-slate-50/50' : 'border-slate-200 bg-white'} p-4`}>
@@ -551,7 +551,7 @@ function SubmittedResponseCard({
                         {grade.feedback?.map((fb) => (
                             <div key={fb.id} className="mt-2 border-t border-emerald-200 pt-2">
                                 <div className="text-xs font-medium text-slate-600">
-                                    Feedback{fb.author?.[0]?.name ? ` from ${fb.author[0].name}` : ''}
+                                    Feedback{fb.author?.name ? ` from ${fb.author.name}` : ''}
                                 </div>
                                 {fb.text && (
                                     <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{fb.text}</div>
@@ -575,7 +575,7 @@ function SubmittedResponseCard({
                     grade.feedback?.map((fb) => (
                         <div key={fb.id} className="ml-6 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs">
                             <div className="font-medium text-blue-700">
-                                Feedback{fb.author?.[0]?.name ? ` from ${fb.author[0].name}` : ''}
+                                Feedback{fb.author?.name ? ` from ${fb.author.name}` : ''}
                             </div>
                             {fb.text && <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{fb.text}</div>}
                         </div>

@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { CalendarDays, CheckCircle2, ListTodo, Sparkles, Wallet2 } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ListTodo, Sparkles, Users, User, Wallet2 } from 'lucide-react';
 import { db } from '@/lib/db';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { formatBalances, type UnitDefinition } from '@/lib/currency-utils';
+import { type UnitDefinition } from '@/lib/currency-utils';
 import {
     calculateDailyXP,
     formatDateKeyUTC,
@@ -16,13 +16,29 @@ import {
 } from '@family-organizer/shared-core';
 import { getTasksForDate, type Task } from '@/lib/task-scheduler';
 import { hasScheduledChildren } from '@/lib/task-series-progress';
+import {
+    addUtcDays,
+    buildCalendarLabel,
+    buildDueLabel,
+    buildMemberBalanceLabel,
+    completionMemberId,
+    dayDiff,
+    firstRef,
+    toInitials,
+    type DashboardCalendarItem,
+    type DashboardChoreCompletion,
+    type DashboardFamilyMember,
+    type EnvelopeLike,
+} from '@/lib/dashboard-utils';
+import PersonalDashboard from '@/components/dashboard/PersonalDashboard';
+
+const DASHBOARD_VIEW_KEY = 'dashboard-view-mode';
 
 const OVERDUE_LOOKBACK_DAYS = 7;
 const CHORE_LOOKAHEAD_DAYS = 14;
 const TASK_SERIES_LOOKAHEAD_DAYS = 10;
 const MAX_CHORE_PREVIEW = 2;
 const MAX_TASK_SERIES_PREVIEW = 2;
-const MAX_CALENDAR_PREVIEW = 6;
 
 const BEATITUDES_ESV = [
     { verse: 'Matthew 5:3', text: 'Blessed are the poor in spirit, for theirs is the kingdom of heaven.' },
@@ -35,26 +51,9 @@ const BEATITUDES_ESV = [
     { verse: 'Matthew 5:10', text: 'Blessed are those who are persecuted for righteousness\' sake, for theirs is the kingdom of heaven.' },
 ];
 
-type EnvelopeLike = {
-    balances?: Record<string, number> | null;
-    currency?: string | null;
-    amount?: number | null;
-};
-
-type FamilyMember = {
-    id: string;
-    name: string;
-    role?: string | null;
-    photoUrls?: { ['64']?: string; ['320']?: string; ['1200']?: string } | null;
-    allowanceEnvelopes?: EnvelopeLike[] | null;
-};
-
-type ChoreCompletion = {
-    id: string;
-    completed?: boolean;
-    dateDue?: string | null;
-    completedBy?: { id?: string } | Array<{ id?: string }> | null;
-};
+type FamilyMember = DashboardFamilyMember;
+type ChoreCompletion = DashboardChoreCompletion;
+type CalendarItem = DashboardCalendarItem;
 
 type TaskSeriesRecord = {
     id: string;
@@ -79,15 +78,6 @@ type ChoreRecord = {
     assignments?: Array<{ order: number; familyMember?: { id: string; name?: string } | Array<{ id: string; name?: string }> | null }> | null;
     completions?: ChoreCompletion[] | null;
     taskSeries?: TaskSeriesRecord[] | null;
-};
-
-type CalendarItem = {
-    id: string;
-    title: string;
-    description?: string | null;
-    startDate: string;
-    endDate: string;
-    isAllDay: boolean;
 };
 
 type ChorePreview = {
@@ -133,105 +123,29 @@ type MemberSnapshot = {
     nextTaskSeries: TaskSeriesPreview[];
 };
 
-function addUtcDays(date: Date, deltaDays: number): Date {
-    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + deltaDays));
-}
-
-function dayDiff(fromDate: Date, toDate: Date): number {
-    return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
-}
-
-function toInitials(name?: string | null): string {
-    const words = String(name || '')
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean);
-
-    if (words.length === 0) return '?';
-
-    return words
-        .slice(0, 2)
-        .map((word) => word[0]?.toUpperCase() || '')
-        .join('');
-}
-
-function firstRef<T>(value?: T | T[] | null): T | null {
-    if (!value) return null;
-    return Array.isArray(value) ? value[0] || null : value;
-}
-
-function completionMemberId(completion?: ChoreCompletion | null): string | null {
-    if (!completion?.completedBy) return null;
-    const completedBy = Array.isArray(completion.completedBy) ? completion.completedBy[0] : completion.completedBy;
-    return completedBy?.id || null;
-}
-
-function normalizeBalances(envelope: EnvelopeLike): Record<string, number> {
-    if (envelope?.balances && typeof envelope.balances === 'object' && !Array.isArray(envelope.balances)) {
-        return Object.fromEntries(
-            Object.entries(envelope.balances)
-                .map(([currencyCode, amount]) => [currencyCode.toUpperCase(), Number(amount) || 0])
-                .filter(([, amount]) => amount !== 0)
-        );
-    }
-
-    if (envelope?.currency && envelope?.amount != null) {
-        return { [String(envelope.currency).toUpperCase()]: Number(envelope.amount) || 0 };
-    }
-
-    return {};
-}
-
-function buildMemberBalanceLabel(member: FamilyMember, unitDefinitions: UnitDefinition[]): string {
-    const totalBalances = (member.allowanceEnvelopes || []).reduce<Record<string, number>>((acc, envelope) => {
-        const normalized = normalizeBalances(envelope);
-        Object.entries(normalized).forEach(([currencyCode, amount]) => {
-            acc[currencyCode] = (acc[currencyCode] || 0) + amount;
-        });
-        return acc;
-    }, {});
-
-    return formatBalances(totalBalances, unitDefinitions);
-}
-
-function buildDueLabel(dueDate: Date, todayUtc: Date): string {
-    const diff = dayDiff(todayUtc, dueDate);
-    if (diff === 0) return 'Today';
-    if (diff === 1) return 'Tomorrow';
-    if (diff < 0) return `${Math.abs(diff)}d overdue`;
-    return `In ${diff}d`;
-}
-
-function buildCalendarLabel(item: CalendarItem): { startsAt: Date; endsAt: Date; label: string } {
-    const startsAt = item.isAllDay ? localDateToUTC(new Date(`${item.startDate}T00:00:00`)) : new Date(item.startDate);
-    const endsAtRaw = item.isAllDay ? localDateToUTC(new Date(`${item.endDate}T00:00:00`)) : new Date(item.endDate);
-
-    if (item.isAllDay) {
-        const endsInclusive = addUtcDays(endsAtRaw, -1);
-        const sameDay =
-            startsAt.getUTCFullYear() === endsInclusive.getUTCFullYear() &&
-            startsAt.getUTCMonth() === endsInclusive.getUTCMonth() &&
-            startsAt.getUTCDate() === endsInclusive.getUTCDate();
-
-        const startLabel = startsAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-        if (sameDay) {
-            return { startsAt, endsAt: endsAtRaw, label: `${startLabel} · All day` };
-        }
-
-        const endLabel = endsInclusive.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-        return { startsAt, endsAt: endsAtRaw, label: `${startLabel} - ${endLabel} · All day` };
-    }
-
-    const dateLabel = startsAt.toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-    });
-    return { startsAt, endsAt: endsAtRaw, label: dateLabel };
-}
-
 export default function WebFamilyDashboard() {
+    const [viewMode, setViewMode] = useState<'personal' | 'family'>('personal');
+
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem(DASHBOARD_VIEW_KEY);
+            if (saved === 'family' || saved === 'personal') setViewMode(saved);
+        } catch { /* ignore */ }
+    }, []);
+
+    const toggleView = (mode: 'personal' | 'family') => {
+        setViewMode(mode);
+        try { localStorage.setItem(DASHBOARD_VIEW_KEY, mode); } catch { /* ignore */ }
+    };
+
+    if (viewMode === 'personal') {
+        return <PersonalDashboard onSwitchToFamily={() => toggleView('family')} />;
+    }
+
+    return <FamilyOverviewDashboard onSwitchToPersonal={() => toggleView('personal')} />;
+}
+
+function FamilyOverviewDashboard({ onSwitchToPersonal }: { onSwitchToPersonal: () => void }) {
     const { data, isLoading, error } = db.useQuery({
         familyMembers: {
             $: { order: { order: 'asc' } },
@@ -258,7 +172,9 @@ export default function WebFamilyDashboard() {
                 familyMember: {},
             },
         },
-        calendarItems: {},
+        calendarItems: {
+            pertainsTo: {},
+        },
     });
 
     const todayUtc = useMemo(() => localDateToUTC(new Date()), []);
@@ -554,7 +470,16 @@ export default function WebFamilyDashboard() {
                     <div className="rounded-xl border border-slate-200 bg-white/95 p-3 shadow-sm">
                         <div className="flex items-center justify-between gap-3">
                             <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Family Dashboard</p>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Family Dashboard</p>
+                                    <button
+                                        onClick={onSwitchToPersonal}
+                                        className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                                    >
+                                        <User className="h-3 w-3" />
+                                        Personal
+                                    </button>
+                                </div>
                                 <h1 className="text-2xl font-semibold tracking-tight text-slate-900">What&apos;s Next</h1>
                                 <p className="text-xs text-slate-600">
                                     {snapshot.generatedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}

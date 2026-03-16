@@ -341,6 +341,12 @@ export default function DashboardTab() {
               scheduledActivity: {},
             },
           },
+          calendarItems: {
+            pertainsTo: {},
+          },
+          messageThreads: {
+            members: {},
+          },
         }
       : null
   );
@@ -505,6 +511,85 @@ export default function DashboardTab() {
       return (left.series?.name || '').localeCompare(right.series?.name || '');
     });
   }, [chores, selectedDate, viewedMember?.id]);
+
+  // ---------- Calendar Events ----------
+  const calendarEvents = useMemo(() => {
+    if (!viewedMember?.id) return [];
+    const items = dashboardQuery.data?.calendarItems || [];
+    const today = selectedDate;
+
+    return items
+      .map((item) => {
+        const memberIds = (item.pertainsTo || []).map((m) => m.id).filter(Boolean);
+        const isFamilyWide = memberIds.length === 0;
+        const pertainsToMember = isFamilyWide || memberIds.includes(viewedMember.id);
+        if (!pertainsToMember) return null;
+
+        const startsAt = item.isAllDay
+          ? localDateToUTC(new Date(`${item.startDate}T00:00:00`))
+          : new Date(item.startDate);
+        const endsAt = item.isAllDay
+          ? localDateToUTC(new Date(`${item.endDate}T00:00:00`))
+          : new Date(item.endDate);
+
+        if (endsAt.getTime() < today.getTime()) return null;
+
+        let timeLabel;
+        if (item.isAllDay) {
+          timeLabel = startsAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · All day';
+        } else {
+          timeLabel = startsAt.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+        }
+
+        return {
+          id: item.id,
+          title: item.title,
+          timeLabel,
+          startsAt,
+          isFamilyWide,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+      .slice(0, 10);
+  }, [dashboardQuery.data?.calendarItems, viewedMember?.id, selectedDate]);
+
+  // ---------- Unread Messages ----------
+  const unreadThreads = useMemo(() => {
+    if (!viewedMember?.id || !dashboardQuery.data?.messageThreads) return [];
+    const threads = dashboardQuery.data.messageThreads;
+    const result = [];
+
+    for (const thread of threads) {
+      if (!thread.latestMessageAt) continue;
+      const membership = (thread.members || []).find(
+        (m) => m.familyMemberId === viewedMember.id
+      );
+      if (!membership) continue;
+      if (membership.isArchived) continue;
+
+      const lastRead = membership.lastReadAt || '';
+      if (thread.latestMessageAt > lastRead) {
+        let displayName = thread.title || 'Thread';
+        if (thread.threadType === 'family') displayName = 'Family';
+        else if (thread.threadType === 'parents_only') displayName = 'Parents';
+
+        result.push({
+          id: thread.id,
+          displayName,
+          previewText: thread.latestMessagePreview || 'No messages yet',
+          latestMessageAt: thread.latestMessageAt,
+        });
+      }
+    }
+
+    return result.sort((a, b) => b.latestMessageAt.localeCompare(a.latestMessageAt));
+  }, [dashboardQuery.data?.messageThreads, viewedMember?.id]);
 
   function appendComposerFiles(files) {
     if (!files?.length) return;
@@ -1253,6 +1338,62 @@ export default function DashboardTab() {
               </View>
             )}
           </SectionCard>
+
+          {/* ===== CALENDAR EVENTS ===== */}
+          <SectionCard
+            title="Calendar"
+            styles={styles}
+            meta={calendarEvents.length > 0
+              ? `${calendarEvents.length} upcoming event${calendarEvents.length === 1 ? '' : 's'}`
+              : 'No upcoming events'
+            }
+          >
+            {calendarEvents.length === 0 ? (
+              <Text style={styles.emptyText}>
+                No calendar events for {viewedMember?.name || 'this member'}.
+              </Text>
+            ) : (
+              <View style={styles.choreList}>
+                {calendarEvents.map((event) => (
+                  <View key={`cal-${event.id}`} style={styles.choreCard}>
+                    <View style={styles.choreHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.choreTitle}>{event.title}</Text>
+                        <Text style={styles.choreDescription}>{event.timeLabel}</Text>
+                      </View>
+                      {event.isFamilyWide ? (
+                        <View style={[styles.tag, styles.tagNeutral]}>
+                          <Text style={[styles.tagText, styles.tagNeutralText]}>Family</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </SectionCard>
+
+          {/* ===== UNREAD MESSAGES ===== */}
+          {unreadThreads.length > 0 ? (
+            <SectionCard
+              title="Unread Messages"
+              styles={styles}
+              meta={`${unreadThreads.length} thread${unreadThreads.length === 1 ? '' : 's'}`}
+            >
+              <View style={styles.choreList}>
+                {unreadThreads.map((thread) => (
+                  <View key={`msg-${thread.id}`} style={styles.choreCard}>
+                    <View style={styles.choreHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.choreTitle}>{thread.displayName}</Text>
+                        <Text style={styles.choreDescription} numberOfLines={1}>{thread.previewText}</Text>
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </SectionCard>
+          ) : null}
 
           <Pressable
             testID="dashboard-open-finance"
