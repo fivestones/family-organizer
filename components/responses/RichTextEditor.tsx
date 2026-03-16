@@ -3,6 +3,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Placeholder from '@tiptap/extension-placeholder';
 import {
     Bold,
     Italic,
@@ -21,6 +22,7 @@ interface RichTextEditorProps {
     onContentChange: (html: string) => void;
     disabled?: boolean;
     className?: string;
+    placeholder?: string;
     onExpand?: () => void;
 }
 
@@ -29,6 +31,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     onContentChange,
     disabled,
     className,
+    placeholder = 'Your response',
     onExpand,
 }) => {
     const lastEmittedRef = useRef<string>(content || '');
@@ -40,6 +43,9 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                 heading: { levels: [2, 3] },
                 codeBlock: false,
                 horizontalRule: false,
+            }),
+            Placeholder.configure({
+                placeholder,
             }),
         ],
         content: content || '',

@@ -3,7 +3,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { id as createId, tx } from '@instantdb/react';
 import { useDebouncedCallback } from 'use-debounce';
-import { Send, Plus, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { Send, Plus, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { db } from '@/lib/db';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
@@ -345,24 +345,7 @@ export const TaskResponseComposer: React.FC<Props> = ({
 
             {/* Draft editor */}
             {(currentDraft || (!latestSubmitted && !needsRevision)) && (
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h4 className="text-sm font-semibold text-slate-900">
-                                {currentDraft && currentDraft.version > 1 ? `Response (Revision ${currentDraft.version})` : 'Your Response'}
-                            </h4>
-                            <p className="mt-0.5 text-xs text-slate-500">
-                                {currentDraft ? 'Auto-saving as you type' : 'Fill in the fields below. Your work is saved automatically.'}
-                            </p>
-                        </div>
-                        {currentDraft && (
-                            <span className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-500">
-                                <Clock className="h-3 w-3" />
-                                Draft
-                            </span>
-                        )}
-                    </div>
-
+                <div className="space-y-3">
                     {sortedFields.map((field) => {
                         const draftValue = getDraftFieldValue(field.id);
                         return (

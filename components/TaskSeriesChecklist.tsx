@@ -678,7 +678,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
 
                     {/* Inline response fields — shown directly in the card */}
                     {task.responseFields && task.responseFields.length > 0 && effectiveMemberId ? (
-                        <div className="mt-3 rounded-lg border border-purple-100 bg-purple-50/30 p-3">
+                        <div className="mt-3">
                             <TaskResponseComposer
                                 taskId={task.id}
                                 responseFields={task.responseFields as any}
@@ -688,6 +688,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                 isParentReviewer={isParentReviewer}
                                 allTasks={allTasks}
                                 selectedDateKey={selectedDateKey}
+                                onExpandField={handleExpandField}
                             />
                         </div>
                     ) : task.responseFields && task.responseFields.length > 0 && !effectiveMemberId ? (
@@ -756,7 +757,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                             {createdAt ? <span>{createdAt}</span> : null}
                         </div>
                         {task.responseFields && task.responseFields.length > 0 && effectiveMemberId ? (
-                            <div className="mt-2 rounded-lg border border-purple-100 bg-purple-50/30 p-3">
+                            <div className="mt-2">
                                 <TaskResponseComposer
                                     taskId={task.id}
                                     responseFields={task.responseFields as any}
@@ -766,6 +767,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                     isParentReviewer={isParentReviewer}
                                     allTasks={allTasks}
                                     selectedDateKey={selectedDateKey}
+                                    onExpandField={handleExpandField}
                                 />
                             </div>
                         ) : task.responseFields && task.responseFields.length > 0 ? (

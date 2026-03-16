@@ -150,30 +150,26 @@ export const ResponseFieldInput: React.FC<Props> = ({
 };
 
 function FieldHeader({
-    type,
     label,
     description,
     required,
 }: {
-    type: TaskResponseFieldType;
+    type?: TaskResponseFieldType;
     label: string;
     description?: string | null;
     required: boolean;
 }) {
     return (
-        <div className="flex items-start gap-2">
-            <span className="mt-0.5 text-slate-400">{fieldTypeIcon[type]}</span>
-            <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-medium text-slate-800">{label}</span>
-                    {required && (
-                        <span className="text-xs font-medium text-rose-500">Required</span>
-                    )}
-                </div>
-                {description && (
-                    <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+        <div>
+            <div className="flex items-center gap-1.5">
+                <span className="text-sm font-medium text-slate-800">{label}</span>
+                {required && (
+                    <span className="text-xs font-medium text-rose-500">Required</span>
                 )}
             </div>
+            {description && (
+                <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+            )}
         </div>
     );
 }

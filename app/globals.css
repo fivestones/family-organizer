@@ -125,4 +125,11 @@
 .response-editor .ProseMirror p {
   margin-bottom: 0.25rem;
 }
+.response-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: theme('colors.slate.400');
+  pointer-events: none;
+  height: 0;
+}
 
