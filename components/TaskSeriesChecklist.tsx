@@ -332,9 +332,9 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
             if (!field) return null;
             if (field.type === 'rich_text') {
                 // Get current draft value
-                const responses = (composerTask as any).responses as Array<{ status: string; fieldValues?: Array<{ field?: Array<{ id: string }>; richTextContent?: string | null }> }> | undefined;
+                const responses = (composerTask as any).responses as Array<{ status: string; fieldValues?: Array<{ field?: { id: string }; richTextContent?: string | null }> }> | undefined;
                 const draft = responses?.find((r) => r.status === 'draft');
-                const fv = draft?.fieldValues?.find((v) => v.field?.some((f) => f.id === fieldId));
+                const fv = draft?.fieldValues?.find((v) => v.field?.id === fieldId);
                 return {
                     kind: 'rich_text',
                     fieldId,

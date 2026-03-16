@@ -37,7 +37,7 @@ interface FieldValue {
     fileType?: string | null;
     fileSizeBytes?: number | null;
     thumbnailUrl?: string | null;
-    field?: Array<{ id: string }>;
+    field?: { id: string };
 }
 
 interface TaskResponse {
@@ -54,7 +54,7 @@ interface TaskResponse {
         numericValue: number;
         displayValue: string;
         gradeType?: Array<{ id: string; kind: string; name: string }>;
-        field?: Array<{ id: string }>;
+        field?: { id: string };
         grader?: Array<{ id: string; name?: string }>;
         feedback?: Array<{
             id: string;
@@ -140,7 +140,7 @@ export const TaskResponseComposer: React.FC<Props> = ({
         for (const field of sortedFields) {
             if (!field.required) continue;
             const value = currentDraft.fieldValues?.find(
-                (fv) => fv.field?.some((f) => f.id === field.id)
+                (fv) => fv.field?.id === field.id
             );
             if (!value) return false;
             if (field.type === 'rich_text') {
@@ -184,7 +184,7 @@ export const TaskResponseComposer: React.FC<Props> = ({
         (fieldId: string): string | null => {
             if (!currentDraft?.fieldValues) return null;
             const fv = currentDraft.fieldValues.find(
-                (v) => v.field?.some((f) => f.id === fieldId)
+                (v) => v.field?.id === fieldId
             );
             return fv?.id || null;
         },
@@ -297,7 +297,7 @@ export const TaskResponseComposer: React.FC<Props> = ({
     // Get field value from current draft
     const getDraftFieldValue = (fieldId: string): FieldValue | undefined => {
         return currentDraft?.fieldValues?.find(
-            (fv) => fv.field?.some((f) => f.id === fieldId)
+            (fv) => fv.field?.id === fieldId
         );
     };
 
@@ -502,12 +502,12 @@ function SubmittedResponseCard({
             <div className="mt-3 space-y-3">
                 {sortedFields.map((field) => {
                     const value = response.fieldValues?.find(
-                        (fv) => fv.field?.some((f) => f.id === field.id)
+                        (fv) => fv.field?.id === field.id
                     );
 
                     // Show grade for this field if exists
                     const fieldGrade = response.grades?.find(
-                        (g) => g.field?.some((f) => f.id === field.id)
+                        (g) => g.field?.id === field.id
                     );
 
                     return (
@@ -539,7 +539,7 @@ function SubmittedResponseCard({
                 })}
 
                 {/* Overall grade (not field-specific) */}
-                {response.grades?.filter((g) => !g.field?.length).map((grade) => (
+                {response.grades?.filter((g) => !g.field).map((grade) => (
                     <div key={grade.id} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                         <div className="text-sm font-semibold text-emerald-800">
                             Overall Grade: {grade.displayValue}
@@ -571,7 +571,7 @@ function SubmittedResponseCard({
                 ))}
 
                 {/* Field-specific feedback */}
-                {response.grades?.filter((g) => g.field?.length && g.feedback?.length).map((grade) => (
+                {response.grades?.filter((g) => g.field && g.feedback?.length).map((grade) => (
                     grade.feedback?.map((fb) => (
                         <div key={fb.id} className="ml-6 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs">
                             <div className="font-medium text-blue-700">

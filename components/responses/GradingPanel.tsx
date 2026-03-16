@@ -39,7 +39,7 @@ interface FieldValue {
     fileType?: string | null;
     fileSizeBytes?: number | null;
     thumbnailUrl?: string | null;
-    field?: Array<{ id: string }>;
+    field?: { id: string };
 }
 
 interface TaskResponse {
@@ -54,7 +54,7 @@ interface TaskResponse {
         numericValue: number;
         displayValue: string;
         gradeType?: Array<{ id: string; kind: string; name: string; highValue?: number; lowValue?: number; highLabel?: string; lowLabel?: string; steps?: any }>;
-        field?: Array<{ id: string }>;
+        field?: { id: string };
         grader?: Array<{ id: string; name?: string }>;
         feedback?: Array<{
             id: string;
@@ -321,10 +321,10 @@ export const GradingPanel: React.FC<Props> = ({
             <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
                 {sortedFields.map((field) => {
                     const value = response.fieldValues?.find(
-                        (fv) => fv.field?.some((f) => f.id === field.id)
+                        (fv) => fv.field?.id === field.id
                     );
                     const existingFieldGrade = existingGrades.find(
-                        (g) => g.field?.some((f) => f.id === field.id)
+                        (g) => g.field?.id === field.id
                     );
 
                     return (
@@ -376,7 +376,7 @@ export const GradingPanel: React.FC<Props> = ({
                     <h5 className="text-sm font-medium text-slate-700 mb-2">Overall Grade</h5>
                     <GradeInput
                         gradeType={selectedGradeType}
-                        value={gradeValues['__overall'] ?? existingGrades.find((g) => !g.field?.length)?.numericValue}
+                        value={gradeValues['__overall'] ?? existingGrades.find((g) => !g.field)?.numericValue}
                         onChange={(v) => handleGradeChange('__overall', v)}
                         label="Overall grade"
                     />
@@ -384,7 +384,7 @@ export const GradingPanel: React.FC<Props> = ({
             )}
 
             {/* Overall existing grade display */}
-            {existingGrades.filter((g) => !g.field?.length).map((grade) => (
+            {existingGrades.filter((g) => !g.field).map((grade) => (
                 <div key={grade.id} className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
                     <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-emerald-800">Overall Grade:</span>
