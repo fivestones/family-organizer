@@ -80,6 +80,7 @@ interface Props {
     allTasks: Task[];
     selectedDateKey?: string;
     onResponseSubmitted?: () => void;
+    onExpandField?: (fieldId: string) => void;
 }
 
 export const TaskResponseComposer: React.FC<Props> = ({
@@ -92,6 +93,7 @@ export const TaskResponseComposer: React.FC<Props> = ({
     allTasks,
     selectedDateKey,
     onResponseSubmitted,
+    onExpandField,
 }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [uploadingFieldId, setUploadingFieldId] = useState<string | null>(null);
@@ -379,6 +381,7 @@ export const TaskResponseComposer: React.FC<Props> = ({
                                 onFileSelect={(files) => handleFileSelect(field.id, files)}
                                 onFileClear={() => handleFileClear(field.id)}
                                 isUploading={uploadingFieldId === field.id}
+                                onExpand={onExpandField ? () => onExpandField(field.id) : undefined}
                             />
                         );
                     })}

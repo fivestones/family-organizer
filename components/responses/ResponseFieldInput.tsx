@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { Upload, X, FileText, Image, Film, Mic, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { RichTextEditor } from '@/components/responses/RichTextEditor';
 import type { TaskResponseFieldType } from '@/lib/task-response-types';
 import { RESPONSE_FIELD_TYPE_LABELS } from '@/lib/task-response-types';
 
@@ -26,6 +27,7 @@ interface Props {
     onFileClear?: () => void;
     isUploading?: boolean;
     disabled?: boolean;
+    onExpand?: () => void;
 }
 
 const fieldTypeIcon: Record<TaskResponseFieldType, React.ReactNode> = {
@@ -58,6 +60,7 @@ export const ResponseFieldInput: React.FC<Props> = ({
     onFileClear,
     isUploading,
     disabled,
+    onExpand,
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -75,13 +78,11 @@ export const ResponseFieldInput: React.FC<Props> = ({
         return (
             <div className="space-y-2">
                 <FieldHeader type={type} label={label} description={description} required={required} />
-                <textarea
-                    value={richTextContent || ''}
-                    onChange={(e) => onRichTextChange?.(e.target.value)}
-                    placeholder={`Enter your ${label.toLowerCase()}...`}
-                    rows={6}
+                <RichTextEditor
+                    content={richTextContent || ''}
+                    onContentChange={(html) => onRichTextChange?.(html)}
                     disabled={disabled}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    onExpand={onExpand}
                 />
             </div>
         );

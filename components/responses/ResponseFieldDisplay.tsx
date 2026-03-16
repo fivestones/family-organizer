@@ -1,6 +1,7 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import { FileText, Image, Film, Mic } from 'lucide-react';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import type { TaskResponseFieldType } from '@/lib/task-response-types';
@@ -43,6 +44,11 @@ export const ResponseFieldDisplay: React.FC<Props> = ({
         ? !!richTextContent?.trim()
         : !!fileUrl;
 
+    const sanitizedHtml = useMemo(
+        () => (richTextContent ? DOMPurify.sanitize(richTextContent) : ''),
+        [richTextContent]
+    );
+
     return (
         <div className="space-y-2">
             <div className="flex items-start gap-2">
@@ -62,9 +68,10 @@ export const ResponseFieldDisplay: React.FC<Props> = ({
                     No response provided
                 </div>
             ) : type === 'rich_text' ? (
-                <div className="whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm text-slate-700">
-                    {richTextContent}
-                </div>
+                <div
+                    className="prose prose-sm prose-slate max-w-none rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5"
+                    dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+                />
             ) : (
                 <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-2">
                     <AttachmentCollection

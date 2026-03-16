@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Task } from '@/lib/task-scheduler';
@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { TaskResponseComposer } from '@/components/responses/TaskResponseComposer';
 import { GradingPanel } from '@/components/responses/GradingPanel';
+import { FocusOverlay } from '@/components/responses/FocusOverlay';
+import type { FocusPanelItem, FocusPanelState, FocusableItem } from '@/components/responses/focus-panel-types';
 import type { GradeTypeLike } from '@/lib/task-response-types';
 import {
     getBucketedTasks,
@@ -178,6 +180,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const [composerRestoreTiming, setComposerRestoreTiming] = useState<TaskRestoreTiming | null>(null);
     const [isSubmittingComposer, setIsSubmittingComposer] = useState(false);
     const composerNoteRef = useRef<HTMLTextAreaElement | null>(null);
+    const [focusPanelState, setFocusPanelState] = useState<FocusPanelState>({ mode: 'closed' });
 
     const toggleLocalExpand = (taskId: string) => {
         setLocalExpandedIds((prev) => {
@@ -296,7 +299,143 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         setComposerNote('');
         setComposerFiles([]);
         setComposerRestoreTiming(null);
+        setFocusPanelState({ mode: 'closed' });
     };
+
+    // --- Focus / Split panel logic ---
+    const focusAvailableItems: FocusableItem[] = useMemo(() => {
+        if (!composerTask) return [];
+        const items: FocusableItem[] = [];
+        // Response fields
+        const fields = (composerTask as any).responseFields as Array<{ id: string; type: string; label: string }> | undefined;
+        if (fields) {
+            for (const f of fields) {
+                items.push({ kind: f.type === 'rich_text' ? 'rich_text' : 'attachment', id: f.id, label: f.label });
+            }
+        }
+        // Task attachments
+        for (const att of composerTaskAttachments) {
+            items.push({ kind: 'attachment', id: att.id || att.url, label: att.name || 'Attachment', thumbnailUrl: att.thumbnailUrl });
+        }
+        // Notes
+        if (composerTask.notes?.trim()) {
+            items.push({ kind: 'notes', id: 'task-notes', label: 'Task Notes' });
+        }
+        return items;
+    }, [composerTask, composerTaskAttachments]);
+
+    const buildFocusItemForField = useCallback(
+        (fieldId: string): FocusPanelItem | null => {
+            if (!composerTask) return null;
+            const fields = (composerTask as any).responseFields as Array<{ id: string; type: string; label: string }> | undefined;
+            const field = fields?.find((f) => f.id === fieldId);
+            if (!field) return null;
+            if (field.type === 'rich_text') {
+                // Get current draft value
+                const responses = (composerTask as any).responses as Array<{ status: string; fieldValues?: Array<{ field?: Array<{ id: string }>; richTextContent?: string | null }> }> | undefined;
+                const draft = responses?.find((r) => r.status === 'draft');
+                const fv = draft?.fieldValues?.find((v) => v.field?.some((f) => f.id === fieldId));
+                return {
+                    kind: 'rich_text',
+                    fieldId,
+                    label: field.label,
+                    taskId: composerTask.id,
+                    content: fv?.richTextContent || '',
+                    onContentChange: () => {}, // The RichTextEditor in the overlay uses the same auto-save through TaskResponseComposer
+                };
+            }
+            return null;
+        },
+        [composerTask]
+    );
+
+    const buildFocusItemFromPickerItem = useCallback(
+        (pickerItem: FocusableItem): FocusPanelItem | null => {
+            if (!composerTask) return null;
+            if (pickerItem.kind === 'rich_text') {
+                return buildFocusItemForField(pickerItem.id);
+            }
+            if (pickerItem.kind === 'attachment') {
+                // Could be a response field file or a task attachment
+                const att = composerTaskAttachments.find((a: any) => (a.id || a.url) === pickerItem.id);
+                if (att) {
+                    return { kind: 'attachment', url: att.url, name: att.name || 'Attachment', type: att.type || 'application/octet-stream', label: pickerItem.label };
+                }
+                return null;
+            }
+            if (pickerItem.kind === 'notes') {
+                return { kind: 'notes', text: composerTask.notes || '', label: 'Task Notes' };
+            }
+            return null;
+        },
+        [composerTask, composerTaskAttachments, buildFocusItemForField]
+    );
+
+    const handleExpandField = useCallback(
+        (fieldId: string) => {
+            const item = buildFocusItemForField(fieldId);
+            if (item) {
+                setFocusPanelState({ mode: 'focus', item });
+            }
+        },
+        [buildFocusItemForField]
+    );
+
+    const handleFocusClose = useCallback(() => {
+        setFocusPanelState({ mode: 'closed' });
+    }, []);
+
+    const handleEnterSplit = useCallback(() => {
+        setFocusPanelState((prev) => {
+            if (prev.mode === 'focus') {
+                return { mode: 'split', left: prev.item, right: null };
+            }
+            return prev;
+        });
+    }, []);
+
+    const handleSwapPanels = useCallback(() => {
+        setFocusPanelState((prev) => {
+            if (prev.mode === 'split' && prev.right) {
+                return { mode: 'split', left: prev.right, right: prev.left };
+            }
+            return prev;
+        });
+    }, []);
+
+    const handleCloseSplitPanel = useCallback((side: 'left' | 'right') => {
+        setFocusPanelState((prev) => {
+            if (prev.mode !== 'split') return prev;
+            const remaining = side === 'left' ? prev.right : prev.left;
+            if (remaining) {
+                return { mode: 'focus', item: remaining };
+            }
+            return { mode: 'closed' };
+        });
+    }, []);
+
+    const handlePickSplitItem = useCallback(
+        (pickerItem: FocusableItem) => {
+            const item = buildFocusItemFromPickerItem(pickerItem);
+            if (!item) return;
+            setFocusPanelState((prev) => {
+                if (prev.mode === 'split') {
+                    return { mode: 'split', left: prev.left, right: item };
+                }
+                return prev;
+            });
+        },
+        [buildFocusItemFromPickerItem]
+    );
+
+    // Filter available items for split picker (exclude the item already shown)
+    const splitPickerItems = useMemo(() => {
+        if (focusPanelState.mode !== 'split') return focusAvailableItems;
+        const leftId = focusPanelState.left.kind === 'rich_text' ? focusPanelState.left.fieldId
+            : focusPanelState.left.kind === 'attachment' ? focusPanelState.left.url
+            : 'task-notes';
+        return focusAvailableItems.filter((item) => item.id !== leftId);
+    }, [focusPanelState, focusAvailableItems]);
 
     const handleComposerFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
         const nextFiles = Array.from(event.target.files || []);
@@ -895,6 +1034,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                     isParentReviewer={isParentReviewer}
                                                     allTasks={allTasks}
                                                     selectedDateKey={selectedDateKey}
+                                                    onExpandField={handleExpandField}
                                                 />
                                                 {/* Grading panel for parent reviewers */}
                                                 {isParentReviewer && gradeTypes.length > 0 && (() => {
@@ -1160,6 +1300,16 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                 </DialogContent>
             </Dialog>
 
+            <FocusOverlay
+                state={focusPanelState}
+                onClose={handleFocusClose}
+                onEnterSplit={handleEnterSplit}
+                onSelectSplitItem={() => {}}
+                onSwapPanels={handleSwapPanels}
+                onCloseSplitPanel={handleCloseSplitPanel}
+                availableItems={splitPickerItems}
+                onPickItem={handlePickSplitItem}
+            />
         </div>
     );
 };
