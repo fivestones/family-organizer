@@ -23,6 +23,8 @@ import { id, tx } from '@instantdb/react';
 import NepaliDate from 'nepali-date-converter';
 import { RRule } from 'rrule';
 import AddEventForm, { type CalendarDraftSelection } from './AddEvent';
+import CalendarEventDetailDialog from './CalendarEventDetailDialog';
+import ChoreDetailDialog from './ChoreDetailDialog';
 import CalendarAgendaView, { type CalendarAgendaFocusRequest } from './CalendarAgendaView';
 import CalendarWeekSpanOverlay, { getWeekSpanReservedHeightData } from './CalendarWeekSpanOverlay';
 import YearCalendarView from './YearCalendarView';
@@ -1033,6 +1035,9 @@ const Calendar = ({
     const [selectedEvent, setSelectedEvent] = useState<CalendarItem | null>(null);
     const [selectedEventKey, setSelectedEventKey] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [eventDetailOpen, setEventDetailOpen] = useState(false);
+    const [choreDetailChoreId, setChoreDetailChoreId] = useState<string | null>(null);
+    const [choreDetailDate, setChoreDetailDate] = useState<Date | null>(null);
     const [initialDraftSelection, setInitialDraftSelection] = useState<CalendarDraftSelection | null>(null);
     const [everyoneSelected, setEveryoneSelected] = useState(true);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
@@ -1902,7 +1907,16 @@ const Calendar = ({
     const handleEventDoubleClick = (e: React.MouseEvent, calendarEvent: CalendarItem) => {
         e.stopPropagation();
         selectCalendarEvent(calendarEvent);
-        setIsModalOpen(true);
+        if (calendarEvent.calendarItemKind === 'chore') {
+            const choreId = String((calendarEvent as any).sourceChoreId || '').trim();
+            if (choreId) {
+                const occurrenceDate = getCalendarOccurrenceDateKey(calendarEvent);
+                setChoreDetailChoreId(choreId);
+                setChoreDetailDate(parseISO(`${occurrenceDate}T00:00:00`));
+            }
+        } else {
+            setEventDetailOpen(true);
+        }
     };
 
     const handleCloseModal = () => {
@@ -1910,6 +1924,31 @@ const Calendar = ({
         setSelectedDate(null);
         setInitialDraftSelection(null);
         clearCalendarSelection();
+    };
+
+    const handleEventDetailEdit = () => {
+        setEventDetailOpen(false);
+        setIsModalOpen(true);
+    };
+
+    const handleEventDetailClose = () => {
+        setEventDetailOpen(false);
+        clearCalendarSelection();
+    };
+
+    const handleChoreDetailEdit = () => {
+        // Close the chore detail and navigate to chore edit — for now just close,
+        // since the calendar doesn't have a chore edit form inline.
+        setChoreDetailChoreId(null);
+        setChoreDetailDate(null);
+    };
+
+    const handleChoreDetailClose = (open: boolean) => {
+        if (!open) {
+            setChoreDetailChoreId(null);
+            setChoreDetailDate(null);
+            clearCalendarSelection();
+        }
     };
 
     const requestRecurrenceScope = useCallback((action: 'edit' | 'drag' | 'delete', scopeMode: RecurrenceSeriesScopeMode = 'following') => {
@@ -3866,8 +3905,16 @@ const Calendar = ({
                     itemKey: occurrenceKey,
                 });
             }
-            if (event.shiftKey && item.calendarItemKind !== 'chore') {
-                setIsModalOpen(true);
+            if (event.shiftKey) {
+                if (item.calendarItemKind === 'chore') {
+                    const choreId = String((item as any).sourceChoreId || '').trim();
+                    if (choreId) {
+                        setChoreDetailChoreId(choreId);
+                        setChoreDetailDate(parseISO(`${occurrenceDateKey}T00:00:00`));
+                    }
+                } else {
+                    setEventDetailOpen(true);
+                }
             }
         },
         [navigateCalendarToDateKey, selectCalendarEvent, viewMode]
@@ -6043,16 +6090,8 @@ const Calendar = ({
                                                                                             index={index}
                                                                                             selected={isEventSelected(item)}
                                                                                             draggableEnabled={item.calendarItemKind !== 'chore'}
-                                                                                            onClick={
-                                                                                                item.calendarItemKind === 'chore'
-                                                                                                    ? undefined
-                                                                                                    : (e) => handleEventClick(e, item)
-                                                                                            }
-                                                                                            onDoubleClick={
-                                                                                                item.calendarItemKind === 'chore'
-                                                                                                    ? undefined
-                                                                                                    : (e) => handleEventDoubleClick(e, item)
-                                                                                            }
+                                                                                            onClick={(e) => handleEventClick(e, item)}
+                                                                                            onDoubleClick={(e) => handleEventDoubleClick(e, item)}
                                                                                         />
                                                                                     ))}
                                                                                 </div>
@@ -6117,6 +6156,25 @@ const Calendar = ({
                     </div>
                 </DialogContent>
             </Dialog>
+
+            <CalendarEventDetailDialog
+                event={selectedEvent}
+                open={eventDetailOpen}
+                onOpenChange={(open) => {
+                    if (!open) handleEventDetailClose();
+                }}
+                onEdit={handleEventDetailEdit}
+            />
+
+            <ChoreDetailDialog
+                chore={chores.find((c) => c.id === choreDetailChoreId) ?? null}
+                familyMembers={familyMembers as { id: string; name?: string | null }[]}
+                open={choreDetailChoreId !== null}
+                onOpenChange={handleChoreDetailClose}
+                onEdit={handleChoreDetailEdit}
+                selectedDate={choreDetailDate ?? new Date()}
+                selectedMember="All"
+            />
 
             <Dialog
                 open={isModalOpen}

@@ -150,6 +150,8 @@ vi.mock('@/components/ui/dialog', () => ({
     Dialog: ({ open, children }: any) => (open ? <div data-testid="dialog-root">{children}</div> : null),
     DialogContent: ({ children }: any) => <div>{children}</div>,
     DialogTitle: ({ children }: any) => <h2>{children}</h2>,
+    DialogHeader: ({ children }: any) => <div>{children}</div>,
+    DialogDescription: ({ children }: any) => <p>{children}</p>,
 }));
 
 vi.mock('@/components/ui/alert-dialog', () => ({
@@ -245,7 +247,7 @@ describe('Calendar', () => {
         expect(form).toHaveAttribute('data-selected-event-id', '');
     });
 
-    it('selects an event on single click and opens edit mode on double click', () => {
+    it('selects an event on single click and opens detail view on double click', () => {
         renderCalendarWithItems([
             {
                 id: 'evt-1',
@@ -263,6 +265,12 @@ describe('Calendar', () => {
         expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-calendar-selected', 'true');
 
         fireEvent.doubleClick(screen.getByTestId('calendar-event-evt-1'));
+
+        // Detail view opens first (not the edit form)
+        expect(screen.getByRole('button', { name: 'Edit Event' })).toBeTruthy();
+
+        // Clicking Edit Event opens the edit form
+        fireEvent.click(screen.getByRole('button', { name: 'Edit Event' }));
 
         const form = screen.getByTestId('add-event-form');
         expect(form).toHaveAttribute('data-selected-date', '2026-03-15');
@@ -2465,7 +2473,8 @@ describe('Calendar', () => {
             fireEvent.click(resultButton, { shiftKey: true });
 
             await waitFor(() => {
-                expect(screen.getByTestId('add-event-form')).toHaveAttribute('data-selected-event-id', 'evt-dentist');
+                // Shift-click now opens the event detail view, not the edit form directly
+                expect(screen.getByRole('button', { name: 'Edit Event' })).toBeTruthy();
             });
         } finally {
             HTMLElement.prototype.scrollTo = originalScrollTo;
