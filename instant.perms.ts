@@ -299,6 +299,7 @@ const rules = {
         },
     },
     chores: PARENT_MUTABLE,
+    dashboardConfigs: FAMILY_MUTABLE,
     deviceSessions: PARENT_MUTABLE,
     exchangeRates: FAMILY_MUTABLE,
     historyEventAttachments: FAMILY_IMMUTABLE_LOG,

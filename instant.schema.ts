@@ -522,6 +522,12 @@ const _schema = i.schema({
             symbolSpacing: i.boolean().optional(),
         }),
         // Add this to your schema entities
+        dashboardConfigs: i.entity({
+            disabledWidgets: i.json().optional(),
+            updatedAt: i.number().indexed().optional(),
+            widgetOrder: i.json().optional(),
+            widgetSettings: i.json().optional(),
+        }),
         deviceSessions: i.entity({
             appVersion: i.string().optional(),
             createdAt: i.number().indexed().optional(),
@@ -607,6 +613,18 @@ const _schema = i.schema({
                 on: 'allowanceEnvelopes',
                 has: 'many',
                 label: 'outgoingTransfers',
+            },
+        },
+        dashboardConfigFamilyMember: {
+            forward: {
+                on: 'dashboardConfigs',
+                has: 'one',
+                label: 'familyMember',
+            },
+            reverse: {
+                on: 'familyMembers',
+                has: 'one',
+                label: 'dashboardConfig',
             },
         },
         choreAssignmentsFamilyMember: {

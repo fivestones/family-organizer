@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import AppleCalendarSyncSettings from '@/components/AppleCalendarSyncSettings';
 import CurrencySettings from '@/components/CurrencySettings';
+import DashboardSettingsPanel from '@/components/DashboardSettingsPanel';
 import GradeTypeSettings from '@/components/GradeTypeSettings';
 import FamilyMembersList from '@/components/FamilyMembersList';
 import { ParentGate } from '@/components/auth/ParentGate';
@@ -28,6 +29,10 @@ export default function SettingsPage() {
                         db={db}
                         alwaysEditMode
                     />
+                </div>
+
+                <div className="mb-8">
+                    <DashboardSettingsPanel familyMembers={familyMembers} />
                 </div>
 
                 <CurrencySettings db={db} />
