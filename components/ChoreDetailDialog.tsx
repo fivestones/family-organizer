@@ -448,7 +448,7 @@ export default function ChoreDetailDialog({ chore, familyMembers, open, onOpenCh
                     </section>
 
                     <div className="grid gap-4 md:grid-cols-[1.25fr,0.95fr]">
-                        <div className="space-y-4">
+                        <div className="min-w-0 space-y-4">
                             {chore.description ? (
                                 <Section title="Description">
                                     <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{chore.description}</p>
