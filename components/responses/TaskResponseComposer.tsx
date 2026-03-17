@@ -278,7 +278,7 @@ export const TaskResponseComposer: React.FC<Props> = ({
                 allTasks,
                 nextState: 'needs_review',
                 selectedDateKey: selectedDateKey || new Date().toISOString().slice(0, 10),
-                createId: () => `task-progress-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                createId,
             });
 
             await db.transact([...submitTxns, ...progressTxns]);

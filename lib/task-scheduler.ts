@@ -1,7 +1,7 @@
 // lib/task-scheduler.ts
 import { toUTCDate } from './chore-utils';
 import { choreOccursOnDate, getChoreOccurrencesInRange } from './chore-schedule';
-import { tx } from '@instantdb/react';
+import { id as createId, tx } from '@instantdb/react';
 import { buildTaskProgressUpdateTransactions } from '@/lib/task-progress-mutations';
 import {
     getTaskWorkflowState,
@@ -281,6 +281,6 @@ export function getRecursiveTaskCompletionTransactions(taskId: string, isComplet
         allTasks,
         nextState,
         selectedDateKey: completedOnDateStr,
-        createId: () => `task-progress-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        createId,
     });
 }

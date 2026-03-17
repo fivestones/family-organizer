@@ -6,6 +6,7 @@ import type { Task } from '@/lib/task-scheduler';
 import { isActionableTask, isTaskDone, taskHasChildren } from '@/lib/task-progress';
 import { getChoreOccurrencesInRange, getNextChoreOccurrence } from '@/lib/chore-schedule';
 import { toUTCDate } from '@/lib/chore-utils';
+import { id as createInstantId } from '@instantdb/react';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 
 // ---------------------------------------------------------------------------
@@ -296,7 +297,7 @@ export function buildPullForwardTransactions(params: BuildPullForwardParams) {
         }),
     ];
 
-    const createId = () => `pull-fwd-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const createId = createInstantId;
     const historyResult = buildHistoryEventTransactions({
         tx: params.tx,
         createId,
@@ -359,7 +360,7 @@ export function buildCatchUpTransactions(params: BuildCatchUpParams) {
         }),
     ];
 
-    const createId = () => `catch-up-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const createId = createInstantId;
     const historyResult = buildHistoryEventTransactions({
         tx: params.tx,
         createId,

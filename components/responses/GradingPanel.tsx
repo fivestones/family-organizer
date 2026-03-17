@@ -235,7 +235,7 @@ export const GradingPanel: React.FC<Props> = ({
                 allTasks,
                 nextState: 'done',
                 selectedDateKey: selectedDateKey || new Date().toISOString().slice(0, 10),
-                createId: () => `task-progress-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                createId,
             });
 
             await db.transact([...completeTxns, ...progressTxns]);
@@ -259,7 +259,7 @@ export const GradingPanel: React.FC<Props> = ({
                 allTasks,
                 nextState: 'in_progress',
                 selectedDateKey: selectedDateKey || new Date().toISOString().slice(0, 10),
-                createId: () => `task-progress-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                createId,
             });
 
             // Also save any feedback
