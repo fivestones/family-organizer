@@ -127,7 +127,7 @@ export default function RootLayout({
                 <InstantFamilySessionProvider>
                     <AuthProvider>
                         {/* +++ Global Header +++ */}
-                        <header className="flex items-center justify-between gap-3 border-b bg-card px-4 py-3 sm:px-6">
+                        <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b bg-card px-4 py-3 sm:px-6">
                             <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-6">
                                 <Link
                                     href="/"

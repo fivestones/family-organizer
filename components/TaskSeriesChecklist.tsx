@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { AttachmentThumbnailRow } from '@/components/attachments/AttachmentThumbnail';
-import { TaskUpdatePanel, type TaskUpdatePanelSubmission } from '@/components/task-updates/TaskUpdatePanel';
+import { TaskUpdatePanel } from '@/components/task-updates/TaskUpdatePanel';
+import type { ResponseFieldValueInput } from '@/lib/task-update-mutations';
+import { uploadSingleFileToS3 } from '@/lib/file-uploads';
 import { FocusOverlay } from '@/components/responses/FocusOverlay';
 import type { FocusPanelItem, FocusPanelState, FocusableItem } from '@/components/responses/focus-panel-types';
 import type { GradeTypeLike } from '@/lib/task-response-types';
@@ -16,7 +18,6 @@ import {
     getLatestTaskUpdate,
     getTaskUpdateActorName,
     getTaskLastActiveState,
-    getTaskProgressPlaceholder,
     getTaskStatusLabel,
     getTaskWorkflowState,
     isActionableTask,
@@ -32,6 +33,7 @@ export interface TaskChecklistUpdateInput {
     note?: string;
     files?: File[];
     restoreTiming?: TaskRestoreTiming | null;
+    responseFieldValues?: ResponseFieldValueInput[];
 }
 
 interface Props {
@@ -165,6 +167,12 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
 }) => {
     // Use the logged-in member for response authoring; fall back to sidebar selection for backwards compat
     const effectiveMemberId = currentMemberId || (selectedMember !== 'All' ? selectedMember : null);
+
+    // File upload handler for response field file inputs
+    const handleResponseFileUpload = useCallback(
+        async (_fieldId: string, file: File) => uploadSingleFileToS3(file),
+        []
+    );
     const [localExpandedIds, setLocalExpandedIds] = useState<Set<string>>(new Set());
     const [expandedBuckets, setExpandedBuckets] = useState<Record<TaskBucketState, boolean>>({
         blocked: true,
@@ -174,12 +182,9 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     });
     const [composerTaskId, setComposerTaskId] = useState<string | null>(null);
     const [modalIntent, setModalIntent] = useState<TaskModalIntent>('details');
-    const [composerState, setComposerState] = useState<TaskWorkflowState>('not_started');
-    const [composerNote, setComposerNote] = useState('');
     const [composerFiles, setComposerFiles] = useState<File[]>([]);
     const [composerRestoreTiming, setComposerRestoreTiming] = useState<TaskRestoreTiming | null>(null);
     const [isSubmittingComposer, setIsSubmittingComposer] = useState(false);
-    const composerNoteRef = useRef<HTMLTextAreaElement | null>(null);
     const [focusPanelState, setFocusPanelState] = useState<FocusPanelState>({ mode: 'closed' });
 
     const toggleLocalExpand = (taskId: string) => {
@@ -259,11 +264,6 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const composerTaskAttachments = composerTask ? ((composerTask as any).attachments || []) : [];
     const composerLatestEntry = composerTask ? getLatestTaskUpdate(composerTask) : null;
     const composerHistoryEntries = composerTask ? sortTaskUpdates(composerTask.updates) : [];
-    const canSubmitComposer = Boolean(onTaskUpdate && composerTaskIsActionable && !isReadOnly && canWriteTaskProgress);
-    const trimmedComposerNote = composerNote.trim();
-    const composerHasPayload = composerTask
-        ? composerState !== getTaskWorkflowState(composerTask) || trimmedComposerNote.length > 0 || composerFiles.length > 0 || !!composerRestoreTiming
-        : false;
 
     if (!hasAnyVisibleContent || actionableCount === 0) return null;
 
@@ -286,8 +286,6 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     ) => {
         setComposerTaskId(task.id);
         setModalIntent(options?.intent || 'details');
-        setComposerState(options?.nextState || getTaskWorkflowState(task));
-        setComposerNote('');
         setComposerFiles([]);
         setComposerRestoreTiming(options?.restoreTiming ?? null);
     };
@@ -296,7 +294,6 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         if (isSubmittingComposer) return;
         setComposerTaskId(null);
         setModalIntent('details');
-        setComposerNote('');
         setComposerFiles([]);
         setComposerRestoreTiming(null);
         setFocusPanelState({ mode: 'closed' });
@@ -334,7 +331,11 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                 // Get current draft value from updates
                 const updates = (composerTask as any).updates as Array<{ isDraft?: boolean; responseFieldValues?: Array<{ field?: Array<{ id: string }>; richTextContent?: string | null }> }> | undefined;
                 const draft = updates?.find((u) => u.isDraft);
-                const fv = draft?.responseFieldValues?.find((v) => v.field?.[0]?.id === fieldId);
+                const fv = draft?.responseFieldValues?.find((v) => {
+                    const f = v.field;
+                    const resolved = Array.isArray(f) ? f[0] : f;
+                    return resolved?.id === fieldId;
+                });
                 return {
                     kind: 'rich_text',
                     fieldId,
@@ -447,65 +448,12 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         setComposerFiles((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
     };
 
-    const getComposerOptions = (task: Task): TaskWorkflowState[] => {
-        const currentState = getTaskWorkflowState(task);
-        if (currentState === 'not_started') {
-            return ['not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'];
-        }
-        if (currentState === 'in_progress') {
-            return ['in_progress', 'not_started', 'blocked', 'skipped', 'needs_review', 'done'];
-        }
-        return [currentState];
-    };
-
-    const submitComposer = async () => {
-        if (!composerTask || !canSubmitComposer) return;
-        if (!composerHasPayload) return;
-
-        setIsSubmittingComposer(true);
-        try {
-            await onTaskUpdate(composerTask.id, {
-                nextState: composerState,
-                note: trimmedComposerNote,
-                files: composerFiles,
-                restoreTiming: composerRestoreTiming,
-            });
-            setComposerTaskId(null);
-            setComposerNote('');
-            setComposerFiles([]);
-            setComposerRestoreTiming(null);
-        } finally {
-            setIsSubmittingComposer(false);
-        }
-    };
-
     useEffect(() => {
         if (!composerTask) return;
-        const nextStateIsActive = composerState === 'not_started' || composerState === 'in_progress';
-
-        if (!canRestoreFromComposer || !nextStateIsActive) {
-            if (composerRestoreTiming) {
-                setComposerRestoreTiming(null);
-            }
-            return;
+        if (!canRestoreFromComposer && composerRestoreTiming) {
+            setComposerRestoreTiming(null);
         }
-
-        if (!composerRestoreTiming) {
-            setComposerRestoreTiming('now');
-        }
-    }, [canRestoreFromComposer, composerRestoreTiming, composerState, composerTask]);
-
-    useEffect(() => {
-        if (!composerTask || modalIntent !== 'update') return;
-
-        const frame = window.requestAnimationFrame(() => {
-            composerNoteRef.current?.focus();
-        });
-
-        return () => {
-            window.cancelAnimationFrame(frame);
-        };
-    }, [composerTaskId, modalIntent, composerTask]);
+    }, [canRestoreFromComposer, composerRestoreTiming, composerTask]);
 
     const renderReferenceDetails = (task: Task) => {
         const hasNotes = !!task.notes?.trim();
@@ -700,13 +648,27 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                 variant="inline"
                                 canEdit={canWriteTaskProgress}
                                 disabled={!canMutate}
+                                onRequireAuth={onRequireTaskAuth}
+                                onFileUpload={handleResponseFileUpload}
+                                onSubmit={
+                                    canMutate
+                                        ? async (submission) => {
+                                              await onTaskUpdate?.(task.id, {
+                                                  nextState: submission.nextState,
+                                                  note: submission.note,
+                                                  responseFieldValues: submission.responseFieldValues,
+                                              });
+                                          }
+                                        : undefined
+                                }
                             />
                         </div>
                     ) : task.responseFields && task.responseFields.length > 0 && !effectiveMemberId ? (
                         renderResponseFieldBadge(task)
                     ) : null}
 
-                    {canMutate ? (
+                    {/* Action buttons — only for tasks WITHOUT inline response fields */}
+                    {canMutate && !(task.responseFields && task.responseFields.length > 0 && effectiveMemberId) ? (
                         <div className="mt-3 flex flex-wrap gap-2">
                             {currentState === 'not_started' ? (
                                 <Button
@@ -728,9 +690,9 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => openComposer(task, { intent: 'update' })}
+                                onClick={() => openComposer(task, { intent: 'details' })}
                             >
-                                Update
+                                Details
                             </Button>
                             <Button type="button" size="sm" onClick={() => onToggle(task.id, false)}>
                                 Done
@@ -746,6 +708,61 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         const latestEntry = getLatestTaskUpdate(task);
         const actorName = getTaskUpdateActorName(latestEntry);
         const createdAt = formatDateTimeLabel(latestEntry?.createdAt);
+
+        // Resolve a has-one link that may arrive as a single object or 1-element array
+        const resolveField = (field: any): { id?: string; label?: string | null } | null => {
+            if (!field) return null;
+            if (Array.isArray(field)) return field[0] ?? null;
+            return field;
+        };
+
+        // Check which response fields have meaningful submitted values
+        const submittedFieldIds = new Set(
+            (latestEntry?.responseFieldValues || [])
+                .filter((rfv) => (rfv.richTextContent && rfv.richTextContent !== '<p></p>') || rfv.fileUrl)
+                .map((rfv) => resolveField(rfv.field)?.id)
+                .filter(Boolean)
+        );
+        const hasSubmittedResponse = submittedFieldIds.size > 0;
+        const allFieldsSubmitted =
+            hasSubmittedResponse &&
+            (task.responseFields || []).every((f) => submittedFieldIds.has(f.id));
+
+        // Helper to render a response field values summary
+        const renderResponseSummary = (rfvs: typeof latestEntry.responseFieldValues) => (
+            <div className="mt-2 space-y-1.5">
+                {rfvs?.map((rfv, i) => {
+                    const resolved = resolveField(rfv.field);
+                    const fieldLabel = resolved?.label || '';
+                    const isGenericLabel = fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
+                    if (!rfv.richTextContent && !rfv.fileUrl) return null;
+                    if (rfv.richTextContent === '<p></p>') return null;
+                    return (
+                        <div key={rfv.id || i} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+                            {fieldLabel && !isGenericLabel ? (
+                                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{fieldLabel}</div>
+                            ) : null}
+                            {rfv.richTextContent && rfv.richTextContent !== '<p></p>' ? (
+                                <div className="prose prose-sm mt-1 max-w-none text-xs text-slate-700" dangerouslySetInnerHTML={{ __html: rfv.richTextContent }} />
+                            ) : null}
+                            {rfv.fileUrl ? (
+                                <div className="mt-1.5">
+                                    <AttachmentCollection
+                                        attachments={[{
+                                            id: rfv.id || `rfv-${i}`,
+                                            name: rfv.fileName || 'File',
+                                            type: rfv.fileType || '',
+                                            url: rfv.fileUrl,
+                                        }]}
+                                        variant="compact"
+                                    />
+                                </div>
+                            ) : null}
+                        </div>
+                    );
+                })}
+            </div>
+        );
 
         return (
             <div key={`${state}-${task.id}`} className="rounded-lg border border-slate-200 bg-white/80 p-3">
@@ -763,22 +780,48 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                 {getTaskStatusLabel(state)}
                             </span>
                         </div>
+
+                        {/* Update metadata — above response content */}
                         <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-slate-500">
                             {actorName ? <span>Latest by {actorName}</span> : null}
                             {createdAt ? <span>{createdAt}</span> : null}
                         </div>
-                        {task.responseFields && task.responseFields.length > 0 && effectiveMemberId ? (
-                            <div className="mt-2">
-                                <TaskUpdatePanel
-                                    task={task}
-                                    variant="inline"
-                                    canEdit={canWriteTaskProgress}
-                                    disabled={isReadOnly}
-                                />
-                            </div>
-                        ) : task.responseFields && task.responseFields.length > 0 ? (
-                            renderResponseFieldBadge(task)
+
+                        {/* Response fields: read-only summary when all submitted,
+                            inline editor (pre-populated) when some are missing */}
+                        {task.responseFields && task.responseFields.length > 0 ? (
+                            allFieldsSubmitted ? (
+                                // All response fields answered — read-only summary
+                                renderResponseSummary(latestEntry?.responseFieldValues)
+                            ) : effectiveMemberId && (state === 'blocked' || state === 'skipped') ? (
+                                // Some fields unanswered — inline editor pre-populated from latest update
+                                <div className="mt-2">
+                                    <TaskUpdatePanel
+                                        task={task}
+                                        variant="inline"
+                                        canEdit={canWriteTaskProgress}
+                                        disabled={isReadOnly}
+                                        onFileUpload={handleResponseFileUpload}
+                                        onRequireAuth={onRequireTaskAuth}
+                                        onSubmit={
+                                            !isReadOnly
+                                                ? async (submission) => {
+                                                      await onTaskUpdate?.(task.id, {
+                                                          nextState: submission.nextState,
+                                                          note: submission.note,
+                                                          responseFieldValues: submission.responseFieldValues,
+                                                      });
+                                                  }
+                                                : undefined
+                                        }
+                                    />
+                                </div>
+                            ) : hasSubmittedResponse ? (
+                                // Partial responses exist — show what we have
+                                renderResponseSummary(latestEntry?.responseFieldValues)
+                            ) : null
                         ) : null}
+
                         {latestEntry?.note ? <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{latestEntry.note}</div> : null}
                         {latestEntry?.attachments?.length ? (
                             <AttachmentCollection attachments={latestEntry.attachments} className="mt-2" variant="compact" />
@@ -790,9 +833,9 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => openComposer(task, { intent: 'update' })}
+                                onClick={() => openComposer(task, { intent: 'details' })}
                             >
-                                Update
+                                Details
                             </Button>
                             {state === 'done' ? (
                                 <Button type="button" size="sm" variant="outline" onClick={() => onToggle(task.id, true)}>
@@ -1025,31 +1068,6 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                             )}
                                         </section>
 
-                                        {composerTask?.responseFields && composerTask.responseFields.length > 0 && effectiveMemberId ? (
-                                            <section className="rounded-2xl border border-purple-200 bg-white/90 p-4 shadow-sm">
-                                                <div className="mb-3 flex items-center gap-2">
-                                                    <h3 className="text-sm font-semibold text-slate-900">Response</h3>
-                                                    <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-700">
-                                                        {composerTask.responseFields.length} field{composerTask.responseFields.length !== 1 ? 's' : ''}
-                                                    </span>
-                                                </div>
-                                                <TaskUpdatePanel
-                                                    task={composerTask}
-                                                    variant="full"
-                                                    canEdit={canWriteTaskProgress}
-                                                    gradeTypes={gradeTypes}
-                                                    isParentReviewer={isParentReviewer}
-                                                    onSubmit={async (submission) => {
-                                                        await onTaskUpdate?.(composerTask.id, {
-                                                            nextState: submission.nextState,
-                                                            note: submission.note,
-                                                        });
-                                                    }}
-                                                    disabled={isReadOnly}
-                                                />
-                                            </section>
-                                        ) : null}
-
                                         {composerLatestEntry ? (
                                             <section className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1074,6 +1092,40 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                         {composerLatestEntry.note}
                                                     </div>
                                                 ) : null}
+                                                {/* Response field values from the latest update */}
+                                                {composerLatestEntry.responseFieldValues && composerLatestEntry.responseFieldValues.length > 0 && (
+                                                    <div className="mt-3 space-y-1.5">
+                                                        {composerLatestEntry.responseFieldValues.map((rfv: any, i: number) => {
+                                                            const rawField = rfv.field;
+                                                            const resolvedF = Array.isArray(rawField) ? rawField[0] : rawField;
+                                                            const fieldLabel = resolvedF?.label || '';
+                                                            const isGenericLabel = fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
+                                                            return (
+                                                                <div key={rfv.id || i} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+                                                                    {fieldLabel && !isGenericLabel ? (
+                                                                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{fieldLabel}</div>
+                                                                    ) : null}
+                                                                    {rfv.richTextContent && rfv.richTextContent !== '<p></p>' ? (
+                                                                        <div className="prose prose-sm mt-1 max-w-none text-sm text-slate-700" dangerouslySetInnerHTML={{ __html: rfv.richTextContent }} />
+                                                                    ) : null}
+                                                                    {rfv.fileUrl ? (
+                                                                        <div className="mt-1.5">
+                                                                            <AttachmentCollection
+                                                                                attachments={[{
+                                                                                    id: rfv.id || `rfv-${i}`,
+                                                                                    name: rfv.fileName || 'File',
+                                                                                    type: rfv.fileType || '',
+                                                                                    url: rfv.fileUrl,
+                                                                                }]}
+                                                                                variant="compact"
+                                                                            />
+                                                                        </div>
+                                                                    ) : null}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
                                                 {composerLatestEntry.attachments?.length ? (
                                                     <div className="mt-3">
                                                         <AttachmentThumbnailRow
@@ -1098,12 +1150,13 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                                             <div className="flex flex-wrap items-start justify-between gap-3">
                                                 <div>
-                                                    <h3 className="text-sm font-semibold text-slate-900">Update This Task</h3>
-                                                    <p className="mt-1 text-xs text-slate-500">Capture progress, blockers, review notes, or evidence from one place.</p>
+                                                    <h3 className="text-sm font-semibold text-slate-900">Update</h3>
+                                                    <p className="mt-1 text-xs text-slate-500">
+                                                        {composerTask?.responseFields?.length
+                                                            ? 'Respond, set status, and add notes in one step.'
+                                                            : 'Capture progress, blockers, or review notes.'}
+                                                    </p>
                                                 </div>
-                                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
-                                                    {modalIntent === 'update' ? 'Focused from Update' : 'Opened from title'}
-                                                </span>
                                             </div>
 
                                             {composerUpdateUnavailableReason ? (
@@ -1116,111 +1169,102 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                     ) : null}
                                                 </div>
                                             ) : (
-                                                <div className="mt-4 space-y-4">
-                                                    <div className="grid gap-4 md:grid-cols-[180px_minmax(0,1fr)] xl:grid-cols-1">
-                                                        <div className="space-y-2">
-                                                            <label className="text-sm font-medium text-slate-700">State</label>
-                                                            <select
-                                                                value={composerState}
-                                                                onChange={(event) => setComposerState(event.target.value as TaskWorkflowState)}
-                                                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                                            >
-                                                                {getComposerOptions(composerTask).map((state) => (
-                                                                    <option key={state} value={state}>
-                                                                        {getTaskStatusLabel(state)}
-                                                                    </option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-                                                        <div className="space-y-2">
-                                                            <label className="text-sm font-medium text-slate-700">Update Notes</label>
-                                                            <textarea
-                                                                ref={composerNoteRef}
-                                                                value={composerNote}
-                                                                onChange={(event) => setComposerNote(event.target.value)}
-                                                                placeholder={getTaskProgressPlaceholder(composerState)}
-                                                                rows={6}
-                                                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    {canRestoreFromComposer && restoreTargetState ? (
-                                                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                                                            <div className="text-sm font-medium text-amber-900">Restore With Context</div>
-                                                            <p className="mt-1 text-xs text-amber-800">
-                                                                Bring this task back to active work and include notes or files as part of the restore event.
-                                                            </p>
-                                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => {
-                                                                        setComposerState(restoreTargetState);
-                                                                        setComposerRestoreTiming('now');
-                                                                    }}
-                                                                >
-                                                                    Restore now
-                                                                </Button>
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => {
-                                                                        setComposerState(restoreTargetState);
-                                                                        setComposerRestoreTiming('next_scheduled');
-                                                                    }}
-                                                                >
-                                                                    Restore next scheduled day
-                                                                </Button>
-                                                            </div>
-                                                            {composerState === restoreTargetState ? (
-                                                                <div className="mt-3 space-y-2">
-                                                                    <label className="text-sm font-medium text-slate-700">Restore timing</label>
-                                                                    <select
-                                                                        value={composerRestoreTiming || 'now'}
-                                                                        onChange={(event) => setComposerRestoreTiming(event.target.value as TaskRestoreTiming)}
-                                                                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                <div className="mt-4">
+                                                    <TaskUpdatePanel
+                                                        task={composerTask}
+                                                        variant="full"
+                                                        canEdit={canWriteTaskProgress}
+                                                        disabled={isReadOnly}
+                                                        onFileUpload={handleResponseFileUpload}
+                                                        onSubmit={async (submission) => {
+                                                            setIsSubmittingComposer(true);
+                                                            try {
+                                                                await onTaskUpdate?.(composerTask.id, {
+                                                                    nextState: submission.nextState,
+                                                                    note: submission.note,
+                                                                    responseFieldValues: submission.responseFieldValues,
+                                                                    files: composerFiles,
+                                                                    restoreTiming: composerRestoreTiming,
+                                                                });
+                                                                closeComposer();
+                                                            } finally {
+                                                                setIsSubmittingComposer(false);
+                                                            }
+                                                        }}
+                                                    >
+                                                        {/* Restore With Context — shown inside the panel for blocked/skipped/needs_review tasks */}
+                                                        {canRestoreFromComposer && restoreTargetState ? (
+                                                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                                                                <div className="text-sm font-medium text-amber-900">Restore With Context</div>
+                                                                <p className="mt-1 text-xs text-amber-800">
+                                                                    Bring this task back to active work and include notes or files as part of the restore event.
+                                                                </p>
+                                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => setComposerRestoreTiming('now')}
                                                                     >
-                                                                        <option value="now">Return now</option>
-                                                                        <option value="next_scheduled">Return on the next scheduled day</option>
-                                                                    </select>
+                                                                        Restore now
+                                                                    </Button>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => setComposerRestoreTiming('next_scheduled')}
+                                                                    >
+                                                                        Restore next scheduled day
+                                                                    </Button>
                                                                 </div>
-                                                            ) : null}
-                                                        </div>
-                                                    ) : null}
-
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <label className="text-sm font-medium text-slate-700">Evidence</label>
-                                                            <label className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100">
-                                                                <Upload className="h-3.5 w-3.5" />
-                                                                Add files
-                                                                <input type="file" multiple className="hidden" onChange={handleComposerFileSelection} />
-                                                            </label>
-                                                        </div>
-                                                        {composerFiles.length > 0 ? (
-                                                            <div className="space-y-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3">
-                                                                {composerFiles.map((file, index) => (
-                                                                    <div key={`${file.name}-${index}`} className="flex items-center justify-between gap-3 text-sm text-slate-700">
-                                                                        <span className="truncate">{file.name}</span>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleRemovePendingFile(index)}
-                                                                            className="text-xs font-medium text-rose-600"
+                                                                {composerRestoreTiming ? (
+                                                                    <div className="mt-3 space-y-2">
+                                                                        <label className="text-sm font-medium text-slate-700">Restore timing</label>
+                                                                        <select
+                                                                            value={composerRestoreTiming}
+                                                                            onChange={(event) => setComposerRestoreTiming(event.target.value as TaskRestoreTiming)}
+                                                                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                                                         >
-                                                                            Remove
-                                                                        </button>
+                                                                            <option value="now">Return now</option>
+                                                                            <option value="next_scheduled">Return on the next scheduled day</option>
+                                                                        </select>
                                                                     </div>
-                                                                ))}
+                                                                ) : null}
                                                             </div>
-                                                        ) : (
-                                                            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
-                                                                Add photos, documents, voice notes, or video for this update.
+                                                        ) : null}
+
+                                                        {/* Evidence / file uploads */}
+                                                        <div className="space-y-2">
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Evidence</div>
+                                                                <label className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100">
+                                                                    <Upload className="h-3.5 w-3.5" />
+                                                                    Add files
+                                                                    <input type="file" multiple className="hidden" onChange={handleComposerFileSelection} />
+                                                                </label>
                                                             </div>
-                                                        )}
-                                                    </div>
+                                                            {composerFiles.length > 0 ? (
+                                                                <div className="space-y-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3">
+                                                                    {composerFiles.map((file, index) => (
+                                                                        <div key={`${file.name}-${index}`} className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                                                                            <span className="truncate">{file.name}</span>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleRemovePendingFile(index)}
+                                                                                className="text-xs font-medium text-rose-600"
+                                                                            >
+                                                                                Remove
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+                                                                    Add photos, documents, voice notes, or video for this update.
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </TaskUpdatePanel>
                                                 </div>
                                             )}
                                         </section>
@@ -1265,6 +1309,40 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                             {entry.restoreTiming === 'now' ? <span>returned immediately</span> : null}
                                                         </div>
                                                         {entry.note ? <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{entry.note}</div> : null}
+                                                        {/* Response field values */}
+                                                        {entry.responseFieldValues && entry.responseFieldValues.length > 0 && (
+                                                            <div className="mt-2 space-y-1.5">
+                                                                {entry.responseFieldValues.map((rfv: any, i: number) => {
+                                                                    const rawField = rfv.field;
+                                                                    const resolvedF = Array.isArray(rawField) ? rawField[0] : rawField;
+                                                                    const fieldLabel = resolvedF?.label || '';
+                                                                    const isGenericLabel = fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
+                                                                    return (
+                                                                        <div key={rfv.id || i} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+                                                                            {fieldLabel && !isGenericLabel ? (
+                                                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{fieldLabel}</div>
+                                                                            ) : null}
+                                                                            {rfv.richTextContent && rfv.richTextContent !== '<p></p>' ? (
+                                                                                <div className="prose prose-sm mt-1 max-w-none text-sm text-slate-700" dangerouslySetInnerHTML={{ __html: rfv.richTextContent }} />
+                                                                            ) : null}
+                                                                            {rfv.fileUrl ? (
+                                                                                <div className="mt-1.5">
+                                                                                    <AttachmentCollection
+                                                                                        attachments={[{
+                                                                                            id: rfv.id || `rfv-${i}`,
+                                                                                            name: rfv.fileName || 'File',
+                                                                                            type: rfv.fileType || '',
+                                                                                            url: rfv.fileUrl,
+                                                                                        }]}
+                                                                                        variant="compact"
+                                                                                    />
+                                                                                </div>
+                                                                            ) : null}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
                                                         {entry.attachments?.length ? (
                                                             <AttachmentCollection attachments={entry.attachments} className="mt-3" variant="compact" />
                                                         ) : null}
@@ -1276,22 +1354,10 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                 </section>
                             </div>
 
-                            <div className="flex flex-col gap-3 border-t border-slate-200 bg-white px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-                                <p className="text-xs text-slate-500">
-                                    {modalIntent === 'update'
-                                        ? 'You jumped straight into the update composer from the checklist.'
-                                        : 'Open this modal from either the task title or the Update button.'}
-                                </p>
-                                <div className="flex items-center justify-end gap-2">
-                                    <Button type="button" variant="outline" onClick={closeComposer} disabled={isSubmittingComposer}>
-                                        Close
-                                    </Button>
-                                    {!composerUpdateUnavailableReason ? (
-                                        <Button type="button" onClick={submitComposer} disabled={isSubmittingComposer || !composerHasPayload}>
-                                            {isSubmittingComposer ? 'Saving...' : 'Save update'}
-                                        </Button>
-                                    ) : null}
-                                </div>
+                            <div className="flex items-center justify-end border-t border-slate-200 bg-white px-6 py-4">
+                                <Button type="button" variant="outline" onClick={closeComposer} disabled={isSubmittingComposer}>
+                                    Close
+                                </Button>
                             </div>
                         </div>
                     ) : null}

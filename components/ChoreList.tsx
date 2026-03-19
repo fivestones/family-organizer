@@ -15,7 +15,7 @@ import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 import { useToast } from '@/components/ui/use-toast';
 import { getTaskSeriesProgress, hasScheduledChildren } from '@/lib/task-series-progress';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
-import { buildTaskUpdateTransactions } from '@/lib/task-update-mutations';
+import { buildTaskUpdateTransactions, type ResponseFieldValueInput } from '@/lib/task-update-mutations';
 import { getTaskBucketCounts, getTaskLastActiveState, isActionableTask, isTaskDone } from '@/lib/task-progress';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -274,6 +274,7 @@ function ChoreList({
             note?: string;
             files?: File[];
             restoreTiming?: 'now' | 'next_scheduled' | null;
+            responseFieldValues?: ResponseFieldValueInput[];
         },
         allTasks: Task[],
         chore: any,
@@ -306,6 +307,7 @@ function ChoreList({
                 },
                 referenceDate: safeSelectedDate,
                 attachments: uploadedAttachments,
+                responseFieldValues: input.responseFieldValues,
             });
 
             if (transactions.length === 0) return;

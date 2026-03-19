@@ -75,9 +75,20 @@ export const ResponseFieldInput: React.FC<Props> = ({
     };
 
     if (type === 'rich_text') {
+        // For rich text fields, the toolbar makes the type obvious. Hide the
+        // generic "Rich Text" label — but keep custom labels, descriptions,
+        // and the required badge visible.
+        const isGenericRichTextLabel =
+            label.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
+        const effectiveLabel = isGenericRichTextLabel ? '' : label;
+        const showHeader =
+            effectiveLabel.length > 0 || required || (description && description.trim().length > 0);
+
         return (
             <div className="space-y-2">
-                <FieldHeader type={type} label={label} description={description} required={required} />
+                {showHeader && (
+                    <FieldHeader type={type} label={effectiveLabel} description={description} required={required} />
+                )}
                 <RichTextEditor
                     content={richTextContent || ''}
                     onContentChange={(html) => onRichTextChange?.(html)}
@@ -162,7 +173,7 @@ function FieldHeader({
     return (
         <div>
             <div className="flex items-center gap-1.5">
-                <span className="text-sm font-medium text-slate-800">{label}</span>
+                {label ? <span className="text-sm font-medium text-slate-800">{label}</span> : null}
                 {required && (
                     <span className="text-xs font-medium text-rose-500">Required</span>
                 )}

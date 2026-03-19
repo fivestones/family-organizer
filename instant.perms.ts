@@ -338,7 +338,22 @@ const rules = {
     settings: PARENT_MUTABLE,
     taskAttachments: FAMILY_MUTABLE,
     taskResponseFieldValues: FAMILY_MUTABLE,
-    taskResponseFields: PARENT_MUTABLE,
+    taskResponseFields: {
+        bind: {
+            isParent: IS_PARENT,
+            isKid: IS_KID,
+            isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+        },
+        allow: {
+            view: 'isFamilyPrincipal',
+            create: 'isParent',
+            update: 'isParent',
+            delete: 'isParent',
+            // Kids need to link their response values to fields
+            link: { $default: 'isFamilyPrincipal' },
+            unlink: { $default: 'isParent' },
+        },
+    },
     tasks: FAMILY_MUTABLE,
     taskUpdateAttachments: FAMILY_MUTABLE,
     taskUpdates: FAMILY_MUTABLE,

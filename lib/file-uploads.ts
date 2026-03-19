@@ -290,3 +290,19 @@ export async function uploadFilesToS3(files: File[], createId: () => string): Pr
 
     return uploadedAttachments;
 }
+
+/**
+ * Uploads a single file to S3 and returns the URL, file name, and file type.
+ * Used by response field file inputs in TaskUpdatePanel.
+ */
+export async function uploadSingleFileToS3(
+    file: File
+): Promise<{ url: string; fileName: string; fileType: string }> {
+    const contentType = file.type || 'application/octet-stream';
+    const objectKey = await uploadBlobToS3(file, file.name, contentType);
+    return {
+        url: objectKey,
+        fileName: file.name,
+        fileType: contentType,
+    };
+}

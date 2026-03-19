@@ -10,6 +10,7 @@ import {
     getTaskWorkflowState,
     getTaskProgressPlaceholder,
     getLatestDraftUpdate,
+    getLatestTaskUpdate,
     type TaskWorkflowState,
     isTaskWorkflowState,
 } from '@/lib/task-progress';
@@ -78,6 +79,16 @@ interface Props {
     /** Called when a file needs uploading. Returns the URL. */
     onFileUpload?: (fieldId: string, file: File) => Promise<{ url: string; fileName: string; fileType: string }>;
     disabled?: boolean;
+    /**
+     * Extra content rendered before the submit button in the full variant.
+     * Useful for dialog-specific sections like restore timing or evidence uploads.
+     */
+    children?: React.ReactNode;
+    /**
+     * Called when the user requires authentication to proceed.
+     * Used by the inline variant to show auth prompts on button clicks.
+     */
+    onRequireAuth?: () => void;
 }
 
 // All possible target states
@@ -169,6 +180,8 @@ export const TaskUpdatePanel: React.FC<Props> = ({
     onAutoSave,
     onFileUpload,
     disabled,
+    children,
+    onRequireAuth,
 }) => {
     const currentState = getTaskWorkflowState(task) as TaskWorkflowState;
     const sortedFields = useMemo(
@@ -184,13 +197,19 @@ export const TaskUpdatePanel: React.FC<Props> = ({
     const [fieldValues, setFieldValues] = useState<Record<string, ResponseFieldValueInput>>({});
     const [uploadingFields, setUploadingFields] = useState<Set<string>>(new Set());
 
-    // Initialize from draft update (DB-side response field drafts)
+    // Initialize field values from the latest draft, or fall back to the
+    // latest non-draft update's response values so previously-submitted
+    // responses pre-populate the fields and can be edited/replaced.
     useEffect(() => {
         const draft = getLatestDraftUpdate(task);
-        if (draft?.responseFieldValues) {
+        const source = draft ?? (variant === 'inline' ? getLatestTaskUpdate(task) : null);
+        if (source?.responseFieldValues) {
             const initial: Record<string, ResponseFieldValueInput> = {};
-            for (const fv of draft.responseFieldValues) {
-                const fieldId = fv.field?.[0]?.id;
+            for (const fv of source.responseFieldValues) {
+                // has-one links may arrive as a single object or a 1-element array
+                const rawField = fv.field;
+                const resolved = Array.isArray(rawField) ? rawField[0] : rawField;
+                const fieldId = resolved?.id;
                 if (fieldId) {
                     initial[fieldId] = {
                         fieldId,
@@ -204,7 +223,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
             }
             setFieldValues(initial);
         }
-    }, [task]);
+    }, [task, variant]);
 
     // ---- Status picker state ----
     const [selectedState, setSelectedState] = useState<TaskWorkflowState>(() => {
@@ -426,8 +445,62 @@ export const TaskUpdatePanel: React.FC<Props> = ({
 
     const isDisabled = disabled || !canEdit;
 
+    // ---- Inline action helpers ----
+    const hasRequiredResponseFields = sortedFields.some((f) => f.required);
+
+    const handleInlineAction = useCallback(
+        async (nextState: TaskWorkflowState) => {
+            if (!onSubmit) return;
+            if (!canEdit) {
+                onRequireAuth?.();
+                return;
+            }
+
+            // Validate required fields for needs_review / done transitions
+            if (nextState === 'needs_review' || nextState === 'done') {
+                const inlineValidation = validateUpdateSubmission({
+                    toState: nextState,
+                    requiredResponseFields: sortedFields.filter((f) => f.required),
+                    filledFieldIds,
+                });
+                if (!inlineValidation.valid) {
+                    // Don't submit — validation message will show via state update
+                    setSelectedState(nextState);
+                    return;
+                }
+                // If done with required responses → route to needs_review
+                if (inlineValidation.routedState) {
+                    nextState = inlineValidation.routedState;
+                }
+            }
+
+            setIsSubmitting(true);
+            try {
+                const rfvs = Object.values(fieldValues);
+                await onSubmit({
+                    nextState,
+                    responseFieldValues: rfvs,
+                });
+                // Clear field values after successful inline submission
+                setFieldValues({});
+            } finally {
+                setIsSubmitting(false);
+            }
+        },
+        [onSubmit, canEdit, onRequireAuth, sortedFields, filledFieldIds, fieldValues]
+    );
+
     // ======= INLINE VARIANT (compact, for task card) =======
     if (variant === 'inline') {
+        // Inline validation for showing messages
+        const inlineValidation = hasResponseFields
+            ? validateUpdateSubmission({
+                  toState: selectedState,
+                  requiredResponseFields: sortedFields.filter((f) => f.required),
+                  filledFieldIds,
+              })
+            : null;
+
         return (
             <div className="space-y-3">
                 {sortedFields.map((field) => {
@@ -460,6 +533,76 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                         />
                     );
                 })}
+
+                {/* Inline validation message */}
+                {inlineValidation && !inlineValidation.valid && selectedState !== currentState && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+                        <div className="text-xs text-amber-800">{inlineValidation.message}</div>
+                    </div>
+                )}
+
+                {/* Inline action buttons — shown when onSubmit is provided */}
+                {onSubmit && !isDisabled && (
+                    <div className="flex flex-wrap gap-2">
+                        {currentState === 'not_started' && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={isSubmitting}
+                                onClick={() => handleInlineAction('in_progress')}
+                            >
+                                Start
+                            </Button>
+                        )}
+                        {currentState === 'in_progress' && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={isSubmitting}
+                                onClick={() => handleInlineAction('in_progress')}
+                            >
+                                Update
+                            </Button>
+                        )}
+                        {/* For blocked/skipped: "Update" saves response data without changing state */}
+                        {(currentState === 'blocked' || currentState === 'skipped') && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={isSubmitting}
+                                onClick={() => handleInlineAction(currentState)}
+                            >
+                                {isSubmitting ? 'Saving...' : 'Update'}
+                            </Button>
+                        )}
+                        {/* Active states: Submit or Done based on required response fields */}
+                        {(currentState === 'not_started' || currentState === 'in_progress') && (
+                            hasRequiredResponseFields ? (
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={isSubmitting}
+                                    onClick={() => handleInlineAction('needs_review')}
+                                >
+                                    {isSubmitting ? 'Submitting...' : 'Submit'}
+                                </Button>
+                            ) : (
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={isSubmitting}
+                                    onClick={() => handleInlineAction('done')}
+                                >
+                                    {isSubmitting ? 'Saving...' : 'Done'}
+                                </Button>
+                            )
+                        )}
+                    </div>
+                )}
             </div>
         );
     }
@@ -667,6 +810,9 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                     )}
                 </div>
             )}
+
+            {/* Extra content (e.g. restore timing, evidence uploads) */}
+            {children}
 
             {/* Submit button — always visible in full variant */}
             {canEdit && (

@@ -3,6 +3,11 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { AttachmentThumbnailRow } from '@/components/attachments/AttachmentThumbnail';
+import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
+import {
+    getAttachmentKind,
+    getProtectedAttachmentPath,
+} from '@family-organizer/shared-core';
 import {
     getTaskStatusLabel,
     getTaskUpdateActorName,
@@ -130,14 +135,23 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
 
                         {/* Response field values summary */}
                         {entry.responseFieldValues && entry.responseFieldValues.length > 0 && (
-                            <div className="mt-2 space-y-1">
+                            <div className="mt-2 space-y-1.5">
                                 {entry.responseFieldValues.map((fv) => {
-                                    const fieldLabel = fv.field?.[0]?.label || 'Response';
+                                    const rawField = fv.field;
+                                    const resolvedField = Array.isArray(rawField) ? rawField[0] : rawField;
+                                    const fieldLabel = resolvedField?.label || 'Response';
+                                    // Hide generic "Rich Text" labels
+                                    const isGenericLabel =
+                                        fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
+                                    const showLabel = !isGenericLabel;
+
                                     return (
                                         <div key={fv.id} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
-                                            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                                                {fieldLabel}
-                                            </div>
+                                            {showLabel && (
+                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                                    {fieldLabel}
+                                                </div>
+                                            )}
                                             {fv.richTextContent && (
                                                 <div
                                                     className="prose prose-sm mt-1 max-w-none text-slate-700"
@@ -145,11 +159,11 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
                                                 />
                                             )}
                                             {fv.fileUrl && (
-                                                <div className="mt-1 text-xs text-blue-600 underline">
-                                                    <a href={fv.fileUrl} target="_blank" rel="noopener noreferrer">
-                                                        {fv.fileName || 'View file'}
-                                                    </a>
-                                                </div>
+                                                <ResponseFieldFilePreview
+                                                    fileUrl={fv.fileUrl}
+                                                    fileName={fv.fileName}
+                                                    fileType={fv.fileType}
+                                                />
                                             )}
                                         </div>
                                     );
@@ -186,3 +200,67 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
         </div>
     );
 };
+
+// ---------------------------------------------------------------------------
+// Inline file preview for response field values
+// ---------------------------------------------------------------------------
+
+function ResponseFieldFilePreview({
+    fileUrl,
+    fileName,
+    fileType,
+}: {
+    fileUrl: string;
+    fileName?: string | null;
+    fileType?: string | null;
+}) {
+    const kind = getAttachmentKind({ type: fileType || '', url: fileUrl });
+    const resolvedUrl = getProtectedAttachmentPath(fileUrl);
+
+    if (kind === 'image') {
+        return (
+            <div className="mt-1.5">
+                <AttachmentCollection
+                    attachments={[{ id: fileUrl, name: fileName || 'Image', type: fileType || 'image/*', url: fileUrl }]}
+                    variant="compact"
+                />
+            </div>
+        );
+    }
+
+    if (kind === 'audio') {
+        return (
+            <div className="mt-1.5">
+                <AttachmentCollection
+                    attachments={[{ id: fileUrl, name: fileName || 'Audio', type: fileType || 'audio/*', url: fileUrl }]}
+                    variant="compact"
+                />
+            </div>
+        );
+    }
+
+    if (kind === 'video') {
+        return (
+            <div className="mt-1.5">
+                <AttachmentCollection
+                    attachments={[{ id: fileUrl, name: fileName || 'Video', type: fileType || 'video/*', url: fileUrl }]}
+                    variant="compact"
+                />
+            </div>
+        );
+    }
+
+    // Generic file (PDF, etc.) — render as a link
+    return (
+        <div className="mt-1 text-xs">
+            <a
+                href={resolvedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline hover:text-blue-800"
+            >
+                {fileName || 'View file'}
+            </a>
+        </div>
+    );
+}
