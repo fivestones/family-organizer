@@ -27,12 +27,14 @@ const KIND_LABELS: Record<GradeTypeKind, string> = {
     number: 'Number',
     letter: 'Letter',
     stars: 'Stars',
+    freeform: 'Freeform',
 };
 
 const KIND_PRESETS: Record<GradeTypeKind, { highValue: number; lowValue: number; highLabel: string; lowLabel: string; name: string }> = {
     number: { highValue: 100, lowValue: 0, highLabel: '100', lowLabel: '0', name: 'Percentage' },
     letter: { highValue: 100, lowValue: 0, highLabel: 'A+', lowLabel: 'F', name: 'Letter Grade' },
     stars: { highValue: 5, lowValue: 0, highLabel: '5 Stars', lowLabel: '0 Stars', name: '5-Star Rating' },
+    freeform: { highValue: 0, lowValue: 0, highLabel: '', lowLabel: '', name: 'Freeform Comment' },
 };
 
 function GradeTypeForm({

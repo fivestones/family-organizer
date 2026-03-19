@@ -15,7 +15,7 @@ import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 import { useToast } from '@/components/ui/use-toast';
 import { getTaskSeriesProgress, hasScheduledChildren } from '@/lib/task-series-progress';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
-import { buildTaskProgressUpdateTransactions } from '@/lib/task-progress-mutations';
+import { buildTaskUpdateTransactions } from '@/lib/task-update-mutations';
 import { getTaskBucketCounts, getTaskLastActiveState, isActionableTask, isTaskDone } from '@/lib/task-progress';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -235,7 +235,7 @@ function ChoreList({
         if (!targetTask) return;
 
         const nextState = currentStatus ? getTaskLastActiveState(targetTask) : 'done';
-        const transactions = buildTaskProgressUpdateTransactions({
+        const { transactions } = buildTaskUpdateTransactions({
             tx,
             createId: id,
             taskId,
@@ -243,9 +243,9 @@ function ChoreList({
             nextState,
             selectedDateKey: formattedSelectedDate,
             actorFamilyMemberId: currentUser.id,
+            affectedFamilyMemberId: series?.ownerId || currentUser.id,
             taskSeriesId: series?.id || null,
             choreId: chore.id,
-            affectedFamilyMemberIds: series?.ownerId ? [series.ownerId] : [],
             schedule: {
                 startDate: chore.startDate,
                 rrule: chore.rrule || null,
@@ -286,7 +286,7 @@ function ChoreList({
 
         try {
             const uploadedAttachments = input.files?.length ? await uploadProgressFiles(input.files) : [];
-            const transactions = buildTaskProgressUpdateTransactions({
+            const { transactions } = buildTaskUpdateTransactions({
                 tx,
                 createId: id,
                 taskId,
@@ -295,10 +295,10 @@ function ChoreList({
                 selectedDateKey: formattedSelectedDate,
                 note: input.note,
                 actorFamilyMemberId: currentUser.id,
+                affectedFamilyMemberId: series?.ownerId || currentUser.id,
                 restoreTiming: input.restoreTiming || null,
                 taskSeriesId: series?.id || null,
                 choreId: chore.id,
-                affectedFamilyMemberIds: series?.ownerId ? [series.ownerId] : [],
                 schedule: {
                     startDate: chore.startDate,
                     rrule: chore.rrule || null,
@@ -344,21 +344,21 @@ function ChoreList({
             const fields = (task as any).responseFields || [];
             const requiredFields = fields.filter((f: any) => f.required);
             if (requiredFields.length === 0) return false;
-            // Check if there's a submitted or graded response with all required fields filled
-            const responses = (task as any).responses || [];
-            const hasSubmitted = responses.some((r: any) => {
-                if (r.status !== 'submitted' && r.status !== 'graded') return false;
-                // Check all required fields have values
+            // Check if there's a non-draft update with all required response fields filled
+            const updates = (task as any).updates || [];
+            const hasSubmittedResponse = updates.some((u: any) => {
+                if (u.isDraft) return false;
+                const fieldValues = u.responseFieldValues || [];
                 return requiredFields.every((field: any) => {
-                    const value = (r.fieldValues || []).find((fv: any) =>
-                        fv.field?.some((f: any) => f.id === field.id)
+                    const value = fieldValues.find((fv: any) =>
+                        fv.field?.some?.((f: any) => f.id === field.id)
                     );
                     if (!value) return false;
                     if (field.type === 'rich_text') return !!value.richTextContent?.trim();
                     return !!value.fileUrl;
                 });
             });
-            return !hasSubmitted;
+            return !hasSubmittedResponse;
         }).map((t) => ({ id: t.id, text: t.text }));
     };
 
@@ -445,23 +445,11 @@ function ChoreList({
             if (!task) return true;
             const fields = (task as any).responseFields || [];
             const requiredFields = fields.filter((f: any) => f.required);
-            if (requiredFields.length === 0) return true;
-            const responses = (task as any).responses || [];
-            return responses.some((r: any) => {
-                if (r.status !== 'submitted' && r.status !== 'graded') return false;
-                return requiredFields.every((field: any) => {
-                    const value = (r.fieldValues || []).find((fv: any) =>
-                        fv.field?.some((f: any) => f.id === field.id)
-                    );
-                    if (!value) return false;
-                    if (field.type === 'rich_text') return !!value.richTextContent?.trim();
-                    return !!value.fileUrl;
-                });
-            });
+            return requiredFields.length === 0;
         });
 
         const transactions = completableTaskIds.flatMap((taskId) =>
-            buildTaskProgressUpdateTransactions({
+            buildTaskUpdateTransactions({
                 tx,
                 createId: id,
                 taskId,
@@ -469,16 +457,16 @@ function ChoreList({
                 nextState: 'done',
                 selectedDateKey: formattedSelectedDate,
                 actorFamilyMemberId: currentUser.id,
+                affectedFamilyMemberId: memberId || currentUser.id,
                 taskSeriesId: targetSeries?.id || null,
                 choreId,
-                affectedFamilyMemberIds: memberId ? [memberId] : [],
                 schedule: {
                     startDate: chore.startDate,
                     rrule: chore.rrule || null,
                     exdates: chore.exdates || null,
                 },
                 referenceDate: safeSelectedDate,
-            })
+            }).transactions
         );
 
         db.transact(transactions);

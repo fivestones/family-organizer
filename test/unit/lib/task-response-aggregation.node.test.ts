@@ -6,7 +6,7 @@ import {
 } from '@/lib/task-response-aggregation';
 
 const makeGradeType = (id = 'pct') => [
-    { id, kind: 'number', name: 'Percentage', highValue: 100 },
+    { id, kind: 'number', name: 'Percentage' },
 ];
 
 const makeTask = (
@@ -14,13 +14,13 @@ const makeTask = (
     overrides: {
         weight?: number;
         responseFields?: Array<{ id: string; required: boolean }>;
-        responses?: any[];
+        updates?: any[];
     } = {}
 ) => ({
     id,
     weight: overrides.weight,
     responseFields: overrides.responseFields || [{ id: `field-${id}`, required: true }],
-    responses: overrides.responses || [],
+    updates: overrides.updates || [],
 });
 
 describe('computeSeriesGrade', () => {
@@ -29,10 +29,10 @@ describe('computeSeriesGrade', () => {
         expect(computeSeriesGrade(tasks)).toBeNull();
     });
 
-    it('returns 0 graded count when no responses are graded', () => {
+    it('returns 0 graded count when no updates have grades', () => {
         const tasks = [
             makeTask('t1', {
-                responses: [{ id: 'r1', status: 'submitted', version: 1, grades: [] }],
+                updates: [{ id: 'u1', isDraft: false, toState: 'needs_review', createdAt: 1000 }],
             }),
         ];
         const result = computeSeriesGrade(tasks);
@@ -45,27 +45,29 @@ describe('computeSeriesGrade', () => {
         const tasks = [
             makeTask('t1', {
                 weight: 0,
-                responses: [
+                updates: [
                     {
-                        id: 'r1',
-                        status: 'graded',
-                        version: 1,
-                        grades: [
-                            { id: 'g1', numericValue: 80, displayValue: '80', gradeType: makeGradeType() },
-                        ],
+                        id: 'u1',
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 80,
+                        gradeDisplayValue: '80',
+                        gradeType: makeGradeType(),
+                        createdAt: 1000,
                     },
                 ],
             }),
             makeTask('t2', {
                 weight: 0,
-                responses: [
+                updates: [
                     {
-                        id: 'r2',
-                        status: 'graded',
-                        version: 1,
-                        grades: [
-                            { id: 'g2', numericValue: 90, displayValue: '90', gradeType: makeGradeType() },
-                        ],
+                        id: 'u2',
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 90,
+                        gradeDisplayValue: '90',
+                        gradeType: makeGradeType(),
+                        createdAt: 1000,
                     },
                 ],
             }),
@@ -80,27 +82,29 @@ describe('computeSeriesGrade', () => {
         const tasks = [
             makeTask('t1', {
                 weight: 2,
-                responses: [
+                updates: [
                     {
-                        id: 'r1',
-                        status: 'graded',
-                        version: 1,
-                        grades: [
-                            { id: 'g1', numericValue: 100, displayValue: '100', gradeType: makeGradeType() },
-                        ],
+                        id: 'u1',
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 100,
+                        gradeDisplayValue: '100',
+                        gradeType: makeGradeType(),
+                        createdAt: 1000,
                     },
                 ],
             }),
             makeTask('t2', {
                 weight: 1,
-                responses: [
+                updates: [
                     {
-                        id: 'r2',
-                        status: 'graded',
-                        version: 1,
-                        grades: [
-                            { id: 'g2', numericValue: 70, displayValue: '70', gradeType: makeGradeType() },
-                        ],
+                        id: 'u2',
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 70,
+                        gradeDisplayValue: '70',
+                        gradeType: makeGradeType(),
+                        createdAt: 1000,
                     },
                 ],
             }),
@@ -110,25 +114,27 @@ describe('computeSeriesGrade', () => {
         expect(result!.average).toBe(90);
     });
 
-    it('uses latest graded version when multiple exist', () => {
+    it('uses latest graded update when multiple exist', () => {
         const tasks = [
             makeTask('t1', {
-                responses: [
+                updates: [
                     {
-                        id: 'r1',
-                        status: 'graded',
-                        version: 1,
-                        grades: [
-                            { id: 'g1', numericValue: 60, displayValue: '60', gradeType: makeGradeType() },
-                        ],
+                        id: 'u1',
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 60,
+                        gradeDisplayValue: '60',
+                        gradeType: makeGradeType(),
+                        createdAt: 1000,
                     },
                     {
-                        id: 'r2',
-                        status: 'graded',
-                        version: 2,
-                        grades: [
-                            { id: 'g2', numericValue: 95, displayValue: '95', gradeType: makeGradeType() },
-                        ],
+                        id: 'u2',
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 95,
+                        gradeDisplayValue: '95',
+                        gradeType: makeGradeType(),
+                        createdAt: 2000,
                     },
                 ],
             }),
@@ -140,19 +146,20 @@ describe('computeSeriesGrade', () => {
     it('skips ungraded tasks in average', () => {
         const tasks = [
             makeTask('t1', {
-                responses: [
+                updates: [
                     {
-                        id: 'r1',
-                        status: 'graded',
-                        version: 1,
-                        grades: [
-                            { id: 'g1', numericValue: 80, displayValue: '80', gradeType: makeGradeType() },
-                        ],
+                        id: 'u1',
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 80,
+                        gradeDisplayValue: '80',
+                        gradeType: makeGradeType(),
+                        createdAt: 1000,
                     },
                 ],
             }),
             makeTask('t2', {
-                responses: [{ id: 'r2', status: 'submitted', version: 1, grades: [] }],
+                updates: [{ id: 'u2', isDraft: false, toState: 'needs_review', createdAt: 1000 }],
             }),
         ];
         const result = computeSeriesGrade(tasks);
@@ -161,37 +168,53 @@ describe('computeSeriesGrade', () => {
         expect(result!.totalGradable).toBe(2);
     });
 
-    it('averages per-field grades for a task', () => {
+    it('ignores provisional grades', () => {
         const tasks = [
             makeTask('t1', {
-                responseFields: [
-                    { id: 'f1', required: true },
-                    { id: 'f2', required: true },
-                ],
-                responses: [
+                updates: [
                     {
-                        id: 'r1',
-                        status: 'graded',
-                        version: 1,
-                        grades: [
-                            { id: 'g1', numericValue: 80, displayValue: '80', gradeType: makeGradeType(), field: [{ id: 'f1' }] },
-                            { id: 'g2', numericValue: 100, displayValue: '100', gradeType: makeGradeType(), field: [{ id: 'f2' }] },
-                        ],
+                        id: 'u1',
+                        isDraft: false,
+                        gradeIsProvisional: true,
+                        gradeNumericValue: 60,
+                        gradeDisplayValue: '60',
+                        gradeType: makeGradeType(),
+                        createdAt: 1000,
                     },
                 ],
             }),
         ];
         const result = computeSeriesGrade(tasks);
-        expect(result!.average).toBe(90);
+        expect(result!.gradedCount).toBe(0);
+    });
+
+    it('ignores draft updates with grades', () => {
+        const tasks = [
+            makeTask('t1', {
+                updates: [
+                    {
+                        id: 'u1',
+                        isDraft: true,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 80,
+                        gradeDisplayValue: '80',
+                        gradeType: makeGradeType(),
+                        createdAt: 1000,
+                    },
+                ],
+            }),
+        ];
+        const result = computeSeriesGrade(tasks);
+        expect(result!.gradedCount).toBe(0);
     });
 });
 
 describe('getNeedsReviewTasks', () => {
-    it('returns tasks with submitted responses', () => {
+    it('returns tasks whose latest non-draft update is needs_review', () => {
         const tasks = [
-            makeTask('t1', { responses: [{ id: 'r1', status: 'submitted', version: 1 }] }),
-            makeTask('t2', { responses: [{ id: 'r2', status: 'graded', version: 1 }] }),
-            makeTask('t3', { responses: [{ id: 'r3', status: 'draft', version: 1 }] }),
+            makeTask('t1', { updates: [{ id: 'u1', isDraft: false, toState: 'needs_review', createdAt: 1000 }] }),
+            makeTask('t2', { updates: [{ id: 'u2', isDraft: false, toState: 'done', createdAt: 1000 }] }),
+            makeTask('t3', { updates: [{ id: 'u3', isDraft: true, toState: 'needs_review', createdAt: 1000 }] }),
         ];
         const result = getNeedsReviewTasks(tasks);
         expect(result).toHaveLength(1);
@@ -203,24 +226,26 @@ describe('getRecentlyGradedTasks', () => {
     it('returns graded tasks sorted by most recent', () => {
         const tasks = [
             makeTask('t1', {
-                responses: [
+                updates: [
                     {
-                        id: 'r1',
-                        status: 'graded',
-                        version: 1,
-                        submittedAt: 1000,
-                        grades: [{ id: 'g1', numericValue: 90, displayValue: '90' }],
+                        id: 'u1',
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 90,
+                        gradeDisplayValue: '90',
+                        createdAt: 1000,
                     },
                 ],
             }),
             makeTask('t2', {
-                responses: [
+                updates: [
                     {
-                        id: 'r2',
-                        status: 'graded',
-                        version: 1,
-                        submittedAt: 2000,
-                        grades: [{ id: 'g2', numericValue: 85, displayValue: '85' }],
+                        id: 'u2',
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 85,
+                        gradeDisplayValue: '85',
+                        createdAt: 2000,
                     },
                 ],
             }),
@@ -234,13 +259,14 @@ describe('getRecentlyGradedTasks', () => {
     it('respects limit', () => {
         const tasks = Array.from({ length: 10 }, (_, i) =>
             makeTask(`t${i}`, {
-                responses: [
+                updates: [
                     {
-                        id: `r${i}`,
-                        status: 'graded',
-                        version: 1,
-                        submittedAt: i * 1000,
-                        grades: [{ id: `g${i}`, numericValue: 80, displayValue: '80' }],
+                        id: `u${i}`,
+                        isDraft: false,
+                        gradeIsProvisional: false,
+                        gradeNumericValue: 80,
+                        gradeDisplayValue: '80',
+                        createdAt: i * 1000,
                     },
                 ],
             })

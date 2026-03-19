@@ -1,25 +1,14 @@
 // lib/task-response-aggregation.ts
-// Utilities for computing series-level grades from individual task grades.
+// Utilities for computing series-level grades from individual task updates.
 
 import type { GradeTypeLike } from './task-response-types';
+import type { TaskUpdateLike } from './task-progress';
 
-interface TaskWithResponses {
+interface TaskWithUpdates {
     id: string;
     weight?: number;
     responseFields?: Array<{ id: string; required: boolean }>;
-    responses?: Array<{
-        id: string;
-        status: string;
-        version: number;
-        submittedAt?: number;
-        grades?: Array<{
-            id: string;
-            numericValue: number;
-            displayValue: string;
-            gradeType?: Array<{ id: string; kind: string; name: string; highValue?: number }>;
-            field?: Array<{ id: string }>;
-        }>;
-    }>;
+    updates?: TaskUpdateLike[];
 }
 
 export interface SeriesGradeResult {
@@ -36,15 +25,14 @@ export interface SeriesGradeResult {
 /**
  * Compute a series-level grade from an array of tasks.
  *
- * Rules:
- * - Only tasks that have response fields are "gradable".
- * - Only the latest submitted/graded response per task is considered.
- * - If all task weights are 0 (or undefined), use a simple average.
- * - Otherwise, weighted average by task weight.
- * - Per-task grade: if the response has per-field grades (field-linked), average them
- *   (using field weights if present). Otherwise, use the overall (non-field) grade.
+ * In the unified update model, grades are inline on taskUpdates:
+ * - `gradeNumericValue`, `gradeDisplayValue`, `gradeIsProvisional`
+ * - `gradeType` linked relation
+ *
+ * Only non-draft, non-provisional grades are considered.
+ * The latest (by createdAt) graded update per task is used.
  */
-export function computeSeriesGrade(tasks: TaskWithResponses[]): SeriesGradeResult | null {
+export function computeSeriesGrade(tasks: TaskWithUpdates[]): SeriesGradeResult | null {
     const gradable = tasks.filter((t) => t.responseFields && t.responseFields.length > 0);
     if (gradable.length === 0) return null;
 
@@ -55,65 +43,44 @@ export function computeSeriesGrade(tasks: TaskWithResponses[]): SeriesGradeResul
     const allWeightsZero = gradable.every((t) => !t.weight || t.weight === 0);
 
     for (const task of gradable) {
-        const responses = task.responses || [];
-        // Find the latest graded response
-        const gradedResponse = responses
-            .filter((r) => r.status === 'graded')
-            .sort((a, b) => (b.version || 0) - (a.version || 0))[0];
+        const updates = task.updates || [];
+        // Find the latest non-draft, non-provisional graded update
+        const gradedUpdate = updates
+            .filter(
+                (u) =>
+                    !u.isDraft &&
+                    !u.gradeIsProvisional &&
+                    u.gradeNumericValue != null &&
+                    u.gradeDisplayValue != null
+            )
+            .sort((a, b) => {
+                const aTime = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
+                const bTime = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
+                return bTime - aTime;
+            })[0];
 
-        if (!gradedResponse || !gradedResponse.grades?.length) continue;
+        if (!gradedUpdate || gradedUpdate.gradeNumericValue == null) continue;
 
         gradedCount++;
 
         // Detect grade type from first found grade
-        if (!detectedGradeType && gradedResponse.grades[0]?.gradeType?.[0]) {
-            const gt = gradedResponse.grades[0].gradeType[0];
+        if (!detectedGradeType && gradedUpdate.gradeType?.[0]) {
+            const gt = gradedUpdate.gradeType[0];
             detectedGradeType = {
-                id: gt.id,
-                name: gt.name,
-                kind: gt.kind,
-                highValue: gt.highValue || 100,
+                id: gt.id || '',
+                name: gt.name || '',
+                kind: gt.kind || 'number',
+                highValue: 100,
                 lowValue: 0,
-                highLabel: String(gt.highValue || 100),
+                highLabel: '100',
                 lowLabel: '0',
                 isDefault: false,
                 order: 0,
             };
         }
 
-        // Compute per-task grade
-        const fieldGrades = gradedResponse.grades.filter((g) => g.field?.length);
-        const overallGrades = gradedResponse.grades.filter((g) => !g.field?.length);
-
-        let taskGrade: number;
-
-        if (fieldGrades.length > 0) {
-            // Average field grades (weighted by response field weights if available)
-            const fields = task.responseFields || [];
-            const fieldWeightsUsed = fields.some((f: any) => f.weight > 0);
-
-            if (fieldWeightsUsed) {
-                let fwSum = 0;
-                let fwTotal = 0;
-                for (const fg of fieldGrades) {
-                    const fieldId = fg.field?.[0]?.id;
-                    const field = fields.find((f) => f.id === fieldId);
-                    const fw = (field as any)?.weight || 1;
-                    fwSum += fg.numericValue * fw;
-                    fwTotal += fw;
-                }
-                taskGrade = fwTotal > 0 ? fwSum / fwTotal : 0;
-            } else {
-                taskGrade = fieldGrades.reduce((sum, g) => sum + g.numericValue, 0) / fieldGrades.length;
-            }
-        } else if (overallGrades.length > 0) {
-            taskGrade = overallGrades[0].numericValue;
-        } else {
-            continue;
-        }
-
         const taskWeight = allWeightsZero ? 1 : (task.weight || 1);
-        weightedSum += taskGrade * taskWeight;
+        weightedSum += gradedUpdate.gradeNumericValue * taskWeight;
         weightTotal += taskWeight;
     }
 
@@ -135,45 +102,62 @@ export function computeSeriesGrade(tasks: TaskWithResponses[]): SeriesGradeResul
 }
 
 /**
- * Get tasks that are in "needs_review" status (have submitted responses pending grading).
+ * Get tasks that are in "needs_review" workflow state.
  */
-export function getNeedsReviewTasks(tasks: TaskWithResponses[]): TaskWithResponses[] {
+export function getNeedsReviewTasks(tasks: TaskWithUpdates[]): TaskWithUpdates[] {
     return tasks.filter((task) => {
-        const responses = task.responses || [];
-        return responses.some((r) => r.status === 'submitted');
+        const updates = task.updates || [];
+        const latestNonDraft = updates
+            .filter((u) => !u.isDraft)
+            .sort((a, b) => {
+                const aTime = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
+                const bTime = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
+                return bTime - aTime;
+            })[0];
+        return latestNonDraft?.toState === 'needs_review';
     });
 }
 
 /**
- * Get tasks that have been recently graded (have graded responses).
+ * Get tasks that have been recently graded (have non-provisional grades).
  */
 export function getRecentlyGradedTasks(
-    tasks: TaskWithResponses[],
+    tasks: TaskWithUpdates[],
     limit = 5
 ): Array<{
-    task: TaskWithResponses;
+    task: TaskWithUpdates;
     grade: { numericValue: number; displayValue: string };
     gradedAt: number;
 }> {
     const result: Array<{
-        task: TaskWithResponses;
+        task: TaskWithUpdates;
         grade: { numericValue: number; displayValue: string };
         gradedAt: number;
     }> = [];
 
     for (const task of tasks) {
-        const responses = task.responses || [];
-        const gradedResponse = responses
-            .filter((r) => r.status === 'graded')
-            .sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0))[0];
+        const updates = task.updates || [];
+        const gradedUpdate = updates
+            .filter(
+                (u) =>
+                    !u.isDraft &&
+                    !u.gradeIsProvisional &&
+                    u.gradeNumericValue != null &&
+                    u.gradeDisplayValue != null
+            )
+            .sort((a, b) => {
+                const aTime = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
+                const bTime = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
+                return bTime - aTime;
+            })[0];
 
-        if (!gradedResponse?.grades?.length) continue;
+        if (!gradedUpdate || gradedUpdate.gradeNumericValue == null || gradedUpdate.gradeDisplayValue == null) continue;
 
-        const grade = gradedResponse.grades[0];
+        const gradedAt = typeof gradedUpdate.createdAt === 'number' ? gradedUpdate.createdAt : new Date(gradedUpdate.createdAt || 0).getTime();
         result.push({
             task,
-            grade: { numericValue: grade.numericValue, displayValue: grade.displayValue },
-            gradedAt: gradedResponse.submittedAt || 0,
+            grade: { numericValue: gradedUpdate.gradeNumericValue, displayValue: gradedUpdate.gradeDisplayValue },
+            gradedAt,
         });
     }
 

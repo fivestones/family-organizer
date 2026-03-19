@@ -164,9 +164,11 @@ function FamilyOverviewDashboard({ onSwitchToPersonal }: { onSwitchToPersonal: (
                 tasks: {
                     parentTask: {},
                     responseFields: {},
-                    responses: {
-                        author: {},
-                        grades: { gradeType: {}, field: {} },
+                    updates: {
+                        actor: {},
+                        affectedPerson: {},
+                        gradeType: {},
+                        responseFieldValues: { field: {} },
                     },
                 },
                 familyMember: {},
@@ -405,23 +407,23 @@ function FamilyOverviewDashboard({ onSwitchToPersonal }: { onSwitchToPersonal: (
             }
         }
 
-        // Needs review count (tasks with submitted responses)
+        // Needs review count (tasks in needs_review workflow state)
         const needsReviewCount = allTasks.filter((task) =>
-            (task.responses || []).some((r: any) => r.status === 'submitted')
+            (task as any).workflowState === 'needs_review'
         ).length;
 
         // Recently graded tasks (max 5)
         const recentlyGraded: Array<{ taskText: string; grade: string; gradedAt: number }> = [];
         for (const task of allTasks) {
-            const responses = task.responses || [];
-            const graded = responses
-                .filter((r: any) => r.status === 'graded' && r.grades?.length)
-                .sort((a: any, b: any) => (b.submittedAt || 0) - (a.submittedAt || 0))[0];
-            if (!graded) continue;
+            const updates = (task as any).updates || [];
+            const gradedUpdate = updates
+                .filter((u: any) => !u.isDraft && !u.gradeIsProvisional && u.gradeDisplayValue)
+                .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+            if (!gradedUpdate) continue;
             recentlyGraded.push({
                 taskText: task.text || 'Task',
-                grade: graded.grades[0]?.displayValue || String(graded.grades[0]?.numericValue),
-                gradedAt: graded.submittedAt || 0,
+                grade: gradedUpdate.gradeDisplayValue || String(gradedUpdate.gradeNumericValue),
+                gradedAt: gradedUpdate.createdAt || 0,
             });
         }
         recentlyGraded.sort((a, b) => b.gradedAt - a.gradedAt);

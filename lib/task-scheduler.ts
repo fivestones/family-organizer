@@ -2,13 +2,13 @@
 import { toUTCDate } from './chore-utils';
 import { choreOccursOnDate, getChoreOccurrencesInRange } from './chore-schedule';
 import { id as createId, tx } from '@instantdb/react';
-import { buildTaskProgressUpdateTransactions } from '@/lib/task-progress-mutations';
+import { buildTaskUpdateTransactions } from '@/lib/task-update-mutations';
 import {
     getTaskWorkflowState,
     isActionableTask,
     isTaskDone,
     isTaskInActiveQueue,
-    type TaskProgressEntryLike,
+    type TaskUpdateLike,
     type TaskWorkflowState,
 } from '@/lib/task-progress';
 
@@ -32,7 +32,9 @@ export interface Task {
     workflowState?: TaskWorkflowState;
     lastActiveState?: string;
     deferredUntilDate?: string;
-    progressEntries?: TaskProgressEntryLike[];
+    notedUntilDate?: string;
+    isNotedIndefinitely?: boolean;
+    updates?: TaskUpdateLike[];
     responseFields?: Array<{
         id: string;
         type: string;
@@ -41,28 +43,6 @@ export interface Task {
         weight: number;
         required: boolean;
         order: number;
-    }>;
-    responses?: Array<{
-        id: string;
-        status: string;
-        version: number;
-        submittedAt?: number;
-        author?: Array<{ id: string; name?: string }>;
-        fieldValues?: Array<{
-            id: string;
-            richTextContent?: string;
-            fileUrl?: string;
-            fileName?: string;
-            fileType?: string;
-            field?: Array<{ id: string }>;
-        }>;
-        grades?: Array<{
-            id: string;
-            numericValue: number;
-            displayValue: string;
-            gradeType?: Array<{ id: string; kind: string; name: string }>;
-            field?: Array<{ id: string }>;
-        }>;
     }>;
 }
 
@@ -271,16 +251,18 @@ export function isSeriesActiveForDate(
     return allTasks.some((task) => isActionableTask(task, allTasks) && ['blocked', 'skipped', 'needs_review'].includes(getTaskWorkflowState(task)));
 }
 
-export function getRecursiveTaskCompletionTransactions(taskId: string, isCompleted: boolean, allTasks: Task[], completedOnDateStr: string): any[] {
+export function getRecursiveTaskCompletionTransactions(taskId: string, isCompleted: boolean, allTasks: Task[], completedOnDateStr: string, actorFamilyMemberId?: string, affectedFamilyMemberId?: string): any[] {
     const targetTask = allTasks.find((task) => task.id === taskId);
     const nextState = isCompleted ? 'done' : targetTask?.lastActiveState === 'in_progress' ? 'in_progress' : 'not_started';
 
-    return buildTaskProgressUpdateTransactions({
+    return buildTaskUpdateTransactions({
         tx,
         taskId,
         allTasks,
         nextState,
         selectedDateKey: completedOnDateStr,
         createId,
-    });
+        actorFamilyMemberId: actorFamilyMemberId || '',
+        affectedFamilyMemberId: affectedFamilyMemberId || '',
+    }).transactions;
 }

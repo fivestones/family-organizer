@@ -4,18 +4,11 @@
 export const RESPONSE_FIELD_TYPES = ['rich_text', 'photo', 'video', 'audio', 'file'] as const;
 export type TaskResponseFieldType = (typeof RESPONSE_FIELD_TYPES)[number];
 
-export const RESPONSE_STATUSES = ['draft', 'submitted', 'revision_requested', 'graded'] as const;
-export type TaskResponseStatus = (typeof RESPONSE_STATUSES)[number];
-
-export const GRADE_TYPE_KINDS = ['number', 'letter', 'stars'] as const;
+export const GRADE_TYPE_KINDS = ['number', 'letter', 'stars', 'freeform'] as const;
 export type GradeTypeKind = (typeof GRADE_TYPE_KINDS)[number];
 
 export function isResponseFieldType(value: unknown): value is TaskResponseFieldType {
     return typeof value === 'string' && (RESPONSE_FIELD_TYPES as readonly string[]).includes(value);
-}
-
-export function isResponseStatus(value: unknown): value is TaskResponseStatus {
-    return typeof value === 'string' && (RESPONSE_STATUSES as readonly string[]).includes(value);
 }
 
 export function isGradeTypeKind(value: unknown): value is GradeTypeKind {
@@ -51,15 +44,6 @@ export interface TaskResponseFieldLike {
     order: number;
 }
 
-export interface TaskResponseLike {
-    id: string;
-    status: string;
-    version: number;
-    submittedAt?: number | null;
-    createdAt: number;
-    updatedAt: number;
-}
-
 export interface TaskResponseFieldValueLike {
     id: string;
     richTextContent?: string | null;
@@ -68,13 +52,6 @@ export interface TaskResponseFieldValueLike {
     fileType?: string | null;
     fileSizeBytes?: number | null;
     thumbnailUrl?: string | null;
-}
-
-export interface TaskResponseGradeLike {
-    id: string;
-    numericValue: number;
-    displayValue: string;
-    createdAt: number;
 }
 
 export const RESPONSE_FIELD_TYPE_LABELS: Record<TaskResponseFieldType, string> = {

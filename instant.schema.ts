@@ -385,7 +385,7 @@ const _schema = i.schema({
             waveformPeaks: i.json().optional(),
             width: i.number().optional(),
         }),
-        taskProgressAttachments: i.entity({
+        taskUpdateAttachments: i.entity({
             blurhash: i.string().optional(),
             createdAt: i.string().indexed(),
             durationSec: i.number().optional(),
@@ -402,14 +402,18 @@ const _schema = i.schema({
             waveformPeaks: i.json().optional(),
             width: i.number().optional(),
         }),
-        taskProgressEntries: i.entity({
-            actorFamilyMemberId: i.string().indexed().optional(),
-            createdAt: i.string().indexed(),
+        taskUpdates: i.entity({
+            createdAt: i.number().indexed(),
             fromState: i.string().indexed(),
+            gradeDisplayValue: i.string().optional(),
+            gradeIsProvisional: i.boolean().optional(),
+            gradeNumericValue: i.number().optional(),
+            isDraft: i.boolean().optional().indexed(),
             note: i.string().optional(),
             restoreTiming: i.string().optional(),
             scheduledForDate: i.string().indexed(),
             toState: i.string().indexed(),
+            updatedAt: i.number().indexed(),
         }),
         tasks: i.entity({
             createdAt: i.date().optional(),
@@ -429,28 +433,8 @@ const _schema = i.schema({
             updatedAt: i.date().optional(),
             weight: i.number().optional(),
             workflowState: i.string().optional().indexed(),
-        }),
-        taskResponseFeedback: i.entity({
-            createdAt: i.number().indexed(),
-            text: i.string().optional(),
-            updatedAt: i.number().indexed(),
-        }),
-        taskResponseFeedbackAttachments: i.entity({
-            blurhash: i.string().optional(),
-            createdAt: i.number().indexed(),
-            durationSec: i.number().optional(),
-            height: i.number().optional(),
-            kind: i.string().optional(),
-            name: i.string(),
-            sizeBytes: i.number().optional(),
-            thumbnailHeight: i.number().optional(),
-            thumbnailUrl: i.string().optional(),
-            thumbnailWidth: i.number().optional(),
-            type: i.string(),
-            updatedAt: i.number().indexed(),
-            url: i.string(),
-            waveformPeaks: i.json().optional(),
-            width: i.number().optional(),
+            notedUntilDate: i.string().optional().indexed(),
+            isNotedIndefinitely: i.boolean().optional().indexed(),
         }),
         taskResponseFieldValues: i.entity({
             createdAt: i.number().indexed(),
@@ -471,19 +455,6 @@ const _schema = i.schema({
             type: i.string().indexed(),
             updatedAt: i.number().indexed(),
             weight: i.number(),
-        }),
-        taskResponseGrades: i.entity({
-            createdAt: i.number().indexed(),
-            displayValue: i.string(),
-            numericValue: i.number(),
-            updatedAt: i.number().indexed(),
-        }),
-        taskResponses: i.entity({
-            createdAt: i.number().indexed(),
-            status: i.string().indexed(),
-            submittedAt: i.number().optional().indexed(),
-            updatedAt: i.number().indexed(),
-            version: i.number(),
         }),
         taskSeries: i.entity({
             baselineDayBreakCount: i.number().optional(),
@@ -819,16 +790,28 @@ const _schema = i.schema({
                 label: 'familyMember',
             },
         },
-        familyMembersTaskProgressEntries: {
+        familyMembersActedTaskUpdates: {
             forward: {
                 on: 'familyMembers',
                 has: 'many',
-                label: 'taskProgressEntries',
+                label: 'actedTaskUpdates',
             },
             reverse: {
-                on: 'taskProgressEntries',
+                on: 'taskUpdates',
                 has: 'one',
                 label: 'actor',
+            },
+        },
+        familyMembersAffectedTaskUpdates: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'affectedTaskUpdates',
+            },
+            reverse: {
+                on: 'taskUpdates',
+                has: 'one',
+                label: 'affectedPerson',
             },
         },
         historyEventsAttachments: {
@@ -939,28 +922,41 @@ const _schema = i.schema({
                 label: 'task',
             },
         },
-        taskProgressEntriesAttachments: {
+        taskUpdatesAttachments: {
             forward: {
-                on: 'taskProgressEntries',
+                on: 'taskUpdates',
                 has: 'many',
                 label: 'attachments',
             },
             reverse: {
-                on: 'taskProgressAttachments',
+                on: 'taskUpdateAttachments',
                 has: 'one',
-                label: 'entry',
+                label: 'update',
+                onDelete: 'cascade',
             },
         },
-        taskProgressEntriesTask: {
+        taskUpdatesTask: {
             forward: {
-                on: 'taskProgressEntries',
+                on: 'taskUpdates',
                 has: 'one',
                 label: 'task',
             },
             reverse: {
                 on: 'tasks',
                 has: 'many',
-                label: 'progressEntries',
+                label: 'updates',
+            },
+        },
+        taskUpdatesGradeType: {
+            forward: {
+                on: 'taskUpdates',
+                has: 'one',
+                label: 'gradeType',
+            },
+            reverse: {
+                on: 'gradeTypes',
+                has: 'many',
+                label: 'taskUpdates',
             },
         },
         tasksParentTask: {
@@ -987,44 +983,6 @@ const _schema = i.schema({
                 label: 'subsequentTasks',
             },
         },
-        taskResponseFeedbackAttachmentsFeedback: {
-            forward: {
-                on: 'taskResponseFeedbackAttachments',
-                has: 'one',
-                label: 'feedback',
-                onDelete: 'cascade',
-            },
-            reverse: {
-                on: 'taskResponseFeedback',
-                has: 'many',
-                label: 'attachments',
-            },
-        },
-        taskResponseFeedbackAuthor: {
-            forward: {
-                on: 'taskResponseFeedback',
-                has: 'one',
-                label: 'author',
-            },
-            reverse: {
-                on: 'familyMembers',
-                has: 'many',
-                label: 'responseFeedback',
-            },
-        },
-        taskResponseFeedbackGrade: {
-            forward: {
-                on: 'taskResponseFeedback',
-                has: 'one',
-                label: 'grade',
-                onDelete: 'cascade',
-            },
-            reverse: {
-                on: 'taskResponseGrades',
-                has: 'many',
-                label: 'feedback',
-            },
-        },
         taskResponseFieldValuesField: {
             forward: {
                 on: 'taskResponseFieldValues',
@@ -1037,17 +995,17 @@ const _schema = i.schema({
                 label: 'values',
             },
         },
-        taskResponseFieldValuesResponse: {
+        taskResponseFieldValuesUpdate: {
             forward: {
                 on: 'taskResponseFieldValues',
                 has: 'one',
-                label: 'response',
+                label: 'update',
                 onDelete: 'cascade',
             },
             reverse: {
-                on: 'taskResponses',
+                on: 'taskUpdates',
                 has: 'many',
-                label: 'fieldValues',
+                label: 'responseFieldValues',
             },
         },
         taskResponseFieldsTask: {
@@ -1060,79 +1018,6 @@ const _schema = i.schema({
                 on: 'tasks',
                 has: 'many',
                 label: 'responseFields',
-            },
-        },
-        taskResponseGradesField: {
-            forward: {
-                on: 'taskResponseGrades',
-                has: 'one',
-                label: 'field',
-            },
-            reverse: {
-                on: 'taskResponseFields',
-                has: 'many',
-                label: 'grades',
-            },
-        },
-        taskResponseGradesGradeType: {
-            forward: {
-                on: 'taskResponseGrades',
-                has: 'one',
-                label: 'gradeType',
-            },
-            reverse: {
-                on: 'gradeTypes',
-                has: 'many',
-                label: 'grades',
-            },
-        },
-        taskResponseGradesGrader: {
-            forward: {
-                on: 'taskResponseGrades',
-                has: 'one',
-                label: 'grader',
-            },
-            reverse: {
-                on: 'familyMembers',
-                has: 'many',
-                label: 'gradesGiven',
-            },
-        },
-        taskResponseGradesResponse: {
-            forward: {
-                on: 'taskResponseGrades',
-                has: 'one',
-                label: 'response',
-                onDelete: 'cascade',
-            },
-            reverse: {
-                on: 'taskResponses',
-                has: 'many',
-                label: 'grades',
-            },
-        },
-        taskResponsesAuthor: {
-            forward: {
-                on: 'taskResponses',
-                has: 'one',
-                label: 'author',
-            },
-            reverse: {
-                on: 'familyMembers',
-                has: 'many',
-                label: 'taskResponses',
-            },
-        },
-        taskResponsesTask: {
-            forward: {
-                on: 'taskResponses',
-                has: 'one',
-                label: 'task',
-            },
-            reverse: {
-                on: 'tasks',
-                has: 'many',
-                label: 'responses',
             },
         },
         taskSeriesFamilyMember: {

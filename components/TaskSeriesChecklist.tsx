@@ -6,22 +6,22 @@ import { ClipboardList, RotateCcw, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
-import { TaskResponseComposer } from '@/components/responses/TaskResponseComposer';
-import { GradingPanel } from '@/components/responses/GradingPanel';
+import { AttachmentThumbnailRow } from '@/components/attachments/AttachmentThumbnail';
+import { TaskUpdatePanel, type TaskUpdatePanelSubmission } from '@/components/task-updates/TaskUpdatePanel';
 import { FocusOverlay } from '@/components/responses/FocusOverlay';
 import type { FocusPanelItem, FocusPanelState, FocusableItem } from '@/components/responses/focus-panel-types';
 import type { GradeTypeLike } from '@/lib/task-response-types';
 import {
     getBucketedTasks,
-    getLatestTaskProgressEntry,
-    getTaskActorName,
+    getLatestTaskUpdate,
+    getTaskUpdateActorName,
     getTaskLastActiveState,
     getTaskProgressPlaceholder,
     getTaskStatusLabel,
     getTaskWorkflowState,
     isActionableTask,
     isTaskDone,
-    sortTaskProgressEntries,
+    sortTaskUpdates,
     type TaskBucketState,
     type TaskRestoreTiming,
     type TaskWorkflowState,
@@ -88,7 +88,7 @@ const statusToneClassName: Record<TaskWorkflowState, string> = {
 
 type TaskModalIntent = 'details' | 'update';
 
-const formatDateTimeLabel = (value: string | Date | null | undefined) => {
+const formatDateTimeLabel = (value: number | string | Date | null | undefined) => {
     if (!value) return null;
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return null;
@@ -230,8 +230,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const bucketedTasks = useMemo(() => {
         const sorted = (state: TaskBucketState) =>
             getBucketedTasks(allTasks, state).sort((left, right) => {
-                const leftEntry = getLatestTaskProgressEntry(left);
-                const rightEntry = getLatestTaskProgressEntry(right);
+                const leftEntry = getLatestTaskUpdate(left);
+                const rightEntry = getLatestTaskUpdate(right);
                 const leftTime = leftEntry?.createdAt ? new Date(leftEntry.createdAt).getTime() : 0;
                 const rightTime = rightEntry?.createdAt ? new Date(rightEntry.createdAt).getTime() : 0;
                 if (rightTime !== leftTime) return rightTime - leftTime;
@@ -257,8 +257,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const restoreTargetState = composerTask ? getTaskLastActiveState(composerTask) : null;
     const composerTaskMeta = composerTask ? getTaskContextMeta(composerTask, allTasks) : null;
     const composerTaskAttachments = composerTask ? ((composerTask as any).attachments || []) : [];
-    const composerLatestEntry = composerTask ? getLatestTaskProgressEntry(composerTask) : null;
-    const composerHistoryEntries = composerTask ? sortTaskProgressEntries(composerTask.progressEntries) : [];
+    const composerLatestEntry = composerTask ? getLatestTaskUpdate(composerTask) : null;
+    const composerHistoryEntries = composerTask ? sortTaskUpdates(composerTask.updates) : [];
     const canSubmitComposer = Boolean(onTaskUpdate && composerTaskIsActionable && !isReadOnly && canWriteTaskProgress);
     const trimmedComposerNote = composerNote.trim();
     const composerHasPayload = composerTask
@@ -331,17 +331,17 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
             const field = fields?.find((f) => f.id === fieldId);
             if (!field) return null;
             if (field.type === 'rich_text') {
-                // Get current draft value
-                const responses = (composerTask as any).responses as Array<{ status: string; fieldValues?: Array<{ field?: { id: string }; richTextContent?: string | null }> }> | undefined;
-                const draft = responses?.find((r) => r.status === 'draft');
-                const fv = draft?.fieldValues?.find((v) => v.field?.id === fieldId);
+                // Get current draft value from updates
+                const updates = (composerTask as any).updates as Array<{ isDraft?: boolean; responseFieldValues?: Array<{ field?: Array<{ id: string }>; richTextContent?: string | null }> }> | undefined;
+                const draft = updates?.find((u) => u.isDraft);
+                const fv = draft?.responseFieldValues?.find((v) => v.field?.[0]?.id === fieldId);
                 return {
                     kind: 'rich_text',
                     fieldId,
                     label: field.label,
                     taskId: composerTask.id,
                     content: fv?.richTextContent || '',
-                    onContentChange: () => {}, // The RichTextEditor in the overlay uses the same auto-save through TaskResponseComposer
+                    onContentChange: () => {}, // The RichTextEditor in the overlay uses the same auto-save through TaskUpdatePanel
                 };
             }
             return null;
@@ -546,26 +546,26 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         const fields = task.responseFields;
         if (!fields || fields.length === 0) return null;
 
-        const responses = task.responses || [];
-        const hasSubmitted = responses.some((r) => r.status === 'submitted' || r.status === 'graded');
-        const hasGraded = responses.some((r) => r.status === 'graded');
-        const hasDraft = responses.some((r) => r.status === 'draft');
-        const hasRevisionRequested = responses.some((r) => r.status === 'revision_requested');
+        const updates = task.updates || [];
+        const nonDraftUpdates = updates.filter((u) => !u.isDraft);
+        const hasDraftUpdate = updates.some((u) => u.isDraft);
+        const hasGrade = nonDraftUpdates.some((u) => u.gradeDisplayValue && !u.gradeIsProvisional);
+        const taskState = getTaskWorkflowState(task);
         const requiredCount = fields.filter((f) => f.required).length;
 
         let label: string;
         let badgeClass: string;
 
-        if (hasGraded) {
+        if (hasGrade && taskState === 'done') {
             label = 'Graded';
             badgeClass = 'border-emerald-200 bg-emerald-50 text-emerald-700';
-        } else if (hasSubmitted) {
-            label = 'Submitted';
+        } else if (taskState === 'needs_review') {
+            label = 'Needs review';
             badgeClass = 'border-amber-200 bg-amber-50 text-amber-700';
-        } else if (hasRevisionRequested) {
+        } else if (taskState === 'in_progress' && nonDraftUpdates.some((u) => u.toState === 'in_progress' && u.fromState === 'needs_review')) {
             label = 'Revision requested';
             badgeClass = 'border-rose-200 bg-rose-50 text-rose-700';
-        } else if (hasDraft) {
+        } else if (hasDraftUpdate) {
             label = 'Draft response';
             badgeClass = 'border-slate-200 bg-slate-50 text-slate-600';
         } else {
@@ -589,10 +589,10 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     };
 
     const renderProgressMeta = (task: Task) => {
-        const latestEntry = getLatestTaskProgressEntry(task);
+        const latestEntry = getLatestTaskUpdate(task);
         if (!latestEntry) return null;
 
-        const actorName = getTaskActorName(latestEntry, familyMemberNamesById);
+        const actorName = getTaskUpdateActorName(latestEntry);
         const createdAt = latestEntry.createdAt ? new Date(latestEntry.createdAt).toLocaleString() : null;
         const attachmentCount = latestEntry.attachments?.length || 0;
 
@@ -604,9 +604,25 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                     </span>
                     {actorName ? <span>by {actorName}</span> : null}
                     {createdAt ? <span>{createdAt}</span> : null}
-                    {attachmentCount > 0 ? <span>{attachmentCount} attachment{attachmentCount === 1 ? '' : 's'}</span> : null}
                 </div>
                 {latestEntry.note ? <div className="mt-1 whitespace-pre-wrap text-xs text-slate-700">{latestEntry.note}</div> : null}
+                {latestEntry.attachments && latestEntry.attachments.length > 0 && (
+                    <div className="mt-1.5">
+                        <AttachmentThumbnailRow
+                            attachments={latestEntry.attachments.map((a: any) => ({
+                                id: a.id || '',
+                                name: a.name || '',
+                                type: a.type || '',
+                                url: a.url || '',
+                                thumbnailUrl: a.thumbnailUrl || null,
+                                durationSec: a.durationSec || null,
+                                waveformPeaks: a.waveformPeaks || null,
+                            }))}
+                            size={36}
+                            maxVisible={3}
+                        />
+                    </div>
+                )}
             </div>
         );
     };
@@ -679,16 +695,11 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                     {/* Inline response fields — shown directly in the card */}
                     {task.responseFields && task.responseFields.length > 0 && effectiveMemberId ? (
                         <div className="mt-3">
-                            <TaskResponseComposer
-                                taskId={task.id}
-                                responseFields={task.responseFields as any}
-                                responses={(task.responses || []) as any}
-                                currentMemberId={effectiveMemberId}
-                                currentMemberName={currentMemberName || familyMemberNamesById?.[effectiveMemberId]}
-                                isParentReviewer={isParentReviewer}
-                                allTasks={allTasks}
-                                selectedDateKey={selectedDateKey}
-                                onExpandField={handleExpandField}
+                            <TaskUpdatePanel
+                                task={task}
+                                variant="inline"
+                                canEdit={canWriteTaskProgress}
+                                disabled={!canMutate}
                             />
                         </div>
                     ) : task.responseFields && task.responseFields.length > 0 && !effectiveMemberId ? (
@@ -732,8 +743,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     };
 
     const renderBucketTaskRow = (task: Task, state: TaskBucketState) => {
-        const latestEntry = getLatestTaskProgressEntry(task);
-        const actorName = getTaskActorName(latestEntry, familyMemberNamesById);
+        const latestEntry = getLatestTaskUpdate(task);
+        const actorName = getTaskUpdateActorName(latestEntry);
         const createdAt = formatDateTimeLabel(latestEntry?.createdAt);
 
         return (
@@ -758,16 +769,11 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                         </div>
                         {task.responseFields && task.responseFields.length > 0 && effectiveMemberId ? (
                             <div className="mt-2">
-                                <TaskResponseComposer
-                                    taskId={task.id}
-                                    responseFields={task.responseFields as any}
-                                    responses={(task.responses || []) as any}
-                                    currentMemberId={effectiveMemberId}
-                                    currentMemberName={currentMemberName || familyMemberNamesById?.[effectiveMemberId]}
-                                    isParentReviewer={isParentReviewer}
-                                    allTasks={allTasks}
-                                    selectedDateKey={selectedDateKey}
-                                    onExpandField={handleExpandField}
+                                <TaskUpdatePanel
+                                    task={task}
+                                    variant="inline"
+                                    canEdit={canWriteTaskProgress}
+                                    disabled={isReadOnly}
                                 />
                             </div>
                         ) : task.responseFields && task.responseFields.length > 0 ? (
@@ -822,7 +828,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         );
     };
 
-    const composerLatestActorName = getTaskActorName(composerLatestEntry, familyMemberNamesById);
+    const composerLatestActorName = getTaskUpdateActorName(composerLatestEntry);
     const composerLatestCreatedAt = formatDateTimeLabel(composerLatestEntry?.createdAt);
     const composerScheduledForDate = formatDateKeyLabel(composerLatestEntry?.scheduledForDate || composerTask?.completedOnDate || null);
     const composerDeferredUntilDate = formatDateKeyLabel(composerTask?.deferredUntilDate || null);
@@ -1027,38 +1033,20 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                         {composerTask.responseFields.length} field{composerTask.responseFields.length !== 1 ? 's' : ''}
                                                     </span>
                                                 </div>
-                                                <TaskResponseComposer
-                                                    taskId={composerTask.id}
-                                                    responseFields={composerTask.responseFields as any}
-                                                    responses={(composerTask.responses || []) as any}
-                                                    currentMemberId={effectiveMemberId}
-                                                    currentMemberName={currentMemberName || familyMemberNamesById?.[effectiveMemberId]}
+                                                <TaskUpdatePanel
+                                                    task={composerTask}
+                                                    variant="full"
+                                                    canEdit={canWriteTaskProgress}
+                                                    gradeTypes={gradeTypes}
                                                     isParentReviewer={isParentReviewer}
-                                                    allTasks={allTasks}
-                                                    selectedDateKey={selectedDateKey}
-                                                    onExpandField={handleExpandField}
+                                                    onSubmit={async (submission) => {
+                                                        await onTaskUpdate?.(composerTask.id, {
+                                                            nextState: submission.nextState,
+                                                            note: submission.note,
+                                                        });
+                                                    }}
+                                                    disabled={isReadOnly}
                                                 />
-                                                {/* Grading panel for parent reviewers */}
-                                                {isParentReviewer && gradeTypes.length > 0 && (() => {
-                                                    const responses = (composerTask.responses || []) as any[];
-                                                    const latestSubmitted = responses
-                                                        .filter((r: any) => r.status === 'submitted' || r.status === 'graded')
-                                                        .sort((a: any, b: any) => (b.submittedAt || 0) - (a.submittedAt || 0))[0];
-                                                    if (!latestSubmitted) return null;
-                                                    return (
-                                                        <div className="mt-4 border-t border-purple-100 pt-4">
-                                                            <GradingPanel
-                                                                taskId={composerTask.id}
-                                                                response={latestSubmitted}
-                                                                responseFields={composerTask.responseFields as any}
-                                                                gradeTypes={gradeTypes}
-                                                                currentMemberId={effectiveMemberId}
-                                                                allTasks={allTasks}
-                                                                selectedDateKey={selectedDateKey}
-                                                            />
-                                                        </div>
-                                                    );
-                                                })()}
                                             </section>
                                         ) : null}
 
@@ -1080,9 +1068,6 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                     >
                                                         {getTaskStatusLabel(getTaskWorkflowState(composerTask))}
                                                     </span>
-                                                    {composerLatestEntry.attachments?.length ? (
-                                                        <span>{composerLatestEntry.attachments.length} attachment{composerLatestEntry.attachments.length === 1 ? '' : 's'}</span>
-                                                    ) : null}
                                                 </div>
                                                 {composerLatestEntry.note ? (
                                                     <div className="mt-3 whitespace-pre-wrap rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-sm text-slate-700">
@@ -1090,8 +1075,19 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                     </div>
                                                 ) : null}
                                                 {composerLatestEntry.attachments?.length ? (
-                                                    <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                                                        <AttachmentCollection attachments={composerLatestEntry.attachments} variant="compact" />
+                                                    <div className="mt-3">
+                                                        <AttachmentThumbnailRow
+                                                            attachments={composerLatestEntry.attachments.map((a: any) => ({
+                                                                id: a.id || '',
+                                                                name: a.name || '',
+                                                                type: a.type || '',
+                                                                url: a.url || '',
+                                                                thumbnailUrl: a.thumbnailUrl || null,
+                                                                durationSec: a.durationSec || null,
+                                                                waveformPeaks: a.waveformPeaks || null,
+                                                            }))}
+                                                            size={44}
+                                                        />
                                                     </div>
                                                 ) : null}
                                             </section>
@@ -1250,7 +1246,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                             composerHistoryEntries.map((entry) => {
                                                 const fromState = entry.fromState ? getTaskStatusLabel(entry.fromState as TaskWorkflowState) : null;
                                                 const toState = entry.toState ? getTaskStatusLabel(entry.toState as TaskWorkflowState) : null;
-                                                const actorName = getTaskActorName(entry, familyMemberNamesById);
+                                                const actorName = getTaskUpdateActorName(entry);
                                                 const createdAt = formatDateTimeLabel(entry.createdAt);
                                                 const scheduledForDate = formatDateKeyLabel(entry.scheduledForDate || null);
 

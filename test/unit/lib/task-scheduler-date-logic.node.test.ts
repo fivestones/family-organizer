@@ -14,6 +14,9 @@ const instantMocks = vi.hoisted(() => ({
                                 update(payload: unknown) {
                                     return { op: 'update', entity, id, payload };
                                 },
+                                link(payload: unknown) {
+                                    return { op: 'link', entity, id, payload };
+                                },
                             };
                         },
                     }
@@ -23,8 +26,10 @@ const instantMocks = vi.hoisted(() => ({
     ),
 }));
 
+let idCounter = 0;
 vi.mock('@instantdb/react', () => ({
     tx: instantMocks.tx,
+    id: () => `mock-id-${++idCounter}`,
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -198,30 +203,35 @@ describe('task-scheduler date logic', () => {
 
         const txs = getRecursiveTaskCompletionTransactions('child', true, tasks, '2026-03-10') as any[];
 
-        expect(txs).toHaveLength(3);
-        expect(txs[0]).toMatchObject({
-            entity: 'tasks',
-            id: 'child',
-            payload: expect.objectContaining({
-                isCompleted: true,
-                completedOnDate: '2026-03-10',
-            }),
-        });
-        expect(txs[0].payload.completedAt).toBeInstanceOf(Date);
-        expect(txs[0].payload.completedAt.toISOString()).toBe('2026-03-10T09:15:00.000Z');
-        expect(txs[1]).toMatchObject({
-            entity: 'taskProgressEntries',
-            payload: expect.objectContaining({
-                fromState: 'not_started',
-                toState: 'done',
-                scheduledForDate: '2026-03-10',
-            }),
-        });
-        expect(txs[2]).toMatchObject({
-            entity: 'tasks',
-            id: 'parent',
-            payload: { childTasksComplete: true },
-        });
+        // Should contain: task state update, taskUpdates row, links, history event, parent sync
+        expect(txs).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'tasks',
+                    id: 'child',
+                    payload: expect.objectContaining({
+                        isCompleted: true,
+                        completedOnDate: '2026-03-10',
+                    }),
+                }),
+                expect.objectContaining({
+                    entity: 'taskUpdates',
+                    payload: expect.objectContaining({
+                        fromState: 'not_started',
+                        toState: 'done',
+                        scheduledForDate: '2026-03-10',
+                    }),
+                }),
+                expect.objectContaining({
+                    entity: 'tasks',
+                    id: 'parent',
+                    payload: { childTasksComplete: true },
+                }),
+            ])
+        );
+        const taskUpdate = txs.find((t: any) => t.entity === 'tasks' && t.id === 'child');
+        expect(taskUpdate.payload.completedAt).toBeInstanceOf(Date);
+        expect(taskUpdate.payload.completedAt.toISOString()).toBe('2026-03-10T09:15:00.000Z');
     });
 
     it('does not update parent childTasksComplete when another sibling is still incomplete', () => {
@@ -246,18 +256,23 @@ describe('task-scheduler date logic', () => {
 
         const txs = getRecursiveTaskCompletionTransactions('child-1', true, tasks, '2026-03-10') as any[];
 
-        expect(txs).toHaveLength(2);
-        expect(txs[0]).toMatchObject({
-            entity: 'tasks',
-            id: 'child-1',
-            payload: expect.objectContaining({ isCompleted: true }),
-        });
-        expect(txs[1]).toMatchObject({
-            entity: 'taskProgressEntries',
-            payload: expect.objectContaining({
-                toState: 'done',
-            }),
-        });
+        expect(txs).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'tasks',
+                    id: 'child-1',
+                    payload: expect.objectContaining({ isCompleted: true }),
+                }),
+                expect.objectContaining({
+                    entity: 'taskUpdates',
+                    payload: expect.objectContaining({
+                        toState: 'done',
+                    }),
+                }),
+            ])
+        );
+        // Should NOT have a parent childTasksComplete update since child-2 is still incomplete
+        expect(txs.filter((t: any) => t.entity === 'tasks' && t.id === 'parent')).toHaveLength(0);
     });
 
     it('unchecking a child clears completion metadata and bubbles childTasksComplete=false to ancestors', () => {
@@ -279,28 +294,34 @@ describe('task-scheduler date logic', () => {
 
         const txs = getRecursiveTaskCompletionTransactions('child', false, tasks, '2026-03-10') as any[];
 
-        expect(txs).toHaveLength(3);
-        expect(txs[0]).toMatchObject({
-            entity: 'tasks',
-            id: 'child',
-            payload: {
-                isCompleted: false,
-                completedAt: null,
-                completedOnDate: null,
-            },
-        });
-        expect(txs[1]).toMatchObject({
-            entity: 'taskProgressEntries',
-            payload: expect.objectContaining({
-                fromState: 'done',
-                toState: 'not_started',
+        expect(txs).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'tasks',
+                    id: 'child',
+                    payload: expect.objectContaining({
+                        isCompleted: false,
+                        completedAt: null,
+                        completedOnDate: null,
+                    }),
+                }),
+                expect.objectContaining({
+                    entity: 'taskUpdates',
+                    payload: expect.objectContaining({
+                        fromState: 'done',
+                        toState: 'not_started',
+                    }),
+                }),
+            ])
+        );
+        // Parent should be updated since its only child is being unchecked
+        expect(txs).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                entity: 'tasks',
+                id: 'parent',
+                payload: { childTasksComplete: false },
             }),
-        });
-        expect(txs[2]).toMatchObject({
-            entity: 'tasks',
-            id: 'parent',
-            payload: { childTasksComplete: false },
-        });
+        ]));
     });
 
     // --- pullForwardCount tests ---

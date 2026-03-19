@@ -63,8 +63,12 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
         taskSeries: {
             tasks: {
                 responseFields: {},
-                responses: {
-                    grades: { gradeType: {}, field: {} },
+                updates: {
+                    actor: {},
+                    affectedPerson: {},
+                    responseFieldValues: { field: {} },
+                    gradeType: {},
+                    attachments: {},
                 },
             },
             familyMember: {},
@@ -505,7 +509,12 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                         </div>
                     )}
                 </div>
-                <Button onClick={handleNewSeries}>New Task Series</Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={() => router.push('/task-series/review')}>
+                        View Task Bins
+                    </Button>
+                    <Button onClick={handleNewSeries}>New Task Series</Button>
+                </div>
             </div>
 
             {/* Status Filters & Bulk Select Toggle */}

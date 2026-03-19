@@ -42,17 +42,17 @@ import {
   uploadPendingAttachments,
 } from '../../src/lib/attachments';
 import { getTasksForDate } from '../../../lib/task-scheduler';
-import { buildTaskProgressUpdateTransactions } from '../../../lib/task-progress-mutations';
+import { buildTaskUpdateTransactions } from '../../../lib/task-update-mutations';
 import {
   getBucketedTasks,
-  getLatestTaskProgressEntry,
-  getTaskActorName,
+  getLatestTaskUpdate,
+  getTaskUpdateActorName,
   getTaskLastActiveState,
   getTaskProgressPlaceholder,
   getTaskStatusLabel,
   getTaskWorkflowState,
   isTaskDone,
-  sortTaskProgressEntries,
+  sortTaskUpdates,
 } from '../../../lib/task-progress';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 
@@ -332,7 +332,7 @@ export default function DashboardTab() {
               tasks: {
                 parentTask: {},
                 attachments: {},
-                progressEntries: {
+                updates: {
                   attachments: {},
                   actor: {},
                 },
@@ -727,7 +727,7 @@ export default function DashboardTab() {
     setTaskMutationPending(true);
     try {
       const attachments = payload.files?.length ? await uploadPendingAttachments(payload.files, id) : [];
-      const transactions = buildTaskProgressUpdateTransactions({
+      const { transactions } = buildTaskUpdateTransactions({
         tx,
         createId: id,
         taskId: context.taskId,
@@ -736,6 +736,7 @@ export default function DashboardTab() {
         selectedDateKey,
         note: payload.note,
         actorFamilyMemberId: currentUser.id,
+        affectedFamilyMemberId: context.seriesOwnerId || currentUser.id,
         restoreTiming: payload.restoreTiming || null,
         schedule: {
           startDate: context.chore.startDate,
@@ -1000,7 +1001,7 @@ export default function DashboardTab() {
                             const links = buildTaskLinks(task);
                             const indent = (task.indentationLevel || 0) * 14;
                             const currentState = getTaskWorkflowState(task);
-                            const latestEntry = getLatestTaskProgressEntry(task);
+                            const latestEntry = getLatestTaskUpdate(task);
 
                             return (
                               <View
@@ -1123,8 +1124,8 @@ export default function DashboardTab() {
                               </Text>
                             </View>
                             {tasksForState.map((task) => {
-                              const latestEntry = getLatestTaskProgressEntry(task);
-                              const actorName = getTaskActorName(latestEntry, familyMemberNameById);
+                              const latestEntry = getLatestTaskUpdate(task);
+                              const actorName = getTaskUpdateActorName(latestEntry);
                               return (
                                 <View key={`${stateKey}-${task.id}`} style={styles.taskBucketCard}>
                                   <Text style={styles.taskBucketTaskTitle}>{task.text}</Text>
@@ -1513,17 +1514,17 @@ export default function DashboardTab() {
 
                 <Text style={styles.sheetLabel}>History</Text>
                 <ScrollView style={styles.sheetHistoryList}>
-                  {sortTaskProgressEntries(taskComposer.task.progressEntries).length === 0 ? (
+                  {sortTaskUpdates(taskComposer.task.updates).length === 0 ? (
                     <Text style={styles.sheetHelperText}>No updates yet.</Text>
                   ) : (
-                    sortTaskProgressEntries(taskComposer.task.progressEntries).map((entry) => (
+                    sortTaskUpdates(taskComposer.task.updates).map((entry) => (
                       <View key={entry.id} style={styles.sheetHistoryCard}>
                         <Text style={styles.sheetHistoryMeta}>
                           {entry.fromState && entry.toState && entry.fromState !== entry.toState
                             ? `${getTaskStatusLabel(entry.fromState)} -> ${getTaskStatusLabel(entry.toState)}`
                             : getTaskStatusLabel(entry.toState || getTaskWorkflowState(taskComposer.task))}
                         </Text>
-                        {getTaskActorName(entry, familyMemberNameById) ? <Text style={styles.sheetHistoryMeta}>by {getTaskActorName(entry, familyMemberNameById)}</Text> : null}
+                        {getTaskUpdateActorName(entry) ? <Text style={styles.sheetHistoryMeta}>by {getTaskUpdateActorName(entry)}</Text> : null}
                         {entry.createdAt ? <Text style={styles.sheetHistoryMeta}>{new Date(entry.createdAt).toLocaleString()}</Text> : null}
                         {entry.note ? <Text style={styles.sheetHistoryBody}>{entry.note}</Text> : null}
                         {entry.attachments?.length ? (

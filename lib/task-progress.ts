@@ -7,26 +7,42 @@ export type TaskBucketState = (typeof TASK_BUCKET_STATES)[number];
 export type TaskWorkflowState = (typeof TASK_WORKFLOW_STATES)[number];
 export type TaskRestoreTiming = 'now' | 'next_scheduled';
 
-export interface TaskProgressAttachmentLike {
+export interface TaskUpdateAttachmentLike {
     id?: string;
     name?: string | null;
     type?: string | null;
     url?: string | null;
     createdAt?: string | Date | null;
     updatedAt?: string | Date | null;
+    thumbnailUrl?: string | null;
+    durationSec?: number | null;
+    waveformPeaks?: number[] | null;
 }
 
-export interface TaskProgressEntryLike {
+export interface TaskUpdateLike {
     id?: string;
     note?: string | null;
     fromState?: string | null;
     toState?: string | null;
-    createdAt?: string | Date | null;
+    createdAt?: number | string | Date | null;
     scheduledForDate?: string | null;
     restoreTiming?: string | null;
-    attachments?: TaskProgressAttachmentLike[] | null;
+    isDraft?: boolean | null;
+    gradeDisplayValue?: string | null;
+    gradeNumericValue?: number | null;
+    gradeIsProvisional?: boolean | null;
+    attachments?: TaskUpdateAttachmentLike[] | null;
     actor?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null;
-    actorFamilyMemberId?: string | null;
+    affectedPerson?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null;
+    responseFieldValues?: Array<{
+        id?: string;
+        richTextContent?: string | null;
+        fileUrl?: string | null;
+        fileName?: string | null;
+        fileType?: string | null;
+        field?: Array<{ id?: string; label?: string | null }> | null;
+    }> | null;
+    gradeType?: Array<{ id?: string; name?: string | null; kind?: string | null }> | null;
 }
 
 export interface TaskProgressTaskLike {
@@ -36,8 +52,10 @@ export interface TaskProgressTaskLike {
     workflowState?: string | null;
     lastActiveState?: string | null;
     deferredUntilDate?: string | null;
+    notedUntilDate?: string | null;
+    isNotedIndefinitely?: boolean | null;
     parentTask?: Array<{ id?: string | null }> | { id?: string | null } | null;
-    progressEntries?: TaskProgressEntryLike[] | null;
+    updates?: TaskUpdateLike[] | null;
 }
 
 export function isTaskWorkflowState(value: unknown): value is TaskWorkflowState {
@@ -100,18 +118,24 @@ export function isActionableTask(
     return !taskHasChildren(task.id, allTasks);
 }
 
-function toComparableTime(value: string | Date | null | undefined): number {
+function toComparableTime(value: number | string | Date | null | undefined): number {
     if (!value) return 0;
     const parsed = new Date(value).getTime();
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function sortTaskProgressEntries(entries: TaskProgressEntryLike[] | null | undefined): TaskProgressEntryLike[] {
+export function sortTaskUpdates(entries: TaskUpdateLike[] | null | undefined): TaskUpdateLike[] {
     return [...(entries || [])].sort((left, right) => toComparableTime(right?.createdAt || null) - toComparableTime(left?.createdAt || null));
 }
 
-export function getLatestTaskProgressEntry(task: Pick<TaskProgressTaskLike, 'progressEntries'> | null | undefined): TaskProgressEntryLike | null {
-    return sortTaskProgressEntries(task?.progressEntries)[0] || null;
+export function getLatestTaskUpdate(task: Pick<TaskProgressTaskLike, 'updates'> | null | undefined): TaskUpdateLike | null {
+    const nonDraftUpdates = (task?.updates || []).filter((u) => !u.isDraft);
+    return sortTaskUpdates(nonDraftUpdates)[0] || null;
+}
+
+export function getLatestDraftUpdate(task: Pick<TaskProgressTaskLike, 'updates'> | null | undefined): TaskUpdateLike | null {
+    const draftUpdates = (task?.updates || []).filter((u) => u.isDraft);
+    return sortTaskUpdates(draftUpdates)[0] || null;
 }
 
 export function getBucketedTasks<T extends TaskProgressTaskLike>(
@@ -168,22 +192,37 @@ export function getTaskProgressPlaceholder(state: TaskWorkflowState): string {
     }
 }
 
-export function getTaskActorName(
-    entry: TaskProgressEntryLike | null | undefined,
-    familyMemberNamesById?: Record<string, string> | Map<string, string> | null
+export function getTaskUpdateActorName(
+    entry: TaskUpdateLike | null | undefined,
 ): string | null {
     const actor = entry?.actor;
     if (Array.isArray(actor)) {
         return actor[0]?.name || null;
     }
     if (actor?.name) return actor.name;
+    return null;
+}
 
-    const actorFamilyMemberId = entry?.actorFamilyMemberId;
-    if (!actorFamilyMemberId || !familyMemberNamesById) return null;
-
-    if (familyMemberNamesById instanceof Map) {
-        return familyMemberNamesById.get(actorFamilyMemberId) || null;
+export function getTaskUpdateAffectedName(
+    entry: TaskUpdateLike | null | undefined,
+): string | null {
+    const affectedPerson = entry?.affectedPerson;
+    if (Array.isArray(affectedPerson)) {
+        return affectedPerson[0]?.name || null;
     }
+    if (affectedPerson?.name) return affectedPerson.name;
+    return null;
+}
 
-    return familyMemberNamesById[actorFamilyMemberId] || null;
+/**
+ * Returns true if a task is "noted" and should be hidden from the overdue
+ * section of the needs-attention view.
+ */
+export function isTaskNoted(
+    task: Pick<TaskProgressTaskLike, 'notedUntilDate' | 'isNotedIndefinitely'> | null | undefined,
+    todayDateKey: string,
+): boolean {
+    if (task?.isNotedIndefinitely) return true;
+    if (task?.notedUntilDate && task.notedUntilDate >= todayDateKey) return true;
+    return false;
 }

@@ -25,7 +25,7 @@ import { ResponseFieldEditor } from './ResponseFieldEditor';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { cn } from '@/lib/utils';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
-import { getTaskActorName, getTaskStatusLabel, isTaskWorkflowState, sortTaskProgressEntries } from '@/lib/task-progress';
+import { getTaskUpdateActorName, getTaskStatusLabel, isTaskWorkflowState, sortTaskUpdates, type TaskUpdateLike } from '@/lib/task-progress';
 import { countTaskDayBlocks, computePlannedEndDate, type ChoreScheduleInfo } from '@/lib/task-series-schedule';
 import type { Task as SchedulerTask } from '@/lib/task-scheduler';
 
@@ -60,19 +60,6 @@ interface TaskAttachment {
     waveformPeaks?: number[] | null;
 }
 
-interface TaskProgressEntry {
-    id: string;
-    note?: string | null;
-    fromState?: string | null;
-    toState?: string | null;
-    createdAt?: string | Date | null;
-    scheduledForDate?: string | null;
-    restoreTiming?: string | null;
-    attachments?: TaskAttachment[] | null;
-    actor?: { id?: string; name?: string | null }[] | { id?: string; name?: string | null } | null;
-    actorFamilyMemberId?: string | null;
-}
-
 interface ResponseField {
     id: string;
     type: string;
@@ -89,7 +76,7 @@ interface PersistedTask extends Task {
     overrideWorkAhead?: boolean | null;
     attachments?: TaskAttachment[];
     responseFields?: ResponseField[];
-    progressEntries?: TaskProgressEntry[] | null;
+    updates?: TaskUpdateLike[] | null;
 }
 
 interface TaskSeriesEditorProps {
@@ -252,7 +239,7 @@ const formatTaskMetaDate = (value: Date | string | null | undefined) => {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-const formatTaskHistoryDate = (value: Date | string | null | undefined) => {
+const formatTaskHistoryDate = (value: number | Date | string | null | undefined) => {
     if (!value) return 'Unknown time';
     const date = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(date.getTime())) return 'Unknown time';
@@ -280,7 +267,6 @@ type TaskSeriesCardProps = {
     db: any;
     seriesId: string;
     item: TaskCardItem;
-    familyMemberNamesById: Record<string, string>;
     historyOpen: boolean;
     onToggleHistory: (taskId: string) => void;
     onDeleteTask: (taskId: string) => void;
@@ -293,7 +279,6 @@ const TaskSeriesCard = ({
     db,
     seriesId,
     item,
-    familyMemberNamesById,
     historyOpen,
     onToggleHistory,
     onDeleteTask,
@@ -307,7 +292,7 @@ const TaskSeriesCard = ({
     const [specificTime, setSpecificTime] = useState(persistedTask?.specificTime || '');
     const [overrideWorkAhead, setOverrideWorkAhead] = useState(Boolean(persistedTask?.overrideWorkAhead));
     const [uploading, setUploading] = useState(false);
-    const historyEntries = sortTaskProgressEntries(persistedTask?.progressEntries || []);
+    const historyEntries = sortTaskUpdates(persistedTask?.updates || []);
 
     useEffect(() => {
         setNotes(persistedTask?.notes || '');
@@ -605,7 +590,7 @@ const TaskSeriesCard = ({
                             {historyEntries.map((entry) => {
                                 const nextState = isTaskWorkflowState(entry.toState) ? entry.toState : 'not_started';
                                 const stateLabel = getTaskStatusLabel(nextState);
-                                const actorName = getTaskActorName(entry, familyMemberNamesById);
+                                const actorName = getTaskUpdateActorName(entry);
                                 return (
                                     <div key={entry.id} className="rounded-xl border border-white bg-white p-3 shadow-sm">
                                         <div className="flex flex-wrap items-center gap-2">
@@ -688,7 +673,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 parentTask: {}, // Fetch parentTask so we can unlink if hierarchy changes
                 attachments: {},
                 responseFields: {},
-                progressEntries: {
+                updates: {
                     attachments: {},
                     actor: {},
                 },
@@ -708,17 +693,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     const seriesData = data?.taskSeries?.[0];
     const persistedTaskById = React.useMemo(() => new Map(dbTasks.map((task) => [task.id, task])), [dbTasks]);
     const cardItems = React.useMemo(() => buildTaskCardItems(editorDocument, taskDateMap, persistedTaskById), [editorDocument, persistedTaskById, taskDateMap]);
-    const familyMemberNamesById = React.useMemo(
-        () =>
-            (data?.familyMembers || []).reduce(
-                (acc: Record<string, string>, member: { id: string; name?: string | null }) => {
-                    acc[member.id] = member.name || 'Unknown';
-                    return acc;
-                },
-                {}
-            ),
-        [data?.familyMembers]
-    );
     const taskCount = cardItems.filter((item) => !item.isDayBreak).length;
     const dayBreakCount = cardItems.filter((item) => item.isDayBreak).length;
 
@@ -1748,11 +1722,18 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 <div className="flex items-center gap-3">
                     <h1 className="text-2xl font-bold">Task Series Editor</h1>
                     {hasPersisted ? (
-                        <Link href={`/history?domain=tasks&taskSeriesId=${seriesId}`}>
-                            <Button variant="outline" size="sm">
-                                View History
-                            </Button>
-                        </Link>
+                        <>
+                            <Link href={`/task-series/review?seriesId=${seriesId}`}>
+                                <Button variant="outline" size="sm">
+                                    View Task Bins
+                                </Button>
+                            </Link>
+                            <Link href={`/history?domain=tasks&taskSeriesId=${seriesId}`}>
+                                <Button variant="outline" size="sm">
+                                    View History
+                                </Button>
+                            </Link>
+                        </>
                     ) : null}
                 </div>
                 <div className="text-sm text-muted-foreground">{isSaving ? 'Saving...' : 'Saved'}</div>
@@ -2022,7 +2003,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                                     db={db}
                                     seriesId={seriesId}
                                     item={item}
-                                    familyMemberNamesById={familyMemberNamesById}
                                     historyOpen={historyTaskId === item.id}
                                     onToggleHistory={(taskId) => setHistoryTaskId((current) => (current === taskId ? null : taskId))}
                                     onDeleteTask={removeTaskCard}

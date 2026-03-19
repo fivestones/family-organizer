@@ -493,7 +493,7 @@ describe('TaskSeriesEditor', () => {
                     isDayBreak: false,
                     notes: 'Bring workbook and pencil',
                     attachments: [{ id: 'attachment-1', name: 'worksheet.pdf', url: 'worksheet.pdf', type: 'application/pdf' }],
-                    progressEntries: [{ id: 'entry-1', toState: 'done', createdAt: '2026-04-03T12:00:00.000Z', note: 'Finished early' }],
+                    updates: [{ id: 'entry-1', toState: 'done', createdAt: '2026-04-03T12:00:00.000Z', note: 'Finished early' }],
                     parentTask: [],
                 },
             ],
