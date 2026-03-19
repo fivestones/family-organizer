@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useRef } from 'react';
-import { Upload, X, FileText, Image, Film, Mic, Loader2 } from 'lucide-react';
+import { Upload, X, FileText, Image, Film, Mic, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { RichTextEditor } from '@/components/responses/RichTextEditor';
+import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import type { TaskResponseFieldType } from '@/lib/task-response-types';
 import { RESPONSE_FIELD_TYPE_LABELS } from '@/lib/task-response-types';
 
@@ -104,20 +105,50 @@ export const ResponseFieldInput: React.FC<Props> = ({
         <div className="space-y-2">
             <FieldHeader type={type} label={label} description={description} required={required} />
             {fileUrl ? (
-                <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-                    <FilePreview fileUrl={fileUrl} fileName={fileName} fileType={fileType} type={type} />
-                    <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-slate-700">{fileName || 'Uploaded file'}</p>
-                        <p className="text-xs text-slate-500">{RESPONSE_FIELD_TYPE_LABELS[type]}</p>
+                <div className="space-y-2">
+                    {/* Interactive preview: images open lightbox, audio shows waveform,
+                        video shows poster/player, files open preview dialog.
+                        Constrain width so images/video don't blow up to full card width;
+                        audio waveforms benefit from more width so use a wider cap. */}
+                    <div className={type === 'audio' ? 'max-w-md' : 'max-w-xs'}>
+                        <AttachmentCollection
+                            attachments={[{
+                                id: fieldId,
+                                name: fileName || RESPONSE_FIELD_TYPE_LABELS[type],
+                                type: fileType || acceptMap[type] || '',
+                                url: fileUrl,
+                            }]}
+                            variant="compact"
+                        />
                     </div>
+                    {/* Replace / remove controls */}
                     {!disabled && (
-                        <button
-                            type="button"
-                            onClick={onFileClear}
-                            className="rounded-full p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
-                        >
-                            <X className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => fileInputRef.current?.click()}
+                            >
+                                <RefreshCw className="mr-1.5 h-3 w-3" />
+                                Replace
+                            </Button>
+                            <button
+                                type="button"
+                                onClick={onFileClear}
+                                className="rounded-full p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
+                                title="Remove file"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept={acceptMap[type] || '*/*'}
+                                className="hidden"
+                                onChange={handleFileChange}
+                            />
+                        </div>
                     )}
                 </div>
             ) : (
@@ -185,48 +216,3 @@ function FieldHeader({
     );
 }
 
-function FilePreview({
-    fileUrl,
-    fileName,
-    fileType,
-    type,
-}: {
-    fileUrl: string;
-    fileName?: string | null;
-    fileType?: string | null;
-    type: TaskResponseFieldType;
-}) {
-    const mimeType = fileType || '';
-
-    if (type === 'photo' || mimeType.startsWith('image/')) {
-        return (
-            <img
-                src={fileUrl}
-                alt={fileName || 'Uploaded image'}
-                className="h-12 w-12 rounded-md object-cover"
-            />
-        );
-    }
-
-    if (type === 'video' || mimeType.startsWith('video/')) {
-        return (
-            <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-200">
-                <Film className="h-5 w-5 text-slate-500" />
-            </div>
-        );
-    }
-
-    if (type === 'audio' || mimeType.startsWith('audio/')) {
-        return (
-            <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-200">
-                <Mic className="h-5 w-5 text-slate-500" />
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-200">
-            <FileText className="h-5 w-5 text-slate-500" />
-        </div>
-    );
-}

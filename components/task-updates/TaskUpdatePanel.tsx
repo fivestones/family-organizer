@@ -342,10 +342,11 @@ export const TaskUpdatePanel: React.FC<Props> = ({
     const filledFieldIds = useMemo(() => {
         const ids = new Set<string>();
         for (const [fieldId, value] of Object.entries(fieldValues)) {
-            const hasContent =
-                (value.richTextContent && value.richTextContent.trim().length > 0) ||
-                (value.fileUrl && value.fileUrl.trim().length > 0);
-            if (hasContent) ids.add(fieldId);
+            const richText = value.richTextContent?.trim() || '';
+            // Empty TipTap editors emit "<p></p>" — treat as empty
+            const hasRichText = richText.length > 0 && richText !== '<p></p>';
+            const hasFile = !!(value.fileUrl && value.fileUrl.trim().length > 0);
+            if (hasRichText || hasFile) ids.add(fieldId);
         }
         return ids;
     }, [fieldValues]);
@@ -447,6 +448,11 @@ export const TaskUpdatePanel: React.FC<Props> = ({
 
     // ---- Inline action helpers ----
     const hasRequiredResponseFields = sortedFields.some((f) => f.required);
+    const allRequiredFieldsFilled = useMemo(() => {
+        if (!hasRequiredResponseFields) return true;
+        return sortedFields.filter((f) => f.required).every((f) => filledFieldIds.has(f.id));
+    }, [hasRequiredResponseFields, sortedFields, filledFieldIds]);
+    const hasAnyFieldData = filledFieldIds.size > 0;
 
     const handleInlineAction = useCallback(
         async (nextState: TaskWorkflowState) => {
@@ -481,8 +487,14 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                     nextState,
                     responseFieldValues: rfvs,
                 });
-                // Clear field values after successful inline submission
-                setFieldValues({});
+                // For terminal transitions (needs_review, done) the task leaves
+                // the active section, so clear field values. For in-place
+                // transitions (in_progress, blocked, skipped) keep the submitted
+                // values visible until InstantDB syncs back the persisted data,
+                // preventing a flash of empty fields.
+                if (nextState === 'needs_review' || nextState === 'done') {
+                    setFieldValues({});
+                }
             } finally {
                 setIsSubmitting(false);
             }
@@ -545,6 +557,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                 {/* Inline action buttons — shown when onSubmit is provided */}
                 {onSubmit && !isDisabled && (
                     <div className="flex flex-wrap gap-2">
+                        {/* not_started: Start (→ in_progress, no data) */}
                         {currentState === 'not_started' && (
                             <Button
                                 type="button"
@@ -556,7 +569,8 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                                 Start
                             </Button>
                         )}
-                        {currentState === 'in_progress' && (
+                        {/* in_progress or not_started with data: Update (saves data, → in_progress) */}
+                        {(currentState === 'in_progress' || (currentState === 'not_started' && hasAnyFieldData)) && (
                             <Button
                                 type="button"
                                 variant="outline"
@@ -564,7 +578,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                                 disabled={isSubmitting}
                                 onClick={() => handleInlineAction('in_progress')}
                             >
-                                Update
+                                {isSubmitting ? 'Saving...' : 'Update'}
                             </Button>
                         )}
                         {/* For blocked/skipped: "Update" saves response data without changing state */}
@@ -579,17 +593,20 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                                 {isSubmitting ? 'Saving...' : 'Update'}
                             </Button>
                         )}
-                        {/* Active states: Submit or Done based on required response fields */}
+                        {/* Active states: Submit (→ needs_review) only when all required fields filled,
+                            otherwise Done (→ done) for tasks without required fields */}
                         {(currentState === 'not_started' || currentState === 'in_progress') && (
                             hasRequiredResponseFields ? (
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    disabled={isSubmitting}
-                                    onClick={() => handleInlineAction('needs_review')}
-                                >
-                                    {isSubmitting ? 'Submitting...' : 'Submit'}
-                                </Button>
+                                allRequiredFieldsFilled ? (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        disabled={isSubmitting}
+                                        onClick={() => handleInlineAction('needs_review')}
+                                    >
+                                        {isSubmitting ? 'Submitting...' : 'Submit'}
+                                    </Button>
+                                ) : null
                             ) : (
                                 <Button
                                     type="button"
