@@ -1,10 +1,11 @@
 // components/task-series/TaskSeriesEditor.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
-import { useEditor, EditorContent, JSONContent } from '@tiptap/react';
+import { useEditor, EditorContent, JSONContent, Extension } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { Plugin } from 'prosemirror-state';
 import { id, tx } from '@instantdb/react';
 import { startOfDay, format, parseISO, addDays, isSameDay } from 'date-fns';
 import { RRule } from 'rrule';
@@ -28,6 +29,8 @@ import { buildHistoryEventTransactions } from '@/lib/history-events';
 import { getTaskUpdateActorName, getTaskStatusLabel, isTaskWorkflowState, sortTaskUpdates, type TaskUpdateLike } from '@/lib/task-progress';
 import { countTaskDayBlocks, computePlannedEndDate, type ChoreScheduleInfo } from '@/lib/task-series-schedule';
 import type { Task as SchedulerTask } from '@/lib/task-scheduler';
+import { computeDeletionImpact, taskHasData, type TaskLikeForGuard } from '@/lib/task-data-guard';
+import { TaskDeleteConfirmDialog } from './TaskDeleteConfirmDialog';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
 interface Task {
@@ -388,7 +391,6 @@ const TaskSeriesCard = ({
     };
 
     const handleDeleteTask = () => {
-        if (!confirm(`Delete "${item.text || 'Untitled task'}" from this series?`)) return;
         onDeleteTask(item.id);
     };
 
@@ -644,6 +646,17 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     const [familyMemberId, setFamilyMemberId] = useState<string | null>(null);
     const [scheduledActivityId, setScheduledActivityId] = useState<string | null>(null);
 
+    // --- Task Delete Confirmation State ---
+    const [deleteConfirm, setDeleteConfirm] = useState<{
+        taskIds: string[];
+        tasksWithData: import('@/lib/task-data-guard').TaskDataSummary[];
+        message: string;
+        /** Callback to run if user confirms (e.g. execute the actual delete). */
+        onConfirm: () => void;
+    } | null>(null);
+    // IDs that the user has explicitly confirmed deleting (bypass future checks)
+    const confirmedDeleteIds = useRef(new Set<string>());
+
     // --- Drag and Drop State ---
     const editorRef = useRef<HTMLDivElement>(null);
     const [dropState, setDropState] = useState<DropState | null>(null);
@@ -844,6 +857,84 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         calculateDatesRef.current = calculateDates;
     }, [calculateDates]);
 
+    // --- Delete Guard Plugin ---
+    // Uses refs so the plugin always reads the latest task data without
+    // re-creating the editor.
+    const persistedTaskByIdRef = useRef(persistedTaskById);
+    useEffect(() => {
+        persistedTaskByIdRef.current = persistedTaskById;
+    }, [persistedTaskById]);
+
+    const deleteGuardCallbackRef = useRef<(removedIds: string[]) => void>(() => {});
+
+    const deleteGuardExtension = useMemo(
+        () =>
+            Extension.create({
+                name: 'taskDeleteGuard',
+                addProseMirrorPlugins() {
+                    return [
+                        new Plugin({
+                            filterTransaction(tr) {
+                                // Allow transactions that explicitly bypass the guard
+                                if (tr.getMeta('skipDeleteGuard')) return true;
+                                // Don't guard undo/redo — those are user-initiated reversals
+                                if (tr.getMeta('history$')) return true;
+                                // If nothing changed, allow
+                                if (!tr.docChanged) return true;
+
+                                const oldDoc = tr.before;
+                                const newDoc = tr.doc;
+
+                                // Collect task IDs from old and new docs
+                                const oldIds = new Set<string>();
+                                oldDoc.descendants((node) => {
+                                    if (node.type.name === 'taskItem' && node.attrs?.id) {
+                                        oldIds.add(node.attrs.id as string);
+                                    }
+                                    return false;
+                                });
+                                const newIds = new Set<string>();
+                                newDoc.descendants((node) => {
+                                    if (node.type.name === 'taskItem' && node.attrs?.id) {
+                                        newIds.add(node.attrs.id as string);
+                                    }
+                                    return false;
+                                });
+
+                                // Find removed task IDs
+                                const removedIds = Array.from(oldIds).filter(
+                                    (tid) => !newIds.has(tid)
+                                );
+
+                                if (removedIds.length === 0) return true;
+
+                                // Check if any removed tasks have data and aren't confirmed
+                                const lookup = persistedTaskByIdRef.current;
+                                const unconfirmed = removedIds.filter((tid) => {
+                                    if (confirmedDeleteIds.current.has(tid)) return false;
+                                    const task = lookup.get(tid);
+                                    return task ? taskHasData(task as TaskLikeForGuard) : false;
+                                });
+
+                                if (unconfirmed.length === 0) return true;
+
+                                // Block the transaction and trigger the confirmation dialog.
+                                // We schedule via setTimeout to avoid dispatching during
+                                // filterTransaction (which would throw).
+                                setTimeout(() => {
+                                    deleteGuardCallbackRef.current(removedIds);
+                                }, 0);
+
+                                return false;
+                            },
+                        }),
+                    ];
+                },
+            }),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [] // Intentionally stable — reads from refs
+    );
+
     // --- 2. Editor Setup ---
     const editor = useEditor({
         immediatelyRender: false,
@@ -867,6 +958,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 // Note: We implicitly KEEP 'document', 'text', 'bold', 'history', etc.
             }),
             TaskItemExtension,
+            deleteGuardExtension,
             // Add Slash Command Extension
             SlashCommand.configure({
                 suggestion: slashCommandSuggestion,
@@ -903,6 +995,66 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             debouncedSave(nextJson);
         },
     });
+
+    // Wire up the delete guard callback to show the confirmation dialog
+    useEffect(() => {
+        deleteGuardCallbackRef.current = (removedIds: string[]) => {
+            const impact = computeDeletionImpact(
+                removedIds,
+                persistedTaskById as Map<string, TaskLikeForGuard>
+            );
+            if (impact.tasksWithData.length === 0) return;
+
+            setDeleteConfirm({
+                taskIds: removedIds,
+                tasksWithData: impact.tasksWithData,
+                message: impact.message,
+                onConfirm: () => {
+                    // Mark all as confirmed and redo the edit
+                    removedIds.forEach((tid) => confirmedDeleteIds.current.add(tid));
+                    setDeleteConfirm(null);
+
+                    // Re-apply the deletion with the guard bypass flag.
+                    // The editor's onUpdate handler will trigger debounced save.
+                    if (editor && !editor.isDestroyed) {
+                        editor
+                            .chain()
+                            .focus()
+                            .command(({ state, dispatch }) => {
+                                let tr = state.tr;
+                                tr.setMeta('skipDeleteGuard', true);
+
+                                // Collect positions of nodes to delete (reverse order for stable positions)
+                                const toDelete: Array<{ from: number; to: number }> = [];
+                                let pos = 0;
+                                for (let i = 0; i < state.doc.childCount; i++) {
+                                    const node = state.doc.child(i);
+                                    if (
+                                        node.type.name === 'taskItem' &&
+                                        node.attrs.id &&
+                                        removedIds.includes(node.attrs.id as string)
+                                    ) {
+                                        toDelete.push({ from: pos, to: pos + node.nodeSize });
+                                    }
+                                    pos += node.nodeSize;
+                                }
+
+                                // Delete in reverse order so positions stay stable
+                                for (let i = toDelete.length - 1; i >= 0; i--) {
+                                    tr = tr.delete(toDelete[i].from, toDelete[i].to);
+                                }
+
+                                if (dispatch && toDelete.length > 0) {
+                                    dispatch(tr);
+                                }
+                                return toDelete.length > 0;
+                            })
+                            .run();
+                    }
+                },
+            });
+        };
+    }, [editor, persistedTaskById]);
 
     // Trigger calculation when dependencies change (so dates update without typing)
     useEffect(() => {
@@ -1329,13 +1481,40 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         // 2. Handle Deletions
         // Find tasks in DB that are NOT in the current editor content
         const tasksToDelete = dbTasks.filter((t) => !currentIds.has(t.id));
-        if (tasksToDelete.length > 0) {
-            taskStructureChanged = true;
+
+        // Check if any tasks-to-delete have associated data and haven't been
+        // confirmed yet. If so, skip their deletion — the filterTransaction
+        // plugin or removeTaskCard will prompt the user. We still delete safe
+        // tasks (no data or already confirmed).
+        const unconfirmedWithData = tasksToDelete.filter(
+            (t) => !confirmedDeleteIds.current.has(t.id) && taskHasData(t as TaskLikeForGuard)
+        );
+
+        if (unconfirmedWithData.length > 0) {
+            // Re-add these tasks back into the editor so they don't get
+            // silently lost. For now, just skip deleting them from DB.
+            // The user needs to explicitly confirm via the dialog.
+            const safeToDelete = tasksToDelete.filter(
+                (t) => confirmedDeleteIds.current.has(t.id) || !taskHasData(t as TaskLikeForGuard)
+            );
+            if (safeToDelete.length > 0) {
+                taskStructureChanged = true;
+            }
+            safeToDelete.forEach((t) => {
+                transactions.push(tx.tasks[t.id].delete());
+                transactions.push(tx.taskSeries[seriesId].unlink({ tasks: t.id }));
+            });
+        } else {
+            if (tasksToDelete.length > 0) {
+                taskStructureChanged = true;
+            }
+            tasksToDelete.forEach((t) => {
+                // Clear from confirmed set after use
+                confirmedDeleteIds.current.delete(t.id);
+                transactions.push(tx.tasks[t.id].delete());
+                transactions.push(tx.taskSeries[seriesId].unlink({ tasks: t.id }));
+            });
         }
-        tasksToDelete.forEach((t) => {
-            transactions.push(tx.tasks[t.id].delete());
-            transactions.push(tx.taskSeries[seriesId].unlink({ tasks: t.id }));
-        });
 
         // 3. Update Series Metadata
         const now = new Date();
@@ -1663,7 +1842,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         [editor, syncEditorSurface]
     );
 
-    const removeTaskCard = useCallback(
+    const executeRemoveTaskCard = useCallback(
         (taskId: string) => {
             if (!editor || editor.isDestroyed) return;
 
@@ -1677,7 +1856,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                         const node = state.doc.child(index);
                         if (node.type.name === 'taskItem' && node.attrs.id === taskId) {
                             if (dispatch) {
-                                dispatch(state.tr.delete(pos, pos + node.nodeSize));
+                                const tr = state.tr.delete(pos, pos + node.nodeSize);
+                                tr.setMeta('skipDeleteGuard', true);
+                                dispatch(tr);
                             }
                             return true;
                         }
@@ -1696,6 +1877,29 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             }
         },
         [editor, historyTaskId, syncEditorSurface]
+    );
+
+    const removeTaskCard = useCallback(
+        (taskId: string) => {
+            // Check if this task has associated data
+            const task = persistedTaskById.get(taskId);
+            if (task && taskHasData(task as TaskLikeForGuard)) {
+                const impact = computeDeletionImpact([taskId], persistedTaskById as Map<string, TaskLikeForGuard>);
+                setDeleteConfirm({
+                    taskIds: [taskId],
+                    tasksWithData: impact.tasksWithData,
+                    message: impact.message,
+                    onConfirm: () => {
+                        confirmedDeleteIds.current.add(taskId);
+                        setDeleteConfirm(null);
+                        executeRemoveTaskCard(taskId);
+                    },
+                });
+                return;
+            }
+            executeRemoveTaskCard(taskId);
+        },
+        [persistedTaskById, executeRemoveTaskCard]
     );
 
     const handleClose = useCallback(async () => {
@@ -2023,6 +2227,15 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                     </Button>
                 </div>
             ) : null}
+
+            {/* Task delete confirmation dialog */}
+            <TaskDeleteConfirmDialog
+                open={deleteConfirm !== null}
+                tasksWithData={deleteConfirm?.tasksWithData || []}
+                message={deleteConfirm?.message || ''}
+                onConfirm={() => deleteConfirm?.onConfirm()}
+                onCancel={() => setDeleteConfirm(null)}
+            />
         </div>
     );
 };
