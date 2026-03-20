@@ -610,15 +610,16 @@ export default function DashboardTab() {
     await openTaskLink(link);
   }
 
-  function openTaskComposer(task, allTasks, chore) {
-    setTaskComposer({
-      taskId: task.id,
-      task,
-      allTasks,
-      chore,
-      nextState: getTaskWorkflowState(task),
-      note: '',
-      files: [],
+  function openTaskComposer(task, allTasks, chore, series, extraParams = {}) {
+    router.push({
+      pathname: '/task-series/task',
+      params: {
+        taskId: task.id,
+        seriesId: series?.id || '',
+        choreId: chore?.id || '',
+        date: selectedDateKey,
+        ...extraParams,
+      },
     });
   }
 
@@ -857,6 +858,14 @@ export default function DashboardTab() {
     });
   }
 
+  function openTaskSeriesOverview() {
+    if (!viewedMember?.id) return;
+    router.push({
+      pathname: '/task-series/my',
+      params: { memberId: viewedMember.id },
+    });
+  }
+
   const topStripAction = currentUser ? (
     <Pressable
       testID="dashboard-open-user-menu"
@@ -964,6 +973,16 @@ export default function DashboardTab() {
                 : 'No items scheduled today'
             }
           >
+            {viewedMember?.id ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open full task series for ${viewedMember.name || 'selected member'}`}
+                onPress={openTaskSeriesOverview}
+                style={styles.markAllButton}
+              >
+                <Text style={styles.markAllButtonText}>Open Full View</Text>
+              </Pressable>
+            ) : null}
             {dashboardQuery.isLoading ? (
               <Text style={styles.emptyText}>Loading today’s task-series items…</Text>
             ) : taskSeriesCards.length === 0 ? (
@@ -1084,10 +1103,10 @@ export default function DashboardTab() {
                                       <Pressable
                                         accessibilityRole="button"
                                         accessibilityLabel={`Update ${task.text}`}
-                                        onPress={() => openTaskComposer(task, card.allTasks, card.chore)}
-                                        style={[styles.taskActionChip, styles.taskActionChipSecondary]}
-                                      >
-                                        <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Update</Text>
+                                          onPress={() => openTaskComposer(task, card.allTasks, card.chore, card.series)}
+                                          style={[styles.taskActionChip, styles.taskActionChipSecondary]}
+                                        >
+                                          <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Update</Text>
                                       </Pressable>
                                       <Pressable
                                         testID={`dashboard-task-toggle-${task.id}`}
@@ -1155,7 +1174,7 @@ export default function DashboardTab() {
                                     <Pressable
                                       accessibilityRole="button"
                                       accessibilityLabel={`Update ${task.text}`}
-                                      onPress={() => openTaskComposer(task, card.allTasks, card.chore)}
+                                      onPress={() => openTaskComposer(task, card.allTasks, card.chore, card.series, stateKey === 'needs_review' ? { review: '1' } : {})}
                                       style={[styles.taskActionChip, styles.taskActionChipSecondary]}
                                     >
                                       <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Update</Text>

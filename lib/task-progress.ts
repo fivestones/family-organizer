@@ -49,6 +49,11 @@ export interface TaskUpdateLike {
     replies?: TaskUpdateLike[] | null;
 }
 
+export interface TaskResponseSubmissionEntry {
+    update: TaskUpdateLike;
+    isSubmittedForReview: boolean;
+}
+
 export interface TaskProgressTaskLike {
     id: string;
     isDayBreak?: boolean | null;
@@ -293,6 +298,29 @@ export function getLatestTaskResponseUpdate(source: TaskUpdateSource): TaskUpdat
     return sortTaskUpdates(
         getTopLevelTaskUpdates(source).filter((entry) => taskUpdateHasMeaningfulResponseContent(entry))
     )[0] || null;
+}
+
+const REVIEW_SUBMITTED_STATES = new Set<string>(['needs_review', 'blocked', 'skipped', 'done']);
+
+/**
+ * Return non-draft updates that contain response content, sorted with
+ * review-submitted responses first and each group newest-first.
+ */
+export function getTaskResponseSubmissions(
+    source: TaskUpdateSource,
+): TaskResponseSubmissionEntry[] {
+    return sortTaskUpdates(getTopLevelTaskUpdates(source))
+        .filter((entry) => taskUpdateHasMeaningfulResponseContent(entry))
+        .map((entry) => ({
+            update: entry,
+            isSubmittedForReview: REVIEW_SUBMITTED_STATES.has(entry.toState || ''),
+        }))
+        .sort((left, right) => {
+            if (left.isSubmittedForReview !== right.isSubmittedForReview) {
+                return left.isSubmittedForReview ? -1 : 1;
+            }
+            return getTaskUpdateTime(right.update) - getTaskUpdateTime(left.update);
+        });
 }
 
 export function getLatestTaskFeedbackThread(source: TaskUpdateSource): { submission: TaskUpdateLike; feedbackReplies: TaskUpdateLike[] } | null {

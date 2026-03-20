@@ -7,13 +7,13 @@ import { AttachmentCollection } from '@/components/attachments/AttachmentCollect
 import { ResponseFieldInput } from '@/components/responses/ResponseFieldInput';
 import { cn } from '@/lib/utils';
 import {
+    getTaskResponseSubmissions,
     getTaskUpdateFeedbackReplies,
     getTaskStatusLabel,
     getTaskWorkflowState,
     getTaskProgressPlaceholder,
     getLatestDraftUpdate,
     getLatestTaskUpdate,
-    taskUpdateHasMeaningfulResponseContent,
     type TaskUpdateLike,
     type TaskWorkflowState,
     isTaskWorkflowState,
@@ -170,9 +170,6 @@ function getDefaultState(currentState: TaskWorkflowState): TaskWorkflowState {
 // Review mode helpers
 // ---------------------------------------------------------------------------
 
-/** States considered "submitted for review" — shown first in the submission picker. */
-const REVIEW_SUBMITTED_STATES = new Set<string>(['needs_review', 'blocked', 'skipped', 'done']);
-
 interface SubmissionEntry {
     update: TaskUpdatePanelUpdate;
     /** Whether this submission was explicitly submitted for review (vs. just an in-progress save). */
@@ -184,27 +181,10 @@ interface SubmissionEntry {
  * review-submitted ones first, then in-progress ones, each group newest-first.
  */
 function getSubmissions(updates: TaskUpdatePanelUpdate[] | null | undefined): SubmissionEntry[] {
-    if (!updates) return [];
-    const submissions: SubmissionEntry[] = [];
-    for (const u of updates) {
-        if (u.isDraft) continue;
-        if (!taskUpdateHasMeaningfulResponseContent(u)) continue;
-        const isSubmittedForReview = REVIEW_SUBMITTED_STATES.has(u.toState || '');
-        submissions.push({ update: u, isSubmittedForReview });
-    }
-    // Sort: submitted-for-review first (newest first), then in-progress (newest first)
-    const toTime = (v: number | string | Date | null | undefined): number => {
-        if (v == null) return 0;
-        if (typeof v === 'number') return v;
-        return new Date(v).getTime() || 0;
-    };
-    submissions.sort((a, b) => {
-        if (a.isSubmittedForReview !== b.isSubmittedForReview) {
-            return a.isSubmittedForReview ? -1 : 1;
-        }
-        return toTime(b.update.createdAt) - toTime(a.update.createdAt);
-    });
-    return submissions;
+    return getTaskResponseSubmissions(updates as TaskUpdatePanelUpdate[] | null | undefined).map((entry) => ({
+        update: entry.update as TaskUpdatePanelUpdate,
+        isSubmittedForReview: entry.isSubmittedForReview,
+    }));
 }
 
 function getUpdateActorName(update: TaskUpdatePanelUpdate): string | null {

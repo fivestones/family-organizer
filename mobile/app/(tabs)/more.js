@@ -13,7 +13,7 @@ const MENU_ITEMS = [
   {
     key: 'taskSeries',
     title: 'Task Series Manager',
-    description: 'Live status, assignees, and checklist progress.',
+    description: 'Manager, review queue, editor, and full mobile task-series detail flow.',
     status: 'Live',
     href: '/more/task-series',
     parentOnly: true,

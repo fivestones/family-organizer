@@ -357,6 +357,23 @@ export default function ChoresTab() {
     }
   }
 
+  function openTaskSeriesOverview() {
+    const memberId = selectedMemberId === 'all' ? currentUser?.id : selectedMemberId;
+    if (!memberId) {
+      Alert.alert('Login required', 'Choose a family member before opening task series.');
+      return;
+    }
+
+    router.push({
+      pathname: '/task-series/my',
+      params: { memberId },
+    });
+  }
+
+  function openTaskSeriesManager() {
+    router.push('/more/task-series');
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.root}>
@@ -633,6 +650,36 @@ export default function ChoresTab() {
                   </View>
                 );
               })}
+            </View>
+          </View>
+
+          <View style={styles.panel}>
+            <View style={styles.panelHeaderRow}>
+              <Text style={styles.panelTitle}>Task Series</Text>
+              <Text style={styles.metaText}>{selectedMemberId === 'all' ? 'Current member' : selectedMemberName}</Text>
+            </View>
+            <Text style={styles.metaText}>
+              Open the native task-series view for responses, review threads, pull-forward, and the full mobile task detail flow.
+            </Text>
+            <View style={[styles.panelHeaderActions, { marginTop: spacing.sm }]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open task series"
+                onPress={openTaskSeriesOverview}
+                style={styles.markAllButton}
+              >
+                <Text style={styles.markAllButtonText}>Open Task Series</Text>
+              </Pressable>
+              {principalType === 'parent' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Open task series manager"
+                  onPress={openTaskSeriesManager}
+                  style={styles.markAllButton}
+                >
+                  <Text style={styles.markAllButtonText}>Manager</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
 

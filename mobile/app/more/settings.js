@@ -17,6 +17,7 @@ import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/Subs
 import { clearPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
+import { TaskSeriesGradeSettingsSection } from '../../src/features/task-series/grade-settings';
 import { getServerUrl, setServerUrl } from '../../src/lib/server-url';
 import {
   connectAppleCalendarSync,
@@ -284,7 +285,6 @@ export default function SettingsScreen() {
     calendarSyncStatus?.lastRun?.errorMessage,
     calendarSyncStatus?.lastRun?.status,
     calendarSyncStatus?.polling,
-    calendarSyncStatus?.polling?.pollReason,
     colors.accentChores,
     colors.danger,
     colors.inkMuted,
@@ -793,6 +793,8 @@ export default function SettingsScreen() {
                 ))
               )}
             </View>
+
+            <TaskSeriesGradeSettingsSection />
           </>
         ) : (
           <ParentAccessNotice
