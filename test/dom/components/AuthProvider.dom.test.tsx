@@ -7,7 +7,13 @@ import { advanceTimeByAsync, freezeTime } from '@/test/utils/fake-clock';
 
 const mocks = vi.hoisted(() => ({
     dbUseQuery: vi.fn(),
+    dbUseAuth: vi.fn(),
     ensureKidPrincipal: vi.fn(),
+    authState: {
+        isLoading: false,
+        user: null as any,
+        error: undefined as any,
+    },
     instantPrincipalState: {
         principalType: 'kid' as 'kid' | 'parent' | 'unknown',
     },
@@ -16,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/db', () => ({
     db: {
         useQuery: mocks.dbUseQuery,
+        useAuth: mocks.dbUseAuth,
     },
 }));
 
@@ -100,9 +107,26 @@ describe('AuthProvider', () => {
     beforeEach(() => {
         freezeTime(new Date('2026-02-26T12:00:00Z'));
         mocks.dbUseQuery.mockReset();
+        mocks.dbUseAuth.mockReset();
         mocks.ensureKidPrincipal.mockReset();
         mocks.instantPrincipalState.principalType = 'kid';
-        mocks.ensureKidPrincipal.mockResolvedValue(undefined);
+        mocks.authState.isLoading = false;
+        mocks.authState.user = {
+            id: 'kid-principal',
+            familyMemberId: 'child-1',
+            refresh_token: 'refresh',
+            isGuest: false,
+            type: 'kid',
+        };
+        mocks.authState.error = undefined;
+        mocks.dbUseAuth.mockImplementation(() => ({
+            isLoading: mocks.authState.isLoading,
+            user: mocks.authState.user,
+            error: mocks.authState.error,
+        }));
+        mocks.ensureKidPrincipal.mockImplementation(async () => {
+            mocks.authState.user = null;
+        });
         mocks.dbUseQuery.mockReturnValue({
             data: {
                 familyMembers: [
@@ -114,16 +138,25 @@ describe('AuthProvider', () => {
         });
     });
 
-    it('logs in, persists the selected user, and logout restores kid principal', async () => {
-        renderAuthProvider();
+    it('persists the selected user and logout clears the member session', async () => {
+        const view = renderAuthProvider();
 
-        fireEvent.click(screen.getByRole('button', { name: /^login child$/i }));
         expect(screen.getByTestId('is-authenticated')).toHaveTextContent('true');
         expect(screen.getByTestId('current-user')).toHaveTextContent('child-1');
+
+        fireEvent.click(screen.getByRole('button', { name: /^login child$/i }));
         expect(window.localStorage.getItem('family_organizer_user_id')).toBe('child-1');
         expect(window.localStorage.getItem('family_organizer_remember_me')).toBeNull();
 
-        fireEvent.click(screen.getByRole('button', { name: /logout/i }));
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /logout/i }));
+            await Promise.resolve();
+        });
+        view.rerender(
+            <AuthProvider>
+                <Probe />
+            </AuthProvider>
+        );
 
         expect(screen.getByTestId('is-authenticated')).toHaveTextContent('false');
         expect(window.localStorage.getItem('family_organizer_user_id')).toBeNull();
@@ -132,7 +165,7 @@ describe('AuthProvider', () => {
     });
 
     it('auto-logs out after idle timeout when remember-me is disabled', async () => {
-        renderAuthProvider();
+        const view = renderAuthProvider();
 
         fireEvent.click(screen.getByRole('button', { name: /^login child$/i }));
         expect(screen.getByTestId('is-authenticated')).toHaveTextContent('true');
@@ -141,6 +174,11 @@ describe('AuthProvider', () => {
             await advanceTimeByAsync(60 * 60 * 1000 + 1);
             await advanceTimeByAsync(0);
         });
+        view.rerender(
+            <AuthProvider>
+                <Probe />
+            </AuthProvider>
+        );
 
         expect(screen.getByTestId('is-authenticated')).toHaveTextContent('false');
         expect(mocks.ensureKidPrincipal).toHaveBeenCalledWith({ clearParentSession: true });
@@ -161,7 +199,14 @@ describe('AuthProvider', () => {
         expect(screen.getByTestId('is-authenticated')).toHaveTextContent('true');
     });
 
-    it('clears a selected parent user when the active Instant principal drops to kid', async () => {
+    it('clears the persisted parent selection when the active Instant principal drops to kid', async () => {
+        mocks.authState.user = {
+            id: 'parent-principal',
+            familyMemberId: 'parent-1',
+            refresh_token: 'refresh',
+            isGuest: false,
+            type: 'parent',
+        };
         const view = renderAuthProvider();
 
         mocks.instantPrincipalState.principalType = 'parent';
@@ -182,8 +227,8 @@ describe('AuthProvider', () => {
             </AuthProvider>
         );
 
-        expect(screen.getByTestId('is-authenticated')).toHaveTextContent('false');
-        expect(screen.getByTestId('current-user')).toHaveTextContent('none');
+        expect(screen.getByTestId('is-authenticated')).toHaveTextContent('true');
+        expect(screen.getByTestId('current-user')).toHaveTextContent('parent-1');
         expect(window.localStorage.getItem('family_organizer_user_id')).toBeNull();
     });
 });

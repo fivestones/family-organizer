@@ -31,6 +31,12 @@ vi.mock('@/components/ui/use-toast', () => ({
     useToast: () => ({ toast: taskSeriesManagerMocks.toast }),
 }));
 
+vi.mock('@/components/AuthProvider', () => ({
+    useAuth: () => ({
+        currentUser: { id: 'parent-1', name: 'Parent User', role: 'parent' },
+    }),
+}));
+
 vi.mock('@/components/ui/button', async () => {
     const React = await import('react');
     const Button = React.forwardRef<HTMLButtonElement, any>(function MockButton({ children, ...props }, ref) {
@@ -129,6 +135,15 @@ const instantMocks = vi.hoisted(() => ({
 vi.mock('@instantdb/react', () => ({
     tx: instantMocks.tx,
     id: instantMocks.id,
+    init: vi.fn(() => ({
+        useAuth: vi.fn(),
+        useQuery: vi.fn(),
+        transact: vi.fn(),
+        auth: {
+            signOut: vi.fn(),
+            signInWithToken: vi.fn(),
+        },
+    })),
 }));
 
 import TaskSeriesManager from '@/components/task-series/TaskSeriesManager';
@@ -242,7 +257,16 @@ describe('TaskSeriesManager', () => {
 
         expect(taskSeriesManagerMocks.dbUseQuery).toHaveBeenCalledWith({
             taskSeries: {
-                tasks: {},
+                tasks: {
+                    responseFields: {},
+                    updates: {
+                        actor: {},
+                        affectedPerson: {},
+                        responseFieldValues: { field: {} },
+                        gradeType: {},
+                        attachments: {},
+                    },
+                },
                 familyMember: {},
                 scheduledActivity: {},
             },

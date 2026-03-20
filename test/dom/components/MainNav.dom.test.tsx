@@ -44,8 +44,10 @@ describe('MainNav', () => {
         'main-nav-measure-tasks': 78,
         'main-nav-measure-task-series': 108,
         'main-nav-measure-calendar': 92,
+        'main-nav-measure-messages': 98,
         'main-nav-measure-finance': 84,
         'main-nav-measure-allowance-distribution': 162,
+        'main-nav-measure-history': 88,
         'main-nav-measure-settings': 88,
         'main-nav-measure-trigger': 36,
     };
@@ -105,7 +107,7 @@ describe('MainNav', () => {
         const container = screen.getByTestId('main-nav-container');
         Object.defineProperty(container, 'clientWidth', {
             configurable: true,
-            value: 900,
+            value: 1200,
         });
 
         act(() => {

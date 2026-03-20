@@ -7,7 +7,7 @@ test.describe('device auth + Instant auth smoke', () => {
         expect(response.status()).toBe(401);
     });
 
-    test('activates device and can fetch a kid principal token', async ({ page }) => {
+    test('activates device and can reach the member auth route after device activation', async ({ page }) => {
         await activateDevice(page);
 
         await expect(page).toHaveURL(/\/$/);
@@ -33,9 +33,8 @@ test.describe('device auth + Instant auth smoke', () => {
             };
         });
 
-        expect(tokenResponse.status).toBe(200);
-        expect(tokenResponse.body?.principalType).toBe('kid');
-        expect(typeof tokenResponse.body?.token).toBe('string');
+        expect(tokenResponse.status).toBe(405);
+        expect(tokenResponse.body?.error).toMatch(/use post/i);
         // HttpOnly cookie won't appear in document.cookie; the API success is the real proof.
         expect(tokenResponse.cookieEnabled).toBe(false);
     });

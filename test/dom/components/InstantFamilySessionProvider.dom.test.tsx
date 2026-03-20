@@ -9,6 +9,7 @@ import { advanceTimeByAsync, freezeTime } from '@/test/utils/fake-clock';
 const dbMocks = vi.hoisted(() => ({
     useAuth: vi.fn(),
     signInWithToken: vi.fn(),
+    signOut: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -16,6 +17,7 @@ vi.mock('@/lib/db', () => ({
         useAuth: dbMocks.useAuth,
         auth: {
             signInWithToken: dbMocks.signInWithToken,
+            signOut: dbMocks.signOut,
         },
     },
 }));
@@ -38,9 +40,10 @@ describe('InstantFamilySessionProvider', () => {
     beforeEach(() => {
         process.env.NEXT_PUBLIC_PARENT_SHARED_DEVICE_IDLE_TIMEOUT_MS = '15';
         dbMocks.signInWithToken.mockResolvedValue({ user: { id: 'kid-principal' } });
+        dbMocks.signOut.mockResolvedValue(undefined);
         dbMocks.useAuth.mockReturnValue({
             isLoading: false,
-            user: { id: 'kid-principal', refresh_token: 'refresh', isGuest: false, type: 'user' },
+            user: { id: 'kid-principal', refresh_token: 'refresh', isGuest: false, type: 'kid' },
             error: undefined,
         });
     });
@@ -75,7 +78,7 @@ describe('InstantFamilySessionProvider', () => {
 
         dbMocks.useAuth.mockReturnValue({
             isLoading: false,
-            user: { id: 'parent-principal', refresh_token: 'refresh', isGuest: false, type: 'user' },
+            user: { id: 'parent-principal', refresh_token: 'refresh', isGuest: false, type: 'parent' },
             error: undefined,
         });
 
@@ -101,10 +104,8 @@ describe('InstantFamilySessionProvider', () => {
             await advanceTimeByAsync(0);
         });
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            '/api/instant-auth-token',
-            expect.objectContaining({ credentials: 'same-origin', cache: 'no-store' })
-        );
-        expect(screen.getByTestId('principal')).toHaveTextContent('kid');
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(dbMocks.signOut).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('principal')).toHaveTextContent('unknown');
     });
 });

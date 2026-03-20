@@ -116,9 +116,13 @@ vi.mock('@/components/ui/input', async () => {
     return { Input };
 });
 
-vi.mock('lucide-react', () => ({
-    Loader2: (props: any) => <span data-testid="loader" {...props} />,
-}));
+vi.mock('lucide-react', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('lucide-react')>();
+    return {
+        ...actual,
+        Loader2: (props: any) => <span data-testid="loader" {...props} />,
+    };
+});
 
 vi.mock('@tiptap/starter-kit', () => ({
     default: {
@@ -174,6 +178,9 @@ vi.mock('@tiptap/react', () => ({
         return editorMocks.editor;
     },
     EditorContent: ({ editor }: any) => <div data-testid="editor-content">{editor ? 'editor-ready' : 'editor-missing'}</div>,
+    Extension: {
+        create: vi.fn((config: any) => config),
+    },
 }));
 
 const instantMocks = vi.hoisted(() => ({
@@ -186,6 +193,9 @@ const instantMocks = vi.hoisted(() => ({
                     {
                         get(_entityObj, entityId: string) {
                             return {
+                                create(payload: unknown) {
+                                    return { op: 'create', entity, id: entityId, payload };
+                                },
                                 update(payload: unknown) {
                                     return { op: 'update', entity, id: entityId, payload };
                                 },

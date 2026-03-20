@@ -28,6 +28,8 @@ const currencyMocks = vi.hoisted(() => {
         tx: {
             allowanceEnvelopes: txFactory('allowanceEnvelopes'),
             allowanceTransactions: txFactory('allowanceTransactions'),
+            historyEvents: txFactory('historyEvents'),
+            historyEventAttachments: txFactory('historyEventAttachments'),
         },
         getAuth: vi.fn(),
     };

@@ -74,6 +74,7 @@ export default function DebugTimeWidget() {
                     size="icon"
                     className="rounded-full shadow-lg h-12 w-12"
                     onClick={() => setIsOpen(true)}
+                    aria-label="Open Time Machine"
                     title="Open Time Machine"
                 >
                     <Clock className="h-6 w-6" />
@@ -149,6 +150,7 @@ export default function DebugTimeWidget() {
                             </Button>
                             {isActive && (
                                 <Button type="button" variant="destructive" size="sm" onClick={handleReset} title="Reset to Real Time">
+                                    <span className="sr-only">Reset to Real Time</span>
                                     <RefreshCcw className="h-4 w-4" />
                                 </Button>
                             )}

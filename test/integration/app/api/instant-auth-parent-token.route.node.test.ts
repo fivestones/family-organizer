@@ -3,9 +3,9 @@ import { NextRequest } from 'next/server';
 
 const parentRouteMocks = vi.hoisted(() => ({
     getFamilyMemberById: vi.fn(),
-    hashPinServer: vi.fn(),
     isInstantFamilyAuthConfigured: vi.fn(),
-    mintPrincipalToken: vi.fn(),
+    mintFamilyMemberToken: vi.fn(),
+    verifyFamilyMemberCredentials: vi.fn(),
     checkParentElevationRateLimit: vi.fn(),
     clearParentElevationRateLimit: vi.fn(),
     getParentElevationRateLimitKey: vi.fn(),
@@ -14,9 +14,9 @@ const parentRouteMocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/instant-admin', () => ({
     getFamilyMemberById: parentRouteMocks.getFamilyMemberById,
-    hashPinServer: parentRouteMocks.hashPinServer,
     isInstantFamilyAuthConfigured: parentRouteMocks.isInstantFamilyAuthConfigured,
-    mintPrincipalToken: parentRouteMocks.mintPrincipalToken,
+    mintFamilyMemberToken: parentRouteMocks.mintFamilyMemberToken,
+    verifyFamilyMemberCredentials: parentRouteMocks.verifyFamilyMemberCredentials,
 }));
 
 vi.mock('@/lib/parent-elevation-rate-limit', () => ({
@@ -33,8 +33,15 @@ describe('POST /api/instant-auth-parent-token', () => {
         process.env.DEVICE_ACCESS_KEY = 'test-device-key';
         parentRouteMocks.isInstantFamilyAuthConfigured.mockReturnValue(true);
         parentRouteMocks.getFamilyMemberById.mockResolvedValue(null);
-        parentRouteMocks.hashPinServer.mockReturnValue('hashed-pin');
-        parentRouteMocks.mintPrincipalToken.mockResolvedValue('parent-token');
+        parentRouteMocks.verifyFamilyMemberCredentials.mockResolvedValue(undefined);
+        parentRouteMocks.mintFamilyMemberToken.mockResolvedValue({
+            token: 'parent-token',
+            principalType: 'parent',
+            member: {
+                id: 'parent-1',
+                role: 'parent',
+            },
+        });
         parentRouteMocks.checkParentElevationRateLimit.mockReturnValue({ allowed: true });
         parentRouteMocks.getParentElevationRateLimitKey.mockReturnValue('ip::parent-1');
     });
@@ -77,7 +84,7 @@ describe('POST /api/instant-auth-parent-token', () => {
             role: 'parent',
             pinHash: 'expected-hash',
         });
-        parentRouteMocks.hashPinServer.mockReturnValue('different-hash');
+        parentRouteMocks.verifyFamilyMemberCredentials.mockRejectedValue(new Error('Incorrect PIN'));
 
         const response = await POST(makeRequest({ familyMemberId: 'parent-1', pin: '1234' }));
         expect(response.status).toBe(403);
@@ -103,7 +110,6 @@ describe('POST /api/instant-auth-parent-token', () => {
             role: 'parent',
             pinHash: 'expected-hash',
         });
-        parentRouteMocks.hashPinServer.mockReturnValue('expected-hash');
 
         const response = await POST(makeRequest({ familyMemberId: 'parent-1', pin: '1234' }));
 
@@ -112,8 +118,11 @@ describe('POST /api/instant-auth-parent-token', () => {
         expect(await response.json()).toEqual({
             token: 'parent-token',
             principalType: 'parent',
+            familyMemberId: 'parent-1',
+            familyMemberRole: 'parent',
         });
-        expect(parentRouteMocks.mintPrincipalToken).toHaveBeenCalledWith('parent');
+        expect(parentRouteMocks.verifyFamilyMemberCredentials).toHaveBeenCalledWith('parent-1', '1234');
+        expect(parentRouteMocks.mintFamilyMemberToken).toHaveBeenCalledWith('parent-1');
         expect(parentRouteMocks.clearParentElevationRateLimit).toHaveBeenCalledWith('ip::parent-1');
     });
 
@@ -126,7 +135,6 @@ describe('POST /api/instant-auth-parent-token', () => {
             role: 'parent',
             pinHash: 'expected-hash',
         });
-        parentRouteMocks.hashPinServer.mockReturnValue('expected-hash');
 
         const response = await POST(
             new NextRequest('http://localhost:3000/api/instant-auth-parent-token', {
@@ -143,6 +151,8 @@ describe('POST /api/instant-auth-parent-token', () => {
         expect(await response.json()).toEqual({
             token: 'parent-token',
             principalType: 'parent',
+            familyMemberId: 'parent-1',
+            familyMemberRole: 'parent',
         });
     });
 });

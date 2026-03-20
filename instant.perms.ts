@@ -323,7 +323,7 @@ const rules = {
             unlink: { $default: 'isFamilyPrincipal' },
         },
         fields: {
-            pinHash: 'isParent',
+            pinHash: "isParent || data.role != 'parent'",
         },
     },
 
@@ -333,6 +333,7 @@ const rules = {
     messages: MESSAGE_ROWS_READ_ONLY,
     messageThreadMembers: MESSAGE_MEMBERS_READ_ONLY,
     messageThreads: MESSAGE_THREADS_READ_ONLY,
+    presence: FAMILY_MUTABLE,
     pushDevices: PUSH_DEVICES_READ_ONLY,
     gradeTypes: PARENT_MUTABLE,
     settings: PARENT_MUTABLE,

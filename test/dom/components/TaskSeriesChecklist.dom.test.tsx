@@ -63,15 +63,12 @@ vi.mock('@/components/ui/fireworks', () => ({
     Fireworks: () => null,
 }));
 
-vi.mock('lucide-react', () => ({
-    File: () => <span>FileIcon</span>,
-    Loader2: () => <span>Loader2</span>,
-    RotateCcw: () => <span>RotateCcw</span>,
-    Upload: () => <span>Upload</span>,
-    X: () => <span>X</span>,
-    Maximize2: () => <span>Maximize2</span>,
-    Minimize2: () => <span>Minimize2</span>,
-}));
+vi.mock('lucide-react', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('lucide-react')>();
+    return {
+        ...actual,
+    };
+});
 
 import { TaskSeriesChecklist } from '@/components/TaskSeriesChecklist';
 
@@ -224,7 +221,7 @@ describe('TaskSeriesChecklist', () => {
 
         expect(screen.getByRole('heading', { name: /practice piano/i })).toBeInTheDocument();
         expect(screen.getByText(/warm up with scales first/i)).toBeInTheDocument();
-        expect(screen.getByText(/update this task/i)).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: /^update$/i })).toBeInTheDocument();
     });
 
     it('opens the shared task detail modal from update and lets auth-gated users request login inside it', async () => {
@@ -251,7 +248,7 @@ describe('TaskSeriesChecklist', () => {
             />
         );
 
-        await user.click(screen.getByRole('button', { name: /update/i }));
+        await user.click(screen.getByRole('button', { name: /^details$/i }));
 
         expect(onRequireTaskAuth).not.toHaveBeenCalled();
         expect(screen.getByText(/task details/i)).toBeInTheDocument();

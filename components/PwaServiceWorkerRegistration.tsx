@@ -9,6 +9,10 @@ export function PwaServiceWorkerRegistration() {
 
         const enableInDev = process.env.NEXT_PUBLIC_ENABLE_SW_IN_DEV === 'true';
         if (process.env.NODE_ENV !== 'production' && !enableInDev) {
+            if (typeof navigator.serviceWorker.getRegistrations !== 'function') {
+                return;
+            }
+
             void navigator.serviceWorker
                 .getRegistrations()
                 .then(async (registrations) => {

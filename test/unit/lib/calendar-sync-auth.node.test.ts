@@ -57,7 +57,7 @@ describe('calendar sync auth', () => {
     });
 
     it('accepts verified parent principals from the Instant cookie', async () => {
-        mocks.getUserFromRequest.mockResolvedValue({ email: 'parent@family-organizer.local' });
+        mocks.getUserFromRequest.mockResolvedValue({ email: 'parent@family-organizer.local', type: 'parent' });
         const { requireCalendarSyncRouteAuth } = await import('@/lib/calendar-sync-auth');
         const result = await requireCalendarSyncRouteAuth(
             new NextRequest('http://localhost:3000/api/calendar-sync/apple/status')
@@ -68,7 +68,7 @@ describe('calendar sync auth', () => {
 
     it('accepts a verified parent principal token header on device-authenticated requests', async () => {
         mocks.getDeviceAuthContextFromNextRequest.mockReturnValue({ authorized: true });
-        mocks.verifyToken.mockResolvedValue({ email: 'parent@family-organizer.local' });
+        mocks.verifyToken.mockResolvedValue({ email: 'parent@family-organizer.local', type: 'parent' });
         const { requireCalendarSyncRouteAuth } = await import('@/lib/calendar-sync-auth');
         const { CALENDAR_SYNC_PARENT_TOKEN_HEADER } = await import('@/lib/calendar-sync-constants');
         const result = await requireCalendarSyncRouteAuth(
