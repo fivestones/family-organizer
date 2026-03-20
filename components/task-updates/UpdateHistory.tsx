@@ -3,16 +3,12 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { AttachmentThumbnailRow } from '@/components/attachments/AttachmentThumbnail';
-import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
+import { TaskFeedbackReplies, TaskResponseFieldValuesList } from '@/components/task-updates/TaskUpdateThread';
 import {
-    getAttachmentKind,
-    getProtectedAttachmentPath,
-} from '@family-organizer/shared-core';
-import {
+    getTopLevelTaskUpdates,
     getTaskStatusLabel,
     getTaskUpdateActorName,
     getTaskUpdateAffectedName,
-    sortTaskUpdates,
     type TaskUpdateLike,
     type TaskWorkflowState,
 } from '@/lib/task-progress';
@@ -58,16 +54,7 @@ function getToneClass(state: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) => {
-    const nonDraftUpdates = (updates || []).filter((u) => !u.isDraft);
-    // Exclude updates that are replies — they'll be rendered threaded under their parent
-    const topLevelUpdates = nonDraftUpdates.filter((u) => {
-        const replyTo = u.replyTo;
-        if (!replyTo) return true;
-        // has-one link may be an object or a 1-element array
-        const resolved = Array.isArray(replyTo) ? replyTo[0] : replyTo;
-        return !resolved?.id;
-    });
-    const sorted = sortTaskUpdates(topLevelUpdates);
+    const sorted = getTopLevelTaskUpdates(updates);
     const visible = limit ? sorted.slice(0, limit) : sorted;
 
     if (visible.length === 0) {
@@ -142,42 +129,7 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
                         )}
 
                         {/* Response field values summary */}
-                        {entry.responseFieldValues && entry.responseFieldValues.length > 0 && (
-                            <div className="mt-2 space-y-1.5">
-                                {entry.responseFieldValues.map((fv) => {
-                                    const rawField = fv.field;
-                                    const resolvedField = Array.isArray(rawField) ? rawField[0] : rawField;
-                                    const fieldLabel = resolvedField?.label || 'Response';
-                                    // Hide generic "Rich Text" labels
-                                    const isGenericLabel =
-                                        fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
-                                    const showLabel = !isGenericLabel;
-
-                                    return (
-                                        <div key={fv.id} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
-                                            {showLabel && (
-                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                                                    {fieldLabel}
-                                                </div>
-                                            )}
-                                            {fv.richTextContent && (
-                                                <div
-                                                    className="prose prose-sm mt-1 max-w-none text-slate-700"
-                                                    dangerouslySetInnerHTML={{ __html: fv.richTextContent }}
-                                                />
-                                            )}
-                                            {fv.fileUrl && (
-                                                <ResponseFieldFilePreview
-                                                    fileUrl={fv.fileUrl}
-                                                    fileName={fv.fileName}
-                                                    fileType={fv.fileType}
-                                                />
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
+                        <TaskResponseFieldValuesList responseFieldValues={entry.responseFieldValues} className="mt-2" />
 
                         {/* Attachments — responsive: medium on large viewports, scale down on small */}
                         {entry.attachments && entry.attachments.length > 0 && (
@@ -198,39 +150,7 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
                         )}
 
                         {/* Threaded replies (feedback on this update) */}
-                        {entry.replies && entry.replies.length > 0 && (
-                            <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-                                {[...entry.replies]
-                                    .filter((r) => !r.isDraft && r.note?.trim())
-                                    .sort((a, b) => {
-                                        const tA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
-                                        const tB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
-                                        return (tA as number) - (tB as number);
-                                    })
-                                    .map((reply) => {
-                                        const replyActorName = getTaskUpdateActorName(reply);
-                                        const replyTimestamp = formatTimestamp(reply.createdAt);
-                                        return (
-                                            <div
-                                                key={reply.id}
-                                                className="rounded-lg border-l-2 border-indigo-300 bg-indigo-50/50 py-2 pl-3 pr-2"
-                                            >
-                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
-                                                    {replyActorName && (
-                                                        <span className="font-medium text-slate-700">
-                                                            {replyActorName}
-                                                        </span>
-                                                    )}
-                                                    <span className="text-slate-400">{replyTimestamp}</span>
-                                                </div>
-                                                <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
-                                                    {reply.note}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                            </div>
-                        )}
+                        <TaskFeedbackReplies replies={entry.replies} className="mt-3 border-t border-slate-100 pt-3" tone="indigo" />
                     </div>
                 );
             })}
@@ -243,67 +163,3 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
         </div>
     );
 };
-
-// ---------------------------------------------------------------------------
-// Inline file preview for response field values
-// ---------------------------------------------------------------------------
-
-function ResponseFieldFilePreview({
-    fileUrl,
-    fileName,
-    fileType,
-}: {
-    fileUrl: string;
-    fileName?: string | null;
-    fileType?: string | null;
-}) {
-    const kind = getAttachmentKind({ type: fileType || '', url: fileUrl });
-    const resolvedUrl = getProtectedAttachmentPath(fileUrl);
-
-    if (kind === 'image') {
-        return (
-            <div className="mt-1.5">
-                <AttachmentCollection
-                    attachments={[{ id: fileUrl, name: fileName || 'Image', type: fileType || 'image/*', url: fileUrl }]}
-                    variant="compact"
-                />
-            </div>
-        );
-    }
-
-    if (kind === 'audio') {
-        return (
-            <div className="mt-1.5">
-                <AttachmentCollection
-                    attachments={[{ id: fileUrl, name: fileName || 'Audio', type: fileType || 'audio/*', url: fileUrl }]}
-                    variant="compact"
-                />
-            </div>
-        );
-    }
-
-    if (kind === 'video') {
-        return (
-            <div className="mt-1.5">
-                <AttachmentCollection
-                    attachments={[{ id: fileUrl, name: fileName || 'Video', type: fileType || 'video/*', url: fileUrl }]}
-                    variant="compact"
-                />
-            </div>
-        );
-    }
-
-    // Generic file (PDF, etc.) — render as a link
-    return (
-        <div className="mt-1 text-xs">
-            <a
-                href={resolvedUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 underline hover:text-blue-800"
-            >
-                {fileName || 'View file'}
-            </a>
-        </div>
-    );
-}

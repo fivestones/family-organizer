@@ -379,4 +379,76 @@ describe('TaskSeriesChecklist', () => {
         expect(screen.getByText(/preview not available for this file type/i)).toBeInTheDocument();
         expect(screen.getByRole('link', { name: /download file/i })).toHaveAttribute('href', '/files/files/archive.bin');
     });
+
+    it('shows the latest reviewed response thread even when a newer no-op update exists', () => {
+        const activeTask = task({
+            id: 'task-feedback-thread',
+            text: 'Explain what a model is',
+            order: 1,
+            workflowState: 'in_progress',
+            responseFields: [
+                {
+                    id: 'field-1',
+                    type: 'rich_text',
+                    label: 'Required',
+                    order: 0,
+                    required: true,
+                    weight: 1,
+                },
+            ],
+            updates: [
+                {
+                    id: 'latest-noop',
+                    isDraft: false,
+                    createdAt: new Date('2026-03-20T09:05:36-04:00').valueOf(),
+                    fromState: 'in_progress',
+                    toState: 'in_progress',
+                    note: '   ',
+                    actor: [{ id: 'judah', name: 'Judah' }],
+                },
+                {
+                    id: 'submission-1',
+                    isDraft: false,
+                    createdAt: new Date('2026-03-19T21:21:39-04:00').valueOf(),
+                    fromState: 'not_started',
+                    toState: 'needs_review',
+                    actor: [{ id: 'judah', name: 'Judah' }],
+                    responseFieldValues: [
+                        {
+                            id: 'value-1',
+                            richTextContent: '<p>A model is a simplified version of something.</p>',
+                            field: [{ id: 'field-1', label: 'Required' }],
+                        },
+                    ],
+                    replies: [
+                        {
+                            id: 'feedback-1',
+                            isDraft: false,
+                            createdAt: new Date('2026-03-20T08:30:21-04:00').valueOf(),
+                            note: 'This is a great start, but explain what makes a model simplified.',
+                            actor: [{ id: 'david', name: 'David' }],
+                            replyTo: [{ id: 'submission-1' }],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        render(
+            <TaskSeriesChecklist
+                tasks={[activeTask] as any}
+                allTasks={[activeTask] as any}
+                onToggle={vi.fn()}
+                onTaskUpdate={vi.fn()}
+                isReadOnly={false}
+                selectedMember="judah"
+                currentMemberId="judah"
+                showDetails={false}
+            />
+        );
+
+        expect(screen.getByText(/latest reviewed response/i)).toBeInTheDocument();
+        expect(screen.getByText(/a model is a simplified version of something/i)).toBeInTheDocument();
+        expect(screen.getByText(/this is a great start, but explain what makes a model simplified/i)).toBeInTheDocument();
+    });
 });

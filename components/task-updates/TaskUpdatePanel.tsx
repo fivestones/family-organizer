@@ -3,14 +3,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { ResponseFieldInput } from '@/components/responses/ResponseFieldInput';
 import { cn } from '@/lib/utils';
 import {
+    getTaskUpdateFeedbackReplies,
     getTaskStatusLabel,
     getTaskWorkflowState,
     getTaskProgressPlaceholder,
     getLatestDraftUpdate,
     getLatestTaskUpdate,
+    taskUpdateHasMeaningfulResponseContent,
+    type TaskUpdateLike,
     type TaskWorkflowState,
     isTaskWorkflowState,
 } from '@/lib/task-progress';
@@ -21,6 +25,7 @@ import {
 } from '@/lib/task-update-mutations';
 import type { TaskResponseFieldType } from '@/lib/task-response-types';
 import type { GradeTypeLike } from '@/lib/task-response-types';
+import { TaskFeedbackReplies, TaskResponseFieldValuesList } from '@/components/task-updates/TaskUpdateThread';
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, MessageSquare, Send, Star, X } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -37,30 +42,7 @@ export interface ResponseField {
     order: number;
 }
 
-export interface TaskUpdatePanelUpdate {
-    id?: string;
-    isDraft?: boolean | null;
-    toState?: string | null;
-    fromState?: string | null;
-    createdAt?: number | string | Date | null;
-    note?: string | null;
-    actor?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null;
-    replyTo?: Array<{ id?: string }> | { id?: string } | null;
-    replies?: Array<{
-        id?: string;
-        note?: string | null;
-        createdAt?: number | string | Date | null;
-        actor?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null;
-    }> | null;
-    responseFieldValues?: Array<{
-        id?: string;
-        richTextContent?: string | null;
-        fileUrl?: string | null;
-        fileName?: string | null;
-        fileType?: string | null;
-        field?: Array<{ id?: string; label?: string | null }> | null;
-    }> | null;
-}
+export interface TaskUpdatePanelUpdate extends TaskUpdateLike {}
 
 export interface TaskUpdatePanelTask {
     id: string;
@@ -200,18 +182,6 @@ interface SubmissionEntry {
     isSubmittedForReview: boolean;
 }
 
-function hasResponseContent(
-    responseFieldValues: TaskUpdatePanelUpdate['responseFieldValues'] | null | undefined,
-): boolean {
-    if (!responseFieldValues || responseFieldValues.length === 0) return false;
-    return responseFieldValues.some((fv) => {
-        const richText = fv.richTextContent?.trim() || '';
-        const hasRichText = richText.length > 0 && richText !== '<p></p>';
-        const hasFile = !!(fv.fileUrl && fv.fileUrl.trim().length > 0);
-        return hasRichText || hasFile;
-    });
-}
-
 /**
  * Extract all updates that contain response content (submissions), sorted with
  * review-submitted ones first, then in-progress ones, each group newest-first.
@@ -221,7 +191,7 @@ function getSubmissions(updates: TaskUpdatePanelUpdate[] | null | undefined): Su
     const submissions: SubmissionEntry[] = [];
     for (const u of updates) {
         if (u.isDraft) continue;
-        if (!hasResponseContent(u.responseFieldValues)) continue;
+        if (!taskUpdateHasMeaningfulResponseContent(u)) continue;
         const isSubmittedForReview = REVIEW_SUBMITTED_STATES.has(u.toState || '');
         submissions.push({ update: u, isSubmittedForReview });
     }
@@ -756,13 +726,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
         const submissionActorName = getUpdateActorName(selectedSubmissionUpdate);
         const submissionTimestamp = formatReviewTimestamp(selectedSubmissionUpdate.createdAt);
         const submissionToState = selectedSubmissionUpdate.toState as TaskWorkflowState | undefined;
-        const existingReplies = (selectedSubmissionUpdate.replies || [])
-            .filter((r) => r.note?.trim())
-            .sort((a, b) => {
-                const tA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
-                const tB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
-                return tA - tB;
-            });
+        const existingReplies = getTaskUpdateFeedbackReplies(selectedSubmissionUpdate);
 
         return (
             <div className="space-y-5">
@@ -840,65 +804,27 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                         )}
 
                         {/* Response content */}
-                        {selectedSubmissionUpdate.responseFieldValues?.map((fv) => {
-                            const rawField = fv.field;
-                            const resolvedField = Array.isArray(rawField) ? rawField[0] : rawField;
-                            const fieldLabel = resolvedField?.label || 'Response';
-                            const isGenericLabel = fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
-                            return (
-                                <div key={fv.id} className="mt-1">
-                                    {!isGenericLabel && (
-                                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                                            {fieldLabel}
-                                        </div>
-                                    )}
-                                    {fv.richTextContent && (
-                                        <div
-                                            className="prose prose-sm mt-1 max-w-none text-slate-800"
-                                            dangerouslySetInnerHTML={{ __html: fv.richTextContent }}
-                                        />
-                                    )}
-                                    {fv.fileUrl && (
-                                        <div className="mt-1.5 text-xs">
-                                            <a
-                                                href={fv.fileUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-blue-600 underline hover:text-blue-800"
-                                            >
-                                                {fv.fileName || 'View file'}
-                                            </a>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
+                        {selectedSubmissionUpdate.note ? (
+                            <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+                                {selectedSubmissionUpdate.note}
+                            </div>
+                        ) : null}
+                        <TaskResponseFieldValuesList
+                            responseFieldValues={selectedSubmissionUpdate.responseFieldValues}
+                            className="mt-1"
+                            itemClassName="border-indigo-100 bg-white/80"
+                            contentClassName="text-slate-800"
+                        />
+                        {selectedSubmissionUpdate.attachments && selectedSubmissionUpdate.attachments.length > 0 ? (
+                            <AttachmentCollection
+                                attachments={selectedSubmissionUpdate.attachments as any[]}
+                                className="mt-2"
+                                variant="compact"
+                            />
+                        ) : null}
 
                         {/* Existing replies/feedback on this submission */}
-                        {existingReplies.length > 0 && (
-                            <div className="mt-4 space-y-2 border-t border-indigo-200 pt-3">
-                                {existingReplies.map((reply) => {
-                                    const replyActorName = getUpdateActorName(reply as TaskUpdatePanelUpdate);
-                                    const replyTimestamp = formatReviewTimestamp(reply.createdAt);
-                                    return (
-                                        <div
-                                            key={reply.id}
-                                            className="rounded-lg border-l-2 border-indigo-300 bg-white/70 py-2 pl-3 pr-2"
-                                        >
-                                            <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                                                {replyActorName && (
-                                                    <span className="font-medium text-slate-700">
-                                                        {replyActorName}
-                                                    </span>
-                                                )}
-                                                {replyTimestamp && <span>{replyTimestamp}</span>}
-                                            </div>
-                                            <div className="mt-1 text-sm text-slate-700">{reply.note}</div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
+                        <TaskFeedbackReplies replies={existingReplies} className="mt-4 border-t border-indigo-200 pt-3" tone="indigo" />
                     </div>
                 )}
 

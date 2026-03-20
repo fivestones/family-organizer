@@ -62,6 +62,8 @@ export interface TaskProgressTaskLike {
     updates?: TaskUpdateLike[] | null;
 }
 
+type TaskUpdateSource = TaskUpdateLike[] | Pick<TaskProgressTaskLike, 'updates'> | null | undefined;
+
 export function isTaskWorkflowState(value: unknown): value is TaskWorkflowState {
     return typeof value === 'string' && (TASK_WORKFLOW_STATES as readonly string[]).includes(value);
 }
@@ -128,18 +130,103 @@ function toComparableTime(value: number | string | Date | null | undefined): num
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getTaskUpdateEntries(source: TaskUpdateSource): TaskUpdateLike[] {
+    if (Array.isArray(source)) return source;
+    return [...(source?.updates || [])];
+}
+
+function hasMeaningfulRichText(value: string | null | undefined): boolean {
+    const normalized = value?.trim() || '';
+    return normalized.length > 0 && normalized !== '<p></p>';
+}
+
 export function sortTaskUpdates(entries: TaskUpdateLike[] | null | undefined): TaskUpdateLike[] {
     return [...(entries || [])].sort((left, right) => toComparableTime(right?.createdAt || null) - toComparableTime(left?.createdAt || null));
 }
 
 export function getLatestTaskUpdate(task: Pick<TaskProgressTaskLike, 'updates'> | null | undefined): TaskUpdateLike | null {
-    const nonDraftUpdates = (task?.updates || []).filter((u) => !u.isDraft);
-    return sortTaskUpdates(nonDraftUpdates)[0] || null;
+    return sortTaskUpdates(getNonDraftTaskUpdates(task))[0] || null;
 }
 
 export function getLatestDraftUpdate(task: Pick<TaskProgressTaskLike, 'updates'> | null | undefined): TaskUpdateLike | null {
     const draftUpdates = (task?.updates || []).filter((u) => u.isDraft);
     return sortTaskUpdates(draftUpdates)[0] || null;
+}
+
+export function getTaskUpdateTime(entry: Pick<TaskUpdateLike, 'createdAt'> | null | undefined): number {
+    return toComparableTime(entry?.createdAt || null);
+}
+
+export function getTaskUpdateActorId(
+    entry: TaskUpdateLike | null | undefined,
+): string | null {
+    const actor = entry?.actor;
+    if (Array.isArray(actor)) {
+        return actor[0]?.id || null;
+    }
+    if (actor?.id) return actor.id;
+    return null;
+}
+
+export function getTaskUpdateReplyToId(
+    entry: TaskUpdateLike | null | undefined,
+): string | null {
+    const replyTo = entry?.replyTo;
+    if (Array.isArray(replyTo)) {
+        return replyTo[0]?.id || null;
+    }
+    if (replyTo?.id) return replyTo.id;
+    return null;
+}
+
+export function isTaskUpdateReply(entry: TaskUpdateLike | null | undefined): boolean {
+    return Boolean(getTaskUpdateReplyToId(entry));
+}
+
+export function getNonDraftTaskUpdates(source: TaskUpdateSource): TaskUpdateLike[] {
+    return getTaskUpdateEntries(source).filter((entry) => !entry.isDraft);
+}
+
+export function getTopLevelTaskUpdates(source: TaskUpdateSource): TaskUpdateLike[] {
+    return getNonDraftTaskUpdates(source).filter((entry) => !isTaskUpdateReply(entry));
+}
+
+export function taskUpdateHasMeaningfulResponseContent(entry: TaskUpdateLike | null | undefined): boolean {
+    if (!entry?.responseFieldValues || entry.responseFieldValues.length === 0) return false;
+    return entry.responseFieldValues.some((fieldValue) => {
+        const hasRichText = hasMeaningfulRichText(fieldValue.richTextContent);
+        const hasFile = Boolean(fieldValue.fileUrl && fieldValue.fileUrl.trim().length > 0);
+        return hasRichText || hasFile;
+    });
+}
+
+export function taskUpdateHasMeaningfulFeedbackContent(entry: TaskUpdateLike | null | undefined): boolean {
+    if (!entry) return false;
+    const hasNote = Boolean(entry.note?.trim());
+    const hasGrade = entry.gradeDisplayValue != null || entry.gradeNumericValue != null;
+    const hasAttachments = Boolean(entry.attachments && entry.attachments.length > 0);
+    return hasNote || hasGrade || hasAttachments;
+}
+
+export function getTaskUpdateFeedbackReplies(source: TaskUpdateLike | TaskUpdateLike[] | null | undefined): TaskUpdateLike[] {
+    const replies = Array.isArray(source) ? source : ((source?.replies || []) as TaskUpdateLike[]);
+    return sortTaskUpdates(replies)
+        .filter((reply) => !reply.isDraft && taskUpdateHasMeaningfulFeedbackContent(reply))
+        .reverse();
+}
+
+export function getLatestTaskResponseUpdate(source: TaskUpdateSource): TaskUpdateLike | null {
+    return sortTaskUpdates(
+        getTopLevelTaskUpdates(source).filter((entry) => taskUpdateHasMeaningfulResponseContent(entry))
+    )[0] || null;
+}
+
+export function getLatestTaskFeedbackThread(source: TaskUpdateSource): { submission: TaskUpdateLike; feedbackReplies: TaskUpdateLike[] } | null {
+    const submission = getLatestTaskResponseUpdate(source);
+    if (!submission) return null;
+    const feedbackReplies = getTaskUpdateFeedbackReplies(submission);
+    if (feedbackReplies.length === 0) return null;
+    return { submission, feedbackReplies };
 }
 
 export function getBucketedTasks<T extends TaskProgressTaskLike>(

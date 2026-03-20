@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { AttachmentThumbnailRow } from '@/components/attachments/AttachmentThumbnail';
 import { TaskUpdatePanel } from '@/components/task-updates/TaskUpdatePanel';
+import { UpdateHistory } from '@/components/task-updates/UpdateHistory';
+import { TaskResponseFeedbackThread } from '@/components/task-updates/TaskUpdateThread';
 import type { ResponseFieldValueInput } from '@/lib/task-update-mutations';
 import { uploadSingleFileToS3 } from '@/lib/file-uploads';
 import { FocusOverlay } from '@/components/responses/FocusOverlay';
@@ -15,6 +17,7 @@ import type { FocusPanelItem, FocusPanelState, FocusableItem } from '@/component
 import type { GradeTypeLike } from '@/lib/task-response-types';
 import {
     getBucketedTasks,
+    getLatestTaskFeedbackThread,
     getLatestTaskUpdate,
     getTaskUpdateActorName,
     getTaskLastActiveState,
@@ -264,7 +267,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const composerTaskMeta = composerTask ? getTaskContextMeta(composerTask, allTasks) : null;
     const composerTaskAttachments = composerTask ? ((composerTask as any).attachments || []) : [];
     const composerLatestEntry = composerTask ? getLatestTaskUpdate(composerTask) : null;
-    const composerHistoryEntries = composerTask ? sortTaskUpdates(composerTask.updates) : [];
+    const composerHistoryEntries = composerTask ? sortTaskUpdates((composerTask.updates || []).filter((entry) => !entry.isDraft)) : [];
 
     if (!hasAnyVisibleContent || actionableCount === 0) return null;
 
@@ -576,6 +579,21 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         );
     };
 
+    const renderLatestReviewedResponseThread = (task: Task, className?: string) => {
+        const thread = getLatestTaskFeedbackThread(task);
+        if (!thread) return null;
+
+        return (
+            <TaskResponseFeedbackThread
+                submission={thread.submission}
+                feedbackReplies={thread.feedbackReplies}
+                className={className}
+                label="Latest reviewed response"
+                tone="indigo"
+            />
+        );
+    };
+
     const renderActiveTaskRow = (task: Task) => {
         const isHeader = hasScheduledChildren(task.id, scheduledIds, allTasks) || !scheduledIds.has(task.id);
         const currentState = getTaskWorkflowState(task);
@@ -638,6 +656,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                             </div>
                             {renderReferenceDetails(task)}
                             {renderProgressMeta(task)}
+                            {renderLatestReviewedResponseThread(task, 'mt-3')}
                         </div>
                     </div>
 
@@ -707,6 +726,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
 
     const renderBucketTaskRow = (task: Task, state: TaskBucketState) => {
         const latestEntry = getLatestTaskUpdate(task);
+        const latestFeedbackThread = getLatestTaskFeedbackThread(task);
         const actorName = getTaskUpdateActorName(latestEntry);
         const createdAt = formatDateTimeLabel(latestEntry?.createdAt);
 
@@ -788,10 +808,20 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                             {createdAt ? <span>{createdAt}</span> : null}
                         </div>
 
+                        {latestFeedbackThread ? (
+                            <TaskResponseFeedbackThread
+                                submission={latestFeedbackThread.submission}
+                                feedbackReplies={latestFeedbackThread.feedbackReplies}
+                                className="mt-3"
+                                label="Latest reviewed response"
+                                tone="indigo"
+                            />
+                        ) : null}
+
                         {/* Response fields: read-only summary when all submitted,
                             inline editor (pre-populated) when some are missing */}
                         {task.responseFields && task.responseFields.length > 0 ? (
-                            allFieldsSubmitted ? (
+                            allFieldsSubmitted && !latestFeedbackThread ? (
                                 // All response fields answered — read-only summary
                                 renderResponseSummary(latestEntry?.responseFieldValues)
                             ) : effectiveMemberId && (state === 'blocked' || state === 'skipped') ? (
@@ -817,7 +847,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                         }
                                     />
                                 </div>
-                            ) : hasSubmittedResponse ? (
+                            ) : hasSubmittedResponse && !latestFeedbackThread ? (
                                 // Partial responses exist — show what we have
                                 renderResponseSummary(latestEntry?.responseFieldValues)
                             ) : null
@@ -1292,68 +1322,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                 No progress updates yet.
                                             </div>
                                         ) : (
-                                            composerHistoryEntries.map((entry) => {
-                                                const fromState = entry.fromState ? getTaskStatusLabel(entry.fromState as TaskWorkflowState) : null;
-                                                const toState = entry.toState ? getTaskStatusLabel(entry.toState as TaskWorkflowState) : null;
-                                                const actorName = getTaskUpdateActorName(entry);
-                                                const createdAt = formatDateTimeLabel(entry.createdAt);
-                                                const scheduledForDate = formatDateKeyLabel(entry.scheduledForDate || null);
-
-                                                return (
-                                                    <div key={entry.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
-                                                            {toState ? (
-                                                                <span className="font-semibold text-slate-700">
-                                                                    {fromState && fromState !== toState ? `${fromState} -> ${toState}` : toState}
-                                                                </span>
-                                                            ) : null}
-                                                            {actorName ? <span>by {actorName}</span> : null}
-                                                            {createdAt ? <span>{createdAt}</span> : null}
-                                                            {scheduledForDate ? <span>for {scheduledForDate}</span> : null}
-                                                            {entry.restoreTiming === 'next_scheduled' ? <span>returns next scheduled day</span> : null}
-                                                            {entry.restoreTiming === 'now' ? <span>returned immediately</span> : null}
-                                                        </div>
-                                                        {entry.note ? <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{entry.note}</div> : null}
-                                                        {/* Response field values */}
-                                                        {entry.responseFieldValues && entry.responseFieldValues.length > 0 && (
-                                                            <div className="mt-2 space-y-1.5">
-                                                                {entry.responseFieldValues.map((rfv: any, i: number) => {
-                                                                    const rawField = rfv.field;
-                                                                    const resolvedF = Array.isArray(rawField) ? rawField[0] : rawField;
-                                                                    const fieldLabel = resolvedF?.label || '';
-                                                                    const isGenericLabel = fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
-                                                                    return (
-                                                                        <div key={rfv.id || i} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
-                                                                            {fieldLabel && !isGenericLabel ? (
-                                                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{fieldLabel}</div>
-                                                                            ) : null}
-                                                                            {rfv.richTextContent && rfv.richTextContent !== '<p></p>' ? (
-                                                                                <div className="prose prose-sm mt-1 max-w-none text-sm text-slate-700" dangerouslySetInnerHTML={{ __html: rfv.richTextContent }} />
-                                                                            ) : null}
-                                                                            {rfv.fileUrl ? (
-                                                                                <div className="mt-1.5">
-                                                                                    <AttachmentCollection
-                                                                                        attachments={[{
-                                                                                            id: rfv.id || `rfv-${i}`,
-                                                                                            name: rfv.fileName || 'File',
-                                                                                            type: rfv.fileType || '',
-                                                                                            url: rfv.fileUrl,
-                                                                                        }]}
-                                                                                        variant="compact"
-                                                                                    />
-                                                                                </div>
-                                                                            ) : null}
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        )}
-                                                        {entry.attachments?.length ? (
-                                                            <AttachmentCollection attachments={entry.attachments} className="mt-3" variant="compact" />
-                                                        ) : null}
-                                                    </div>
-                                                );
-                                            })
+                                            <UpdateHistory updates={composerTask?.updates || []} />
                                         )}
                                     </div>
                                 </section>

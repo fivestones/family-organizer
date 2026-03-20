@@ -218,6 +218,13 @@ function ChoresTracker({
                         affectedPerson: {},
                         responseFieldValues: { field: {} },
                         gradeType: {},
+                        replyTo: {},
+                        replies: {
+                            actor: {},
+                            affectedPerson: {},
+                            attachments: {},
+                            gradeType: {},
+                        },
                     },
                     // Note: notes is a direct field, so it comes automatically with the entity
                     responseFields: {},

@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '@/lib/db';
 import FamilyMembersList from '@/components/FamilyMembersList';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
+import { TaskFeedbackReplies, TaskResponseFieldValuesList } from '@/components/task-updates/TaskUpdateThread';
 import {
     collapseCalendarHistoryEvents,
     getCalendarHistoryDetail,
@@ -23,6 +24,14 @@ import {
     type HistoryFilterMode,
     toggleFilterMode,
 } from '@/lib/history-events';
+import {
+    getTaskUpdateActorId,
+    getTaskUpdateReplyToId,
+    isTaskUpdateReply,
+    taskUpdateHasMeaningfulFeedbackContent,
+    taskUpdateHasMeaningfulResponseContent,
+    type TaskUpdateLike,
+} from '@/lib/task-progress';
 
 type HistoryPageProps = {
     initialSelectedMember?: string | null;
@@ -39,6 +48,11 @@ type HistoryDisplayEntry = {
     isCollapsedCalendarGroup: boolean;
     summary: string;
     detailText: string | null;
+};
+
+type TaskHistoryUpdateRecord = {
+    taskId: string;
+    update: TaskUpdateLike;
 };
 
 function cycleFilter(map: Record<string, HistoryFilterMode>, key: string) {
@@ -113,6 +127,17 @@ function getFinanceDescriptionLine(event: HistoryEventLike | null | undefined) {
     return description;
 }
 
+function getTaskUpdateOccurredAtIso(value: number | string | Date | null | undefined): string | null {
+    if (!value) return null;
+    const parsed = typeof value === 'number' ? new Date(value) : new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString();
+}
+
+function getTaskUpdateLookupKey(taskId: string, occurredAt: string): string {
+    return `${taskId}::${occurredAt}`;
+}
+
 export default function HistoryPage({
     initialSelectedMember = null,
     initialDomain = null,
@@ -158,15 +183,59 @@ export default function HistoryPage({
         taskSeries: {
             familyMember: {},
         },
+        tasks: {
+            updates: {
+                actor: {},
+                affectedPerson: {},
+                attachments: {},
+                gradeType: {},
+                replyTo: {},
+                responseFieldValues: {
+                    field: {},
+                },
+            },
+        },
     });
 
     const familyMembers = useMemo(() => (data?.familyMembers as any[]) || [], [data?.familyMembers]);
     const taskSeriesList = useMemo(() => (data?.taskSeries as any[]) || [], [data?.taskSeries]);
+    const tasks = useMemo(() => (data?.tasks as any[]) || [], [data?.tasks]);
     const historyEvents = useMemo(() => (data?.historyEvents as HistoryEventLike[]) || [], [data?.historyEvents]);
     const familyMemberNamesById = useMemo(
         () => new Map(familyMembers.map((member: any) => [member.id, member.name || 'Unknown'])),
         [familyMembers]
     );
+
+    const taskUpdateRecords = useMemo<TaskHistoryUpdateRecord[]>(() => {
+        const records: TaskHistoryUpdateRecord[] = [];
+        for (const task of tasks) {
+            for (const update of task.updates || []) {
+                records.push({ taskId: task.id, update });
+            }
+        }
+        return records;
+    }, [tasks]);
+
+    const taskUpdatesById = useMemo(() => {
+        const lookup = new Map<string, TaskHistoryUpdateRecord>();
+        for (const record of taskUpdateRecords) {
+            if (record.update.id) {
+                lookup.set(record.update.id, record);
+            }
+        }
+        return lookup;
+    }, [taskUpdateRecords]);
+
+    const taskUpdatesByLookupKey = useMemo(() => {
+        const lookup = new Map<string, TaskHistoryUpdateRecord[]>();
+        for (const record of taskUpdateRecords) {
+            const occurredAt = getTaskUpdateOccurredAtIso(record.update.createdAt);
+            if (!occurredAt) continue;
+            const key = getTaskUpdateLookupKey(record.taskId, occurredAt);
+            lookup.set(key, [...(lookup.get(key) || []), record]);
+        }
+        return lookup;
+    }, [taskUpdateRecords]);
 
     useEffect(() => {
         if (!initialDomain) return;
@@ -191,6 +260,35 @@ export default function HistoryPage({
 
         return options;
     }, [familyMembers, historyEvents]);
+
+    const getTaskUpdateRecordForEvent = useCallback(
+        (event: HistoryEventLike | null | undefined): TaskHistoryUpdateRecord | null => {
+            if (!event?.taskId || event.domain !== 'tasks') return null;
+
+            const metadataTaskUpdateId =
+                typeof event.metadata?.taskUpdateId === 'string' && event.metadata.taskUpdateId.trim().length > 0
+                    ? event.metadata.taskUpdateId
+                    : null;
+            if (metadataTaskUpdateId) {
+                return taskUpdatesById.get(metadataTaskUpdateId) || null;
+            }
+
+            if (!event.occurredAt) return null;
+            const candidates =
+                taskUpdatesByLookupKey.get(getTaskUpdateLookupKey(event.taskId, event.occurredAt)) || [];
+            if (candidates.length === 0) return null;
+            if (candidates.length === 1) return candidates[0];
+
+            const actorId = event.actorFamilyMemberId || null;
+            if (actorId) {
+                const matchedByActor = candidates.find((candidate) => getTaskUpdateActorId(candidate.update) === actorId);
+                if (matchedByActor) return matchedByActor;
+            }
+
+            return candidates[0] || null;
+        },
+        [taskUpdatesById, taskUpdatesByLookupKey]
+    );
 
     const filteredEvents = useMemo(() => {
         return historyEvents.filter((event) => {
@@ -467,6 +565,31 @@ export default function HistoryPage({
                                 const detailsNote =
                                     entry.detailText || (typeof event.metadata?.note === 'string' ? event.metadata.note : null);
                                 const isExpanded = Boolean(expandedDetailGroups[entry.key]);
+                                const taskUpdateRecord = getTaskUpdateRecordForEvent(event);
+                                const taskUpdate = taskUpdateRecord?.update || null;
+                                const replyToId = getTaskUpdateReplyToId(taskUpdate);
+                                const feedbackTarget = replyToId ? taskUpdatesById.get(replyToId)?.update || null : null;
+                                const isTaskResponseEntry = Boolean(
+                                    taskUpdate &&
+                                        !isTaskUpdateReply(taskUpdate) &&
+                                        taskUpdateHasMeaningfulResponseContent(taskUpdate)
+                                );
+                                const isTaskFeedbackEntry = Boolean(
+                                    taskUpdate &&
+                                        isTaskUpdateReply(taskUpdate) &&
+                                        taskUpdateHasMeaningfulFeedbackContent(taskUpdate) &&
+                                        feedbackTarget &&
+                                        taskUpdateHasMeaningfulResponseContent(feedbackTarget)
+                                );
+                                const taskText =
+                                    typeof event.metadata?.taskText === 'string' && event.metadata.taskText.trim().length > 0
+                                        ? event.metadata.taskText.trim()
+                                        : 'Task';
+                                const taskHistorySummary = isTaskFeedbackEntry
+                                    ? `${actorLabel || 'Someone'} left feedback on "${taskText}"`
+                                    : isTaskResponseEntry
+                                      ? `${actorLabel || 'Someone'} submitted a response for "${taskText}"`
+                                      : entry.summary;
 
                                 return (
                                     <div key={entry.key} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -480,7 +603,7 @@ export default function HistoryPage({
                                             <span>{formatOccurredAt(event.occurredAt)}</span>
                                         </div>
 
-                                        <div className="mt-3 text-base font-semibold text-slate-900">{entry.summary}</div>
+                                        <div className="mt-3 text-base font-semibold text-slate-900">{taskHistorySummary}</div>
 
                                         {financeDescriptionLine ? <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{financeDescriptionLine}</div> : null}
 
@@ -491,8 +614,63 @@ export default function HistoryPage({
                                             {entry.isCollapsedCalendarGroup ? <span>{entry.events.length} quick changes combined</span> : null}
                                         </div>
 
-                                        {linkedMessage?.body ? <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{linkedMessage.body}</div> : null}
-                                        {!linkedMessage?.body && detailsNote ? <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailsNote}</div> : null}
+                                        {isTaskResponseEntry && taskUpdate ? (
+                                            <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/40 p-3">
+                                                {taskUpdate.note ? (
+                                                    <div className="whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                                                        {taskUpdate.note}
+                                                    </div>
+                                                ) : null}
+                                                <TaskResponseFieldValuesList
+                                                    responseFieldValues={taskUpdate.responseFieldValues}
+                                                    className={taskUpdate.note ? 'mt-2' : undefined}
+                                                    itemClassName="border-sky-100 bg-white/80"
+                                                />
+                                                {taskUpdate.attachments && taskUpdate.attachments.length > 0 ? (
+                                                    <AttachmentCollection
+                                                        attachments={taskUpdate.attachments as any[]}
+                                                        className="mt-3"
+                                                        variant="compact"
+                                                    />
+                                                ) : null}
+                                            </div>
+                                        ) : null}
+
+                                        {isTaskFeedbackEntry && taskUpdate && feedbackTarget ? (
+                                            <div className="mt-3 space-y-3">
+                                                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                                                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                                        Quoted response
+                                                    </div>
+                                                    {feedbackTarget.note ? (
+                                                        <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                                                            {feedbackTarget.note}
+                                                        </div>
+                                                    ) : null}
+                                                    <TaskResponseFieldValuesList
+                                                        responseFieldValues={feedbackTarget.responseFieldValues}
+                                                        className={feedbackTarget.note ? 'mt-2' : 'mt-2'}
+                                                        itemClassName="border-slate-200 bg-white"
+                                                    />
+                                                    {feedbackTarget.attachments && feedbackTarget.attachments.length > 0 ? (
+                                                        <AttachmentCollection
+                                                            attachments={feedbackTarget.attachments as any[]}
+                                                            className="mt-3"
+                                                            variant="compact"
+                                                        />
+                                                    ) : null}
+                                                </div>
+
+                                                <TaskFeedbackReplies replies={[taskUpdate]} tone="indigo" />
+                                            </div>
+                                        ) : null}
+
+                                        {!isTaskResponseEntry && !isTaskFeedbackEntry && linkedMessage?.body ? (
+                                            <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{linkedMessage.body}</div>
+                                        ) : null}
+                                        {!isTaskResponseEntry && !isTaskFeedbackEntry && !linkedMessage?.body && detailsNote ? (
+                                            <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailsNote}</div>
+                                        ) : null}
 
                                         {entry.isCollapsedCalendarGroup ? (
                                             <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
@@ -548,7 +726,7 @@ export default function HistoryPage({
                                             <AttachmentCollection attachments={messageAttachments} className="mt-3" variant="panel" />
                                         ) : null}
 
-                                        {eventAttachments.length > 0 ? (
+                                        {!isTaskResponseEntry && !isTaskFeedbackEntry && eventAttachments.length > 0 ? (
                                             <AttachmentCollection attachments={eventAttachments} className="mt-3" variant="panel" />
                                         ) : null}
                                     </div>

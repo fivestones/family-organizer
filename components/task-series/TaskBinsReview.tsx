@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { id, tx } from '@instantdb/react';
 import { db } from '@/lib/db';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
     Select,
     SelectContent,
@@ -39,10 +38,7 @@ import {
     ChevronUp,
     Eye,
     Filter,
-    MessageSquare,
-    RotateCcw,
     SortAsc,
-    Star,
 } from 'lucide-react';
 import {
     getLatestTaskUpdate,
@@ -59,6 +55,7 @@ import {
     type TaskBinFilters,
     type TaskBinSort,
     type TaskBinEntry,
+    type TaskLatenessInfo,
 } from '@/lib/task-bins';
 import {
     buildTaskUpdateTransactions,
@@ -107,6 +104,12 @@ function formatTimestamp(value: number | string | Date | null | undefined): stri
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+const TaskLatenessBadge: React.FC<{ lateness: TaskLatenessInfo }> = ({ lateness }) => (
+    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+        {lateness.label}
+    </span>
+);
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -139,9 +142,17 @@ export const TaskBinsReview: React.FC = () => {
                 gradeType: {},
                 attachments: {},
                 replyTo: {},
-                replies: { actor: {} },
+                replies: {
+                    actor: {},
+                    affectedPerson: {},
+                    attachments: {},
+                    gradeType: {},
+                },
             },
-            taskSeries: { familyMember: {} },
+            taskSeries: {
+                familyMember: {},
+                scheduledActivity: {},
+            },
             responseFields: {},
         },
         familyMembers: {},
@@ -549,7 +560,7 @@ const TaskBinCard: React.FC<TaskBinCardProps> = ({
     onUpdate,
     onNote,
 }) => {
-    const { task, latestUpdate, seriesName, isNoted } = entry;
+    const { task, latestUpdate, seriesName, isNoted, lateness } = entry;
     const currentState = getTaskWorkflowState(task) as TaskWorkflowState;
     const actorName = latestUpdate ? getTaskUpdateActorName(latestUpdate) : null;
     const affectedName = latestUpdate ? getTaskUpdateAffectedName(latestUpdate) : null;
@@ -640,7 +651,8 @@ const TaskBinCard: React.FC<TaskBinCardProps> = ({
                     <div className="space-y-5">
                         {/* Noted actions — only for overdue tasks or already-noted tasks */}
                         {(entry.isOverdue || isNoted) && (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {lateness && <TaskLatenessBadge lateness={lateness} />}
                                 {isNoted ? (
                                     <Button
                                         variant="outline"
@@ -651,11 +663,16 @@ const TaskBinCard: React.FC<TaskBinCardProps> = ({
                                         <Bell className="h-3.5 w-3.5" />
                                         Un-note
                                     </Button>
-                                ) : (
+                                ) : lateness ? (
                                     <NotedSplitButton
                                         onNote={(mode, untilDate) => onNote(task.id, mode, untilDate)}
                                     />
-                                )}
+                                ) : null}
+                                {!lateness && isNoted ? (
+                                    <span className="text-xs text-slate-500">
+                                        This task was previously noted.
+                                    </span>
+                                ) : null}
                             </div>
                         )}
 

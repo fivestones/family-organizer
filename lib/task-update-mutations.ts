@@ -432,6 +432,8 @@ export function buildTaskUpdateTransactions(params: BuildTaskUpdateTransactionsP
         scheduledForDate: params.selectedDateKey,
         restoreTiming: params.restoreTiming || null,
         metadata: {
+            taskUpdateId: updateId,
+            replyToUpdateId: params.replyToUpdateId || null,
             fromState: currentState,
             toState: params.nextState,
             note: trimmedNote,
