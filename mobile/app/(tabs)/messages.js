@@ -32,6 +32,7 @@ import {
   toggleMobileReaction,
   updateMobileThreadPreferences,
 } from '../../src/lib/api-client';
+import { useLocalSearchParams } from 'expo-router';
 import { createMessageServerTimeAnchor, getMessageServerNowMs, getMonotonicNowMs } from '../../../lib/message-server-time';
 import {
   captureCameraImage,
@@ -87,6 +88,11 @@ function getDraftKey(threadId) {
 }
 
 export default function MessagesTab() {
+  const searchParams = useLocalSearchParams();
+  const initialThreadId = useMemo(() => {
+    const value = searchParams.threadId;
+    return Array.isArray(value) ? value[0] : value;
+  }, [searchParams.threadId]);
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { currentUser, isAuthenticated, instantReady } = useAppSession();
@@ -358,10 +364,16 @@ export default function MessagesTab() {
   }, [currentUser?.id]);
 
   useEffect(() => {
+    if (initialThreadId) {
+      setSelectedThreadId(initialThreadId);
+    }
+  }, [initialThreadId]);
+
+  useEffect(() => {
     if (!selectedThreadId && threads.length > 0) {
       setSelectedThreadId(threads[0].id);
     }
-  }, [selectedThreadId, threads]);
+  }, [initialThreadId, selectedThreadId, threads]);
 
   useEffect(() => {
     const draftKey = getDraftKey(selectedThreadId);

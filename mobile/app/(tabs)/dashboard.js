@@ -1,25 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Linking,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { id, tx } from '@instantdb/react-native';
 import { router } from 'expo-router';
-import {
-  RecordingPresets,
-  requestRecordingPermissionsAsync,
-  setAudioModeAsync,
-  useAudioRecorder,
-  useAudioRecorderState,
-} from 'expo-audio';
 import {
   calculateDailyXP,
   formatDateKeyUTC,
@@ -32,33 +23,16 @@ import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
 import { AttachmentPreviewModal } from '../../src/components/AttachmentPreviewModal';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
-import { getPresignedFileUrl } from '../../src/lib/api-client';
 import {
-  captureCameraImage,
-  captureCameraVideo,
-  createRecordedAudioAttachment,
-  pickAttachmentDocuments,
-  pickLibraryMedia,
-  uploadPendingAttachments,
 } from '../../src/lib/attachments';
 import { getTasksForDate } from '../../../lib/task-scheduler';
-import { buildTaskUpdateTransactions } from '../../../lib/task-update-mutations';
 import {
   getBucketedTasks,
-  getLatestTaskUpdate,
-  getTaskUpdateActorName,
-  getTaskLastActiveState,
-  getTaskProgressPlaceholder,
-  getTaskStatusLabel,
-  getTaskWorkflowState,
   isTaskDone,
-  sortTaskUpdates,
 } from '../../../lib/task-progress';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 
 const DAY_RANGE = 7;
-const MAX_LINKS_PER_TASK = 4;
-
 function firstRef(value) {
   if (!value) return null;
   return Array.isArray(value) ? value[0] || null : value;
@@ -181,94 +155,6 @@ function formatBalancesInline(balances, unitMap) {
   return entries.map(([code, amount]) => formatAmount(code, amount, unitMap)).join(' · ');
 }
 
-function getTaskParentId(task) {
-  if (!task?.parentTask) return null;
-  if (Array.isArray(task.parentTask)) return task.parentTask[0]?.id || null;
-  return task.parentTask.id || null;
-}
-
-function hasScheduledChildren(parentId, scheduledIds, allTasks) {
-  return allTasks.some((task) => getTaskParentId(task) === parentId && scheduledIds.has(task.id));
-}
-
-function buildVisibleTaskNodes(scheduledTasks, allTasks) {
-  if (!scheduledTasks?.length) return [];
-
-  const visibleMap = new Map();
-
-  scheduledTasks.forEach((task) => {
-    visibleMap.set(task.id, task);
-  });
-
-  scheduledTasks.forEach((task) => {
-    let current = task;
-    let depth = 0;
-    let parentId = getTaskParentId(current);
-
-    while (parentId && depth < 10) {
-      if (visibleMap.has(parentId)) break;
-
-      const parent = allTasks.find((item) => item.id === parentId);
-      if (!parent) break;
-
-      visibleMap.set(parent.id, parent);
-      current = parent;
-      parentId = getTaskParentId(current);
-      depth += 1;
-    }
-  });
-
-  return Array.from(visibleMap.values()).sort((a, b) => (a.order || 0) - (b.order || 0));
-}
-
-function buildTaskLinks(task) {
-  const links = [];
-  const seen = new Set();
-  const urlPattern = /\b((?:https?:\/\/|[a-z][a-z0-9+.-]*:\/\/)[^\s<>"')]+)/gi;
-
-  function pushLink(label, url, kind = 'link', extra = {}) {
-    if (!url || seen.has(url) || links.length >= MAX_LINKS_PER_TASK) return;
-    seen.add(url);
-    links.push({ key: `${kind}:${url}`, label, url, kind, ...extra });
-  }
-
-  [task?.text, task?.notes].forEach((value) => {
-    if (!value) return;
-    const matches = String(value).match(urlPattern) || [];
-    matches.forEach((match, index) => {
-      pushLink(index === 0 ? 'Open link' : `Open link ${index + 1}`, match, 'external');
-    });
-  });
-
-  (task?.attachments || []).forEach((attachment) => {
-    if (!attachment?.url) return;
-    const key = String(attachment.url);
-    const isFullUrl = /^https?:\/\//i.test(key);
-    pushLink(attachment.name || 'Open attachment', isFullUrl ? key : key, 'attachment', {
-      attachment,
-    });
-    if (!isFullUrl) {
-      // Mark with the S3 key so openTaskLink can resolve it via presigned URL
-      const link = links[links.length - 1];
-      if (link) link.s3Key = key;
-    }
-  });
-
-  return links;
-}
-
-async function openTaskLink(link) {
-  try {
-    let resolvedUrl = link.url;
-    if (link.s3Key) {
-      resolvedUrl = await getPresignedFileUrl(link.s3Key);
-    }
-    await Linking.openURL(resolvedUrl);
-  } catch (error) {
-    Alert.alert('Unable to open link', error?.message || 'Please try again.');
-  }
-}
-
 function createInitials(name) {
   const words = String(name || '')
     .trim()
@@ -303,13 +189,8 @@ export default function DashboardTab() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [pendingCompletionKeys, setPendingCompletionKeys] = useState(() => new Set());
-  const [taskComposer, setTaskComposer] = useState(null);
-  const [restoreRequest, setRestoreRequest] = useState(null);
-  const [taskMutationPending, setTaskMutationPending] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState(null);
   const currentUserIdRef = useRef('');
-  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const audioRecorderState = useAudioRecorderState(audioRecorder, 200);
 
   const dashboardQuery = db.useQuery(
     isAuthenticated && instantReady
@@ -498,7 +379,6 @@ export default function DashboardTab() {
           chore,
           allTasks,
           scheduledTasks,
-          visibleNodes: buildVisibleTaskNodes(scheduledTasks, allTasks),
           incompleteCount: scheduledTasks.filter((task) => !isTaskDone(task) && !task.isDayBreak).length,
           bucketedCounts,
         });
@@ -591,173 +471,6 @@ export default function DashboardTab() {
     return result.sort((a, b) => b.latestMessageAt.localeCompare(a.latestMessageAt));
   }, [dashboardQuery.data?.messageThreads, viewedMember?.id]);
 
-  function appendComposerFiles(files) {
-    if (!files?.length) return;
-    setTaskComposer((previous) => {
-      if (!previous) return previous;
-      return {
-        ...previous,
-        files: [...previous.files, ...files],
-      };
-    });
-  }
-
-  async function handleOpenTaskLink(link) {
-    if (link.kind === 'attachment' && link.attachment) {
-      setPreviewAttachment(link.attachment);
-      return;
-    }
-    await openTaskLink(link);
-  }
-
-  function openTaskComposer(task, allTasks, chore, series, extraParams = {}) {
-    router.push({
-      pathname: '/task-series/task',
-      params: {
-        taskId: task.id,
-        seriesId: series?.id || '',
-        choreId: chore?.id || '',
-        date: selectedDateKey,
-        ...extraParams,
-      },
-    });
-  }
-
-  function closeTaskComposer() {
-    if (taskMutationPending) return;
-    if (audioRecorderState.isRecording) {
-      void stopComposerAudioRecording();
-    }
-    setTaskComposer(null);
-  }
-
-  function getComposerStateOptions(task) {
-    const currentState = getTaskWorkflowState(task);
-    if (currentState === 'not_started') {
-      return ['not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'];
-    }
-    if (currentState === 'in_progress') {
-      return ['in_progress', 'not_started', 'blocked', 'skipped', 'needs_review', 'done'];
-    }
-    return [currentState];
-  }
-
-  async function pickComposerFiles() {
-    try {
-      const files = await pickAttachmentDocuments();
-      appendComposerFiles(files);
-    } catch (error) {
-      Alert.alert('Unable to add files', error?.message || 'Please try again.');
-    }
-  }
-
-  async function pickComposerMedia() {
-    try {
-      const files = await pickLibraryMedia();
-      appendComposerFiles(files);
-    } catch (error) {
-      Alert.alert('Unable to open library', error?.message || 'Please try again.');
-    }
-  }
-
-  async function captureComposerPhoto() {
-    try {
-      const files = await captureCameraImage();
-      appendComposerFiles(files);
-    } catch (error) {
-      Alert.alert('Unable to take photo', error?.message || 'Please try again.');
-    }
-  }
-
-  async function captureComposerVideo() {
-    try {
-      const files = await captureCameraVideo();
-      appendComposerFiles(files);
-    } catch (error) {
-      Alert.alert('Unable to record video', error?.message || 'Please try again.');
-    }
-  }
-
-  async function startComposerAudioRecording() {
-    try {
-      const permission = await requestRecordingPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Microphone required', 'Allow microphone access to record audio attachments.');
-        return;
-      }
-
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-      });
-      await audioRecorder.prepareToRecordAsync();
-      audioRecorder.record();
-    } catch (error) {
-      Alert.alert('Unable to record audio', error?.message || 'Please try again.');
-    }
-  }
-
-  async function stopComposerAudioRecording() {
-    if (!audioRecorderState.isRecording) return;
-
-    try {
-      await audioRecorder.stop();
-      await setAudioModeAsync({
-        allowsRecording: false,
-        playsInSilentMode: true,
-      });
-
-      const recordedFile = createRecordedAudioAttachment({
-        uri: audioRecorder.uri || audioRecorderState.uri,
-        durationMillis: audioRecorderState.durationMillis,
-      });
-      if (recordedFile?.uri) {
-        appendComposerFiles([recordedFile]);
-      }
-    } catch (error) {
-      Alert.alert('Unable to stop recording', error?.message || 'Please try again.');
-    }
-  }
-
-  async function applyTaskWorkflowUpdate(context, payload) {
-    if (!currentUser?.id) {
-      Alert.alert('Login required', 'Choose a family member before updating task status.');
-      return;
-    }
-
-    setTaskMutationPending(true);
-    try {
-      const attachments = payload.files?.length ? await uploadPendingAttachments(payload.files, id) : [];
-      const { transactions } = buildTaskUpdateTransactions({
-        tx,
-        createId: id,
-        taskId: context.taskId,
-        allTasks: context.allTasks,
-        nextState: payload.nextState,
-        selectedDateKey,
-        note: payload.note,
-        actorFamilyMemberId: currentUser.id,
-        affectedFamilyMemberId: context.seriesOwnerId || currentUser.id,
-        restoreTiming: payload.restoreTiming || null,
-        schedule: {
-          startDate: context.chore.startDate,
-          rrule: context.chore.rrule || null,
-          exdates: context.chore.exdates || null,
-        },
-        referenceDate: selectedDate,
-        attachments,
-      });
-
-      if (!transactions.length) return;
-      await db.transact(transactions);
-    } catch (error) {
-      Alert.alert('Unable to update task', error?.message || 'Please try again.');
-      throw error;
-    } finally {
-      setTaskMutationPending(false);
-    }
-  }
-
   async function handleToggleCompletion(chore, familyMemberId) {
     if (!currentUser?.id) {
       Alert.alert('Login required', 'Choose a family member before marking chores complete.');
@@ -821,23 +534,6 @@ export default function DashboardTab() {
         return next;
       });
     }
-  }
-
-  async function handleToggleTask(task, allTasks, chore) {
-    const currentStatus = isTaskDone(task);
-    const nextState = currentStatus ? getTaskLastActiveState(task) : 'done';
-
-    await applyTaskWorkflowUpdate(
-      {
-        taskId: task.id,
-        task,
-        allTasks,
-        chore,
-      },
-      {
-        nextState,
-      }
-    );
   }
 
   async function handleLockAndSwitchUser() {
@@ -992,7 +688,6 @@ export default function DashboardTab() {
             ) : (
               <View style={styles.taskSeriesList}>
                 {taskSeriesCards.map((card) => {
-                  const scheduledIds = new Set(card.scheduledTasks.map((item) => item.id));
                   const bucketedByState = {
                     blocked: getBucketedTasks(card.allTasks, 'blocked'),
                     needs_review: getBucketedTasks(card.allTasks, 'needs_review'),
@@ -1011,220 +706,55 @@ export default function DashboardTab() {
                           </Text>
                         </View>
                       </View>
-
-                      {card.visibleNodes.length > 0 ? (
-                        <View style={styles.taskItemList}>
-                          {card.visibleNodes.map((task) => {
-                            const isHeader =
-                              hasScheduledChildren(task.id, scheduledIds, card.allTasks) || !scheduledIds.has(task.id);
-                            const links = buildTaskLinks(task);
-                            const indent = (task.indentationLevel || 0) * 14;
-                            const currentState = getTaskWorkflowState(task);
-                            const latestEntry = getLatestTaskUpdate(task);
-
-                            return (
-                              <View
-                                key={`task-${card.id}-${task.id}`}
-                                style={[
-                                  styles.taskRow,
-                                  isHeader && styles.taskRowHeader,
-                                  { marginLeft: indent },
-                                ]}
-                              >
-                                {isHeader ? (
-                                  <View style={styles.taskCopy}>
-                                    <Text selectable style={styles.taskHeaderText}>{task.text}</Text>
-                                    {task.notes ? <Text selectable style={styles.taskNotes}>{task.notes}</Text> : null}
-                                    {links.length > 0 ? (
-                                      <View style={styles.taskLinksRow}>
-                                        {links.map((link) => (
-                                          <Pressable
-                                            key={link.key}
-                                            accessibilityRole="button"
-                                            accessibilityLabel={link.label}
-                                            onPress={() => {
-                                              void handleOpenTaskLink(link);
-                                            }}
-                                            style={styles.taskLinkChip}
-                                          >
-                                            <Text style={styles.taskLinkText}>{link.label}</Text>
-                                          </Pressable>
-                                        ))}
-                                      </View>
-                                    ) : null}
-                                  </View>
-                                ) : (
-                                  <View style={styles.taskMobileCard}>
-                                    <View style={styles.taskCopy}>
-                                      <View style={styles.taskTitleRow}>
-                                        <Text selectable style={styles.taskText}>
-                                          {task.text}
-                                        </Text>
-                                        <View style={styles.taskStatusBadge}>
-                                          <Text style={styles.taskStatusBadgeText}>{getTaskStatusLabel(currentState)}</Text>
-                                        </View>
-                                      </View>
-                                      {task.notes ? <Text selectable style={styles.taskNotes}>{task.notes}</Text> : null}
-                                      {links.length > 0 ? (
-                                        <View style={styles.taskLinksRow}>
-                                          {links.map((link) => (
-                                            <Pressable
-                                              key={link.key}
-                                              accessibilityRole="button"
-                                              accessibilityLabel={link.label}
-                                              onPress={() => {
-                                                void handleOpenTaskLink(link);
-                                              }}
-                                              style={styles.taskLinkChip}
-                                            >
-                                              <Text style={styles.taskLinkText}>{link.label}</Text>
-                                            </Pressable>
-                                          ))}
-                                        </View>
-                                      ) : null}
-                                      {latestEntry?.note ? <Text style={styles.taskProgressSnippet}>{latestEntry.note}</Text> : null}
-                                    </View>
-                                    <View style={styles.taskActionRow}>
-                                      {currentState === 'not_started' ? (
-                                        <Pressable
-                                          accessibilityRole="button"
-                                          accessibilityLabel={`Start ${task.text}`}
-                                          onPress={() => {
-                                            void applyTaskWorkflowUpdate(
-                                              { taskId: task.id, task, allTasks: card.allTasks, chore: card.chore },
-                                              { nextState: 'in_progress' }
-                                            );
-                                          }}
-                                          style={[styles.taskActionChip, styles.taskActionChipSecondary]}
-                                        >
-                                          <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Start</Text>
-                                        </Pressable>
-                                      ) : null}
-                                      <Pressable
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Update ${task.text}`}
-                                          onPress={() => openTaskComposer(task, card.allTasks, card.chore, card.series)}
-                                          style={[styles.taskActionChip, styles.taskActionChipSecondary]}
-                                        >
-                                          <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Update</Text>
-                                      </Pressable>
-                                      <Pressable
-                                        testID={`dashboard-task-toggle-${task.id}`}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Mark task done ${task.text}`}
-                                        onPress={() => {
-                                          void handleToggleTask(task, card.allTasks, card.chore);
-                                        }}
-                                        style={[styles.taskActionChip, styles.taskActionChipPrimary]}
-                                      >
-                                        <Text style={[styles.taskActionChipText, styles.taskActionChipTextPrimary]}>Done</Text>
-                                      </Pressable>
-                                    </View>
-                                  </View>
-                                )}
-                              </View>
-                            );
-                          })}
+                      <View style={styles.taskBucketSection}>
+                        <View style={styles.taskBucketHeader}>
+                          <Text style={styles.taskBucketTitle}>Today</Text>
+                          <Text style={styles.taskBucketCount}>
+                            {card.scheduledTasks.length} scheduled • {card.incompleteCount} active
+                          </Text>
                         </View>
-                      ) : (
-                        <Text style={styles.emptyInlineText}>No active tasks right now. Check the bins below.</Text>
-                      )}
-
-                      {['blocked', 'needs_review', 'skipped', 'done'].map((stateKey) => {
-                        const tasksForState = bucketedByState[stateKey] || [];
-                        if (!tasksForState.length) return null;
-
-                        return (
-                          <View key={`${card.id}-${stateKey}`} style={styles.taskBucketSection}>
-                            <View style={styles.taskBucketHeader}>
-                              <Text style={styles.taskBucketTitle}>{getTaskStatusLabel(stateKey)}</Text>
-                              <Text style={styles.taskBucketCount}>
-                                {tasksForState.length} item{tasksForState.length === 1 ? '' : 's'}
-                              </Text>
-                            </View>
-                            {tasksForState.map((task) => {
-                              const latestEntry = getLatestTaskUpdate(task);
-                              const actorName = getTaskUpdateActorName(latestEntry);
-                              return (
-                                <View key={`${stateKey}-${task.id}`} style={styles.taskBucketCard}>
-                                  <Text style={styles.taskBucketTaskTitle}>{task.text}</Text>
-                                  {latestEntry?.note ? <Text style={styles.taskBucketTaskNote}>{latestEntry.note}</Text> : null}
-                                  <View style={styles.taskBucketMetaRow}>
-                                    {actorName ? <Text style={styles.taskBucketMeta}>Latest by {actorName}</Text> : null}
-                                    {latestEntry?.createdAt ? (
-                                      <Text style={styles.taskBucketMeta}>{new Date(latestEntry.createdAt).toLocaleString()}</Text>
-                                    ) : null}
-                                  </View>
-                                  {latestEntry?.attachments?.length ? (
-                                    <View style={styles.taskLinksRow}>
-                                      {latestEntry.attachments.map((attachment) => (
-                                        <Pressable
-                                          key={attachment.id}
-                                          accessibilityRole="button"
-                                          accessibilityLabel={attachment.name || 'Open attachment'}
-                                          onPress={() => setPreviewAttachment(attachment)}
-                                          style={styles.taskLinkChip}
-                                        >
-                                          <Text style={styles.taskLinkText}>{attachment.name || 'Attachment'}</Text>
-                                        </Pressable>
-                                      ))}
-                                    </View>
-                                  ) : null}
-                                  <View style={styles.taskActionRow}>
-                                    <Pressable
-                                      accessibilityRole="button"
-                                      accessibilityLabel={`Update ${task.text}`}
-                                      onPress={() => openTaskComposer(task, card.allTasks, card.chore, card.series, stateKey === 'needs_review' ? { review: '1' } : {})}
-                                      style={[styles.taskActionChip, styles.taskActionChipSecondary]}
-                                    >
-                                      <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Update</Text>
-                                    </Pressable>
-                                    {stateKey === 'done' ? (
-                                      <Pressable
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Undo ${task.text}`}
-                                        onPress={() => {
-                                          void handleToggleTask(task, card.allTasks, card.chore);
-                                        }}
-                                        style={[styles.taskActionChip, styles.taskActionChipSecondary]}
-                                      >
-                                        <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Undo</Text>
-                                      </Pressable>
-                                    ) : (
-                                      <Pressable
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Restore ${task.text}`}
-                                        onPress={() => setRestoreRequest({
-                                          taskId: task.id,
-                                          task,
-                                          allTasks: card.allTasks,
-                                          chore: card.chore,
-                                          nextState: getTaskLastActiveState(task),
-                                        })}
-                                        style={[styles.taskActionChip, styles.taskActionChipSecondary]}
-                                      >
-                                        <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Restore</Text>
-                                      </Pressable>
-                                    )}
-                                    {stateKey === 'needs_review' && currentUser?.role === 'parent' ? (
-                                      <Pressable
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Approve ${task.text}`}
-                                        onPress={() => {
-                                          void handleToggleTask({ ...task, workflowState: 'needs_review' }, card.allTasks, card.chore);
-                                        }}
-                                        style={[styles.taskActionChip, styles.taskActionChipPrimary]}
-                                      >
-                                        <Text style={[styles.taskActionChipText, styles.taskActionChipTextPrimary]}>Approve</Text>
-                                      </Pressable>
-                                    ) : null}
-                                  </View>
-                                </View>
-                              );
-                            })}
-                          </View>
-                        );
-                      })}
+                        <View style={styles.taskBucketMetaRow}>
+                          <Text style={styles.taskBucketMeta}>Blocked {bucketedByState.blocked.length}</Text>
+                          <Text style={styles.taskBucketMeta}>Needs review {bucketedByState.needs_review.length}</Text>
+                          <Text style={styles.taskBucketMeta}>Skipped {bucketedByState.skipped.length}</Text>
+                          <Text style={styles.taskBucketMeta}>Done {bucketedByState.done.length}</Text>
+                        </View>
+                        <View style={styles.taskActionRow}>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Open checklist for ${card.series.name || 'task series'}`}
+                            onPress={() =>
+                              router.push({
+                                pathname: '/task-series/series',
+                                params: {
+                                  seriesId: card.series.id,
+                                  choreId: card.chore?.id || '',
+                                  date: selectedDateKey,
+                                  memberId: viewedMember?.id || '',
+                                },
+                              })
+                            }
+                            style={[styles.taskActionChip, styles.taskActionChipPrimary]}
+                          >
+                            <Text style={[styles.taskActionChipText, styles.taskActionChipTextPrimary]}>Open Checklist</Text>
+                          </Pressable>
+                          {currentUser?.role === 'parent' ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Open review queue for ${card.series.name || 'task series'}`}
+                              onPress={() =>
+                                router.push({
+                                  pathname: '/more/task-series/review',
+                                  params: { seriesId: card.series.id },
+                                })
+                              }
+                              style={[styles.taskActionChip, styles.taskActionChipSecondary]}
+                            >
+                              <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Review Queue</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      </View>
                     </View>
                   );
                 })}
@@ -1432,211 +962,6 @@ export default function DashboardTab() {
         </ScrollView>
         </View>
       </SafeAreaView>
-
-      <Modal visible={!!taskComposer} transparent animationType="slide" onRequestClose={closeTaskComposer}>
-        <View style={styles.sheetOverlay}>
-          <Pressable style={styles.sheetBackdrop} onPress={closeTaskComposer} />
-          <View style={styles.sheetCard}>
-            <Text style={styles.sheetTitle}>Task update</Text>
-            {taskComposer ? (
-              <>
-                <Text style={styles.sheetTaskTitle}>{taskComposer.task.text}</Text>
-                {taskComposer.task.notes ? <Text style={styles.sheetTaskBody}>{taskComposer.task.notes}</Text> : null}
-
-                <Text style={styles.sheetLabel}>State</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sheetStateRow}>
-                  {getComposerStateOptions(taskComposer.task).map((state) => {
-                    const selected = taskComposer.nextState === state;
-                    return (
-                      <Pressable
-                        key={state}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Set task state to ${getTaskStatusLabel(state)}`}
-                        onPress={() => setTaskComposer((previous) => previous ? { ...previous, nextState: state } : previous)}
-                        style={[styles.sheetStateChip, selected && styles.sheetStateChipSelected]}
-                      >
-                        <Text style={[styles.sheetStateChipText, selected && styles.sheetStateChipTextSelected]}>
-                          {getTaskStatusLabel(state)}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-
-                <Text style={styles.sheetLabel}>Notes</Text>
-                <TextInput
-                  multiline
-                  value={taskComposer.note}
-                  onChangeText={(note) => setTaskComposer((previous) => previous ? { ...previous, note } : previous)}
-                  placeholder={getTaskProgressPlaceholder(taskComposer.nextState)}
-                  placeholderTextColor={withAlpha(colors.ink, 0.35)}
-                  style={styles.sheetTextArea}
-                />
-
-                <View style={styles.sheetEvidenceHeader}>
-                  <Text style={styles.sheetLabel}>Evidence</Text>
-                </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sheetMediaActionRow}>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Add evidence files" onPress={() => { void pickComposerFiles(); }} style={styles.sheetMediaActionChip}>
-                    <Text style={styles.sheetMediaActionText}>Files</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Choose photos or videos from library" onPress={() => { void pickComposerMedia(); }} style={styles.sheetMediaActionChip}>
-                    <Text style={styles.sheetMediaActionText}>Library</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Take a photo" onPress={() => { void captureComposerPhoto(); }} style={styles.sheetMediaActionChip}>
-                    <Text style={styles.sheetMediaActionText}>Photo</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Record a video" onPress={() => { void captureComposerVideo(); }} style={styles.sheetMediaActionChip}>
-                    <Text style={styles.sheetMediaActionText}>Video</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={audioRecorderState.isRecording ? 'Stop audio recording' : 'Record audio'}
-                    onPress={() => {
-                      if (audioRecorderState.isRecording) {
-                        void stopComposerAudioRecording();
-                      } else {
-                        void startComposerAudioRecording();
-                      }
-                    }}
-                    style={[styles.sheetMediaActionChip, audioRecorderState.isRecording && styles.sheetMediaActionChipActive]}
-                  >
-                    <Text style={[styles.sheetMediaActionText, audioRecorderState.isRecording && styles.sheetMediaActionTextActive]}>
-                      {audioRecorderState.isRecording ? `Stop ${Math.round((audioRecorderState.durationMillis || 0) / 1000)}s` : 'Audio'}
-                    </Text>
-                  </Pressable>
-                </ScrollView>
-                {taskComposer.files.length > 0 ? (
-                  <View style={styles.sheetFileList}>
-                    {taskComposer.files.map((file, index) => (
-                      <View key={`${file.name}-${index}`} style={styles.sheetFileRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.sheetFileName} numberOfLines={1}>{file.name}</Text>
-                          <Text style={styles.sheetFileMeta}>
-                            {file.kind || 'file'}
-                            {Number.isFinite(Number(file.durationSec)) ? ` • ${Math.round(Number(file.durationSec))}s` : ''}
-                          </Text>
-                        </View>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={`Remove ${file.name}`}
-                          onPress={() => setTaskComposer((previous) => previous ? { ...previous, files: previous.files.filter((_, currentIndex) => currentIndex !== index) } : previous)}
-                        >
-                          <Text style={styles.sheetRemoveLink}>Remove</Text>
-                        </Pressable>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={styles.sheetHelperText}>Attach photos, documents, audio, or video for this update.</Text>
-                )}
-
-                <Text style={styles.sheetLabel}>History</Text>
-                <ScrollView style={styles.sheetHistoryList}>
-                  {sortTaskUpdates(taskComposer.task.updates).length === 0 ? (
-                    <Text style={styles.sheetHelperText}>No updates yet.</Text>
-                  ) : (
-                    sortTaskUpdates(taskComposer.task.updates).map((entry) => (
-                      <View key={entry.id} style={styles.sheetHistoryCard}>
-                        <Text style={styles.sheetHistoryMeta}>
-                          {entry.fromState && entry.toState && entry.fromState !== entry.toState
-                            ? `${getTaskStatusLabel(entry.fromState)} -> ${getTaskStatusLabel(entry.toState)}`
-                            : getTaskStatusLabel(entry.toState || getTaskWorkflowState(taskComposer.task))}
-                        </Text>
-                        {getTaskUpdateActorName(entry) ? <Text style={styles.sheetHistoryMeta}>by {getTaskUpdateActorName(entry)}</Text> : null}
-                        {entry.createdAt ? <Text style={styles.sheetHistoryMeta}>{new Date(entry.createdAt).toLocaleString()}</Text> : null}
-                        {entry.note ? <Text style={styles.sheetHistoryBody}>{entry.note}</Text> : null}
-                        {entry.attachments?.length ? (
-                          <View style={styles.taskLinksRow}>
-                            {entry.attachments.map((attachment) => (
-                              <Pressable
-                                key={attachment.id}
-                                accessibilityRole="button"
-                                accessibilityLabel={attachment.name || 'Open attachment'}
-                                onPress={() => setPreviewAttachment(attachment)}
-                                style={styles.taskLinkChip}
-                              >
-                                <Text style={styles.taskLinkText}>{attachment.name || 'Attachment'}</Text>
-                              </Pressable>
-                            ))}
-                          </View>
-                        ) : null}
-                      </View>
-                    ))
-                  )}
-                </ScrollView>
-
-                <View style={styles.sheetActionRow}>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Cancel task update" onPress={closeTaskComposer} style={[styles.sheetButton, styles.sheetButtonSecondary]}>
-                    <Text style={[styles.sheetButtonText, styles.sheetButtonTextSecondary]}>Cancel</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Save task update"
-                    disabled={taskMutationPending || audioRecorderState.isRecording}
-                    onPress={() => {
-                      applyTaskWorkflowUpdate(taskComposer, {
-                        nextState: taskComposer.nextState,
-                        note: taskComposer.note,
-                        files: taskComposer.files,
-                      }).then(() => {
-                        setTaskComposer(null);
-                      }).catch(() => {});
-                    }}
-                    style={[styles.sheetButton, styles.sheetButtonPrimary, (taskMutationPending || audioRecorderState.isRecording) && styles.sheetButtonDisabled]}
-                  >
-                    <Text style={[styles.sheetButtonText, styles.sheetButtonTextPrimary]}>
-                      {audioRecorderState.isRecording ? 'Stop recording first' : taskMutationPending ? 'Saving…' : 'Save update'}
-                    </Text>
-                  </Pressable>
-                </View>
-              </>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={!!restoreRequest} transparent animationType="fade" onRequestClose={() => setRestoreRequest(null)}>
-        <View style={styles.sheetOverlay}>
-          <Pressable style={styles.sheetBackdrop} onPress={() => setRestoreRequest(null)} />
-          <View style={styles.sheetCardCompact}>
-            <Text style={styles.sheetTitle}>Restore task</Text>
-            <Text style={styles.sheetHelperText}>Bring this task back now, or wait until the next scheduled chore day.</Text>
-            <View style={styles.sheetActionColumn}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Restore task now"
-                disabled={taskMutationPending}
-                onPress={() => {
-                  if (!restoreRequest) return;
-                  applyTaskWorkflowUpdate(restoreRequest, {
-                    nextState: restoreRequest.nextState,
-                    restoreTiming: 'now',
-                  }).then(() => setRestoreRequest(null)).catch(() => {});
-                }}
-                style={[styles.sheetButton, styles.sheetButtonPrimary, taskMutationPending && styles.sheetButtonDisabled]}
-              >
-                <Text style={[styles.sheetButtonText, styles.sheetButtonTextPrimary]}>Return now</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Restore task on next scheduled day"
-                disabled={taskMutationPending}
-                onPress={() => {
-                  if (!restoreRequest) return;
-                  applyTaskWorkflowUpdate(restoreRequest, {
-                    nextState: restoreRequest.nextState,
-                    restoreTiming: 'next_scheduled',
-                  }).then(() => setRestoreRequest(null)).catch(() => {});
-                }}
-                style={[styles.sheetButton, styles.sheetButtonSecondary]}
-              >
-                <Text style={[styles.sheetButtonText, styles.sheetButtonTextSecondary]}>Return next scheduled day</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
         <View style={styles.menuOverlay}>

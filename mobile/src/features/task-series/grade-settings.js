@@ -158,8 +158,20 @@ function GradeTypeForm({ value, colors, onChange, onSave, onCancel }) {
             <View key={`${step.label}-${index}`} style={{ flexDirection: 'row', gap: spacing.sm }}>
               <TextInput value={step.label} onChangeText={(label) => onChange({ ...value, steps: value.steps.map((currentStep, currentIndex) => (currentIndex === index ? { ...currentStep, label } : currentStep)) })} placeholder="Label" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={[styles.input, { flex: 1 }]} />
               <TextInput value={String(step.value)} onChangeText={(stepValue) => onChange({ ...value, steps: value.steps.map((currentStep, currentIndex) => (currentIndex === index ? { ...currentStep, value: Number(stepValue) || 0 } : currentStep)) })} placeholder="Value" placeholderTextColor={withAlpha(colors.ink, 0.34)} keyboardType="numeric" style={[styles.input, { width: 100 }]} />
+              <Pressable
+                onPress={() => onChange({ ...value, steps: value.steps.filter((_, currentIndex) => currentIndex !== index) })}
+                style={[styles.button, { minHeight: 42 }]}
+              >
+                <Text style={styles.buttonText}>Remove</Text>
+              </Pressable>
             </View>
           ))}
+          <Pressable
+            onPress={() => onChange({ ...value, steps: [...value.steps, { label: '', value: 0 }] })}
+            style={styles.button}
+          >
+            <Text style={styles.buttonText}>Add Step</Text>
+          </Pressable>
         </View>
       ) : null}
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
@@ -229,7 +241,20 @@ export function TaskSeriesGradeSettingsSection() {
   }
 
   async function deleteGradeType(gradeTypeId) {
-    await db.transact([tx.gradeTypes[gradeTypeId].delete()]);
+    const target = gradeTypes.find((gradeType) => gradeType.id === gradeTypeId);
+    const transactions = [tx.gradeTypes[gradeTypeId].delete()];
+    if (target?.isDefault) {
+      const nextDefault = gradeTypes.find((gradeType) => gradeType.id !== gradeTypeId);
+      if (nextDefault) {
+        transactions.push(
+          tx.gradeTypes[nextDefault.id].update({
+            isDefault: true,
+            updatedAt: Date.now(),
+          })
+        );
+      }
+    }
+    await db.transact(transactions);
   }
 
   return (

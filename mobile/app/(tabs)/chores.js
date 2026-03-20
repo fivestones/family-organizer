@@ -663,6 +663,7 @@ export default function ChoresTab() {
             </Text>
             <View style={[styles.panelHeaderActions, { marginTop: spacing.sm }]}>
               <Pressable
+                testID="chores-open-task-series-button"
                 accessibilityRole="button"
                 accessibilityLabel="Open task series"
                 onPress={openTaskSeriesOverview}
@@ -672,6 +673,7 @@ export default function ChoresTab() {
               </Pressable>
               {principalType === 'parent' ? (
                 <Pressable
+                  testID="chores-open-task-series-manager-button"
                   accessibilityRole="button"
                   accessibilityLabel="Open task series manager"
                   onPress={openTaskSeriesManager}

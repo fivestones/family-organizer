@@ -7,6 +7,11 @@ import { AttachmentCollection } from '@/components/attachments/AttachmentCollect
 import { ResponseFieldInput } from '@/components/responses/ResponseFieldInput';
 import { cn } from '@/lib/utils';
 import {
+    getTaskUpdateStateLabel,
+    getTaskUpdateVisibleStates,
+    TASK_UPDATE_ALL_STATES,
+} from '@/lib/task-update-ui';
+import {
     getTaskResponseSubmissions,
     getTaskUpdateFeedbackReplies,
     getTaskStatusLabel,
@@ -90,9 +95,6 @@ interface Props {
      */
     onRequireAuth?: () => void;
 }
-
-// All possible target states
-const ALL_STATES: TaskWorkflowState[] = ['not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'];
 
 const STATE_COLORS: Record<TaskWorkflowState, string> = {
     not_started: 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200',
@@ -420,54 +422,12 @@ export const TaskUpdatePanel: React.FC<Props> = ({
     }, [selectedState, sortedFields, filledFieldIds, isReviewMode]);
 
     // ---- Quick states: show a smart subset, with expand option ----
-    const quickStates = useMemo(() => {
-        // Always include the current state so users can submit notes/grades
-        // without changing status.
-        const states = new Set<TaskWorkflowState>();
-        states.add(currentState);
-        if (isReviewMode) {
-            if (currentState === 'not_started') {
-                states.add('in_progress');
-                states.add('needs_review');
-                states.add('done');
-            } else if (currentState === 'in_progress') {
-                states.add('done');
-                states.add('needs_review');
-                states.add('blocked');
-            } else if (currentState === 'blocked' || currentState === 'skipped') {
-                states.add('in_progress');
-                states.add('needs_review');
-                states.add('done');
-            } else if (currentState === 'needs_review') {
-                states.add('done');
-                states.add('in_progress');
-            } else if (currentState === 'done') {
-                states.add('needs_review');
-                states.add('in_progress');
-            }
-        } else if (currentState === 'not_started') {
-            states.add('in_progress');
-            states.add('done');
-        } else if (currentState === 'in_progress') {
-            states.add('done');
-            states.add('needs_review');
-            states.add('blocked');
-        } else if (currentState === 'blocked') {
-            states.add('in_progress');
-        } else if (currentState === 'needs_review') {
-            states.add('done');
-            states.add('in_progress');
-        } else if (currentState === 'done') {
-            states.add('in_progress');
-            states.add('not_started');
-        } else if (currentState === 'skipped') {
-            states.add('not_started');
-            states.add('in_progress');
-        }
-        return Array.from(states);
-    }, [currentState, isReviewMode]);
+    const quickStates = useMemo(
+        () => getTaskUpdateVisibleStates(currentState, { isReviewMode }),
+        [currentState, isReviewMode]
+    );
 
-    const visibleStates = showAllStates ? ALL_STATES : quickStates;
+    const visibleStates = showAllStates ? TASK_UPDATE_ALL_STATES : quickStates;
 
     // ---- Grade helpers ----
     const selectedGradeType = gradeTypes?.find((g) => g.id === selectedGradeTypeId);
@@ -850,12 +810,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                             {visibleStates.map((state) => {
-                                // Use friendlier labels for common review actions
-                                let label = getTaskStatusLabel(state);
-                                if (currentState === 'needs_review') {
-                                    if (state === 'done') label = 'Approve';
-                                    else if (state === 'in_progress') label = 'Request Changes';
-                                }
+                                const label = getTaskUpdateStateLabel(currentState, state, { isReviewMode: true });
                                 return (
                                     <button
                                         key={state}
@@ -874,7 +829,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                                     </button>
                                 );
                             })}
-                            {!showAllStates && visibleStates.length < ALL_STATES.length && (
+                            {!showAllStates && visibleStates.length < TASK_UPDATE_ALL_STATES.length && (
                                 <button
                                     type="button"
                                     onClick={() => setShowAllStates(true)}
@@ -1029,9 +984,9 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                         {isSubmitting
                             ? 'Submitting...'
                             : currentState === 'needs_review' && selectedState === 'done'
-                              ? 'Approve'
+                              ? getTaskUpdateStateLabel(currentState, 'done', { isReviewMode: true })
                               : currentState === 'needs_review' && selectedState === 'in_progress'
-                                ? 'Request Changes'
+                                ? getTaskUpdateStateLabel(currentState, 'in_progress', { isReviewMode: true })
                                 : `Submit as ${getTaskStatusLabel(selectedState)}`}
                     </Button>
                 )}
@@ -1102,7 +1057,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                                 {getTaskStatusLabel(state)}
                             </button>
                         ))}
-                        {!showAllStates && visibleStates.length < ALL_STATES.length && (
+                        {!showAllStates && visibleStates.length < TASK_UPDATE_ALL_STATES.length && (
                             <button
                                 type="button"
                                 onClick={() => setShowAllStates(true)}

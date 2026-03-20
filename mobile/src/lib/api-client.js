@@ -231,6 +231,15 @@ export async function createMobileMessageThread(payload) {
   return parseJson(response);
 }
 
+export async function ensureMobileLinkedThread({ linkedDomain, linkedEntityId, title }) {
+  return createMobileMessageThread({
+    threadType: 'linked',
+    linkedDomain,
+    linkedEntityId,
+    title,
+  });
+}
+
 export async function sendMobileMessage(payload) {
   const response = await fetch(`${getApiBaseUrl()}/api/messages/messages`, {
     method: 'POST',

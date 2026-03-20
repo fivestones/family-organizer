@@ -60,6 +60,76 @@ final class FamilyOrganizerUITests: XCTestCase {
     XCTAssertTrue(app.buttons["member-card-david"].waitForExistence(timeout: 10), "Expected lock screen after Lock App")
   }
 
+  func testParentTaskSeriesManagerReviewAndEditorFlow() throws {
+    waitForLockScreen()
+
+    app.buttons["member-card-david"].tap()
+    enterPin(parentPin)
+    tapUnlockButton()
+
+    let moreTab = resolveTabButton(
+      preferredIDs: ["tab-more"],
+      labelFallbackContains: "More",
+      fallbackIndex: 3
+    )
+    XCTAssertTrue(moreTab.waitForExistence(timeout: 5), "Expected More tab")
+    moreTab.tap()
+
+    let taskSeriesMenu = app.buttons["more-menu-taskSeries"]
+    XCTAssertTrue(taskSeriesMenu.waitForExistence(timeout: 10), "Expected Task Series menu item")
+    taskSeriesMenu.tap()
+
+    let reviewButton = app.buttons["task-series-manager-review"]
+    let newButton = app.buttons["task-series-manager-new"]
+    XCTAssertTrue(reviewButton.waitForExistence(timeout: 10), "Expected Task Series manager review button")
+    XCTAssertTrue(newButton.exists, "Expected Task Series manager new button")
+
+    reviewButton.tap()
+    XCTAssertTrue(app.staticTexts["Task Review"].waitForExistence(timeout: 10), "Expected Task Review screen")
+
+    app.buttons["Back"].tap()
+    XCTAssertTrue(newButton.waitForExistence(timeout: 10), "Expected Task Series manager after returning from review")
+
+    newButton.tap()
+
+    let nameField = app.textFields["task-series-editor-name"]
+    XCTAssertTrue(nameField.waitForExistence(timeout: 10), "Expected task series editor name field")
+    nameField.tap()
+    let createdName = "UITest Series \(Int(Date().timeIntervalSince1970))"
+    nameField.typeText(createdName)
+    dismissKeyboardIfPresent()
+
+    let saveButton = app.buttons["task-series-editor-save"]
+    XCTAssertTrue(saveButton.waitForExistence(timeout: 5), "Expected task series editor save button")
+    saveButton.tap()
+
+    if app.alerts.firstMatch.waitForExistence(timeout: 3) {
+      app.alerts.firstMatch.buttons.firstMatch.tap()
+    }
+
+    XCTAssertTrue(app.staticTexts[createdName].waitForExistence(timeout: 10), "Expected saved task series title after save")
+    XCTAssertTrue(app.buttons["task-series-editor-open-history"].waitForExistence(timeout: 10), "Expected history shortcut after save")
+    XCTAssertTrue(app.buttons["task-series-editor-open-discussion"].exists, "Expected discussion shortcut after save")
+  }
+
+  func testChildCanOpenTaskSeriesOverviewFromChores() throws {
+    waitForLockScreen()
+
+    app.buttons["member-card-judah"].tap()
+    enterPin(childPin)
+    tapUnlockButton()
+
+    let openTaskSeriesButton = app.buttons["chores-open-task-series-button"]
+    XCTAssertTrue(openTaskSeriesButton.waitForExistence(timeout: 10), "Expected Open Task Series button on chores tab")
+    openTaskSeriesButton.tap()
+
+    XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 10), "Expected task series screen with back button")
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Task Series")).firstMatch.waitForExistence(timeout: 10),
+      "Expected a task series screen title"
+    )
+  }
+
   private func waitForLockScreen() {
     ensureActivatedIfNeeded()
     if app.buttons["member-card-judah"].waitForExistence(timeout: 20) {

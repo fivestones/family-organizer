@@ -20,6 +20,7 @@ import { AttachmentPreviewModal } from '../../components/AttachmentPreviewModal'
 import { pickAttachmentDocuments, uploadPendingAttachments } from '../../lib/attachments';
 import { RESPONSE_FIELD_TYPE_LABELS, RESPONSE_FIELD_TYPES } from '../../../../lib/task-response-types';
 import { taskHasData } from '../../../../lib/task-data-guard';
+import { openTaskHistory, openTaskSeriesChecklist, openTaskSeriesDiscussion } from './navigation';
 
 function firstParam(value) {
   return Array.isArray(value) ? value[0] : value;
@@ -465,6 +466,11 @@ export function TaskSeriesEditorScreen() {
   const [startDate, setStartDate] = useState(toDateKey(new Date()));
   const [targetEndDate, setTargetEndDate] = useState('');
   const [workAheadAllowed, setWorkAheadAllowed] = useState(false);
+  const [dependsOnSeriesId, setDependsOnSeriesId] = useState(null);
+  const [breakType, setBreakType] = useState('');
+  const [breakStartDate, setBreakStartDate] = useState('');
+  const [breakDelayValue, setBreakDelayValue] = useState('');
+  const [breakDelayUnit, setBreakDelayUnit] = useState('');
   const [familyMemberId, setFamilyMemberId] = useState(null);
   const [scheduledActivityId, setScheduledActivityId] = useState(null);
   const [tasks, setTasks] = useState([]);
@@ -476,19 +482,29 @@ export function TaskSeriesEditorScreen() {
   const query = db.useQuery(
     isAuthenticated && instantReady && principalType === 'parent'
       ? {
-          taskSeries: screenSeriesId
-            ? {
-                $: { where: { id: screenSeriesId } },
-                tasks: {
-                  parentTask: {},
+          taskSeries: {
+            tasks: {
+              parentTask: {},
+              attachments: {},
+              responseFields: {},
+              updates: {
+                actor: {},
+                affectedPerson: {},
+                attachments: {},
+                responseFieldValues: { field: {} },
+                gradeType: {},
+                replyTo: {},
+                replies: {
+                  actor: {},
+                  affectedPerson: {},
                   attachments: {},
-                  responseFields: {},
-                  updates: { attachments: {} },
+                  gradeType: {},
                 },
-                familyMember: {},
-                scheduledActivity: {},
-              }
-            : {},
+              },
+            },
+            familyMember: {},
+            scheduledActivity: {},
+          },
           familyMembers: {
             $: { order: { order: 'asc' } },
           },
@@ -497,7 +513,8 @@ export function TaskSeriesEditorScreen() {
       : null
   );
 
-  const series = screenSeriesId ? (query.data?.taskSeries || [])[0] || null : null;
+  const allSeries = query.data?.taskSeries || [];
+  const series = screenSeriesId ? allSeries.find((item) => item.id === screenSeriesId) || null : null;
 
   useEffect(() => {
     if (!series) {
@@ -507,6 +524,11 @@ export function TaskSeriesEditorScreen() {
         setStartDate(toDateKey(new Date()));
         setTargetEndDate('');
         setWorkAheadAllowed(false);
+        setDependsOnSeriesId(null);
+        setBreakType('');
+        setBreakStartDate('');
+        setBreakDelayValue('');
+        setBreakDelayUnit('');
         setFamilyMemberId(null);
         setScheduledActivityId(null);
         setTasks([createLocalTask({ text: '', order: 0 })]);
@@ -519,6 +541,11 @@ export function TaskSeriesEditorScreen() {
     setStartDate(toDateKey(series.startDate || new Date()));
     setTargetEndDate(toDateKey(series.targetEndDate || ''));
     setWorkAheadAllowed(!!series.workAheadAllowed);
+    setDependsOnSeriesId(series.dependsOnSeriesId || null);
+    setBreakType(series.breakType || '');
+    setBreakStartDate(toDateKey(series.breakStartDate || ''));
+    setBreakDelayValue(series.breakDelayValue != null ? String(series.breakDelayValue) : '');
+    setBreakDelayUnit(series.breakDelayUnit || '');
     setFamilyMemberId(firstRef(series.familyMember)?.id || null);
     setScheduledActivityId(firstRef(series.scheduledActivity)?.id || null);
     setTasks((series.tasks || []).slice().sort((left, right) => (left.order || 0) - (right.order || 0)).map((task) => createLocalTask(task)));
@@ -611,6 +638,11 @@ export function TaskSeriesEditorScreen() {
           startDate: startDate ? new Date(`${startDate}T00:00:00Z`) : null,
           targetEndDate: targetEndDate ? new Date(`${targetEndDate}T00:00:00Z`) : null,
           workAheadAllowed,
+          dependsOnSeriesId: dependsOnSeriesId || null,
+          breakType: breakType || null,
+          breakStartDate: breakStartDate ? new Date(`${breakStartDate}T00:00:00Z`) : null,
+          breakDelayValue: breakDelayValue ? Number(breakDelayValue) || 0 : null,
+          breakDelayUnit: breakDelayUnit || null,
           createdAt: series?.createdAt || new Date(),
           updatedAt: new Date(),
         })
@@ -739,77 +771,135 @@ export function TaskSeriesEditorScreen() {
       subtitle="Metadata, task structure, attachments, and response fields."
       accent={colors.accentMore}
       action={
-        <Pressable onPress={() => void handleSave()} style={[styles.button, styles.buttonPrimary]}>
+        <Pressable testID="task-series-editor-save" onPress={() => void handleSave()} style={[styles.button, styles.buttonPrimary]}>
           <Text style={[styles.buttonText, styles.buttonTextPrimary]}>{isSaving ? 'Saving…' : 'Save'}</Text>
         </Pressable>
       }
     >
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Series Metadata</Text>
-          <TextInput value={name} onChangeText={setName} placeholder="Series name" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={styles.input} />
-          <TextInput multiline value={description} onChangeText={setDescription} placeholder="Description" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={[styles.input, styles.textArea]} />
-          <View style={{ flexDirection: width >= 900 ? 'row' : 'column', gap: spacing.sm }}>
-            <TextInput value={startDate} onChangeText={setStartDate} placeholder="Start date YYYY-MM-DD" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={[styles.input, { flex: 1 }]} />
-            <TextInput value={targetEndDate} onChangeText={setTargetEndDate} placeholder="Target end YYYY-MM-DD" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={[styles.input, { flex: 1 }]} />
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.ink, fontSize: 12, fontWeight: '700' }}>Allow work ahead</Text>
-              <Text style={{ color: colors.inkMuted, fontSize: 11 }}>Kids can pull future blocks forward when today is finished.</Text>
+        <View style={{ flexDirection: width >= 1100 ? 'row' : 'column', gap: spacing.md, alignItems: 'flex-start' }}>
+          <View style={{ flex: width >= 1100 ? 0.95 : 1, width: '100%', gap: spacing.md }}>
+            <View style={styles.card}>
+              <Text style={styles.title}>Series Metadata</Text>
+              <TextInput testID="task-series-editor-name" value={name} onChangeText={setName} placeholder="Series name" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={styles.input} />
+              <TextInput multiline value={description} onChangeText={setDescription} placeholder="Description" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={[styles.input, styles.textArea]} />
+              <View style={{ flexDirection: width >= 900 ? 'row' : 'column', gap: spacing.sm }}>
+                <TextInput value={startDate} onChangeText={setStartDate} placeholder="Start date YYYY-MM-DD" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={[styles.input, { flex: 1 }]} />
+                <TextInput value={targetEndDate} onChangeText={setTargetEndDate} placeholder="Target end YYYY-MM-DD" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={[styles.input, { flex: 1 }]} />
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.ink, fontSize: 12, fontWeight: '700' }}>Allow work ahead</Text>
+                  <Text style={{ color: colors.inkMuted, fontSize: 11 }}>Kids can pull future blocks forward when today is finished.</Text>
+                </View>
+                <Switch value={workAheadAllowed} onValueChange={setWorkAheadAllowed} />
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                <Pressable onPress={() => setFamilyMemberId(null)} style={[styles.chip, !familyMemberId && styles.chipActive]}>
+                  <Text style={[styles.chipText, !familyMemberId && styles.chipTextActive]}>No assignee</Text>
+                </Pressable>
+                {(query.data?.familyMembers || []).map((member) => {
+                  const active = familyMemberId === member.id;
+                  return (
+                    <Pressable key={member.id} onPress={() => setFamilyMemberId(member.id)} style={[styles.chip, active && styles.chipActive]}>
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{member.name}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                <Pressable onPress={() => setScheduledActivityId(null)} style={[styles.chip, !scheduledActivityId && styles.chipActive]}>
+                  <Text style={[styles.chipText, !scheduledActivityId && styles.chipTextActive]}>No linked chore</Text>
+                </Pressable>
+                {(query.data?.chores || []).map((chore) => {
+                  const active = scheduledActivityId === chore.id;
+                  return (
+                    <Pressable key={chore.id} onPress={() => setScheduledActivityId(chore.id)} style={[styles.chip, active && styles.chipActive]}>
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{chore.title || 'Untitled chore'}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                <Pressable onPress={() => setDependsOnSeriesId(null)} style={[styles.chip, !dependsOnSeriesId && styles.chipActive]}>
+                  <Text style={[styles.chipText, !dependsOnSeriesId && styles.chipTextActive]}>No dependency</Text>
+                </Pressable>
+                {allSeries.filter((item) => item.id !== screenSeriesId).map((item) => {
+                  const active = dependsOnSeriesId === item.id;
+                  return (
+                    <Pressable key={item.id} onPress={() => setDependsOnSeriesId(item.id)} style={[styles.chip, active && styles.chipActive]}>
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{item.name || 'Untitled series'}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
             </View>
-            <Switch value={workAheadAllowed} onValueChange={setWorkAheadAllowed} />
+
+            <View style={styles.card}>
+              <Text style={styles.title}>Break Scheduling</Text>
+              <TextInput value={breakType} onChangeText={setBreakType} placeholder="Break type (optional)" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={styles.input} />
+              <TextInput value={breakStartDate} onChangeText={setBreakStartDate} placeholder="Break start YYYY-MM-DD" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={styles.input} />
+              <View style={{ flexDirection: width >= 900 ? 'row' : 'column', gap: spacing.sm }}>
+                <TextInput value={breakDelayValue} onChangeText={setBreakDelayValue} placeholder="Break delay value" placeholderTextColor={withAlpha(colors.ink, 0.34)} keyboardType="numeric" style={[styles.input, { flex: 1 }]} />
+                <TextInput value={breakDelayUnit} onChangeText={setBreakDelayUnit} placeholder="Break delay unit" placeholderTextColor={withAlpha(colors.ink, 0.34)} style={[styles.input, { flex: 1 }]} />
+              </View>
+              <Text style={styles.body}>These fields map directly to the existing Instant series metadata so mobile can edit the same dependency and break controls as web.</Text>
+            </View>
+
+            {screenSeriesId ? (
+              <View style={styles.card}>
+                <Text style={styles.title}>Series Actions</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                  <Pressable
+                    testID="task-series-editor-open-checklist"
+                    onPress={() =>
+                      openTaskSeriesChecklist({
+                        seriesId: screenSeriesId,
+                        choreId: scheduledActivityId || '',
+                        date: startDate || '',
+                        memberId: familyMemberId || '',
+                      })
+                    }
+                    style={styles.button}
+                  >
+                    <Text style={styles.buttonText}>Checklist</Text>
+                  </Pressable>
+                  <Pressable testID="task-series-editor-open-history" onPress={() => openTaskHistory({ seriesId: screenSeriesId, title: name || 'Task Series History' })} style={styles.button}>
+                    <Text style={styles.buttonText}>History</Text>
+                  </Pressable>
+                  <Pressable testID="task-series-editor-open-discussion" onPress={() => void openTaskSeriesDiscussion({ seriesId: screenSeriesId, seriesName: name })} style={styles.button}>
+                    <Text style={styles.buttonText}>Discussion</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-            <Pressable onPress={() => setFamilyMemberId(null)} style={[styles.chip, !familyMemberId && styles.chipActive]}>
-              <Text style={[styles.chipText, !familyMemberId && styles.chipTextActive]}>No assignee</Text>
-            </Pressable>
-            {(query.data?.familyMembers || []).map((member) => {
-              const active = familyMemberId === member.id;
-              return (
-                <Pressable key={member.id} onPress={() => setFamilyMemberId(member.id)} style={[styles.chip, active && styles.chipActive]}>
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{member.name}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-            <Pressable onPress={() => setScheduledActivityId(null)} style={[styles.chip, !scheduledActivityId && styles.chipActive]}>
-              <Text style={[styles.chipText, !scheduledActivityId && styles.chipTextActive]}>No linked chore</Text>
-            </Pressable>
-            {(query.data?.chores || []).map((chore) => {
-              const active = scheduledActivityId === chore.id;
-              return (
-                <Pressable key={chore.id} onPress={() => setScheduledActivityId(chore.id)} style={[styles.chip, active && styles.chipActive]}>
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{chore.title || 'Untitled chore'}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
 
-        {tasks.map((task, index) => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            index={index}
-            colors={colors}
-            seriesId={screenSeriesId}
-            choreId={scheduledActivityId}
-            onChangeTask={(nextTask) => updateTask(index, nextTask)}
-            onMove={(direction) => moveTask(index, direction)}
-            onAddTaskBelow={() => addTaskBelow(index, false)}
-            onAddBreakBelow={() => addTaskBelow(index, true)}
-            onDeleteTask={() => deleteTask(index)}
-            onOpenAttachment={setPreviewAttachment}
-          />
-        ))}
+          <View style={{ flex: width >= 1100 ? 1.05 : 1, width: '100%', gap: spacing.md }}>
+            {tasks.map((task, index) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                index={index}
+                colors={colors}
+                seriesId={screenSeriesId}
+                choreId={scheduledActivityId}
+                onChangeTask={(nextTask) => updateTask(index, nextTask)}
+                onMove={(direction) => moveTask(index, direction)}
+                onAddTaskBelow={() => addTaskBelow(index, false)}
+                onAddBreakBelow={() => addTaskBelow(index, true)}
+                onDeleteTask={() => deleteTask(index)}
+                onOpenAttachment={setPreviewAttachment}
+              />
+            ))}
 
-        <View style={styles.card}>
-          <Text style={styles.body}>Task cards support notes, attachments, response fields, weights, specific times, and guarded deletes. Save writes the full structure back to Instant using the existing schema.</Text>
-          <Pressable onPress={() => setTasks((current) => [...current, createLocalTask({ order: current.length })])} style={[styles.button, styles.buttonPrimary]}>
-            <Text style={[styles.buttonText, styles.buttonTextPrimary]}>Add Task</Text>
-          </Pressable>
+            <View style={styles.card}>
+              <Text style={styles.body}>Task cards support notes, attachments, response fields, weights, specific times, and guarded deletes. Save writes the full structure back to Instant using the existing schema.</Text>
+              <Pressable testID="task-series-editor-add-task" onPress={() => setTasks((current) => [...current, createLocalTask({ order: current.length })])} style={[styles.button, styles.buttonPrimary]}>
+                <Text style={[styles.buttonText, styles.buttonTextPrimary]}>Add Task</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       </ScrollView>
       <AttachmentPreviewModal attachment={previewAttachment} visible={!!previewAttachment} onClose={() => setPreviewAttachment(null)} />

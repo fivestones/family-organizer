@@ -52,6 +52,7 @@ import { buildTaskBinEntries, groupByAttention, sortTaskBinEntries } from '../..
 import { formatGradeDisplay } from '../../../../lib/grade-utils';
 import { computeSeriesGrade } from '../../../../lib/task-response-aggregation';
 import { RESPONSE_FIELD_TYPE_LABELS } from '../../../../lib/task-response-types';
+import { getTaskUpdateStateLabel, getTaskUpdateVisibleStates } from '../../../../lib/task-update-ui';
 import {
   areTodayTasksFinished,
   buildCatchUpTransactions,
@@ -66,6 +67,7 @@ import {
   getNextPullableDate,
 } from '../../../../lib/task-series-schedule';
 import { getTasksForDate } from '../../../../lib/task-scheduler';
+import { openTaskHistory, openTaskSeriesChecklist, openTaskSeriesDiscussion } from './navigation';
 
 function firstParam(value) {
   return Array.isArray(value) ? value[0] : value;
@@ -132,38 +134,9 @@ function resolveGradeType(entry) {
 }
 
 function buildTaskStatusOptions(task, isParentReviewer) {
-  const currentState = getTaskWorkflowState(task);
-  const options = new Set([currentState]);
-
-  if (currentState === 'not_started') {
-    options.add('in_progress');
-    options.add('done');
-    options.add('blocked');
-    options.add('skipped');
-  } else if (currentState === 'in_progress') {
-    options.add('done');
-    options.add('needs_review');
-    options.add('blocked');
-    options.add('skipped');
-    options.add('not_started');
-  } else if (currentState === 'blocked' || currentState === 'skipped') {
-    options.add('in_progress');
-    options.add('needs_review');
-    options.add('done');
-  } else if (currentState === 'needs_review') {
-    options.add('done');
-    options.add('in_progress');
-    options.add('blocked');
-    options.add('skipped');
-  } else if (currentState === 'done') {
-    options.add('in_progress');
-    options.add('needs_review');
-    if (isParentReviewer) {
-      options.add('done');
-    }
-  }
-
-  return Array.from(options);
+  return getTaskUpdateVisibleStates(getTaskWorkflowState(task), {
+    isReviewMode: isParentReviewer,
+  });
 }
 
 function buildSeriesStatus(series, infoMap, today) {
@@ -1322,15 +1295,18 @@ function TaskUpdateComposerCard({
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
           {buildTaskStatusOptions(task, isParentReviewer).map((state) => {
             const active = selectedState === state;
+            const stateLabel = getTaskUpdateStateLabel(currentState, state, {
+              isReviewMode: reviewMode,
+            });
             return (
               <Pressable
                 key={state}
                 accessibilityRole="button"
-                accessibilityLabel={`Set task state to ${getTaskStatusLabel(state)}`}
+                accessibilityLabel={`Set task state to ${stateLabel}`}
                 onPress={() => setSelectedState(state)}
                 style={{ borderRadius: radii.pill, borderWidth: 1, borderColor: active ? colors.accentMore : colors.line, backgroundColor: active ? colors.accentMore : colors.panel, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
               >
-                <Text style={{ color: active ? colors.onAccent : colors.inkMuted, fontSize: 12, fontWeight: '800' }}>{getTaskStatusLabel(state)}</Text>
+                <Text style={{ color: active ? colors.onAccent : colors.inkMuted, fontSize: 12, fontWeight: '800' }}>{stateLabel}</Text>
               </Pressable>
             );
           })}
@@ -1481,6 +1457,7 @@ export function TaskSeriesTaskScreen() {
   const seriesId = firstParam(params.seriesId);
   const choreId = firstParam(params.choreId);
   const selectedDateKey = toDateKey(firstParam(params.date));
+  const reviewMode = firstParam(params.review) === '1';
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { width } = useWindowDimensions();
@@ -1575,8 +1552,9 @@ export function TaskSeriesTaskScreen() {
       accent={colors.accentMore}
       statusChips={[
         { label: getTaskStatusLabel(getTaskWorkflowState(context.task)), tone: 'neutral' },
+        reviewMode ? { label: 'Review mode', tone: 'accent' } : null,
         owner?.name ? { label: owner.name, tone: 'accent' } : { label: principalType === 'parent' ? 'Parent mode' : 'Kid mode', tone: 'neutral' },
-      ]}
+      ].filter(Boolean)}
     >
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.grid}>
@@ -1609,6 +1587,27 @@ export function TaskSeriesTaskScreen() {
                   <Text style={[styles.body, { color: colors.ink }]}>{latestUpdate.note}</Text>
                 </View>
               ) : null}
+              <View style={styles.taskActionRow}>
+                <Pressable
+                  onPress={() =>
+                    openTaskSeriesChecklist({
+                      seriesId: context.series.id,
+                      choreId: context.chore.id,
+                      date: selectedDateKey,
+                      memberId: owner?.id || '',
+                    })
+                  }
+                  style={styles.button}
+                >
+                  <Text style={styles.buttonText}>Checklist</Text>
+                </Pressable>
+                <Pressable onPress={() => openTaskHistory({ seriesId: context.series.id, taskId: context.task.id, title: context.task.text || 'Task History' })} style={styles.button}>
+                  <Text style={styles.buttonText}>History</Text>
+                </Pressable>
+                <Pressable onPress={() => void openTaskSeriesDiscussion({ seriesId: context.series.id, seriesName: context.series.name })} style={styles.button}>
+                  <Text style={styles.buttonText}>Discussion</Text>
+                </Pressable>
+              </View>
             </View>
             <View style={styles.card}>
               <Text style={styles.eyebrow}>Task Update</Text>
@@ -1662,7 +1661,25 @@ export function TaskSeriesMemberOverviewScreen() {
     isAuthenticated && instantReady
       ? {
           taskSeries: {
-            tasks: {},
+            tasks: {
+              parentTask: {},
+              attachments: {},
+              responseFields: {},
+              updates: {
+                actor: {},
+                affectedPerson: {},
+                attachments: {},
+                responseFieldValues: { field: {} },
+                gradeType: {},
+                replyTo: {},
+                replies: {
+                  actor: {},
+                  affectedPerson: {},
+                  attachments: {},
+                  gradeType: {},
+                },
+              },
+            },
             familyMember: {},
             scheduledActivity: {},
           },
@@ -1672,6 +1689,7 @@ export function TaskSeriesMemberOverviewScreen() {
   );
 
   const selectedMemberId = memberId || currentUser?.id || familyMembers?.[0]?.id || '';
+  const todayKey = toDateKey(new Date());
   const memberName = (query.data?.familyMembers || familyMembers || []).find((member) => member.id === selectedMemberId)?.name || currentUser?.name || 'Member';
   const overviewItems = buildMemberOverviewItems(query.data?.taskSeries || [], selectedMemberId);
   const filteredItems = filter === 'all' ? overviewItems : overviewItems.filter((item) => item.status === filter);
@@ -1718,7 +1736,7 @@ export function TaskSeriesMemberOverviewScreen() {
         {undoState ? (
           <View style={styles.card}>
             <Text style={styles.body}>Tasks pulled forward.</Text>
-            <Pressable onPress={() => void handleUndo()} style={[styles.button, styles.buttonPrimary]}>
+            <Pressable testID="task-series-member-undo-pull" onPress={() => void handleUndo()} style={[styles.button, styles.buttonPrimary]}>
               <Text style={[styles.buttonText, styles.buttonTextPrimary]}>Undo</Text>
             </Pressable>
           </View>
@@ -1793,11 +1811,41 @@ export function TaskSeriesMemberOverviewScreen() {
                   ))}
                 </View>
               ) : null}
-              {item.todayTasksFinished && item.canPull && item.nextPullDate ? (
-                <Pressable onPress={() => void handlePullForward(item)} style={[styles.button, styles.buttonPrimary]}>
-                  <Text style={[styles.buttonText, styles.buttonTextPrimary]}>Pull Forward</Text>
+              <View style={styles.taskActionRow}>
+                <Pressable
+                  testID={`task-series-member-open-checklist-${item.series.id}`}
+                  onPress={() =>
+                    openTaskSeriesChecklist({
+                      seriesId: item.series.id,
+                      choreId: firstRef(item.series.scheduledActivity)?.id || '',
+                      date: todayKey,
+                      memberId: selectedMemberId,
+                    })
+                  }
+                  style={styles.button}
+                >
+                  <Text style={styles.buttonText}>Open Checklist</Text>
                 </Pressable>
-              ) : null}
+                <Pressable
+                  testID={`task-series-member-open-history-${item.series.id}`}
+                  onPress={() => openTaskHistory({ seriesId: item.series.id, title: item.series.name || 'Task Series History' })}
+                  style={styles.button}
+                >
+                  <Text style={styles.buttonText}>History</Text>
+                </Pressable>
+                <Pressable
+                  testID={`task-series-member-open-discussion-${item.series.id}`}
+                  onPress={() => void openTaskSeriesDiscussion({ seriesId: item.series.id, seriesName: item.series.name })}
+                  style={styles.button}
+                >
+                  <Text style={styles.buttonText}>Discussion</Text>
+                </Pressable>
+                {item.todayTasksFinished && item.canPull && item.nextPullDate ? (
+                  <Pressable onPress={() => void handlePullForward(item)} style={[styles.button, styles.buttonPrimary]}>
+                    <Text style={[styles.buttonText, styles.buttonTextPrimary]}>Pull Forward</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
           ))
         )}
@@ -1811,7 +1859,9 @@ export function TaskSeriesReviewScreen() {
   const preselectedSeriesId = firstParam(params.seriesId);
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const { db, isAuthenticated, instantReady, principalType } = useAppSession();
+  const { width } = useWindowDimensions();
+  const isWide = width >= 980;
+  const { db, currentUser, isAuthenticated, instantReady, principalType } = useAppSession();
   const [view, setView] = useState(preselectedSeriesId ? 'all' : 'attention');
   const [filters, setFilters] = useState({
     status: 'all',
@@ -1820,6 +1870,8 @@ export function TaskSeriesReviewScreen() {
     showNoted: false,
   });
   const sortMode = 'status';
+  const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [previewAttachment, setPreviewAttachment] = useState(null);
 
   const query = db.useQuery(
     isAuthenticated && instantReady && principalType === 'parent'
@@ -1847,9 +1899,26 @@ export function TaskSeriesReviewScreen() {
           },
           familyMembers: {},
           taskSeries: {},
+          gradeTypes: {},
         }
       : null
   );
+
+  const effectiveFilters = view === 'all' ? { ...filters, showNoted: true } : filters;
+  const entries = sortTaskBinEntries(buildTaskBinEntries(query.data?.tasks || [], effectiveFilters, toDateKey(new Date())), sortMode);
+  const groups = groupByAttention(entries);
+  const visibleEntries = view === 'attention' ? groups.needsAttention : groups.all;
+
+  useEffect(() => {
+    if (!isWide) return;
+    if (!visibleEntries.length) {
+      setSelectedTaskId(null);
+      return;
+    }
+    if (!selectedTaskId || !visibleEntries.some((entry) => entry.task.id === selectedTaskId)) {
+      setSelectedTaskId(visibleEntries[0].task.id);
+    }
+  }, [isWide, selectedTaskId, visibleEntries]);
 
   if (principalType !== 'parent') {
     return (
@@ -1858,11 +1927,6 @@ export function TaskSeriesReviewScreen() {
       </SubscreenScaffold>
     );
   }
-
-  const effectiveFilters = view === 'all' ? { ...filters, showNoted: true } : filters;
-  const entries = sortTaskBinEntries(buildTaskBinEntries(query.data?.tasks || [], effectiveFilters, toDateKey(new Date())), sortMode);
-  const groups = groupByAttention(entries);
-  const visibleEntries = view === 'attention' ? groups.needsAttention : groups.all;
 
   async function handleNote(taskId, mode) {
     if (mode === 'clear') {
@@ -1961,6 +2025,118 @@ export function TaskSeriesReviewScreen() {
           <View style={styles.card}>
             <Text style={styles.body}>No review tasks match the current filters.</Text>
           </View>
+        ) : isWide ? (
+          <View style={styles.splitRow}>
+            <View style={styles.listColumn}>
+              {visibleEntries.map((entry) => {
+                const series = firstRef(entry.task.taskSeries);
+                const owner = firstRef(series?.familyMember);
+                return (
+                  <Pressable
+                    key={entry.task.id}
+                    onPress={() => setSelectedTaskId(entry.task.id)}
+                    style={[
+                      styles.card,
+                      selectedTaskId === entry.task.id && {
+                        borderColor: colors.accentMore,
+                        backgroundColor: withAlpha(colors.accentMore, 0.06),
+                      },
+                    ]}
+                  >
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <View style={styles.row}>
+                        <StatusPill colors={colors} label={getTaskStatusLabel(getTaskWorkflowState(entry.task))} tone={entry.lateness ? 'warning' : 'neutral'} />
+                        {entry.isNoted ? <StatusPill colors={colors} label="Noted" tone="accent" /> : null}
+                      </View>
+                      <Text style={styles.sectionTitle}>{entry.task.text}</Text>
+                      <Text style={styles.body}>
+                        {series?.name || 'Task series'}
+                        {owner?.name ? ` • ${owner.name}` : ''}
+                        {entry.lateness?.label ? ` • ${entry.lateness.label}` : ''}
+                      </Text>
+                      {entry.latestUpdate?.note ? <Text style={styles.body}>{entry.latestUpdate.note}</Text> : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.sideColumn}>
+              {(() => {
+                const selectedEntry = visibleEntries.find((entry) => entry.task.id === selectedTaskId) || visibleEntries[0];
+                if (!selectedEntry) return null;
+                const series = firstRef(selectedEntry.task.taskSeries);
+                const owner = firstRef(series?.familyMember);
+                const activity = firstRef(series?.scheduledActivity);
+                const seriesTasks = (query.data?.tasks || []).filter((task) => firstRef(task.taskSeries)?.id === series?.id);
+                return (
+                  <>
+                    <View style={styles.card}>
+                      <Text style={styles.eyebrow}>Selected review</Text>
+                      <Text style={styles.sectionTitle}>{selectedEntry.task.text}</Text>
+                      <Text style={styles.body}>
+                        {series?.name || 'Task series'}
+                        {owner?.name ? ` • ${owner.name}` : ''}
+                        {selectedEntry.lateness?.label ? ` • ${selectedEntry.lateness.label}` : ''}
+                      </Text>
+                      <View style={styles.taskActionRow}>
+                        <Pressable
+                          testID={`task-series-review-open-${selectedEntry.task.id}`}
+                          onPress={() =>
+                            router.push({
+                              pathname: '/task-series/task',
+                              params: {
+                                taskId: selectedEntry.task.id,
+                                seriesId: series?.id || '',
+                                choreId: activity?.id || '',
+                                date: selectedEntry.latestUpdate?.scheduledForDate || toDateKey(new Date()),
+                                review: '1',
+                              },
+                            })
+                          }
+                          style={styles.button}
+                        >
+                          <Text style={styles.buttonText}>Open full screen</Text>
+                        </Pressable>
+                        {selectedEntry.isNoted ? (
+                          <Pressable testID={`task-series-review-clear-note-${selectedEntry.task.id}`} onPress={() => void handleNote(selectedEntry.task.id, 'clear')} style={styles.button}>
+                            <Text style={styles.buttonText}>Un-note</Text>
+                          </Pressable>
+                        ) : (
+                          <>
+                            <Pressable testID={`task-series-review-note-until-${selectedEntry.task.id}`} onPress={() => void handleNote(selectedEntry.task.id, 'until')} style={styles.button}>
+                              <Text style={styles.buttonText}>Note until</Text>
+                            </Pressable>
+                            <Pressable testID={`task-series-review-note-forever-${selectedEntry.task.id}`} onPress={() => void handleNote(selectedEntry.task.id, 'forever')} style={styles.button}>
+                              <Text style={styles.buttonText}>Note forever</Text>
+                            </Pressable>
+                          </>
+                        )}
+                      </View>
+                    </View>
+                    <View style={styles.card}>
+                      <Text style={styles.eyebrow}>Review update</Text>
+                      <TaskUpdateComposerCard
+                        db={db}
+                        task={selectedEntry.task}
+                        series={series}
+                        chore={activity}
+                        allTasks={seriesTasks}
+                        selectedDateKey={selectedEntry.latestUpdate?.scheduledForDate || toDateKey(new Date())}
+                        currentUser={{ ...currentUser, db }}
+                        gradeTypes={query.data?.gradeTypes || []}
+                        colors={colors}
+                        onSaved={() => {}}
+                      />
+                    </View>
+                    <View style={styles.card}>
+                      <Text style={styles.eyebrow}>History</Text>
+                      <UpdateHistoryList task={selectedEntry.task} colors={colors} onOpenAttachment={setPreviewAttachment} />
+                    </View>
+                  </>
+                );
+              })()}
+            </View>
+          </View>
         ) : (
           visibleEntries.map((entry) => {
             const series = firstRef(entry.task.taskSeries);
@@ -1985,6 +2161,7 @@ export function TaskSeriesReviewScreen() {
                 </View>
                 <View style={styles.taskActionRow}>
                   <Pressable
+                    testID={`task-series-review-open-${entry.task.id}`}
                     onPress={() =>
                       router.push({
                         pathname: '/task-series/task',
@@ -2002,15 +2179,15 @@ export function TaskSeriesReviewScreen() {
                     <Text style={[styles.buttonText, styles.buttonTextPrimary]}>Review</Text>
                   </Pressable>
                   {entry.isNoted ? (
-                    <Pressable onPress={() => void handleNote(entry.task.id, 'clear')} style={styles.button}>
+                    <Pressable testID={`task-series-review-clear-note-${entry.task.id}`} onPress={() => void handleNote(entry.task.id, 'clear')} style={styles.button}>
                       <Text style={styles.buttonText}>Un-note</Text>
                     </Pressable>
                   ) : (
                     <>
-                      <Pressable onPress={() => void handleNote(entry.task.id, 'until')} style={styles.button}>
+                      <Pressable testID={`task-series-review-note-until-${entry.task.id}`} onPress={() => void handleNote(entry.task.id, 'until')} style={styles.button}>
                         <Text style={styles.buttonText}>Note until date</Text>
                       </Pressable>
-                      <Pressable onPress={() => void handleNote(entry.task.id, 'forever')} style={styles.button}>
+                      <Pressable testID={`task-series-review-note-forever-${entry.task.id}`} onPress={() => void handleNote(entry.task.id, 'forever')} style={styles.button}>
                         <Text style={styles.buttonText}>Note forever</Text>
                       </Pressable>
                     </>
@@ -2021,6 +2198,7 @@ export function TaskSeriesReviewScreen() {
           })
         )}
       </ScrollView>
+      <AttachmentPreviewModal attachment={previewAttachment} visible={!!previewAttachment} onClose={() => setPreviewAttachment(null)} />
     </SubscreenScaffold>
   );
 }
@@ -2028,9 +2206,12 @@ export function TaskSeriesReviewScreen() {
 export function TaskSeriesManagerScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { width } = useWindowDimensions();
+  const isWide = width >= 980;
   const { db, currentUser, isAuthenticated, instantReady, principalType } = useAppSession();
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState([]);
+  const [selectedSeriesId, setSelectedSeriesId] = useState(null);
 
   const query = db.useQuery(
     isAuthenticated && instantReady && principalType === 'parent'
@@ -2044,6 +2225,13 @@ export function TaskSeriesManagerScreen() {
                 responseFieldValues: { field: {} },
                 gradeType: {},
                 attachments: {},
+                replyTo: {},
+                replies: {
+                  actor: {},
+                  affectedPerson: {},
+                  attachments: {},
+                  gradeType: {},
+                },
               },
             },
             familyMember: {},
@@ -2053,6 +2241,21 @@ export function TaskSeriesManagerScreen() {
       : null
   );
 
+  const items = buildManagerItems(query.data?.taskSeries || []);
+  const filteredItems = statusFilter === 'all' ? items : items.filter((item) => item.status === statusFilter);
+  const selectedSet = new Set(selectedIds);
+
+  useEffect(() => {
+    if (!isWide) return;
+    if (!filteredItems.length) {
+      setSelectedSeriesId(null);
+      return;
+    }
+    if (!selectedSeriesId || !filteredItems.some((item) => item.series.id === selectedSeriesId)) {
+      setSelectedSeriesId(filteredItems[0].series.id);
+    }
+  }, [filteredItems, isWide, selectedSeriesId]);
+
   if (principalType !== 'parent') {
     return (
       <SubscreenScaffold title="Task Series" subtitle="Parent mode is required for the task-series manager." accent={colors.accentMore}>
@@ -2060,10 +2263,6 @@ export function TaskSeriesManagerScreen() {
       </SubscreenScaffold>
     );
   }
-
-  const items = buildManagerItems(query.data?.taskSeries || []);
-  const filteredItems = statusFilter === 'all' ? items : items.filter((item) => item.status === statusFilter);
-  const selectedSet = new Set(selectedIds);
 
   async function handleDelete(idsToDelete) {
     if (!idsToDelete.length) return;
@@ -2145,10 +2344,10 @@ export function TaskSeriesManagerScreen() {
       accent={colors.accentMore}
       action={
         <View style={styles.row}>
-          <Pressable onPress={() => router.push('/more/task-series/review')} style={styles.button}>
+          <Pressable testID="task-series-manager-review" onPress={() => router.push('/more/task-series/review')} style={styles.button}>
             <Text style={styles.buttonText}>Review</Text>
           </Pressable>
-          <Pressable onPress={() => router.push('/more/task-series/new')} style={[styles.button, styles.buttonPrimary]}>
+          <Pressable testID="task-series-manager-new" onPress={() => router.push('/more/task-series/new')} style={[styles.button, styles.buttonPrimary]}>
             <Text style={[styles.buttonText, styles.buttonTextPrimary]}>New</Text>
           </Pressable>
         </View>
@@ -2197,6 +2396,121 @@ export function TaskSeriesManagerScreen() {
           <View style={styles.card}>
             <Text style={styles.body}>No task series match this filter.</Text>
           </View>
+        ) : isWide ? (
+          <View style={styles.splitRow}>
+            <View style={styles.listColumn}>
+              {filteredItems.map((item) => {
+                const selected = selectedSeriesId === item.series.id;
+                return (
+                  <Pressable
+                    key={item.series.id}
+                    onPress={() => setSelectedSeriesId(item.series.id)}
+                    onLongPress={() =>
+                      setSelectedIds((current) =>
+                        current.includes(item.series.id) ? current.filter((idValue) => idValue !== item.series.id) : [...current, item.series.id]
+                      )
+                    }
+                    style={[styles.card, selected && { borderColor: colors.accentMore, backgroundColor: withAlpha(colors.accentMore, 0.06) }]}
+                  >
+                    <View style={styles.between}>
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <View style={styles.row}>
+                          <StatusPill colors={colors} label={item.status === 'in_progress' ? 'In Progress' : item.status.charAt(0).toUpperCase() + item.status.slice(1)} tone={item.status === 'archived' ? 'success' : item.status === 'pending' ? 'warning' : item.status === 'draft' ? 'neutral' : 'accent'} />
+                          <StatusPill colors={colors} label={item.drift.label} tone={item.drift.status === 'behind' ? 'warning' : item.drift.status === 'ahead' ? 'accent' : 'success'} />
+                        </View>
+                        <Text style={styles.sectionTitle}>{item.series.name || 'Untitled series'}</Text>
+                        <Text style={styles.body}>{firstRef(item.series.familyMember)?.name || 'Unassigned'}</Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.sideColumn}>
+              {(() => {
+                const item = filteredItems.find((entry) => entry.series.id === selectedSeriesId) || filteredItems[0];
+                if (!item) return null;
+                return (
+                  <>
+                    <View style={styles.card}>
+                      <View style={styles.row}>
+                        <StatusPill colors={colors} label={item.status === 'in_progress' ? 'In Progress' : item.status.charAt(0).toUpperCase() + item.status.slice(1)} tone={item.status === 'archived' ? 'success' : item.status === 'pending' ? 'warning' : item.status === 'draft' ? 'neutral' : 'accent'} />
+                        <StatusPill colors={colors} label={item.drift.label} tone={item.drift.status === 'behind' ? 'warning' : item.drift.status === 'ahead' ? 'accent' : 'success'} />
+                      </View>
+                      <Text style={styles.sectionTitle}>{item.series.name || 'Untitled series'}</Text>
+                      {item.series.description ? <Text style={styles.body}>{item.series.description}</Text> : null}
+                      <Text style={styles.body}>
+                        {firstRef(item.series.familyMember)?.name || 'Unassigned'}
+                        {firstRef(item.series.scheduledActivity)?.title ? ` • ${firstRef(item.series.scheduledActivity).title}` : ''}
+                      </Text>
+                      <Text style={styles.body}>
+                        Tasks {item.completedTasks}/{item.totalTasks} • Days {item.completedBlocks}/{item.totalBlocks}
+                      </Text>
+                      <View style={styles.progressTrack}>
+                        <View style={[styles.progressFill, { width: `${Math.max(8, item.totalTasks ? (item.completedTasks / item.totalTasks) * 100 : 8)}%` }]} />
+                      </View>
+                      {item.seriesGrade?.gradedCount ? (
+                        <Text style={styles.body}>
+                          Grade {item.seriesGrade.gradeType ? formatGradeDisplay(item.seriesGrade.average, item.seriesGrade.gradeType) : item.seriesGrade.average.toFixed(1)}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={styles.card}>
+                      <Text style={styles.eyebrow}>Actions</Text>
+                      <View style={styles.taskActionRow}>
+                        <Pressable
+                          testID={`task-series-manager-open-checklist-${item.series.id}`}
+                          onPress={() =>
+                            openTaskSeriesChecklist({
+                              seriesId: item.series.id,
+                              choreId: firstRef(item.series.scheduledActivity)?.id || '',
+                              date: toDateKey(new Date()),
+                              memberId: firstRef(item.series.familyMember)?.id || '',
+                            })
+                          }
+                          style={styles.button}
+                        >
+                          <Text style={styles.buttonText}>Checklist</Text>
+                        </Pressable>
+                        <Pressable testID={`task-series-manager-edit-${item.series.id}`} onPress={() => router.push(`/more/task-series/${item.series.id}`)} style={styles.button}>
+                          <Text style={styles.buttonText}>Edit</Text>
+                        </Pressable>
+                        <Pressable testID={`task-series-manager-review-${item.series.id}`} onPress={() => router.push({ pathname: '/more/task-series/review', params: { seriesId: item.series.id } })} style={styles.button}>
+                          <Text style={styles.buttonText}>Review</Text>
+                        </Pressable>
+                        <Pressable testID={`task-series-manager-history-${item.series.id}`} onPress={() => openTaskHistory({ seriesId: item.series.id, title: item.series.name || 'Task Series History' })} style={styles.button}>
+                          <Text style={styles.buttonText}>History</Text>
+                        </Pressable>
+                        <Pressable testID={`task-series-manager-discussion-${item.series.id}`} onPress={() => void openTaskSeriesDiscussion({ seriesId: item.series.id, seriesName: item.series.name })} style={styles.button}>
+                          <Text style={styles.buttonText}>Discussion</Text>
+                        </Pressable>
+                        {item.drift.status === 'behind' && item.liveEnd ? (
+                          <Pressable onPress={() => void handleCatchUp(item)} style={styles.button}>
+                            <Text style={styles.buttonText}>Catch Up</Text>
+                          </Pressable>
+                        ) : null}
+                        <Pressable testID={`task-series-manager-duplicate-${item.series.id}`} onPress={() => void handleDuplicate(item)} style={styles.button}>
+                          <Text style={styles.buttonText}>Duplicate</Text>
+                        </Pressable>
+                        <Pressable
+                          testID={`task-series-manager-delete-${item.series.id}`}
+                          onPress={() =>
+                            Alert.alert('Delete task series?', `Delete ${item.series.name || 'this series'} and all its tasks?`, [
+                              { text: 'Cancel', style: 'cancel' },
+                              { text: 'Delete', style: 'destructive', onPress: () => void handleDelete([item.series.id]) },
+                            ])
+                          }
+                          style={[styles.button, styles.buttonDanger]}
+                        >
+                          <Text style={[styles.buttonText, styles.buttonTextDanger]}>Delete</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </>
+                );
+              })()}
+            </View>
+          </View>
         ) : (
           filteredItems.map((item) => {
             const selected = selectedSet.has(item.series.id);
@@ -2239,21 +2553,42 @@ export function TaskSeriesManagerScreen() {
                   </Text>
                 ) : null}
                 <View style={styles.taskActionRow}>
-                  <Pressable onPress={() => router.push(`/more/task-series/${item.series.id}`)} style={styles.button}>
+                <Pressable
+                  testID={`task-series-manager-open-checklist-${item.series.id}`}
+                  onPress={() =>
+                    openTaskSeriesChecklist({
+                        seriesId: item.series.id,
+                        choreId: firstRef(item.series.scheduledActivity)?.id || '',
+                        date: toDateKey(new Date()),
+                        memberId: firstRef(item.series.familyMember)?.id || '',
+                      })
+                    }
+                    style={styles.button}
+                  >
+                    <Text style={styles.buttonText}>Checklist</Text>
+                  </Pressable>
+                  <Pressable testID={`task-series-manager-edit-${item.series.id}`} onPress={() => router.push(`/more/task-series/${item.series.id}`)} style={styles.button}>
                     <Text style={styles.buttonText}>Edit</Text>
                   </Pressable>
-                  <Pressable onPress={() => router.push({ pathname: '/more/task-series/review', params: { seriesId: item.series.id } })} style={styles.button}>
+                  <Pressable testID={`task-series-manager-review-${item.series.id}`} onPress={() => router.push({ pathname: '/more/task-series/review', params: { seriesId: item.series.id } })} style={styles.button}>
                     <Text style={styles.buttonText}>Review</Text>
+                  </Pressable>
+                  <Pressable testID={`task-series-manager-history-${item.series.id}`} onPress={() => openTaskHistory({ seriesId: item.series.id, title: item.series.name || 'Task Series History' })} style={styles.button}>
+                    <Text style={styles.buttonText}>History</Text>
+                  </Pressable>
+                  <Pressable testID={`task-series-manager-discussion-${item.series.id}`} onPress={() => void openTaskSeriesDiscussion({ seriesId: item.series.id, seriesName: item.series.name })} style={styles.button}>
+                    <Text style={styles.buttonText}>Discussion</Text>
                   </Pressable>
                   {item.drift.status === 'behind' && item.liveEnd ? (
                     <Pressable onPress={() => void handleCatchUp(item)} style={styles.button}>
                       <Text style={styles.buttonText}>Catch Up</Text>
                     </Pressable>
                   ) : null}
-                  <Pressable onPress={() => void handleDuplicate(item)} style={styles.button}>
+                  <Pressable testID={`task-series-manager-duplicate-${item.series.id}`} onPress={() => void handleDuplicate(item)} style={styles.button}>
                     <Text style={styles.buttonText}>Duplicate</Text>
                   </Pressable>
                   <Pressable
+                    testID={`task-series-manager-delete-${item.series.id}`}
                     onPress={() =>
                       Alert.alert('Delete task series?', `Delete ${item.series.name || 'this series'} and all its tasks?`, [
                         { text: 'Cancel', style: 'cancel' },
