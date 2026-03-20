@@ -2,8 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { defineConfig, devices } from '@playwright/test';
 
 const readinessPath = '/api/mobile/config';
-const fallbackBaseURL = 'http://127.0.0.1:3000';
-const reusableBaseURLCandidates = [fallbackBaseURL, 'http://127.0.0.1:4000'];
+const fallbackBaseURL = 'http://localhost:3001';
+const reusableBaseURLCandidates = [fallbackBaseURL, 'http://localhost:4000'];
 
 function isReusableLocalDevServer(baseURL: string) {
     const probe = spawnSync(

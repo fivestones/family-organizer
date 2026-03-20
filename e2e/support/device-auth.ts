@@ -37,5 +37,13 @@ export const e2eActivationKey =
     process.env.E2E_DEVICE_ACCESS_KEY || process.env.DEVICE_ACCESS_KEY || readDeviceAccessKeyFromEnvFiles() || 'local-dev-device-access-key';
 
 export async function activateDevice(page: Page, activationKey = e2eActivationKey) {
-    await page.goto(`/?activate=${encodeURIComponent(activationKey)}`);
+    const response = await page.context().request.post('/api/device-activate', {
+        data: { key: activationKey },
+    });
+
+    if (!response.ok()) {
+        throw new Error(`Device activation failed with ${response.status()}: ${await response.text()}`);
+    }
+
+    await page.goto('/');
 }
