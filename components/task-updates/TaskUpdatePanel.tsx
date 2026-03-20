@@ -21,7 +21,7 @@ import {
 } from '@/lib/task-update-mutations';
 import type { TaskResponseFieldType } from '@/lib/task-response-types';
 import type { GradeTypeLike } from '@/lib/task-response-types';
-import { AlertCircle, ChevronDown, MessageSquare, Send, Star, X } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, MessageSquare, Send, Star, X } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,22 +37,36 @@ export interface ResponseField {
     order: number;
 }
 
+export interface TaskUpdatePanelUpdate {
+    id?: string;
+    isDraft?: boolean | null;
+    toState?: string | null;
+    fromState?: string | null;
+    createdAt?: number | string | Date | null;
+    note?: string | null;
+    actor?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null;
+    replyTo?: Array<{ id?: string }> | { id?: string } | null;
+    replies?: Array<{
+        id?: string;
+        note?: string | null;
+        createdAt?: number | string | Date | null;
+        actor?: Array<{ id?: string; name?: string | null }> | { id?: string; name?: string | null } | null;
+    }> | null;
+    responseFieldValues?: Array<{
+        id?: string;
+        richTextContent?: string | null;
+        fileUrl?: string | null;
+        fileName?: string | null;
+        fileType?: string | null;
+        field?: Array<{ id?: string; label?: string | null }> | null;
+    }> | null;
+}
+
 export interface TaskUpdatePanelTask {
     id: string;
     workflowState?: string | null;
     responseFields?: ResponseField[] | null;
-    updates?: Array<{
-        id?: string;
-        isDraft?: boolean | null;
-        responseFieldValues?: Array<{
-            id?: string;
-            richTextContent?: string | null;
-            fileUrl?: string | null;
-            fileName?: string | null;
-            fileType?: string | null;
-            field?: Array<{ id?: string; label?: string | null }> | null;
-        }> | null;
-    }> | null;
+    updates?: TaskUpdatePanelUpdate[] | null;
 }
 
 export interface TaskUpdatePanelSubmission {
@@ -60,6 +74,8 @@ export interface TaskUpdatePanelSubmission {
     note?: string;
     responseFieldValues: ResponseFieldValueInput[];
     grade?: TaskUpdateGradeInput | null;
+    /** If this update is feedback on a specific prior submission. */
+    replyToUpdateId?: string | null;
 }
 
 interface Props {
@@ -72,6 +88,8 @@ interface Props {
     gradeTypes?: GradeTypeLike[];
     /** Whether the current user is a parent reviewer. */
     isParentReviewer?: boolean;
+    /** Name of the task owner (child). Used in review mode labels like "Add a new response for Judah". */
+    ownerName?: string | null;
     /** Called when the user submits an update. */
     onSubmit?: (submission: TaskUpdatePanelSubmission) => Promise<void> | void;
     /** Called when auto-save fires for draft field values. */
@@ -167,6 +185,81 @@ function getDefaultState(currentState: TaskWorkflowState): TaskWorkflowState {
 }
 
 // ---------------------------------------------------------------------------
+// Review mode helpers
+// ---------------------------------------------------------------------------
+
+/** States where a parent reviewing makes sense (task has been submitted or is waiting). */
+const REVIEW_ELIGIBLE_STATES: TaskWorkflowState[] = ['needs_review', 'blocked', 'skipped'];
+
+/** States considered "submitted for review" — shown first in the submission picker. */
+const REVIEW_SUBMITTED_STATES = new Set<string>(['needs_review', 'blocked', 'skipped', 'done']);
+
+interface SubmissionEntry {
+    update: TaskUpdatePanelUpdate;
+    /** Whether this submission was explicitly submitted for review (vs. just an in-progress save). */
+    isSubmittedForReview: boolean;
+}
+
+function hasResponseContent(
+    responseFieldValues: TaskUpdatePanelUpdate['responseFieldValues'] | null | undefined,
+): boolean {
+    if (!responseFieldValues || responseFieldValues.length === 0) return false;
+    return responseFieldValues.some((fv) => {
+        const richText = fv.richTextContent?.trim() || '';
+        const hasRichText = richText.length > 0 && richText !== '<p></p>';
+        const hasFile = !!(fv.fileUrl && fv.fileUrl.trim().length > 0);
+        return hasRichText || hasFile;
+    });
+}
+
+/**
+ * Extract all updates that contain response content (submissions), sorted with
+ * review-submitted ones first, then in-progress ones, each group newest-first.
+ */
+function getSubmissions(updates: TaskUpdatePanelUpdate[] | null | undefined): SubmissionEntry[] {
+    if (!updates) return [];
+    const submissions: SubmissionEntry[] = [];
+    for (const u of updates) {
+        if (u.isDraft) continue;
+        if (!hasResponseContent(u.responseFieldValues)) continue;
+        const isSubmittedForReview = REVIEW_SUBMITTED_STATES.has(u.toState || '');
+        submissions.push({ update: u, isSubmittedForReview });
+    }
+    // Sort: submitted-for-review first (newest first), then in-progress (newest first)
+    const toTime = (v: number | string | Date | null | undefined): number => {
+        if (v == null) return 0;
+        if (typeof v === 'number') return v;
+        return new Date(v).getTime() || 0;
+    };
+    submissions.sort((a, b) => {
+        if (a.isSubmittedForReview !== b.isSubmittedForReview) {
+            return a.isSubmittedForReview ? -1 : 1;
+        }
+        return toTime(b.update.createdAt) - toTime(a.update.createdAt);
+    });
+    return submissions;
+}
+
+function getUpdateActorName(update: TaskUpdatePanelUpdate): string | null {
+    const actor = update.actor;
+    if (Array.isArray(actor)) return actor[0]?.name || null;
+    return actor?.name || null;
+}
+
+function formatReviewTimestamp(value: number | string | Date | null | undefined): string {
+    if (!value) return '';
+    const date = typeof value === 'number' ? new Date(value) : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString(undefined, {
+        month: 'numeric',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -176,6 +269,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
     canEdit = true,
     gradeTypes,
     isParentReviewer,
+    ownerName,
     onSubmit,
     onAutoSave,
     onFileUpload,
@@ -189,6 +283,24 @@ export const TaskUpdatePanel: React.FC<Props> = ({
         [task.responseFields]
     );
     const hasResponseFields = sortedFields.length > 0;
+
+    // ---- Review mode detection ----
+    const submissions = useMemo(() => getSubmissions(task.updates), [task.updates]);
+    const isReviewMode =
+        variant === 'full' &&
+        isParentReviewer === true &&
+        submissions.length > 0 &&
+        REVIEW_ELIGIBLE_STATES.includes(currentState);
+
+    // ---- Review mode state ----
+    const [selectedSubmissionIndex, setSelectedSubmissionIndex] = useState(0);
+    // 'feedback' = note attached to a specific response, 'general' = standalone note
+    const [noteMode, setNoteMode] = useState<'feedback' | 'general'>('feedback');
+    const [showResponseEditor, setShowResponseEditor] = useState(false);
+
+    const selectedSubmission = isReviewMode ? submissions[selectedSubmissionIndex] ?? null : null;
+    const selectedSubmissionUpdate = selectedSubmission?.update ?? null;
+    const selectedSubmissionId = selectedSubmissionUpdate?.id ?? null;
 
     // ---- Load draft or compute defaults ----
     const initialDraft = useRef(variant === 'full' ? loadDraft(task.id) : null);
@@ -356,8 +468,9 @@ export const TaskUpdatePanel: React.FC<Props> = ({
             toState: selectedState,
             requiredResponseFields: sortedFields.filter((f) => f.required),
             filledFieldIds,
+            isParentReviewingExistingSubmission: isReviewMode,
         });
-    }, [selectedState, sortedFields, filledFieldIds]);
+    }, [selectedState, sortedFields, filledFieldIds, isReviewMode]);
 
     // ---- Quick states: show a smart subset, with expand option ----
     const quickStates = useMemo(() => {
@@ -411,6 +524,12 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                   }
                 : null;
 
+        // In review mode, attach replyTo when in feedback mode (not general note mode)
+        const replyToUpdateId =
+            isReviewMode && noteMode === 'feedback' && selectedSubmissionId
+                ? selectedSubmissionId
+                : null;
+
         setIsSubmitting(true);
         try {
             await onSubmit({
@@ -418,6 +537,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                 note: note.trim() || undefined,
                 responseFieldValues,
                 grade,
+                replyToUpdateId,
             });
             // Reset panel and clear draft
             setNote('');
@@ -425,6 +545,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
             setSelectedState(getDefaultState(currentState));
             setGradeValue('');
             setShowGrade(false);
+            setNoteMode('feedback');
             clearDraft(task.id);
         } finally {
             setIsSubmitting(false);
@@ -442,6 +563,9 @@ export const TaskUpdatePanel: React.FC<Props> = ({
         note,
         currentState,
         task.id,
+        isReviewMode,
+        noteMode,
+        selectedSubmissionId,
     ]);
 
     const isDisabled = disabled || !canEdit;
@@ -627,6 +751,370 @@ export const TaskUpdatePanel: React.FC<Props> = ({
     // ======= FULL VARIANT (for dialog/detail panel) =======
     const effectiveSubmitState = validation?.routedState || selectedState;
 
+    // --------------- REVIEW MODE LAYOUT ---------------
+    if (isReviewMode && selectedSubmissionUpdate) {
+        const submissionActorName = getUpdateActorName(selectedSubmissionUpdate);
+        const submissionTimestamp = formatReviewTimestamp(selectedSubmissionUpdate.createdAt);
+        const submissionToState = selectedSubmissionUpdate.toState as TaskWorkflowState | undefined;
+        const existingReplies = (selectedSubmissionUpdate.replies || [])
+            .filter((r) => r.note?.trim())
+            .sort((a, b) => {
+                const tA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
+                const tB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
+                return tA - tB;
+            });
+
+        return (
+            <div className="space-y-5">
+                {/* ---- Submission viewer ---- */}
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+                    {/* Header with navigation */}
+                    <div className="mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-600">
+                                {submissionActorName ? `${submissionActorName}'s response` : 'Response'}
+                            </span>
+                            {submissionToState && !selectedSubmission?.isSubmittedForReview && (
+                                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                    Not submitted for review
+                                </span>
+                            )}
+                        </div>
+                        {submissions.length > 1 && (
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-slate-500">
+                                    Response {selectedSubmissionIndex + 1} of {submissions.length}
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={selectedSubmissionIndex <= 0}
+                                    onClick={() => setSelectedSubmissionIndex((i) => i - 1)}
+                                    className="rounded p-0.5 text-slate-400 transition-colors hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-30"
+                                >
+                                    <ChevronLeft className="h-4 w-4" />
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={selectedSubmissionIndex >= submissions.length - 1}
+                                    onClick={() => setSelectedSubmissionIndex((i) => i + 1)}
+                                    className="rounded p-0.5 text-slate-400 transition-colors hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-30"
+                                >
+                                    <ChevronRight className="h-4 w-4" />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Timestamp */}
+                    {submissionTimestamp && (
+                        <div className="mb-2 text-[11px] text-slate-500">{submissionTimestamp}</div>
+                    )}
+
+                    {/* Response content */}
+                    {selectedSubmissionUpdate.responseFieldValues?.map((fv) => {
+                        const rawField = fv.field;
+                        const resolvedField = Array.isArray(rawField) ? rawField[0] : rawField;
+                        const fieldLabel = resolvedField?.label || 'Response';
+                        const isGenericLabel = fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
+                        return (
+                            <div key={fv.id} className="mt-1">
+                                {!isGenericLabel && (
+                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                        {fieldLabel}
+                                    </div>
+                                )}
+                                {fv.richTextContent && (
+                                    <div
+                                        className="prose prose-sm mt-1 max-w-none text-slate-800"
+                                        dangerouslySetInnerHTML={{ __html: fv.richTextContent }}
+                                    />
+                                )}
+                                {fv.fileUrl && (
+                                    <div className="mt-1.5 text-xs">
+                                        <a
+                                            href={fv.fileUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-600 underline hover:text-blue-800"
+                                        >
+                                            {fv.fileName || 'View file'}
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+
+                    {/* Existing replies/feedback on this submission */}
+                    {existingReplies.length > 0 && (
+                        <div className="mt-4 space-y-2 border-t border-indigo-200 pt-3">
+                            {existingReplies.map((reply) => {
+                                const replyActorName = getUpdateActorName(reply as TaskUpdatePanelUpdate);
+                                const replyTimestamp = formatReviewTimestamp(reply.createdAt);
+                                return (
+                                    <div
+                                        key={reply.id}
+                                        className="rounded-lg border-l-2 border-indigo-300 bg-white/70 py-2 pl-3 pr-2"
+                                    >
+                                        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                                            {replyActorName && (
+                                                <span className="font-medium text-slate-700">
+                                                    {replyActorName}
+                                                </span>
+                                            )}
+                                            {replyTimestamp && <span>{replyTimestamp}</span>}
+                                        </div>
+                                        <div className="mt-1 text-sm text-slate-700">{reply.note}</div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* ---- Feedback / General note toggle ---- */}
+                <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                    <button
+                        type="button"
+                        onClick={() => setNoteMode('feedback')}
+                        className={cn(
+                            'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                            noteMode === 'feedback'
+                                ? 'bg-white text-slate-900 shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                        )}
+                    >
+                        Feedback on this response
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setNoteMode('general')}
+                        className={cn(
+                            'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                            noteMode === 'general'
+                                ? 'bg-white text-slate-900 shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                        )}
+                    >
+                        General note on this task
+                    </button>
+                </div>
+
+                {/* ---- Feedback/note text area (always expanded in review mode) ---- */}
+                <div className="space-y-1.5">
+                    <Textarea
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder={
+                            noteMode === 'feedback'
+                                ? 'Your feedback on this response...'
+                                : getTaskProgressPlaceholder(selectedState)
+                        }
+                        rows={3}
+                        disabled={isDisabled}
+                        className="resize-none text-sm"
+                        autoFocus
+                    />
+                </div>
+
+                {/* ---- Review action buttons ---- */}
+                {canEdit && (
+                    <div className="space-y-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            Update Status
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            {visibleStates.map((state) => {
+                                // Use friendlier labels for common review actions
+                                let label = getTaskStatusLabel(state);
+                                if (currentState === 'needs_review') {
+                                    if (state === 'done') label = 'Approve';
+                                    else if (state === 'in_progress') label = 'Request Changes';
+                                }
+                                return (
+                                    <button
+                                        key={state}
+                                        type="button"
+                                        disabled={isDisabled}
+                                        onClick={() => setSelectedState(state)}
+                                        className={cn(
+                                            'rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
+                                            selectedState === state
+                                                ? STATE_SOLID_COLORS[state]
+                                                : STATE_COLORS[state],
+                                            isDisabled && 'cursor-not-allowed opacity-50'
+                                        )}
+                                    >
+                                        {label}
+                                    </button>
+                                );
+                            })}
+                            {!showAllStates && visibleStates.length < ALL_STATES.length && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAllStates(true)}
+                                    className="flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100"
+                                >
+                                    More
+                                    <ChevronDown className="h-3 w-3" />
+                                </button>
+                            )}
+                            {!showGrade && gradeTypes && gradeTypes.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowGrade(true)}
+                                    className="flex items-center gap-1.5 rounded-full border border-violet-200 px-3 py-1.5 text-xs font-medium text-violet-600 transition-colors hover:bg-violet-50"
+                                >
+                                    <Star className="h-3.5 w-3.5" />
+                                    Add grade
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Grade input (parent-only) */}
+                {showGrade && gradeTypes && gradeTypes.length > 0 && (
+                    <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3">
+                        <div className="flex items-center justify-between">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-600">
+                                Grade
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowGrade(false);
+                                    setGradeValue('');
+                                }}
+                                className="rounded-full p-0.5 text-violet-400 transition-colors hover:bg-violet-200 hover:text-violet-700"
+                            >
+                                <X className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                        {gradeTypes.length > 1 && (
+                            <div className="flex flex-wrap gap-1.5">
+                                {gradeTypes.map((gt) => (
+                                    <button
+                                        key={gt.id}
+                                        type="button"
+                                        onClick={() => setSelectedGradeTypeId(gt.id)}
+                                        className={cn(
+                                            'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                                            selectedGradeTypeId === gt.id
+                                                ? 'border-violet-400 bg-violet-200 text-violet-800'
+                                                : 'border-violet-200 bg-white text-violet-600 hover:bg-violet-100'
+                                        )}
+                                    >
+                                        {gt.name}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {selectedGradeType && (
+                            <div className="flex items-center gap-3">
+                                <input
+                                    type="number"
+                                    value={gradeValue}
+                                    onChange={(e) => setGradeValue(e.target.value)}
+                                    placeholder={`${selectedGradeType.lowValue}–${selectedGradeType.highValue}`}
+                                    min={selectedGradeType.lowValue}
+                                    max={selectedGradeType.highValue}
+                                    step="any"
+                                    disabled={isDisabled}
+                                    className="w-24 rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400"
+                                />
+                                <span className="text-xs text-slate-500">
+                                    {selectedGradeType.lowLabel} – {selectedGradeType.highLabel}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Collapsed response editor — parent can expand to submit a new response */}
+                {hasResponseFields && (
+                    <div className="rounded-lg border border-slate-200">
+                        <button
+                            type="button"
+                            onClick={() => setShowResponseEditor(!showResponseEditor)}
+                            className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                        >
+                            <span>
+                                Add a new response for {ownerName || 'this task'}
+                            </span>
+                            <ChevronDown
+                                className={cn(
+                                    'h-3.5 w-3.5 text-slate-400 transition-transform',
+                                    showResponseEditor && 'rotate-180'
+                                )}
+                            />
+                        </button>
+                        {showResponseEditor && (
+                            <div className="space-y-4 border-t border-slate-200 px-4 py-3">
+                                {sortedFields.map((field) => {
+                                    const value = fieldValues[field.id];
+                                    return (
+                                        <ResponseFieldInput
+                                            key={field.id}
+                                            fieldId={field.id}
+                                            type={field.type as TaskResponseFieldType}
+                                            label={field.label}
+                                            description={field.description}
+                                            required={field.required}
+                                            richTextContent={value?.richTextContent}
+                                            fileUrl={value?.fileUrl}
+                                            fileName={value?.fileName}
+                                            fileType={value?.fileType}
+                                            onRichTextChange={(content) =>
+                                                handleFieldValueChange(field.id, { richTextContent: content })
+                                            }
+                                            onFileSelect={(files) => handleFileSelect(field.id, files)}
+                                            onFileClear={() =>
+                                                handleFieldValueChange(field.id, {
+                                                    fileUrl: null,
+                                                    fileName: null,
+                                                    fileType: null,
+                                                })
+                                            }
+                                            isUploading={uploadingFields.has(field.id)}
+                                            disabled={isDisabled}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Extra content */}
+                {children}
+
+                {/* Submit button */}
+                {canEdit && (
+                    <Button
+                        type="button"
+                        onClick={handleSubmit}
+                        disabled={isDisabled || isSubmitting}
+                        className={cn(
+                            'w-full gap-2 rounded-xl py-2.5 text-sm font-semibold shadow-sm transition-all',
+                            STATE_SOLID_COLORS[effectiveSubmitState]
+                        )}
+                    >
+                        <Send className="h-4 w-4" />
+                        {isSubmitting
+                            ? 'Submitting...'
+                            : currentState === 'needs_review' && selectedState === 'done'
+                              ? 'Approve'
+                              : currentState === 'needs_review' && selectedState === 'in_progress'
+                                ? 'Request Changes'
+                                : `Submit as ${getTaskStatusLabel(selectedState)}`}
+                    </Button>
+                )}
+            </div>
+        );
+    }
+
+    // --------------- STANDARD (NON-REVIEW) LAYOUT ---------------
     return (
         <div className="space-y-5">
             {/* Response fields */}

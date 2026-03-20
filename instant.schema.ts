@@ -947,6 +947,18 @@ const _schema = i.schema({
                 label: 'updates',
             },
         },
+        taskUpdatesReplyTo: {
+            forward: {
+                on: 'taskUpdates',
+                has: 'one',
+                label: 'replyTo',
+            },
+            reverse: {
+                on: 'taskUpdates',
+                has: 'many',
+                label: 'replies',
+            },
+        },
         taskUpdatesGradeType: {
             forward: {
                 on: 'taskUpdates',

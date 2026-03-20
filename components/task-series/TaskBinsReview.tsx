@@ -138,6 +138,8 @@ export const TaskBinsReview: React.FC = () => {
                 responseFieldValues: { field: {} },
                 gradeType: {},
                 attachments: {},
+                replyTo: {},
+                replies: { actor: {} },
             },
             taskSeries: { familyMember: {} },
             responseFields: {},
@@ -206,6 +208,7 @@ export const TaskBinsReview: React.FC = () => {
                 affectedFamilyMemberId: affectedId,
                 responseFieldValues: submission.responseFieldValues,
                 grade: submission.grade,
+                replyToUpdateId: submission.replyToUpdateId,
             });
 
             if (transactions.length > 0) {
@@ -485,23 +488,37 @@ export const TaskBinsReview: React.FC = () => {
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {visibleEntries.map((entry) => (
-                        <TaskBinCard
-                            key={entry.task.id}
-                            entry={entry}
-                            isExpanded={expandedTaskId === entry.task.id}
-                            onToggleExpand={() =>
-                                setExpandedTaskId(
-                                    expandedTaskId === entry.task.id ? null : entry.task.id
-                                )
-                            }
-                            gradeTypes={gradeTypes as any[]}
-                            onUpdate={(submission) =>
-                                handleUpdateTask(entry.task.id, submission)
-                            }
-                            onNote={handleNote}
-                        />
-                    ))}
+                    {visibleEntries.map((entry) => {
+                        // Resolve the owner name from the task series familyMember
+                        const rawSeries = (entry.task as any)?.taskSeries;
+                        const series = Array.isArray(rawSeries) ? rawSeries[0] : rawSeries;
+                        const rawOwner = series?.familyMember;
+                        const owner = Array.isArray(rawOwner) ? rawOwner[0] : rawOwner;
+                        const ownerId = owner?.id;
+                        const ownerMember = ownerId
+                            ? familyMembers.find((m: any) => m.id === ownerId)
+                            : null;
+                        const resolvedOwnerName = (ownerMember as any)?.name || null;
+
+                        return (
+                            <TaskBinCard
+                                key={entry.task.id}
+                                entry={entry}
+                                isExpanded={expandedTaskId === entry.task.id}
+                                onToggleExpand={() =>
+                                    setExpandedTaskId(
+                                        expandedTaskId === entry.task.id ? null : entry.task.id
+                                    )
+                                }
+                                gradeTypes={gradeTypes as any[]}
+                                ownerName={resolvedOwnerName}
+                                onUpdate={(submission) =>
+                                    handleUpdateTask(entry.task.id, submission)
+                                }
+                                onNote={handleNote}
+                            />
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -517,6 +534,8 @@ interface TaskBinCardProps {
     isExpanded: boolean;
     onToggleExpand: () => void;
     gradeTypes: any[];
+    /** Resolved name of the child/family member who owns the task series. */
+    ownerName: string | null;
     onUpdate: (submission: TaskUpdatePanelSubmission) => Promise<void>;
     onNote: (taskId: string, mode: 'indefinite' | 'date' | 'clear', untilDate?: string) => Promise<void>;
 }
@@ -526,6 +545,7 @@ const TaskBinCard: React.FC<TaskBinCardProps> = ({
     isExpanded,
     onToggleExpand,
     gradeTypes,
+    ownerName,
     onUpdate,
     onNote,
 }) => {
@@ -647,6 +667,7 @@ const TaskBinCard: React.FC<TaskBinCardProps> = ({
                                 canEdit={true}
                                 gradeTypes={gradeTypes}
                                 isParentReviewer={true}
+                                ownerName={ownerName}
                                 onSubmit={onUpdate}
                             />
                         </div>

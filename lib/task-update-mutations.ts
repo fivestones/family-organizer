@@ -90,6 +90,8 @@ export interface BuildTaskUpdateTransactionsParams {
     isDraft?: boolean;
     taskSeriesId?: string | null;
     choreId?: string | null;
+    /** Link this update as a reply to a specific prior update (for parent feedback on a child's submission). */
+    replyToUpdateId?: string | null;
 }
 
 export interface TaskUpdateValidationResult {
@@ -116,11 +118,21 @@ export function validateUpdateSubmission({
     toState,
     requiredResponseFields,
     filledFieldIds,
+    isParentReviewingExistingSubmission,
 }: {
     toState: TaskWorkflowState;
     requiredResponseFields: TaskResponseFieldLikeForValidation[];
     filledFieldIds: Set<string>;
+    /** When true, the parent is reviewing/approving an existing child submission.
+     *  Response field requirements are bypassed since the child already submitted. */
+    isParentReviewingExistingSubmission?: boolean;
 }): TaskUpdateValidationResult {
+    // When a parent is reviewing an existing submission, they don't need to fill
+    // response fields — the child already did. Allow any state transition.
+    if (isParentReviewingExistingSubmission) {
+        return { valid: true };
+    }
+
     const unfilledRequired = requiredResponseFields.filter((f) => !filledFieldIds.has(f.id));
 
     if (toState === 'done' && requiredResponseFields.length > 0) {
@@ -302,6 +314,11 @@ export function buildTaskUpdateTransactions(params: BuildTaskUpdateTransactionsP
     // Link update → gradeType
     if (params.grade?.gradeTypeId) {
         transactions.push(params.tx.taskUpdates[updateId].link({ gradeType: params.grade.gradeTypeId }));
+    }
+
+    // Link update → replyTo (parent feedback on a specific prior submission)
+    if (params.replyToUpdateId) {
+        transactions.push(params.tx.taskUpdates[updateId].link({ replyTo: params.replyToUpdateId }));
     }
 
     // ---- Attachments ----

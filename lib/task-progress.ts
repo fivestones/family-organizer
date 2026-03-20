@@ -43,6 +43,10 @@ export interface TaskUpdateLike {
         field?: Array<{ id?: string; label?: string | null }> | null;
     }> | null;
     gradeType?: Array<{ id?: string; name?: string | null; kind?: string | null }> | null;
+    /** The prior update this is a reply/feedback to (parent feedback on a child submission). */
+    replyTo?: Array<{ id?: string }> | { id?: string } | null;
+    /** Updates that are replies/feedback on this update. */
+    replies?: TaskUpdateLike[] | null;
 }
 
 export interface TaskProgressTaskLike {
