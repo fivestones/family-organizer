@@ -766,139 +766,141 @@ export const TaskUpdatePanel: React.FC<Props> = ({
 
         return (
             <div className="space-y-5">
-                {/* ---- Submission viewer ---- */}
-                <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
-                    {/* Header with navigation */}
-                    <div className="mb-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-600">
-                                {submissionActorName ? `${submissionActorName}'s response` : 'Response'}
-                            </span>
-                            {submissionToState && !selectedSubmission?.isSubmittedForReview && (
-                                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                                    Not submitted for review
-                                </span>
-                            )}
-                        </div>
-                        {submissions.length > 1 && (
-                            <div className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-500">
-                                    Response {selectedSubmissionIndex + 1} of {submissions.length}
-                                </span>
-                                <button
-                                    type="button"
-                                    disabled={selectedSubmissionIndex <= 0}
-                                    onClick={() => setSelectedSubmissionIndex((i) => i - 1)}
-                                    className="rounded p-0.5 text-slate-400 transition-colors hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-30"
-                                >
-                                    <ChevronLeft className="h-4 w-4" />
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={selectedSubmissionIndex >= submissions.length - 1}
-                                    onClick={() => setSelectedSubmissionIndex((i) => i + 1)}
-                                    className="rounded p-0.5 text-slate-400 transition-colors hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-30"
-                                >
-                                    <ChevronRight className="h-4 w-4" />
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Timestamp */}
-                    {submissionTimestamp && (
-                        <div className="mb-2 text-[11px] text-slate-500">{submissionTimestamp}</div>
-                    )}
-
-                    {/* Response content */}
-                    {selectedSubmissionUpdate.responseFieldValues?.map((fv) => {
-                        const rawField = fv.field;
-                        const resolvedField = Array.isArray(rawField) ? rawField[0] : rawField;
-                        const fieldLabel = resolvedField?.label || 'Response';
-                        const isGenericLabel = fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
-                        return (
-                            <div key={fv.id} className="mt-1">
-                                {!isGenericLabel && (
-                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                                        {fieldLabel}
-                                    </div>
-                                )}
-                                {fv.richTextContent && (
-                                    <div
-                                        className="prose prose-sm mt-1 max-w-none text-slate-800"
-                                        dangerouslySetInnerHTML={{ __html: fv.richTextContent }}
-                                    />
-                                )}
-                                {fv.fileUrl && (
-                                    <div className="mt-1.5 text-xs">
-                                        <a
-                                            href={fv.fileUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-600 underline hover:text-blue-800"
-                                        >
-                                            {fv.fileName || 'View file'}
-                                        </a>
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-
-                    {/* Existing replies/feedback on this submission */}
-                    {existingReplies.length > 0 && (
-                        <div className="mt-4 space-y-2 border-t border-indigo-200 pt-3">
-                            {existingReplies.map((reply) => {
-                                const replyActorName = getUpdateActorName(reply as TaskUpdatePanelUpdate);
-                                const replyTimestamp = formatReviewTimestamp(reply.createdAt);
-                                return (
-                                    <div
-                                        key={reply.id}
-                                        className="rounded-lg border-l-2 border-indigo-300 bg-white/70 py-2 pl-3 pr-2"
-                                    >
-                                        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                                            {replyActorName && (
-                                                <span className="font-medium text-slate-700">
-                                                    {replyActorName}
-                                                </span>
-                                            )}
-                                            {replyTimestamp && <span>{replyTimestamp}</span>}
-                                        </div>
-                                        <div className="mt-1 text-sm text-slate-700">{reply.note}</div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-
-                {/* ---- Feedback / General note toggle ---- */}
-                <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                {/* ---- Feedback on a response / General task update toggle ---- */}
+                <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-1">
                     <button
                         type="button"
                         onClick={() => setNoteMode('feedback')}
                         className={cn(
-                            'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                            'flex-1 rounded-md px-3 py-2 text-xs font-semibold transition-all',
                             noteMode === 'feedback'
-                                ? 'bg-white text-slate-900 shadow-sm'
-                                : 'text-slate-500 hover:text-slate-700'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700'
                         )}
                     >
-                        Feedback on this response
+                        Feedback on a response
                     </button>
                     <button
                         type="button"
                         onClick={() => setNoteMode('general')}
                         className={cn(
-                            'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                            'flex-1 rounded-md px-3 py-2 text-xs font-semibold transition-all',
                             noteMode === 'general'
-                                ? 'bg-white text-slate-900 shadow-sm'
-                                : 'text-slate-500 hover:text-slate-700'
+                                ? 'bg-slate-700 text-white shadow-sm'
+                                : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700'
                         )}
                     >
-                        General note on this task
+                        General task update
                     </button>
                 </div>
+
+                {/* ---- Submission viewer (only in feedback mode) ---- */}
+                {noteMode === 'feedback' && (
+                    <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+                        {/* Header with navigation */}
+                        <div className="mb-3 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-600">
+                                    {submissionActorName ? `${submissionActorName}'s response` : 'Response'}
+                                </span>
+                                {submissionToState && !selectedSubmission?.isSubmittedForReview && (
+                                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                        Not submitted for review
+                                    </span>
+                                )}
+                            </div>
+                            {submissions.length > 1 && (
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-[11px] text-slate-500">
+                                        Response {selectedSubmissionIndex + 1} of {submissions.length}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        disabled={selectedSubmissionIndex <= 0}
+                                        onClick={() => setSelectedSubmissionIndex((i) => i - 1)}
+                                        className="rounded p-0.5 text-slate-400 transition-colors hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-30"
+                                    >
+                                        <ChevronLeft className="h-4 w-4" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={selectedSubmissionIndex >= submissions.length - 1}
+                                        onClick={() => setSelectedSubmissionIndex((i) => i + 1)}
+                                        className="rounded p-0.5 text-slate-400 transition-colors hover:bg-indigo-100 hover:text-indigo-700 disabled:opacity-30"
+                                    >
+                                        <ChevronRight className="h-4 w-4" />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Timestamp */}
+                        {submissionTimestamp && (
+                            <div className="mb-2 text-[11px] text-slate-500">{submissionTimestamp}</div>
+                        )}
+
+                        {/* Response content */}
+                        {selectedSubmissionUpdate.responseFieldValues?.map((fv) => {
+                            const rawField = fv.field;
+                            const resolvedField = Array.isArray(rawField) ? rawField[0] : rawField;
+                            const fieldLabel = resolvedField?.label || 'Response';
+                            const isGenericLabel = fieldLabel.toLowerCase().replace(/[\s_-]+/g, '') === 'richtext';
+                            return (
+                                <div key={fv.id} className="mt-1">
+                                    {!isGenericLabel && (
+                                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                            {fieldLabel}
+                                        </div>
+                                    )}
+                                    {fv.richTextContent && (
+                                        <div
+                                            className="prose prose-sm mt-1 max-w-none text-slate-800"
+                                            dangerouslySetInnerHTML={{ __html: fv.richTextContent }}
+                                        />
+                                    )}
+                                    {fv.fileUrl && (
+                                        <div className="mt-1.5 text-xs">
+                                            <a
+                                                href={fv.fileUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-600 underline hover:text-blue-800"
+                                            >
+                                                {fv.fileName || 'View file'}
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+
+                        {/* Existing replies/feedback on this submission */}
+                        {existingReplies.length > 0 && (
+                            <div className="mt-4 space-y-2 border-t border-indigo-200 pt-3">
+                                {existingReplies.map((reply) => {
+                                    const replyActorName = getUpdateActorName(reply as TaskUpdatePanelUpdate);
+                                    const replyTimestamp = formatReviewTimestamp(reply.createdAt);
+                                    return (
+                                        <div
+                                            key={reply.id}
+                                            className="rounded-lg border-l-2 border-indigo-300 bg-white/70 py-2 pl-3 pr-2"
+                                        >
+                                            <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                                                {replyActorName && (
+                                                    <span className="font-medium text-slate-700">
+                                                        {replyActorName}
+                                                    </span>
+                                                )}
+                                                {replyTimestamp && <span>{replyTimestamp}</span>}
+                                            </div>
+                                            <div className="mt-1 text-sm text-slate-700">{reply.note}</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* ---- Feedback/note text area (always expanded in review mode) ---- */}
                 <div className="space-y-1.5">
@@ -1031,8 +1033,8 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                     </div>
                 )}
 
-                {/* Collapsed response editor — parent can expand to submit a new response */}
-                {hasResponseFields && (
+                {/* Collapsed response editor — parent can expand to submit a new response (only in general task update mode) */}
+                {noteMode === 'general' && hasResponseFields && (
                     <div className="rounded-lg border border-slate-200">
                         <button
                             type="button"
