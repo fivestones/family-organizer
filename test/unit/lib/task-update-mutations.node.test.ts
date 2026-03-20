@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { freezeTime } from '@/test/utils/fake-clock';
-import { buildTaskUpdateTransactions, type TaskUpdateTaskLike } from '@/lib/task-update-mutations';
+import {
+    buildTaskUpdateTransactions,
+    validateUpdateSubmission,
+    type TaskUpdateTaskLike,
+} from '@/lib/task-update-mutations';
 
 const tx = new Proxy(
     {},
@@ -234,5 +238,18 @@ describe('task-update-mutations parent rollups', () => {
                 }),
             })
         );
+    });
+});
+
+describe('validateUpdateSubmission', () => {
+    it('allows parents reviewing an existing submission to mark a task done without refilling required responses', () => {
+        const result = validateUpdateSubmission({
+            toState: 'done',
+            requiredResponseFields: [{ id: 'field-1', required: true }],
+            filledFieldIds: new Set<string>(),
+            isParentReviewingExistingSubmission: true,
+        });
+
+        expect(result).toEqual({ valid: true });
     });
 });

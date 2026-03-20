@@ -1,7 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { activateDevice } from './support/device-auth';
 
-async function closeLoginModalIfPresent(page: Parameters<typeof test>[0]['page']) {
+async function closeLoginModalIfPresent(page: Page) {
     const closeLoginModal = page.getByRole('button', { name: /^close$/i });
     const dialogAppeared = await closeLoginModal
         .waitFor({ state: 'visible', timeout: 2000 })

@@ -170,9 +170,6 @@ function getDefaultState(currentState: TaskWorkflowState): TaskWorkflowState {
 // Review mode helpers
 // ---------------------------------------------------------------------------
 
-/** States where a parent reviewing makes sense (task has been submitted or is waiting). */
-const REVIEW_ELIGIBLE_STATES: TaskWorkflowState[] = ['needs_review', 'blocked', 'skipped'];
-
 /** States considered "submitted for review" — shown first in the submission picker. */
 const REVIEW_SUBMITTED_STATES = new Set<string>(['needs_review', 'blocked', 'skipped', 'done']);
 
@@ -256,11 +253,11 @@ export const TaskUpdatePanel: React.FC<Props> = ({
 
     // ---- Review mode detection ----
     const submissions = useMemo(() => getSubmissions(task.updates), [task.updates]);
+    const hasExistingSubmission = submissions.length > 0;
     const isReviewMode =
         variant === 'full' &&
         isParentReviewer === true &&
-        submissions.length > 0 &&
-        REVIEW_ELIGIBLE_STATES.includes(currentState);
+        hasExistingSubmission;
 
     // ---- Review mode state ----
     const [selectedSubmissionIndex, setSelectedSubmissionIndex] = useState(0);
@@ -448,7 +445,27 @@ export const TaskUpdatePanel: React.FC<Props> = ({
         // without changing status.
         const states = new Set<TaskWorkflowState>();
         states.add(currentState);
-        if (currentState === 'not_started') {
+        if (isReviewMode) {
+            if (currentState === 'not_started') {
+                states.add('in_progress');
+                states.add('needs_review');
+                states.add('done');
+            } else if (currentState === 'in_progress') {
+                states.add('done');
+                states.add('needs_review');
+                states.add('blocked');
+            } else if (currentState === 'blocked' || currentState === 'skipped') {
+                states.add('in_progress');
+                states.add('needs_review');
+                states.add('done');
+            } else if (currentState === 'needs_review') {
+                states.add('done');
+                states.add('in_progress');
+            } else if (currentState === 'done') {
+                states.add('needs_review');
+                states.add('in_progress');
+            }
+        } else if (currentState === 'not_started') {
             states.add('in_progress');
             states.add('done');
         } else if (currentState === 'in_progress') {
@@ -468,7 +485,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
             states.add('in_progress');
         }
         return Array.from(states);
-    }, [currentState]);
+    }, [currentState, isReviewMode]);
 
     const visibleStates = showAllStates ? ALL_STATES : quickStates;
 
