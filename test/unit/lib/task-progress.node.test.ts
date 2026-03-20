@@ -3,6 +3,7 @@ import {
     getTaskChildProgressPercent,
     getDerivedParentTaskWorkflowState,
     getLatestTaskFeedbackThread,
+    getTaskResponseSubmissions,
     getTaskUpdateFeedbackReplies,
     taskUpdateHasMeaningfulFeedbackContent,
     type TaskUpdateLike,
@@ -20,6 +21,34 @@ function makeUpdate(id: string, createdAt: number, overrides: Partial<TaskUpdate
 }
 
 describe('task-progress feedback threading helpers', () => {
+    it('sorts response submissions with review-submitted entries before in-progress drafts', () => {
+        const submissions = getTaskResponseSubmissions([
+            makeUpdate('response-in-progress', 3_000, {
+                toState: 'in_progress',
+                responseFieldValues: [{ id: 'field-value-1', richTextContent: '<p>Working on it</p>' }],
+            }),
+            makeUpdate('response-review', 2_000, {
+                toState: 'needs_review',
+                responseFieldValues: [{ id: 'field-value-2', richTextContent: '<p>Ready for review</p>' }],
+            }),
+            makeUpdate('response-done', 1_000, {
+                toState: 'done',
+                responseFieldValues: [{ id: 'field-value-3', richTextContent: '<p>Completed</p>' }],
+            }),
+        ]);
+
+        expect(submissions.map((entry) => entry.update.id)).toEqual([
+            'response-review',
+            'response-done',
+            'response-in-progress',
+        ]);
+        expect(submissions.map((entry) => entry.isSubmittedForReview)).toEqual([
+            true,
+            true,
+            false,
+        ]);
+    });
+
     it('surfaces the latest reviewed response even when newer no-op updates exist', () => {
         const submission = makeUpdate('submission-1', 1_000, {
             responseFieldValues: [{ id: 'field-value-1', richTextContent: '<p>Initial answer</p>' }],

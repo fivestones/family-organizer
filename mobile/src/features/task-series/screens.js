@@ -961,6 +961,12 @@ function TaskUpdateComposerCard({
       if (draft.selectedGradeTypeId) setSelectedGradeTypeId(draft.selectedGradeTypeId);
       setShowGrade(!!draft.showGrade);
       if (draft.noteMode) setNoteMode(draft.noteMode);
+      if (draft.fieldValues && typeof draft.fieldValues === 'object') {
+        setFieldValues((current) => ({
+          ...current,
+          ...draft.fieldValues,
+        }));
+      }
     }
 
     setSelectedState(getTaskWorkflowState(task));
@@ -1001,7 +1007,8 @@ function TaskUpdateComposerCard({
       (note || '').trim().length > 0 ||
       selectedState !== getTaskWorkflowState(task) ||
       showGrade ||
-      (gradeValue || '').trim().length > 0;
+      (gradeValue || '').trim().length > 0 ||
+      Object.values(fieldValues).some((value) => !!stripHtml(value?.richTextContent) || !!value?.fileUrl);
 
     if (draftTimerRef.current) {
       clearTimeout(draftTimerRef.current);
@@ -1020,6 +1027,7 @@ function TaskUpdateComposerCard({
         gradeValue,
         selectedGradeTypeId,
         noteMode,
+        fieldValues,
         savedAt: Date.now(),
       });
     }, 600);
@@ -1027,7 +1035,7 @@ function TaskUpdateComposerCard({
     return () => {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
-  }, [gradeValue, note, noteMode, selectedGradeTypeId, selectedState, showGrade, task]);
+  }, [fieldValues, gradeValue, note, noteMode, selectedGradeTypeId, selectedState, showGrade, task]);
 
   const selectedGradeType = (gradeTypes || []).find((gradeType) => gradeType.id === selectedGradeTypeId) || null;
   const filledFieldIds = useMemo(() => {
