@@ -814,30 +814,29 @@ export const TaskItemExtension = Node.create({
                     newDoc.descendants((node, pos) => {
                         if (node.type.name !== 'taskItem') return false;
 
-                        const id = node.attrs?.id as string | undefined;
+                        const nodeId = node.attrs?.id as string | undefined;
                         const isDayBreak = !!node.attrs?.isDayBreak;
 
                         // Skip day breaks entirely
                         if (isDayBreak) return false;
 
                         // If this node existed before paste, don't touch it
-                        if (id && oldIds.has(id)) return false;
+                        if (nodeId && oldIds.has(nodeId)) return false;
 
-                        // This is a *new* taskItem (created by paste or still missing id)
-                        const currentIndent = node.attrs?.indentationLevel || 0;
-
-                        if (currentIndent !== baselineIndentation) {
-                            tr = tr.setNodeMarkup(
-                                pos,
-                                undefined,
-                                {
-                                    ...node.attrs,
-                                    indentationLevel: baselineIndentation,
-                                },
-                                node.marks
-                            );
-                            changed = true;
-                        }
+                        // This is a *new* taskItem (created by paste or still missing id).
+                        // Always assign a fresh ID so clipboard HTML never carries stale
+                        // IDs from deleted tasks into the editor.
+                        tr = tr.setNodeMarkup(
+                            pos,
+                            undefined,
+                            {
+                                ...node.attrs,
+                                id: generateId(),
+                                indentationLevel: baselineIndentation,
+                            },
+                            node.marks
+                        );
+                        changed = true;
 
                         return false;
                     });

@@ -47,6 +47,7 @@ llm-context.txt
 AGENTS.md
 plan.md
 .claude/launch.json
+.claude/
 
 # Data Directories (Docker volumes)
 minio_data/

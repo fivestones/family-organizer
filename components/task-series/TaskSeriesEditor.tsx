@@ -865,7 +865,11 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         persistedTaskByIdRef.current = persistedTaskById;
     }, [persistedTaskById]);
 
-    const deleteGuardCallbackRef = useRef<(removedIds: string[]) => void>(() => {});
+    const deleteGuardCallbackRef = useRef<(removedIds: string[], pendingDoc?: any) => void>(() => {});
+    // When a paste-over-selection is blocked by the delete guard, we stash the
+    // intended resulting doc here so the confirmation handler can replay the
+    // full operation (deletion + paste) rather than only the deletion.
+    const pendingPasteDocRef = useRef<any>(null);
 
     const deleteGuardExtension = useMemo(
         () =>
@@ -919,10 +923,15 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                                 if (unconfirmed.length === 0) return true;
 
                                 // Block the transaction and trigger the confirmation dialog.
+                                // If this is a paste-over-selection, save the intended
+                                // doc so we can replay the full operation on confirm.
+                                const isPaste = tr.getMeta('uiEvent') === 'paste';
+                                const pendingDoc = isPaste ? newDoc : undefined;
+
                                 // We schedule via setTimeout to avoid dispatching during
                                 // filterTransaction (which would throw).
                                 setTimeout(() => {
-                                    deleteGuardCallbackRef.current(removedIds);
+                                    deleteGuardCallbackRef.current(removedIds, pendingDoc);
                                 }, 0);
 
                                 return false;
@@ -998,12 +1007,15 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
     // Wire up the delete guard callback to show the confirmation dialog
     useEffect(() => {
-        deleteGuardCallbackRef.current = (removedIds: string[]) => {
+        deleteGuardCallbackRef.current = (removedIds: string[], pendingDoc?: any) => {
             const impact = computeDeletionImpact(
                 removedIds,
                 persistedTaskById as Map<string, TaskLikeForGuard>
             );
             if (impact.tasksWithData.length === 0) return;
+
+            // Stash the pending doc for paste-over-selection replays
+            pendingPasteDocRef.current = pendingDoc || null;
 
             setDeleteConfirm({
                 taskIds: removedIds,
@@ -1014,7 +1026,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                     removedIds.forEach((tid) => confirmedDeleteIds.current.add(tid));
                     setDeleteConfirm(null);
 
-                    // Re-apply the deletion with the guard bypass flag.
+                    const savedDoc = pendingPasteDocRef.current;
+                    pendingPasteDocRef.current = null;
+
+                    // Re-apply the operation with the guard bypass flag.
                     // The editor's onUpdate handler will trigger debounced save.
                     if (editor && !editor.isDestroyed) {
                         editor
@@ -1024,30 +1039,55 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                                 let tr = state.tr;
                                 tr.setMeta('skipDeleteGuard', true);
 
-                                // Collect positions of nodes to delete (reverse order for stable positions)
-                                const toDelete: Array<{ from: number; to: number }> = [];
-                                let pos = 0;
-                                for (let i = 0; i < state.doc.childCount; i++) {
-                                    const node = state.doc.child(i);
-                                    if (
-                                        node.type.name === 'taskItem' &&
-                                        node.attrs.id &&
-                                        removedIds.includes(node.attrs.id as string)
-                                    ) {
-                                        toDelete.push({ from: pos, to: pos + node.nodeSize });
+                                if (savedDoc) {
+                                    // Paste-over-selection: replace the entire doc
+                                    // with the intended result (which includes both
+                                    // the deletion of old tasks and the pasted content).
+                                    // Assign fresh IDs to any nodes that referenced
+                                    // deleted tasks.
+                                    tr = tr.replaceWith(0, state.doc.content.size, savedDoc.content);
+
+                                    // Ensure pasted nodes get fresh IDs
+                                    const confirmedSet = confirmedDeleteIds.current;
+                                    tr.doc.descendants((node: any, pos: number) => {
+                                        if (node.type.name !== 'taskItem') return false;
+                                        const nodeId = node.attrs?.id as string | undefined;
+                                        // Assign fresh IDs to nodes that had deleted task
+                                        // IDs or no ID at all
+                                        if (!nodeId || confirmedSet.has(nodeId)) {
+                                            tr = tr.setNodeMarkup(pos, undefined, {
+                                                ...node.attrs,
+                                                id: id(),
+                                            }, node.marks);
+                                        }
+                                        return false;
+                                    });
+                                } else {
+                                    // Pure deletion: remove nodes by their IDs
+                                    const toDelete: Array<{ from: number; to: number }> = [];
+                                    let pos = 0;
+                                    for (let i = 0; i < state.doc.childCount; i++) {
+                                        const node = state.doc.child(i);
+                                        if (
+                                            node.type.name === 'taskItem' &&
+                                            node.attrs.id &&
+                                            removedIds.includes(node.attrs.id as string)
+                                        ) {
+                                            toDelete.push({ from: pos, to: pos + node.nodeSize });
+                                        }
+                                        pos += node.nodeSize;
                                     }
-                                    pos += node.nodeSize;
+
+                                    // Delete in reverse order so positions stay stable
+                                    for (let i = toDelete.length - 1; i >= 0; i--) {
+                                        tr = tr.delete(toDelete[i].from, toDelete[i].to);
+                                    }
                                 }
 
-                                // Delete in reverse order so positions stay stable
-                                for (let i = toDelete.length - 1; i >= 0; i--) {
-                                    tr = tr.delete(toDelete[i].from, toDelete[i].to);
-                                }
-
-                                if (dispatch && toDelete.length > 0) {
+                                if (dispatch && tr.docChanged) {
                                     dispatch(tr);
                                 }
-                                return toDelete.length > 0;
+                                return tr.docChanged;
                             })
                             .run();
                     }
@@ -1434,8 +1474,12 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 deferredUntilDate: existingTaskInDb?.deferredUntilDate ?? null,
             };
 
-            // Upsert task
-            transactions.push(tx.tasks[taskId].update(taskData));
+            // Create new task or update existing one
+            if (existingTaskInDb) {
+                transactions.push(tx.tasks[taskId].update(taskData));
+            } else {
+                transactions.push(tx.tasks[taskId].create(taskData));
+            }
 
             // Link to series (idempotent)
             transactions.push(tx.taskSeries[seriesId].link({ tasks: taskId }));
