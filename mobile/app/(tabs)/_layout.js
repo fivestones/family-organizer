@@ -1,8 +1,10 @@
 import React from 'react';
 import { Tabs, Redirect } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
+import { withAlpha } from '../../src/theme/tokens';
 import { db } from '../../src/lib/instant-db';
 
 export default function TabsLayout() {
@@ -45,7 +47,7 @@ export default function TabsLayout() {
 
   if (isBootstrapping || !instantReady) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg, gap: 10 }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.canvasStrong, gap: 10 }}>
         <ActivityIndicator size="large" color={colors.accentChores} />
       </View>
     );
@@ -55,6 +57,7 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarActiveTintColor:
           route.name === 'dashboard'
             ? colors.accentDashboard
@@ -67,14 +70,53 @@ export default function TabsLayout() {
             : route.name === 'finance'
             ? colors.accentFinance
             : colors.accentMore,
-        tabBarInactiveTintColor: colors.inkMuted,
+        tabBarInactiveTintColor: withAlpha(colors.canvasTextMuted, 0.8),
         tabBarStyle: {
-          backgroundColor: colors.panel,
-          borderTopColor: colors.line,
-          height: 62,
-          paddingTop: 6,
+          backgroundColor: colors.tabBar,
+          borderTopWidth: 0,
+          height: 76,
+          paddingTop: 8,
+          paddingBottom: 12,
+          shadowColor: colors.canvasStrong,
+          shadowOpacity: 0.18,
+          shadowRadius: 18,
+          shadowOffset: { width: 0, height: -4 },
+          elevation: 14,
         },
-        sceneStyle: { backgroundColor: colors.bg },
+        tabBarItemStyle: {
+          paddingTop: 2,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '700',
+          letterSpacing: 0.15,
+        },
+        tabBarIcon: ({ color, focused, size }) => {
+          let iconName = 'ellipse-outline';
+
+          if (route.name === 'dashboard') iconName = focused ? 'sparkles' : 'sparkles-outline';
+          else if (route.name === 'chores') iconName = focused ? 'checkmark-circle' : 'checkmark-circle-outline';
+          else if (route.name === 'calendar') iconName = focused ? 'calendar' : 'calendar-outline';
+          else if (route.name === 'messages') iconName = focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline';
+          else if (route.name === 'finance') iconName = focused ? 'wallet' : 'wallet-outline';
+          else if (route.name === 'more') iconName = focused ? 'grid' : 'grid-outline';
+
+          return (
+            <View
+              style={{
+                minWidth: 34,
+                height: 30,
+                borderRadius: 15,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: focused ? withAlpha(color, 0.16) : 'transparent',
+              }}
+            >
+              <Ionicons name={iconName} size={Math.min(size, 20)} color={color} />
+            </View>
+          );
+        },
+        sceneStyle: { backgroundColor: colors.canvasStrong },
         tabBarBadge:
           route.name === 'messages'
             ? unreadMessageCount > 0
@@ -89,7 +131,7 @@ export default function TabsLayout() {
             : undefined,
         tabBarBadgeStyle: {
           backgroundColor: isOffline ? colors.accentChores : colors.accentMore,
-          color: colors.onAccent,
+          color: colors.canvasStrong,
           fontSize: 10,
           minWidth: 18,
           height: 18,

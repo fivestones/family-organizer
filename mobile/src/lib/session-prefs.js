@@ -189,12 +189,12 @@ export async function clearPendingParentAction() {
 
 export async function getLocalThemeName() {
   const value = await getItem(KEYS.localThemeName);
-  if (value === 'classic' || value === 'bright') return value;
+  if (value === 'classic' || value === 'bright' || value === 'paper' || value === 'dark') return value;
   return 'classic';
 }
 
 export async function setLocalThemeName(themeName) {
-  if (themeName !== 'classic' && themeName !== 'bright') return;
+  if (themeName !== 'classic' && themeName !== 'bright' && themeName !== 'paper' && themeName !== 'dark') return;
   await setItem(KEYS.localThemeName, themeName);
 }
 

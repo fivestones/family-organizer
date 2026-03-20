@@ -1,14 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { id, tx } from '@instantdb/react-native';
 import { router } from 'expo-router';
 import {
@@ -20,19 +13,14 @@ import {
   localDateToUTC,
 } from '@family-organizer/shared-core';
 import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
-import { AttachmentPreviewModal } from '../../src/components/AttachmentPreviewModal';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
-import {
-} from '../../src/lib/attachments';
 import { getTasksForDate } from '../../../lib/task-scheduler';
-import {
-  getBucketedTasks,
-  isTaskDone,
-} from '../../../lib/task-progress';
+import { getBucketedTasks, getLatestTaskUpdate, getTaskWorkflowState, isTaskDone } from '../../../lib/task-progress';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 
 const DAY_RANGE = 7;
+
 function firstRef(value) {
   if (!value) return null;
   return Array.isArray(value) ? value[0] || null : value;
@@ -70,12 +58,9 @@ function formatLongDate(date) {
   });
 }
 
-function formatTopStripDate(date) {
-  return date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+function formatPossessiveLabel(name, noun) {
+  if (!name) return noun === 'day' ? 'Today' : noun;
+  return name.endsWith('s') ? `${name}' ${noun}` : `${name}'s ${noun}`;
 }
 
 function buildDateStrip(selectedDate) {
@@ -83,11 +68,6 @@ function buildDateStrip(selectedDate) {
     const offset = index - Math.floor(DAY_RANGE / 2);
     return new Date(selectedDate.getTime() + offset * 86400000);
   });
-}
-
-function formatPossessive(name) {
-  if (!name) return 'Dashboard';
-  return name.endsWith('s') ? `${name}' dashboard` : `${name}'s dashboard`;
 }
 
 function normalizeBalances(envelope) {
@@ -168,28 +148,73 @@ function createInitials(name) {
     .join('');
 }
 
-function SectionCard({ title, meta, children, styles }) {
+function formatTaskStateLabel(state) {
+  switch (state) {
+    case 'in_progress':
+      return 'In progress';
+    case 'needs_review':
+      return 'Needs review';
+    case 'blocked':
+      return 'Blocked';
+    case 'skipped':
+      return 'Skipped';
+    case 'done':
+      return 'Done';
+    default:
+      return 'Not started';
+  }
+}
+
+function FeedSection({
+  title,
+  meta,
+  actionLabel = null,
+  onActionPress = null,
+  first = false,
+  children,
+  styles,
+}) {
   return (
-    <View style={styles.sectionCard}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        {meta ? <Text style={styles.sectionMeta}>{meta}</Text> : null}
+    <View style={[styles.feedSection, !first && styles.feedSectionBorder]}>
+      <View style={styles.feedSectionHeader}>
+        <View style={styles.feedSectionCopy}>
+          <Text style={styles.feedSectionTitle}>{title}</Text>
+          {meta ? <Text style={styles.feedSectionMeta}>{meta}</Text> : null}
+        </View>
+        {actionLabel && onActionPress ? (
+          <Pressable accessibilityRole="button" onPress={onActionPress} style={styles.feedSectionAction}>
+            <Text style={styles.feedSectionActionText}>{actionLabel}</Text>
+          </Pressable>
+        ) : null}
       </View>
       {children}
     </View>
   );
 }
 
+function MetricPill({ icon, label, value, colors, styles }) {
+  return (
+    <View style={styles.metricPill}>
+      <View style={styles.metricIconWrap}>
+        <Ionicons name={icon} size={14} color={colors.canvasText} />
+      </View>
+      <View>
+        <Text style={styles.metricLabel}>{label}</Text>
+        <Text style={styles.metricValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
 export default function DashboardTab() {
-  const { colors } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, themeName } = useAppTheme();
+  const isDark = themeName === 'dark';
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { db, currentUser, familyMembers, isAuthenticated, instantReady, lock } = useAppSession();
   const [selectedDate, setSelectedDate] = useState(() => localDateToUTC(new Date()));
   const [viewedMemberId, setViewedMemberId] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
-  const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [pendingCompletionKeys, setPendingCompletionKeys] = useState(() => new Set());
-  const [previewAttachment, setPreviewAttachment] = useState(null);
   const currentUserIdRef = useRef('');
 
   const dashboardQuery = db.useQuery(
@@ -238,6 +263,7 @@ export default function DashboardTab() {
   const unitMap = useMemo(() => buildUnitMap(unitDefinitions), [unitDefinitions]);
   const selectedDateKey = useMemo(() => formatDateKeyUTC(selectedDate), [selectedDate]);
   const dateStrip = useMemo(() => buildDateStrip(selectedDate), [selectedDate]);
+  const todayDateKey = useMemo(() => formatDateKeyUTC(localDateToUTC(new Date())), []);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -272,9 +298,7 @@ export default function DashboardTab() {
         balancesNormalized: normalizeBalances(envelope),
       }));
 
-      const totalBalances = envelopes.reduce((accumulator, envelope) => {
-        return addBalancesInto(accumulator, envelope.balancesNormalized);
-      }, {});
+      const totalBalances = envelopes.reduce((accumulator, envelope) => addBalancesInto(accumulator, envelope.balancesNormalized), {});
 
       return {
         ...member,
@@ -321,7 +345,6 @@ export default function DashboardTab() {
 
         return {
           chore,
-          completionsOnDate,
           viewedCompletion,
           isDone: !!viewedCompletion?.completed,
           upForGrabsCompletedById,
@@ -362,7 +385,7 @@ export default function DashboardTab() {
           selectedDate,
           series.startDate || null,
           chore.exdates || null
-        );
+        ).filter((task) => !task.isDayBreak);
         const bucketedCounts = {
           blocked: getBucketedTasks(allTasks, 'blocked').length,
           skipped: getBucketedTasks(allTasks, 'skipped').length,
@@ -379,7 +402,7 @@ export default function DashboardTab() {
           chore,
           allTasks,
           scheduledTasks,
-          incompleteCount: scheduledTasks.filter((task) => !isTaskDone(task) && !task.isDayBreak).length,
+          incompleteCount: scheduledTasks.filter((task) => !isTaskDone(task)).length,
           bucketedCounts,
         });
       }
@@ -392,7 +415,6 @@ export default function DashboardTab() {
     });
   }, [chores, selectedDate, viewedMember?.id]);
 
-  // ---------- Calendar Events ----------
   const calendarEvents = useMemo(() => {
     if (!viewedMember?.id) return [];
     const items = dashboardQuery.data?.calendarItems || [];
@@ -400,7 +422,7 @@ export default function DashboardTab() {
 
     return items
       .map((item) => {
-        const memberIds = (item.pertainsTo || []).map((m) => m.id).filter(Boolean);
+        const memberIds = (item.pertainsTo || []).map((member) => member.id).filter(Boolean);
         const isFamilyWide = memberIds.length === 0;
         const pertainsToMember = isFamilyWide || memberIds.includes(viewedMember.id);
         if (!pertainsToMember) return null;
@@ -416,7 +438,7 @@ export default function DashboardTab() {
 
         let timeLabel;
         if (item.isAllDay) {
-          timeLabel = startsAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · All day';
+          timeLabel = `${startsAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · All day`;
         } else {
           timeLabel = startsAt.toLocaleDateString(undefined, {
             month: 'short',
@@ -435,11 +457,10 @@ export default function DashboardTab() {
         };
       })
       .filter(Boolean)
-      .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
-      .slice(0, 10);
+      .sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime())
+      .slice(0, 6);
   }, [dashboardQuery.data?.calendarItems, viewedMember?.id, selectedDate]);
 
-  // ---------- Unread Messages ----------
   const unreadThreads = useMemo(() => {
     if (!viewedMember?.id || !dashboardQuery.data?.messageThreads) return [];
     const threads = dashboardQuery.data.messageThreads;
@@ -447,11 +468,8 @@ export default function DashboardTab() {
 
     for (const thread of threads) {
       if (!thread.latestMessageAt) continue;
-      const membership = (thread.members || []).find(
-        (m) => m.familyMemberId === viewedMember.id
-      );
-      if (!membership) continue;
-      if (membership.isArchived) continue;
+      const membership = (thread.members || []).find((member) => member.familyMemberId === viewedMember.id);
+      if (!membership || membership.isArchived) continue;
 
       const lastRead = membership.lastReadAt || '';
       if (thread.latestMessageAt > lastRead) {
@@ -468,8 +486,34 @@ export default function DashboardTab() {
       }
     }
 
-    return result.sort((a, b) => b.latestMessageAt.localeCompare(a.latestMessageAt));
+    return result.sort((left, right) => right.latestMessageAt.localeCompare(left.latestMessageAt));
   }, [dashboardQuery.data?.messageThreads, viewedMember?.id]);
+
+  const activeTaskCount = useMemo(
+    () => taskSeriesCards.reduce((sum, card) => sum + card.incompleteCount, 0),
+    [taskSeriesCards]
+  );
+  const scheduledTaskCount = useMemo(
+    () => taskSeriesCards.reduce((sum, card) => sum + card.scheduledTasks.length, 0),
+    [taskSeriesCards]
+  );
+
+  const heroSummary = useMemo(() => {
+    const pieces = [];
+    if (taskSeriesCards.length > 0) {
+      pieces.push(`${taskSeriesCards.length} task list${taskSeriesCards.length === 1 ? '' : 's'}`);
+    }
+    if (incompleteChores.length > 0) {
+      pieces.push(`${incompleteChores.length} chore${incompleteChores.length === 1 ? '' : 's'} left`);
+    }
+    if (unreadThreads.length > 0) {
+      pieces.push(`${unreadThreads.length} unread thread${unreadThreads.length === 1 ? '' : 's'}`);
+    }
+    if (pieces.length === 0) {
+      return `A calmer view of ${viewedMember?.name || 'today'} with the essentials spread across the full screen.`;
+    }
+    return pieces.join(' • ');
+  }, [incompleteChores.length, taskSeriesCards.length, unreadThreads.length, viewedMember?.name]);
 
   async function handleToggleCompletion(chore, familyMemberId) {
     if (!currentUser?.id) {
@@ -562,22 +606,22 @@ export default function DashboardTab() {
     });
   }
 
-  const topStripAction = currentUser ? (
+  const menuButton = currentUser ? (
     <Pressable
       testID="dashboard-open-user-menu"
       accessibilityRole="button"
       accessibilityLabel={`Open dashboard menu for ${currentUser.name}`}
       onPress={() => setMenuVisible(true)}
-      style={styles.topStripAvatarButton}
+      style={styles.heroMenuButton}
       hitSlop={10}
     >
       <AvatarPhotoImage
         photoUrls={currentUser.photoUrls}
         preferredSize="320"
-        style={styles.topStripAvatarImage}
+        style={styles.heroMenuAvatar}
         fallback={
-          <View style={styles.topStripAvatarFallback}>
-            <Text style={styles.topStripAvatarFallbackText}>{createInitials(currentUser.name)}</Text>
+          <View style={styles.heroMenuFallback}>
+            <Text style={styles.heroMenuFallbackText}>{createInitials(currentUser.name)}</Text>
           </View>
         }
       />
@@ -588,378 +632,467 @@ export default function DashboardTab() {
     <>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.root}>
-          <View style={styles.topStrip}>
-            <Text style={styles.topStripText} numberOfLines={1}>
-              {formatTopStripDate(selectedDate)} - {viewedXp.current}/{viewedXp.possible} XP
-            </Text>
-            {topStripAction}
-          </View>
+          <View style={styles.heroSection}>
+            <View style={[styles.heroGlowOrb, styles.heroGlowOrbLeft, { backgroundColor: withAlpha(colors.accentDashboard, 0.22) }]} />
+            <View style={[styles.heroGlowOrb, styles.heroGlowOrbBottom, { backgroundColor: withAlpha(colors.canvasText, 0.06) }]} />
+            {isDark ? (
+              <View style={[styles.heroGlowOrb, styles.heroGlowOrbTopRight, { backgroundColor: withAlpha(colors.accentMore, 0.18) }]} />
+            ) : null}
+            {viewedMember?.photoUrls ? (
+              <AvatarPhotoImage
+                photoUrls={viewedMember.photoUrls}
+                preferredSize="1200"
+                resizeMode="cover"
+                style={styles.heroFaceBackdrop}
+              />
+            ) : null}
+            <View style={styles.heroScrim} />
 
-          <View style={styles.heroBlock}>
-            <View style={styles.heroRow}>
-              <View style={styles.heroIdentity}>
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroViewerChip}>
                 <AvatarPhotoImage
                   photoUrls={viewedMember?.photoUrls}
                   preferredSize="320"
-                  style={styles.heroAvatarImage}
+                  style={styles.heroViewerAvatar}
                   fallback={
-                    <View style={styles.heroAvatarFallback}>
-                      <Text style={styles.heroAvatarFallbackText}>{createInitials(viewedMember?.name)}</Text>
+                    <View style={styles.heroViewerFallback}>
+                      <Text style={styles.heroViewerFallbackText}>{createInitials(viewedMember?.name)}</Text>
                     </View>
                   }
                 />
-                <View style={styles.heroCopy}>
-                  <Text style={styles.heroTitle}>{formatPossessive(viewedMember?.name)}</Text>
+                <View style={styles.heroViewerCopy}>
+                  <Text style={styles.heroViewerLabel}>Viewing</Text>
+                  <Text style={styles.heroViewerName}>{viewedMember?.name || 'Family member'}</Text>
                 </View>
               </View>
-              <Pressable
-                testID="dashboard-toggle-date-picker"
-                accessibilityRole="button"
-                accessibilityLabel={`Choose dashboard date. Currently ${formatLongDate(selectedDate)}`}
-                onPress={() => setDatePickerVisible((previous) => !previous)}
-                style={[styles.dateMiniCard, datePickerVisible && styles.dateMiniCardActive]}
-              >
-                <Text style={styles.dateMiniWeekday}>{formatDayLabel(selectedDate)}</Text>
-                <Text style={styles.dateMiniLabel}>{formatMonthDay(selectedDate)}</Text>
-              </Pressable>
+              {menuButton}
             </View>
 
-            {datePickerVisible ? (
-              <View style={styles.dateChooser}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateStrip}>
-                  {dateStrip.map((date) => {
-                    const isSelected = formatDateKeyUTC(date) === selectedDateKey;
-                    return (
-                      <Pressable
-                        key={date.toISOString()}
-                        testID={`dashboard-date-chip-${formatDateKeyUTC(date)}`}
-                        accessibilityRole="button"
-                        accessibilityLabel={`View dashboard for ${formatLongDate(date)}`}
-                        style={[styles.dateChip, isSelected && styles.dateChipSelected]}
-                        onPress={() => {
-                          setSelectedDate(date);
-                          setDatePickerVisible(false);
-                        }}
-                      >
-                        <Text style={[styles.dateChipDay, isSelected && styles.dateChipTextSelected]}>
-                          {formatDayLabel(date)}
-                        </Text>
-                        <Text style={[styles.dateChipDate, isSelected && styles.dateChipTextSelected]}>
-                          {formatMonthDay(date)}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            ) : null}
+            <View style={styles.heroTitleBlock}>
+              <Text style={styles.heroDate}>{formatLongDate(selectedDate)}</Text>
+              <Text style={styles.heroTitle}>{formatPossessiveLabel(viewedMember?.name, 'day')}</Text>
+              <Text style={styles.heroSubtitle}>{heroSummary}</Text>
+            </View>
+
+            <View style={styles.metricRow}>
+              <MetricPill icon="sparkles" label="XP" value={`${viewedXp.current}/${viewedXp.possible}`} colors={colors} styles={styles} />
+              <MetricPill icon="list" label="Tasks" value={`${activeTaskCount}`} colors={colors} styles={styles} />
+              <MetricPill icon="chatbubble-ellipses" label="Unread" value={`${unreadThreads.length}`} colors={colors} styles={styles} />
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateRailContent}>
+              {dateStrip.map((date) => {
+                const dateKey = formatDateKeyUTC(date);
+                const isSelected = dateKey === selectedDateKey;
+                const isToday = dateKey === todayDateKey;
+                return (
+                  <Pressable
+                    key={date.toISOString()}
+                    testID={`dashboard-date-chip-${dateKey}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View dashboard for ${formatLongDate(date)}`}
+                    style={[styles.dateRailPill, isSelected && styles.dateRailPillSelected]}
+                    onPress={() => setSelectedDate(date)}
+                  >
+                    <Text style={[styles.dateRailDay, isSelected && styles.dateRailTextSelected]}>
+                      {formatDayLabel(date)}
+                    </Text>
+                    <Text style={[styles.dateRailDate, isSelected && styles.dateRailTextSelected]}>
+                      {formatMonthDay(date)}
+                    </Text>
+                    {!isSelected && isToday ? <View style={styles.dateTodayDot} /> : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
 
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <SectionCard
-            title="Task Series"
-            styles={styles}
-            meta={
-              taskSeriesCards.length > 0
-                ? `${taskSeriesCards.length} list${taskSeriesCards.length === 1 ? '' : 's'} with items today`
-                : 'No items scheduled today'
-            }
-          >
-            {viewedMember?.id ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open full task series for ${viewedMember.name || 'selected member'}`}
-                onPress={openTaskSeriesOverview}
-                style={styles.markAllButton}
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.contentSheet}>
+              <FeedSection
+                first
+                title="Task Series"
+                meta={
+                  taskSeriesCards.length > 0
+                    ? `${scheduledTaskCount} scheduled • ${activeTaskCount} active`
+                    : 'No task-series items scheduled for this day'
+                }
+                actionLabel={viewedMember?.id ? 'Open full view' : null}
+                onActionPress={openTaskSeriesOverview}
+                styles={styles}
               >
-                <Text style={styles.markAllButtonText}>Open Full View</Text>
-              </Pressable>
-            ) : null}
-            {dashboardQuery.isLoading ? (
-              <Text style={styles.emptyText}>Loading today’s task-series items…</Text>
-            ) : taskSeriesCards.length === 0 ? (
-              <Text style={styles.emptyText}>
-                No Task Series items are scheduled for {viewedMember?.name || 'this member'} on {formatMonthDay(selectedDate)}.
-              </Text>
-            ) : (
-              <View style={styles.taskSeriesList}>
-                {taskSeriesCards.map((card) => {
-                  const bucketedByState = {
-                    blocked: getBucketedTasks(card.allTasks, 'blocked'),
-                    needs_review: getBucketedTasks(card.allTasks, 'needs_review'),
-                    skipped: getBucketedTasks(card.allTasks, 'skipped'),
-                    done: getBucketedTasks(card.allTasks, 'done'),
-                  };
+                {dashboardQuery.isLoading ? (
+                  <Text style={styles.emptyText}>Loading today’s task-series items…</Text>
+                ) : taskSeriesCards.length === 0 ? (
+                  <Text style={styles.emptyText}>
+                    No Task Series items are scheduled for {viewedMember?.name || 'this member'} on {formatMonthDay(selectedDate)}.
+                  </Text>
+                ) : (
+                  <View style={styles.seriesBandList}>
+                    {taskSeriesCards.map((card) => {
+                      const previewTasks = card.scheduledTasks.slice(0, 3);
+                      const remainingTaskCount = Math.max(0, card.scheduledTasks.length - previewTasks.length);
+                      return (
+                        <View key={card.id} style={styles.seriesBand}>
+                          <View style={styles.seriesHeaderRow}>
+                            <View style={styles.seriesCopy}>
+                              <Text style={styles.seriesTitle}>{card.series.name || 'Untitled series'}</Text>
+                              <Text style={styles.seriesMeta}>
+                                {card.chore?.title ? `From ${card.chore.title}` : 'Task series'}
+                              </Text>
+                            </View>
+                            <View style={styles.seriesCountBadge}>
+                              <Text style={styles.seriesCountText}>{card.incompleteCount} active</Text>
+                            </View>
+                          </View>
 
-                  return (
-                    <View key={card.id} style={styles.taskSeriesCard}>
-                      <View style={styles.taskSeriesHeader}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.taskSeriesName}>{card.series.name || 'Untitled series'}</Text>
-                          <Text style={styles.taskSeriesMeta}>
-                            {card.chore?.title ? `From ${card.chore.title}` : 'Task series'}
-                            {card.incompleteCount > 0 ? ` • ${card.incompleteCount} active` : ' • No active tasks'}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.taskBucketSection}>
-                        <View style={styles.taskBucketHeader}>
-                          <Text style={styles.taskBucketTitle}>Today</Text>
-                          <Text style={styles.taskBucketCount}>
-                            {card.scheduledTasks.length} scheduled • {card.incompleteCount} active
-                          </Text>
-                        </View>
-                        <View style={styles.taskBucketMetaRow}>
-                          <Text style={styles.taskBucketMeta}>Blocked {bucketedByState.blocked.length}</Text>
-                          <Text style={styles.taskBucketMeta}>Needs review {bucketedByState.needs_review.length}</Text>
-                          <Text style={styles.taskBucketMeta}>Skipped {bucketedByState.skipped.length}</Text>
-                          <Text style={styles.taskBucketMeta}>Done {bucketedByState.done.length}</Text>
-                        </View>
-                        <View style={styles.taskActionRow}>
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={`Open checklist for ${card.series.name || 'task series'}`}
-                            onPress={() =>
-                              router.push({
-                                pathname: '/task-series/series',
-                                params: {
-                                  seriesId: card.series.id,
-                                  choreId: card.chore?.id || '',
-                                  date: selectedDateKey,
-                                  memberId: viewedMember?.id || '',
-                                },
-                              })
-                            }
-                            style={[styles.taskActionChip, styles.taskActionChipPrimary]}
-                          >
-                            <Text style={[styles.taskActionChipText, styles.taskActionChipTextPrimary]}>Open Checklist</Text>
-                          </Pressable>
-                          {currentUser?.role === 'parent' ? (
+                          <View style={styles.seriesSnapshotRow}>
+                            <Text style={styles.seriesSnapshotText}>Blocked {card.bucketedCounts.blocked}</Text>
+                            <Text style={styles.seriesSnapshotText}>Review {card.bucketedCounts.needs_review}</Text>
+                            <Text style={styles.seriesSnapshotText}>Done {card.bucketedCounts.done}</Text>
+                          </View>
+
+                          {previewTasks.length > 0 ? (
+                            <View style={styles.seriesPreviewList}>
+                              {previewTasks.map((task, index) => {
+                                const workflowState = getTaskWorkflowState(task);
+                                const latestUpdate = getLatestTaskUpdate(task);
+                                const latestNote = String(latestUpdate?.note || '').trim();
+                                const latestAttachmentCount =
+                                  (Array.isArray(latestUpdate?.attachments) ? latestUpdate.attachments.length : 0) ||
+                                  (Array.isArray(task.attachments) ? task.attachments.length : 0);
+                                const toneColor =
+                                  workflowState === 'done'
+                                    ? colors.success
+                                    : workflowState === 'needs_review'
+                                    ? colors.accentDashboard
+                                    : workflowState === 'blocked'
+                                    ? colors.warning
+                                    : workflowState === 'skipped'
+                                    ? colors.inkMuted
+                                    : colors.accentCalendar;
+
+                                return (
+                                  <View key={task.id || `${card.id}-${index}`} style={[styles.previewRow, index > 0 && styles.previewRowBorder]}>
+                                    <View style={styles.previewCopy}>
+                                      <View style={styles.previewTitleRow}>
+                                        <Text style={styles.previewTitle}>{task.title || 'Untitled task'}</Text>
+                                        <View
+                                          style={[
+                                            styles.previewStateChip,
+                                            {
+                                              backgroundColor: withAlpha(toneColor, workflowState === 'done' ? 0.16 : 0.12),
+                                              borderColor: withAlpha(toneColor, 0.3),
+                                            },
+                                          ]}
+                                        >
+                                          <Text style={[styles.previewStateText, { color: toneColor }]}>
+                                            {formatTaskStateLabel(workflowState)}
+                                          </Text>
+                                        </View>
+                                      </View>
+                                      {latestNote ? (
+                                        <Text style={styles.previewNote} numberOfLines={2}>
+                                          {latestNote}
+                                        </Text>
+                                      ) : latestAttachmentCount > 0 ? (
+                                        <Text style={styles.previewNote}>
+                                          {latestAttachmentCount} attachment{latestAttachmentCount === 1 ? '' : 's'}
+                                        </Text>
+                                      ) : null}
+                                    </View>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          ) : (
+                            <Text style={styles.emptyInlineText}>No actionable tasks in the schedule right now.</Text>
+                          )}
+
+                          {remainingTaskCount > 0 ? (
+                            <Text style={styles.remainingText}>
+                              {remainingTaskCount} more scheduled item{remainingTaskCount === 1 ? '' : 's'} in the checklist.
+                            </Text>
+                          ) : null}
+
+                          <View style={styles.seriesActionRow}>
                             <Pressable
                               accessibilityRole="button"
-                              accessibilityLabel={`Open review queue for ${card.series.name || 'task series'}`}
+                              accessibilityLabel={`Open checklist for ${card.series.name || 'task series'}`}
                               onPress={() =>
                                 router.push({
-                                  pathname: '/more/task-series/review',
-                                  params: { seriesId: card.series.id },
+                                  pathname: '/task-series/series',
+                                  params: {
+                                    seriesId: card.series.id,
+                                    choreId: card.chore?.id || '',
+                                    date: selectedDateKey,
+                                    memberId: viewedMember?.id || '',
+                                  },
                                 })
                               }
-                              style={[styles.taskActionChip, styles.taskActionChipSecondary]}
+                              style={[styles.seriesActionButton, styles.seriesActionButtonPrimary]}
                             >
-                              <Text style={[styles.taskActionChipText, styles.taskActionChipTextSecondary]}>Review Queue</Text>
+                              <Text style={[styles.seriesActionText, styles.seriesActionTextPrimary]}>Open checklist</Text>
                             </Pressable>
-                          ) : null}
-                        </View>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-          </SectionCard>
-
-          <SectionCard
-            title="Chores"
-            styles={styles}
-            meta={
-              choreRows.length > 0
-                ? `${incompleteChores.length} left • ${completedChores.length} finished`
-                : 'No chores due for this day'
-            }
-          >
-            {dashboardQuery.isLoading ? (
-              <Text style={styles.emptyText}>Loading today’s chores…</Text>
-            ) : choreRows.length === 0 ? (
-              <Text style={styles.emptyText}>
-                No chores are due for {viewedMember?.name || 'this member'} on {formatMonthDay(selectedDate)}.
-              </Text>
-            ) : (
-              <View style={styles.choreList}>
-                {incompleteChores.map((row) => {
-                  const pendingKey = completionKey(row.chore.id, viewedMember.id, selectedDateKey);
-                  const isBusy = pendingCompletionKeys.has(pendingKey);
-                  const blockedByUpForGrabs =
-                    !!row.chore.isUpForGrabs &&
-                    !!row.upForGrabsCompletedById &&
-                    row.upForGrabsCompletedById !== viewedMember.id &&
-                    !row.isDone;
-
-                  return (
-                    <View key={`dashboard-chore-${row.chore.id}`} style={styles.choreCard}>
-                      <View style={styles.choreHeader}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.choreTitle}>{row.chore.title || 'Untitled chore'}</Text>
-                          {row.chore.description ? <Text style={styles.choreDescription}>{row.chore.description}</Text> : null}
-                        </View>
-                        <Pressable
-                          testID={`dashboard-chore-toggle-${row.chore.id}`}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${row.isDone ? 'Mark not done' : 'Mark done'} ${row.chore.title || 'chore'}`}
-                          disabled={isBusy || blockedByUpForGrabs}
-                          onPress={() => {
-                            void handleToggleCompletion(row.chore, viewedMember.id);
-                          }}
-                          style={[
-                            styles.choreToggleButton,
-                            row.isDone && styles.choreToggleButtonDone,
-                            (isBusy || blockedByUpForGrabs) && styles.choreToggleButtonLocked,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.choreToggleButtonText,
-                              row.isDone && styles.choreToggleButtonTextDone,
-                              (isBusy || blockedByUpForGrabs) && styles.choreToggleButtonTextLocked,
-                            ]}
-                          >
-                            {isBusy ? '…' : blockedByUpForGrabs ? 'Claimed' : row.isDone ? 'Done' : 'Mark'}
-                          </Text>
-                        </Pressable>
-                      </View>
-
-                      <View style={styles.choreTagRow}>
-                        {row.chore.isUpForGrabs ? (
-                          <View style={[styles.tag, styles.tagWarm]}>
-                            <Text style={[styles.tagText, styles.tagWarmText]}>Up for grabs</Text>
-                          </View>
-                        ) : null}
-                        {row.chore.isJoint ? (
-                          <View style={[styles.tag, styles.tagNeutral]}>
-                            <Text style={[styles.tagText, styles.tagNeutralText]}>Joint</Text>
-                          </View>
-                        ) : null}
-                        {Number.isFinite(Number(row.chore.weight)) && row.chore.rewardType !== 'fixed' ? (
-                          <View style={[styles.tag, styles.tagXp]}>
-                            <Text style={[styles.tagText, styles.tagXpText]}>
-                              XP {Number(row.chore.weight) > 0 ? '+' : ''}
-                              {Number(row.chore.weight || 0)}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-
-                      {blockedByUpForGrabs ? (
-                        <Text style={styles.helperText}>
-                          Claimed by {familyMemberNameById[row.upForGrabsCompletedById] || 'another member'}.
-                        </Text>
-                      ) : null}
-                    </View>
-                  );
-                })}
-
-                {completedChores.length > 0 ? (
-                  <View style={styles.completedSection}>
-                    <Text style={styles.completedTitle}>Finished</Text>
-                    {completedChores.map((row) => {
-                      const pendingKey = completionKey(row.chore.id, viewedMember.id, selectedDateKey);
-                      const isBusy = pendingCompletionKeys.has(pendingKey);
-                      return (
-                        <View key={`dashboard-completed-${row.chore.id}`} style={[styles.choreCard, styles.choreCardDone]}>
-                          <View style={styles.choreHeader}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={[styles.choreTitle, styles.choreTitleDone]}>{row.chore.title || 'Untitled chore'}</Text>
-                              {row.chore.description ? (
-                                <Text style={[styles.choreDescription, styles.choreDescriptionDone]}>{row.chore.description}</Text>
-                              ) : null}
-                            </View>
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={`Mark ${row.chore.title || 'chore'} not done`}
-                              disabled={isBusy}
-                              onPress={() => {
-                                void handleToggleCompletion(row.chore, viewedMember.id);
-                              }}
-                              style={[styles.choreToggleButton, styles.choreToggleButtonDone]}
-                            >
-                              <Text style={[styles.choreToggleButtonText, styles.choreToggleButtonTextDone]}>
-                                {isBusy ? '…' : 'Done'}
-                              </Text>
-                            </Pressable>
+                            {currentUser?.role === 'parent' ? (
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`Open review queue for ${card.series.name || 'task series'}`}
+                                onPress={() =>
+                                  router.push({
+                                    pathname: '/more/task-series/review',
+                                    params: { seriesId: card.series.id },
+                                  })
+                                }
+                                style={[styles.seriesActionButton, styles.seriesActionButtonSecondary]}
+                              >
+                                <Text style={[styles.seriesActionText, styles.seriesActionTextSecondary]}>Review queue</Text>
+                              </Pressable>
+                            ) : null}
                           </View>
                         </View>
                       );
                     })}
                   </View>
-                ) : null}
-              </View>
-            )}
-          </SectionCard>
+                )}
+              </FeedSection>
 
-          {/* ===== CALENDAR EVENTS ===== */}
-          <SectionCard
-            title="Calendar"
-            styles={styles}
-            meta={calendarEvents.length > 0
-              ? `${calendarEvents.length} upcoming event${calendarEvents.length === 1 ? '' : 's'}`
-              : 'No upcoming events'
-            }
-          >
-            {calendarEvents.length === 0 ? (
-              <Text style={styles.emptyText}>
-                No calendar events for {viewedMember?.name || 'this member'}.
-              </Text>
-            ) : (
-              <View style={styles.choreList}>
-                {calendarEvents.map((event) => (
-                  <View key={`cal-${event.id}`} style={styles.choreCard}>
-                    <View style={styles.choreHeader}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.choreTitle}>{event.title}</Text>
-                        <Text style={styles.choreDescription}>{event.timeLabel}</Text>
-                      </View>
-                      {event.isFamilyWide ? (
-                        <View style={[styles.tag, styles.tagNeutral]}>
-                          <Text style={[styles.tagText, styles.tagNeutralText]}>Family</Text>
+              <FeedSection
+                title="Chores"
+                meta={
+                  choreRows.length > 0
+                    ? `${incompleteChores.length} left • ${completedChores.length} finished`
+                    : 'No chores due for this day'
+                }
+                actionLabel="Open chores"
+                onActionPress={() => router.push('/chores')}
+                styles={styles}
+              >
+                {dashboardQuery.isLoading ? (
+                  <Text style={styles.emptyText}>Loading today’s chores…</Text>
+                ) : choreRows.length === 0 ? (
+                  <Text style={styles.emptyText}>
+                    No chores are due for {viewedMember?.name || 'this member'} on {formatMonthDay(selectedDate)}.
+                  </Text>
+                ) : (
+                  <View style={styles.flatList}>
+                    {incompleteChores.map((row, index) => {
+                      const pendingKey = completionKey(row.chore.id, viewedMember.id, selectedDateKey);
+                      const isBusy = pendingCompletionKeys.has(pendingKey);
+                      const blockedByUpForGrabs =
+                        !!row.chore.isUpForGrabs &&
+                        !!row.upForGrabsCompletedById &&
+                        row.upForGrabsCompletedById !== viewedMember.id &&
+                        !row.isDone;
+
+                      return (
+                        <View key={`dashboard-chore-${row.chore.id}`} style={[styles.flatRow, index > 0 && styles.flatRowBorder]}>
+                          <View style={styles.flatRowMain}>
+                            <View style={styles.flatRowTop}>
+                              <View style={styles.flatRowCopy}>
+                                <Text style={styles.flatRowTitle}>{row.chore.title || 'Untitled chore'}</Text>
+                                {row.chore.description ? <Text style={styles.flatRowBody}>{row.chore.description}</Text> : null}
+                              </View>
+                              <Pressable
+                                testID={`dashboard-chore-toggle-${row.chore.id}`}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${row.isDone ? 'Mark not done' : 'Mark done'} ${row.chore.title || 'chore'}`}
+                                disabled={isBusy || blockedByUpForGrabs}
+                                onPress={() => {
+                                  void handleToggleCompletion(row.chore, viewedMember.id);
+                                }}
+                                style={[
+                                  styles.choreToggleButton,
+                                  row.isDone && styles.choreToggleButtonDone,
+                                  (isBusy || blockedByUpForGrabs) && styles.choreToggleButtonLocked,
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.choreToggleButtonText,
+                                    row.isDone && styles.choreToggleButtonTextDone,
+                                    (isBusy || blockedByUpForGrabs) && styles.choreToggleButtonTextLocked,
+                                  ]}
+                                >
+                                  {isBusy ? '…' : blockedByUpForGrabs ? 'Claimed' : row.isDone ? 'Done' : 'Mark'}
+                                </Text>
+                              </Pressable>
+                            </View>
+
+                            <View style={styles.inlineTagRow}>
+                              {row.chore.isUpForGrabs ? (
+                                <View style={[styles.inlineTag, styles.inlineTagWarm]}>
+                                  <Text style={[styles.inlineTagText, styles.inlineTagWarmText]}>Up for grabs</Text>
+                                </View>
+                              ) : null}
+                              {row.chore.isJoint ? (
+                                <View style={[styles.inlineTag, styles.inlineTagNeutral]}>
+                                  <Text style={[styles.inlineTagText, styles.inlineTagNeutralText]}>Joint</Text>
+                                </View>
+                              ) : null}
+                              {Number.isFinite(Number(row.chore.weight)) && row.chore.rewardType !== 'fixed' ? (
+                                <View style={[styles.inlineTag, styles.inlineTagAccent]}>
+                                  <Text style={[styles.inlineTagText, styles.inlineTagAccentText]}>
+                                    XP {Number(row.chore.weight) > 0 ? '+' : ''}
+                                    {Number(row.chore.weight || 0)}
+                                  </Text>
+                                </View>
+                              ) : null}
+                            </View>
+
+                            {blockedByUpForGrabs ? (
+                              <Text style={styles.helperText}>
+                                Claimed by {familyMemberNameById[row.upForGrabsCompletedById] || 'another member'}.
+                              </Text>
+                            ) : null}
+                          </View>
                         </View>
-                      ) : null}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-          </SectionCard>
+                      );
+                    })}
 
-          {/* ===== UNREAD MESSAGES ===== */}
-          {unreadThreads.length > 0 ? (
-            <SectionCard
-              title="Unread Messages"
-              styles={styles}
-              meta={`${unreadThreads.length} thread${unreadThreads.length === 1 ? '' : 's'}`}
-            >
-              <View style={styles.choreList}>
-                {unreadThreads.map((thread) => (
-                  <View key={`msg-${thread.id}`} style={styles.choreCard}>
-                    <View style={styles.choreHeader}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.choreTitle}>{thread.displayName}</Text>
-                        <Text style={styles.choreDescription} numberOfLines={1}>{thread.previewText}</Text>
+                    {completedChores.length > 0 ? (
+                      <View style={styles.completedGroup}>
+                        <Text style={styles.completedLabel}>Finished</Text>
+                        {completedChores.map((row, index) => {
+                          const pendingKey = completionKey(row.chore.id, viewedMember.id, selectedDateKey);
+                          const isBusy = pendingCompletionKeys.has(pendingKey);
+                          return (
+                            <View key={`dashboard-completed-${row.chore.id}`} style={[styles.flatRow, index > 0 && styles.flatRowBorder]}>
+                              <View style={styles.flatRowTop}>
+                                <View style={styles.flatRowCopy}>
+                                  <Text style={[styles.flatRowTitle, styles.flatRowTitleDone]}>{row.chore.title || 'Untitled chore'}</Text>
+                                  {row.chore.description ? (
+                                    <Text style={[styles.flatRowBody, styles.flatRowBodyDone]}>{row.chore.description}</Text>
+                                  ) : null}
+                                </View>
+                                <Pressable
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Mark ${row.chore.title || 'chore'} not done`}
+                                  disabled={isBusy}
+                                  onPress={() => {
+                                    void handleToggleCompletion(row.chore, viewedMember.id);
+                                  }}
+                                  style={[styles.choreToggleButton, styles.choreToggleButtonDone]}
+                                >
+                                  <Text style={[styles.choreToggleButtonText, styles.choreToggleButtonTextDone]}>
+                                    {isBusy ? '…' : 'Done'}
+                                  </Text>
+                                </Pressable>
+                              </View>
+                            </View>
+                          );
+                        })}
                       </View>
-                    </View>
+                    ) : null}
                   </View>
-                ))}
-              </View>
-            </SectionCard>
-          ) : null}
+                )}
+              </FeedSection>
 
-          <Pressable
-            testID="dashboard-open-finance"
-            accessibilityRole="button"
-            accessibilityLabel={`Open finance for ${viewedMember?.name || 'selected member'}`}
-            onPress={openFinanceForViewedMember}
-            style={styles.financeFooter}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.financeEyebrow}>Currency Totals</Text>
-              <Text style={styles.financeTitle}>{viewedMember?.name || 'Selected member'}</Text>
-              <Text style={styles.financeBalances}>{formatBalancesInline(viewedFinanceMember?.totalBalances || {}, unitMap)}</Text>
+              <FeedSection
+                title="Calendar"
+                meta={
+                  calendarEvents.length > 0
+                    ? `${calendarEvents.length} upcoming event${calendarEvents.length === 1 ? '' : 's'}`
+                    : 'No upcoming events'
+                }
+                actionLabel="Open calendar"
+                onActionPress={() => router.push('/calendar')}
+                styles={styles}
+              >
+                {calendarEvents.length === 0 ? (
+                  <Text style={styles.emptyText}>No calendar events for {viewedMember?.name || 'this member'}.</Text>
+                ) : (
+                  <View style={styles.flatList}>
+                    {calendarEvents.map((event, index) => (
+                      <Pressable
+                        key={`calendar-${event.id}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open calendar for ${event.title}`}
+                        onPress={() => router.push('/calendar')}
+                        style={[styles.flatRow, index > 0 && styles.flatRowBorder]}
+                      >
+                        <View style={styles.rowIconWrap}>
+                          <Ionicons name="calendar-outline" size={18} color={colors.accentCalendar} />
+                        </View>
+                        <View style={styles.flatRowCopy}>
+                          <Text style={styles.flatRowTitle}>{event.title}</Text>
+                          <Text style={styles.flatRowBody}>{event.timeLabel}</Text>
+                        </View>
+                        {event.isFamilyWide ? (
+                          <View style={[styles.inlineTag, styles.inlineTagNeutral]}>
+                            <Text style={[styles.inlineTagText, styles.inlineTagNeutralText]}>Family</Text>
+                          </View>
+                        ) : null}
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </FeedSection>
+
+              <FeedSection
+                title="Unread Messages"
+                meta={
+                  unreadThreads.length > 0
+                    ? `${unreadThreads.length} thread${unreadThreads.length === 1 ? '' : 's'} waiting`
+                    : 'Nothing unread right now'
+                }
+                actionLabel="Open inbox"
+                onActionPress={() => router.push('/messages')}
+                styles={styles}
+              >
+                {unreadThreads.length === 0 ? (
+                  <Text style={styles.emptyText}>You’re caught up for {viewedMember?.name || 'this member'}.</Text>
+                ) : (
+                  <View style={styles.flatList}>
+                    {unreadThreads.map((thread, index) => (
+                      <Pressable
+                        key={`thread-${thread.id}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open message thread ${thread.displayName}`}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/messages',
+                            params: { threadId: thread.id },
+                          })
+                        }
+                        style={[styles.flatRow, index > 0 && styles.flatRowBorder]}
+                      >
+                        <View style={styles.rowIconWrap}>
+                          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.accentDashboard} />
+                        </View>
+                        <View style={styles.flatRowCopy}>
+                          <Text style={styles.flatRowTitle}>{thread.displayName}</Text>
+                          <Text style={styles.flatRowBody} numberOfLines={1}>
+                            {thread.previewText}
+                          </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color={colors.inkMuted} />
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </FeedSection>
+
+              <FeedSection title="Finance" meta="Balances for the selected dashboard member" styles={styles}>
+                <Pressable
+                  testID="dashboard-open-finance"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open finance for ${viewedMember?.name || 'selected member'}`}
+                  onPress={openFinanceForViewedMember}
+                  style={styles.financeBand}
+                >
+                  <View style={styles.financeCopy}>
+                    <Text style={styles.financeEyebrow}>Currency totals</Text>
+                    <Text style={styles.financeTitle}>{viewedMember?.name || 'Selected member'}</Text>
+                    <Text style={styles.financeBalances}>{formatBalancesInline(viewedFinanceMember?.totalBalances || {}, unitMap)}</Text>
+                  </View>
+                  <View style={styles.financeArrowWrap}>
+                    <Ionicons name="arrow-forward" size={18} color={isDark ? colors.canvasStrong : colors.canvasText} />
+                  </View>
+                </Pressable>
+              </FeedSection>
             </View>
-            <Text style={styles.financeArrow}>Open Finance ›</Text>
-          </Pressable>
-        </ScrollView>
+          </ScrollView>
         </View>
       </SafeAreaView>
 
@@ -972,22 +1105,21 @@ export default function DashboardTab() {
                 <AvatarPhotoImage
                   photoUrls={currentUser?.photoUrls}
                   preferredSize="320"
-                  style={styles.menuAvatarImage}
+                  style={styles.menuAvatar}
                   fallback={
                     <View style={styles.menuAvatarFallback}>
                       <Text style={styles.menuAvatarFallbackText}>{createInitials(currentUser?.name)}</Text>
                     </View>
                   }
                 />
-                <View style={{ flex: 1 }}>
+                <View style={styles.menuIdentityCopy}>
                   <Text style={styles.menuTitle}>{currentUser?.name || 'Current member'}</Text>
-                  <Text style={styles.menuSubtitle}>Signed in on this shared device</Text>
+                  <Text style={styles.menuSubtitle}>Choose whose dashboard you want to view on this device.</Text>
                 </View>
               </View>
             </View>
 
-            <Text style={styles.menuSectionTitle}>View dashboard</Text>
-            <View style={styles.menuMemberList}>
+            <View style={styles.menuList}>
               {members.map((member) => {
                 const selected = member.id === viewedMember?.id;
                 return (
@@ -1001,10 +1133,13 @@ export default function DashboardTab() {
                     }}
                     style={[styles.menuMemberRow, selected && styles.menuMemberRowSelected]}
                   >
-                    <Text style={[styles.menuMemberName, selected && styles.menuMemberNameSelected]}>{member.name}</Text>
-                    <Text style={[styles.menuMemberMeta, selected && styles.menuMemberMetaSelected]}>
-                      {selected ? 'Currently viewing' : member.role || 'member'}
-                    </Text>
+                    <View style={styles.menuMemberRowCopy}>
+                      <Text style={[styles.menuMemberName, selected && styles.menuMemberNameSelected]}>{member.name}</Text>
+                      <Text style={[styles.menuMemberMeta, selected && styles.menuMemberMetaSelected]}>
+                        {selected ? 'Currently viewing' : member.role || 'member'}
+                      </Text>
+                    </View>
+                    {selected ? <Ionicons name="checkmark-circle" size={20} color={colors.accentDashboard} /> : null}
                   </Pressable>
                 );
               })}
@@ -1033,946 +1168,752 @@ export default function DashboardTab() {
           </View>
         </View>
       </Modal>
-
-      <AttachmentPreviewModal
-        attachment={previewAttachment}
-        visible={!!previewAttachment}
-        onClose={() => setPreviewAttachment(null)}
-      />
     </>
   );
 }
 
-const createStyles = (colors) =>
-  StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  root: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  topStrip: {
-    minHeight: 32,
-    paddingLeft: spacing.md,
-    paddingRight: spacing.sm,
-    paddingVertical: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-    backgroundColor: withAlpha(colors.accentDashboard, 0.1),
-    borderBottomWidth: 1,
-    borderBottomColor: withAlpha(colors.accentDashboard, 0.18),
-  },
-  topStripText: {
-    flex: 1,
-    color: colors.inkMuted,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800',
-  },
-  topStripAvatarButton: {
-    width: 28,
-    height: 28,
-    borderRadius: radii.pill,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: withAlpha(colors.accentDashboard, 0.24),
-    backgroundColor: colors.panelElevated,
-  },
-  topStripAvatarImage: {
-    width: '100%',
-    height: '100%',
-  },
-  topStripAvatarFallback: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withAlpha(colors.accentDashboard, 0.18),
-  },
-  topStripAvatarFallbackText: {
-    color: colors.accentDashboard,
-    fontWeight: '800',
-    fontSize: 11,
-  },
-  heroBlock: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-    gap: spacing.sm,
-  },
-  heroRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  heroIdentity: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  heroAvatarImage: {
-    width: 38,
-    height: 38,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: withAlpha(colors.accentDashboard, 0.22),
-  },
-  heroAvatarFallback: {
-    width: 38,
-    height: 38,
-    borderRadius: radii.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withAlpha(colors.accentDashboard, 0.18),
-    borderWidth: 1,
-    borderColor: withAlpha(colors.accentDashboard, 0.22),
-  },
-  heroAvatarFallbackText: {
-    color: colors.accentDashboard,
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  heroCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  heroTitle: {
-    color: colors.ink,
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: '800',
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    gap: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xl,
-  },
-  dateChooser: {
-    gap: spacing.sm,
-  },
-  dateStrip: {
-    gap: spacing.sm,
-    paddingVertical: 2,
-  },
-  dateMiniCard: {
-    width: 88,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panel,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 1,
-  },
-  dateMiniCardActive: {
-    borderColor: withAlpha(colors.accentDashboard, 0.3),
-    backgroundColor: withAlpha(colors.accentDashboard, 0.1),
-  },
-  dateMiniWeekday: {
-    color: colors.accentDashboard,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  dateMiniLabel: {
-    color: colors.ink,
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '800',
-  },
-  dateChip: {
-    minWidth: 84,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  dateChipSelected: {
-    backgroundColor: colors.accentDashboard,
-    borderColor: colors.accentDashboard,
-  },
-  dateChipDay: {
-    color: colors.inkMuted,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  dateChipDate: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  dateChipTextSelected: {
-    color: colors.onAccent,
-  },
-  sectionCard: {
-    backgroundColor: colors.panelElevated,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: spacing.md,
-    gap: spacing.sm,
-    ...shadows.card,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  sectionTitle: {
-    color: colors.ink,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  sectionMeta: {
-    color: colors.inkMuted,
-    fontSize: 12,
-    textAlign: 'right',
-  },
-  emptyText: {
-    color: colors.inkMuted,
-    lineHeight: 19,
-  },
-  taskSeriesList: {
-    gap: spacing.sm,
-  },
-  taskSeriesCard: {
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panel,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  taskSeriesHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  taskSeriesName: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  taskSeriesMeta: {
-    color: colors.inkMuted,
-    marginTop: 4,
-    lineHeight: 17,
-  },
-  taskItemList: {
-    gap: spacing.xs,
-  },
-  emptyInlineText: {
-    color: colors.inkMuted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  taskRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    alignItems: 'flex-start',
-    paddingVertical: 6,
-  },
-  taskRowDone: {
-    backgroundColor: withAlpha(colors.success, 0.08),
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.xs,
-  },
-  taskRowHeader: {
-    paddingTop: 10,
-    paddingBottom: 2,
-  },
-  taskHeaderText: {
-    color: colors.inkMuted,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
-  },
-  taskToggle: {
-    minWidth: 58,
-    minHeight: 34,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    marginTop: 1,
-  },
-  taskToggleDone: {
-    backgroundColor: withAlpha(colors.success, 0.12),
-    borderColor: withAlpha(colors.success, 0.26),
-  },
-  taskToggleText: {
-    color: colors.ink,
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  taskToggleTextDone: {
-    color: colors.success,
-  },
-  taskCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  taskMobileCard: {
-    flex: 1,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    padding: spacing.sm,
-    gap: spacing.sm,
-  },
-  taskTitleRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  taskStatusBadge: {
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: withAlpha(colors.accentCalendar, 0.22),
-    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  taskStatusBadgeText: {
-    color: colors.accentCalendar,
-    fontSize: 10,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  taskProgressSnippet: {
-    color: colors.inkMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    paddingTop: 2,
-  },
-  taskActionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
-  taskActionChip: {
-    borderRadius: radii.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-  },
-  taskActionChipPrimary: {
-    backgroundColor: colors.accentCalendar,
-    borderColor: colors.accentCalendar,
-  },
-  taskActionChipSecondary: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-  },
-  taskActionChipText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  taskActionChipTextPrimary: {
-    color: colors.panel,
-  },
-  taskActionChipTextSecondary: {
-    color: colors.ink,
-  },
-  taskCopyDone: {
-    opacity: 0.82,
-  },
-  taskText: {
-    color: colors.ink,
-    lineHeight: 19,
-    fontWeight: '600',
-  },
-  taskTextDone: {
-    color: colors.inkMuted,
-    textDecorationLine: 'line-through',
-  },
-  taskNotes: {
-    color: colors.inkMuted,
-    lineHeight: 18,
-    fontSize: 13,
-  },
-  taskNotesDone: {
-    textDecorationLine: 'line-through',
-  },
-  taskLinksRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    paddingTop: 2,
-  },
-  taskLinkChip: {
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: withAlpha(colors.accentCalendar, 0.26),
-    backgroundColor: withAlpha(colors.accentCalendar, 0.1),
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  taskLinkText: {
-    color: colors.accentCalendar,
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  taskBucketSection: {
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    paddingTop: spacing.sm,
-    gap: spacing.xs,
-  },
-  taskBucketHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  taskBucketTitle: {
-    color: colors.ink,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  taskBucketCount: {
-    color: colors.inkMuted,
-    fontSize: 12,
-  },
-  taskBucketCard: {
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    padding: spacing.sm,
-    gap: spacing.xs,
-  },
-  taskBucketTaskTitle: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  taskBucketTaskNote: {
-    color: colors.inkMuted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  taskBucketMetaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
-  taskBucketMeta: {
-    color: colors.inkMuted,
-    fontSize: 11,
-  },
-  choreList: {
-    gap: spacing.sm,
-  },
-  choreCard: {
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panel,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  choreCardDone: {
-    backgroundColor: withAlpha(colors.locked, 0.12),
-  },
-  choreHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-  },
-  choreTitle: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  choreTitleDone: {
-    color: colors.inkMuted,
-    textDecorationLine: 'line-through',
-  },
-  choreDescription: {
-    color: colors.inkMuted,
-    lineHeight: 18,
-    marginTop: 4,
-  },
-  choreDescriptionDone: {
-    color: colors.inkMuted,
-  },
-  choreToggleButton: {
-    minWidth: 74,
-    minHeight: 40,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: withAlpha(colors.accentDashboard, 0.26),
-    backgroundColor: withAlpha(colors.accentDashboard, 0.08),
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-  },
-  choreToggleButtonDone: {
-    backgroundColor: withAlpha(colors.success, 0.12),
-    borderColor: withAlpha(colors.success, 0.26),
-  },
-  choreToggleButtonLocked: {
-    backgroundColor: withAlpha(colors.locked, 0.18),
-    borderColor: withAlpha(colors.locked, 0.34),
-  },
-  choreToggleButtonText: {
-    color: colors.accentDashboard,
-    fontWeight: '800',
-  },
-  choreToggleButtonTextDone: {
-    color: colors.success,
-  },
-  choreToggleButtonTextLocked: {
-    color: colors.inkMuted,
-  },
-  choreTagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
-  tag: {
-    borderRadius: radii.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: 1,
-  },
-  tagText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  tagWarm: {
-    backgroundColor: withAlpha(colors.warning, 0.12),
-    borderColor: withAlpha(colors.warning, 0.26),
-  },
-  tagWarmText: {
-    color: colors.warning,
-  },
-  tagNeutral: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-  },
-  tagNeutralText: {
-    color: colors.inkMuted,
-  },
-  tagXp: {
-    backgroundColor: withAlpha(colors.accentDashboard, 0.1),
-    borderColor: withAlpha(colors.accentDashboard, 0.24),
-  },
-  tagXpText: {
-    color: colors.accentDashboard,
-  },
-  helperText: {
-    color: colors.inkMuted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  completedSection: {
-    gap: spacing.sm,
-    paddingTop: spacing.xs,
-  },
-  completedTitle: {
-    color: colors.inkMuted,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  financeFooter: {
-    backgroundColor: withAlpha(colors.accentFinance, 0.1),
-    borderWidth: 1,
-    borderColor: withAlpha(colors.accentFinance, 0.22),
-    borderRadius: radii.md,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    ...shadows.card,
-  },
-  financeEyebrow: {
-    color: colors.accentFinance,
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    fontWeight: '800',
-  },
-  financeTitle: {
-    color: colors.ink,
-    fontSize: 20,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  financeBalances: {
-    color: colors.accentFinance,
-    fontWeight: '700',
-    marginTop: 6,
-    lineHeight: 18,
-  },
-  financeArrow: {
-    color: colors.accentFinance,
-    fontWeight: '800',
-  },
-  sheetOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  sheetBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: withAlpha(colors.ink, 0.34),
-  },
-  sheetCard: {
-    backgroundColor: colors.panel,
-    borderTopLeftRadius: radii.lg,
-    borderTopRightRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: spacing.lg,
-    gap: spacing.sm,
-    maxHeight: '86%',
-  },
-  sheetCardCompact: {
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.xl,
-    backgroundColor: colors.panel,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: spacing.lg,
-    gap: spacing.md,
-    ...shadows.card,
-  },
-  sheetTitle: {
-    color: colors.ink,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  sheetTaskTitle: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  sheetTaskBody: {
-    color: colors.inkMuted,
-    lineHeight: 18,
-  },
-  sheetLabel: {
-    color: colors.inkMuted,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginTop: 4,
-  },
-  sheetStateRow: {
-    gap: spacing.xs,
-    paddingVertical: 4,
-  },
-  sheetStateChip: {
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  sheetStateChipSelected: {
-    borderColor: colors.accentCalendar,
-    backgroundColor: withAlpha(colors.accentCalendar, 0.12),
-  },
-  sheetStateChipText: {
-    color: colors.ink,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  sheetStateChipTextSelected: {
-    color: colors.accentCalendar,
-  },
-  sheetTextArea: {
-    minHeight: 120,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: colors.ink,
-    textAlignVertical: 'top',
-  },
-  sheetEvidenceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  sheetLink: {
-    color: colors.accentCalendar,
-    fontWeight: '700',
-  },
-  sheetMediaActionRow: {
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
-  },
-  sheetMediaActionChip: {
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  sheetMediaActionChipActive: {
-    borderColor: colors.warning,
-    backgroundColor: withAlpha(colors.warning, 0.12),
-  },
-  sheetMediaActionText: {
-    color: colors.ink,
-    fontWeight: '700',
-  },
-  sheetMediaActionTextActive: {
-    color: colors.warning,
-  },
-  sheetFileList: {
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    padding: spacing.sm,
-    gap: spacing.xs,
-  },
-  sheetFileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  sheetFileName: {
-    color: colors.ink,
-    flex: 1,
-  },
-  sheetFileMeta: {
-    color: colors.inkMuted,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  sheetRemoveLink: {
-    color: colors.warning,
-    fontWeight: '700',
-  },
-  sheetHelperText: {
-    color: colors.inkMuted,
-    lineHeight: 18,
-  },
-  sheetHistoryList: {
-    maxHeight: 180,
-  },
-  sheetHistoryCard: {
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    padding: spacing.sm,
-    gap: spacing.xs,
-    marginBottom: spacing.xs,
-  },
-  sheetHistoryMeta: {
-    color: colors.inkMuted,
-    fontSize: 11,
-  },
-  sheetHistoryBody: {
-    color: colors.ink,
-    lineHeight: 18,
-  },
-  sheetActionRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-    paddingTop: spacing.xs,
-  },
-  sheetActionColumn: {
-    gap: spacing.sm,
-  },
-  sheetButton: {
-    borderRadius: radii.pill,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  sheetButtonPrimary: {
-    backgroundColor: colors.accentCalendar,
-    borderColor: colors.accentCalendar,
-  },
-  sheetButtonSecondary: {
-    backgroundColor: colors.panelElevated,
-    borderColor: colors.line,
-  },
-  sheetButtonDisabled: {
-    opacity: 0.6,
-  },
-  sheetButtonText: {
-    fontWeight: '800',
-  },
-  sheetButtonTextPrimary: {
-    color: colors.panel,
-  },
-  sheetButtonTextSecondary: {
-    color: colors.ink,
-  },
-  menuOverlay: {
-    flex: 1,
-    justifyContent: 'flex-start',
-  },
-  menuBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: withAlpha(colors.ink, 0.28),
-  },
-  menuSheet: {
-    marginTop: 92,
-    marginHorizontal: spacing.lg,
-    backgroundColor: colors.panel,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: spacing.md,
-    gap: spacing.md,
-    ...shadows.card,
-  },
-  menuHeader: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-    paddingBottom: spacing.sm,
-  },
-  menuIdentity: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  menuAvatarImage: {
-    width: 46,
-    height: 46,
-    borderRadius: radii.pill,
-  },
-  menuAvatarFallback: {
-    width: 46,
-    height: 46,
-    borderRadius: radii.pill,
-    backgroundColor: withAlpha(colors.accentDashboard, 0.18),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  menuAvatarFallbackText: {
-    color: colors.accentDashboard,
-    fontWeight: '800',
-    fontSize: 16,
-  },
-  menuTitle: {
-    color: colors.ink,
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  menuSubtitle: {
-    color: colors.inkMuted,
-    marginTop: 2,
-    lineHeight: 18,
-  },
-  menuSectionTitle: {
-    color: colors.inkMuted,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  menuMemberList: {
-    gap: spacing.xs,
-  },
-  menuMemberRow: {
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  menuMemberRowSelected: {
-    borderColor: withAlpha(colors.accentDashboard, 0.26),
-    backgroundColor: withAlpha(colors.accentDashboard, 0.08),
-  },
-  menuMemberName: {
-    color: colors.ink,
-    fontWeight: '700',
-  },
-  menuMemberNameSelected: {
-    color: colors.accentDashboard,
-  },
-  menuMemberMeta: {
-    color: colors.inkMuted,
-    fontSize: 12,
-  },
-  menuMemberMetaSelected: {
-    color: colors.accentDashboard,
-    fontWeight: '700',
-  },
-  menuFooter: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  menuSecondaryButton: {
-    flex: 1,
-    minHeight: 42,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-  },
-  menuSecondaryButtonText: {
-    color: colors.ink,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  menuPrimaryButton: {
-    flex: 1,
-    minHeight: 42,
-    borderRadius: radii.pill,
-    backgroundColor: colors.accentDashboard,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-  },
-  menuPrimaryButtonText: {
-    color: colors.onAccent,
-    fontWeight: '800',
-  },
+const createStyles = (colors, isDark) => {
+  const styles = StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.canvasStrong,
+    },
+    root: {
+      flex: 1,
+      backgroundColor: colors.canvasStrong,
+    },
+    heroSection: {
+      position: 'relative',
+      overflow: 'hidden',
+      backgroundColor: colors.canvas,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.lg,
+      gap: spacing.md,
+    },
+    heroGlowOrb: {
+      position: 'absolute',
+      borderRadius: radii.pill,
+    },
+    heroGlowOrbLeft: {
+      width: 190,
+      height: 190,
+      left: -38,
+      top: -24,
+    },
+    heroGlowOrbBottom: {
+      width: 210,
+      height: 210,
+      left: 94,
+      bottom: -138,
+    },
+    heroGlowOrbTopRight: {
+      width: 180,
+      height: 180,
+      right: -44,
+      top: 44,
+    },
+    heroFaceBackdrop: {
+      position: 'absolute',
+      width: 430,
+      height: 560,
+      right: -160,
+      top: -108,
+      opacity: isDark ? 0.12 : 0.18,
+    },
+    heroScrim: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: withAlpha(colors.canvasStrong, isDark ? 0.3 : 0.18),
+    },
+    heroTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.md,
+      zIndex: 1,
+    },
+    heroViewerChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: radii.pill,
+      backgroundColor: withAlpha(colors.canvasText, 0.08),
+      borderWidth: 1,
+      borderColor: colors.canvasLine,
+      maxWidth: '74%',
+    },
+    heroViewerAvatar: {
+      width: 36,
+      height: 36,
+      borderRadius: radii.pill,
+    },
+    heroViewerFallback: {
+      width: 36,
+      height: 36,
+      borderRadius: radii.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: withAlpha(colors.canvasText, 0.16),
+    },
+    heroViewerFallbackText: {
+      color: colors.canvasText,
+      fontWeight: '800',
+      fontSize: 13,
+    },
+    heroViewerCopy: {
+      flex: 1,
+      minWidth: 0,
+    },
+    heroViewerLabel: {
+      color: colors.canvasTextMuted,
+      fontSize: 11,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      fontWeight: '800',
+    },
+    heroViewerName: {
+      color: colors.canvasText,
+      fontSize: 15,
+      fontWeight: '800',
+      marginTop: 2,
+    },
+    heroMenuButton: {
+      width: 46,
+      height: 46,
+      borderRadius: radii.pill,
+      overflow: 'hidden',
+      backgroundColor: withAlpha(colors.canvasText, 0.08),
+      borderWidth: 1,
+      borderColor: colors.canvasLine,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    heroMenuAvatar: {
+      width: '100%',
+      height: '100%',
+    },
+    heroMenuFallback: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: withAlpha(colors.canvasText, 0.16),
+    },
+    heroMenuFallbackText: {
+      color: colors.canvasText,
+      fontWeight: '800',
+      fontSize: 14,
+    },
+    heroTitleBlock: {
+      gap: spacing.xs,
+      zIndex: 1,
+      paddingTop: spacing.xs,
+    },
+    heroDate: {
+      color: colors.canvasTextMuted,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    heroTitle: {
+      color: colors.canvasText,
+      fontSize: 38,
+      lineHeight: 42,
+      fontWeight: '800',
+      maxWidth: '76%',
+    },
+    heroSubtitle: {
+      color: colors.canvasTextMuted,
+      fontSize: 15,
+      lineHeight: 22,
+      maxWidth: '84%',
+    },
+    metricRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      zIndex: 1,
+    },
+    metricPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: radii.pill,
+      backgroundColor: withAlpha(colors.canvasText, 0.08),
+      borderWidth: 1,
+      borderColor: colors.canvasLine,
+    },
+    metricIconWrap: {
+      width: 24,
+      height: 24,
+      borderRadius: radii.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: withAlpha(colors.canvasText, 0.08),
+    },
+    metricLabel: {
+      color: colors.canvasTextMuted,
+      fontSize: 10,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      fontWeight: '800',
+    },
+    metricValue: {
+      color: colors.canvasText,
+      fontSize: 15,
+      fontWeight: '800',
+      marginTop: 1,
+    },
+    dateRailContent: {
+      gap: spacing.sm,
+      paddingTop: 2,
+      paddingBottom: 2,
+      zIndex: 1,
+    },
+    dateRailPill: {
+      minWidth: 86,
+      paddingHorizontal: 12,
+      paddingVertical: 11,
+      borderRadius: 22,
+      backgroundColor: withAlpha(colors.canvasText, 0.07),
+      borderWidth: 1,
+      borderColor: colors.canvasLine,
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+    },
+    dateRailPillSelected: {
+      backgroundColor: isDark ? colors.canvasText : colors.panel,
+      borderColor: isDark ? colors.canvasText : withAlpha(colors.panel, 0.95),
+      ...(isDark ? shadows.float : shadows.card),
+    },
+    dateRailDay: {
+      color: colors.canvasTextMuted,
+      fontSize: 11,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      fontWeight: '800',
+    },
+    dateRailDate: {
+      color: colors.canvasText,
+      fontSize: 14,
+      fontWeight: '800',
+      marginTop: 2,
+    },
+    dateRailTextSelected: {
+      color: isDark ? colors.canvasStrong : colors.ink,
+    },
+    dateTodayDot: {
+      position: 'absolute',
+      bottom: 8,
+      width: 6,
+      height: 6,
+      borderRadius: radii.pill,
+      backgroundColor: colors.accentDashboard,
+    },
+    scroll: {
+      flex: 1,
+      backgroundColor: colors.bg,
+    },
+    scrollContent: {
+      padding: spacing.md,
+      paddingBottom: spacing.xxl,
+    },
+    contentSheet: {
+      backgroundColor: isDark ? colors.panel : colors.panel,
+      borderRadius: 30,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      borderWidth: isDark ? 1 : 0,
+      borderColor: isDark ? colors.line : 'transparent',
+      ...(isDark ? {} : shadows.card),
+    },
+    feedSection: {
+      gap: spacing.md,
+      paddingVertical: spacing.lg,
+    },
+    feedSectionBorder: {
+      borderTopWidth: 1,
+      borderTopColor: colors.line,
+    },
+    feedSectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: spacing.md,
+    },
+    feedSectionCopy: {
+      flex: 1,
+      gap: 4,
+    },
+    feedSectionTitle: {
+      color: colors.ink,
+      fontSize: 21,
+      fontWeight: '800',
+    },
+    feedSectionMeta: {
+      color: colors.inkMuted,
+      lineHeight: 18,
+    },
+    feedSectionAction: {
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      borderRadius: radii.pill,
+      backgroundColor: isDark ? colors.canvasText : colors.panelElevated,
+      borderWidth: 1,
+      borderColor: isDark ? colors.canvasText : colors.line,
+    },
+    feedSectionActionText: {
+      color: isDark ? colors.canvasStrong : colors.ink,
+      fontWeight: '700',
+      fontSize: 12,
+    },
+    emptyText: {
+      color: colors.inkMuted,
+      lineHeight: 20,
+    },
+    emptyInlineText: {
+      color: colors.inkMuted,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    seriesBandList: {
+      gap: spacing.md,
+    },
+    seriesBand: {
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 24,
+      padding: spacing.md,
+      gap: spacing.md,
+      borderWidth: 1,
+      borderColor: isDark ? withAlpha(colors.canvasText, 0.05) : withAlpha(colors.accentDashboard, 0.12),
+    },
+    seriesHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+    },
+    seriesCopy: {
+      flex: 1,
+      gap: 4,
+    },
+    seriesTitle: {
+      color: colors.ink,
+      fontSize: 18,
+      fontWeight: '800',
+    },
+    seriesMeta: {
+      color: colors.inkMuted,
+      lineHeight: 18,
+    },
+    seriesCountBadge: {
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: radii.pill,
+      backgroundColor: colors.panel,
+      borderWidth: 1,
+      borderColor: colors.line,
+    },
+    seriesCountText: {
+      color: colors.ink,
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    seriesSnapshotRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.xs,
+    },
+    seriesSnapshotText: {
+      color: colors.inkMuted,
+      fontSize: 12,
+    },
+    seriesPreviewList: {
+      backgroundColor: isDark ? colors.panelElevated : withAlpha(colors.panel, 0.78),
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: withAlpha(colors.line, 0.8),
+      overflow: 'hidden',
+    },
+    previewRow: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: 12,
+    },
+    previewRowBorder: {
+      borderTopWidth: 1,
+      borderTopColor: colors.line,
+    },
+    previewCopy: {
+      gap: 6,
+    },
+    previewTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+    },
+    previewTitle: {
+      color: colors.ink,
+      fontSize: 15,
+      fontWeight: '700',
+      flex: 1,
+      minWidth: 0,
+    },
+    previewStateChip: {
+      paddingHorizontal: 9,
+      paddingVertical: 4,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+    },
+    previewStateText: {
+      fontSize: 10,
+      textTransform: 'uppercase',
+      letterSpacing: 0.45,
+      fontWeight: '800',
+    },
+    previewNote: {
+      color: colors.inkMuted,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    remainingText: {
+      color: colors.inkMuted,
+      fontSize: 12,
+    },
+    seriesActionRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.xs,
+    },
+    seriesActionButton: {
+      borderRadius: radii.pill,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderWidth: 1,
+    },
+    seriesActionButtonPrimary: {
+      backgroundColor: isDark ? colors.canvasText : colors.accentDashboard,
+      borderColor: isDark ? colors.canvasText : colors.accentDashboard,
+    },
+    seriesActionButtonSecondary: {
+      backgroundColor: colors.panel,
+      borderColor: colors.line,
+    },
+    seriesActionText: {
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    seriesActionTextPrimary: {
+      color: isDark ? colors.canvasStrong : colors.onAccent,
+    },
+    seriesActionTextSecondary: {
+      color: colors.ink,
+    },
+    flatList: {
+      gap: 0,
+    },
+    flatRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      paddingVertical: 14,
+    },
+    flatRowBorder: {
+      borderTopWidth: 1,
+      borderTopColor: colors.line,
+    },
+    flatRowMain: {
+      flex: 1,
+      gap: spacing.sm,
+    },
+    flatRowTop: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.md,
+    },
+    flatRowCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: 4,
+    },
+    flatRowTitle: {
+      color: colors.ink,
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    flatRowTitleDone: {
+      color: colors.inkMuted,
+      textDecorationLine: 'line-through',
+    },
+    flatRowBody: {
+      color: colors.inkMuted,
+      lineHeight: 18,
+    },
+    flatRowBodyDone: {
+      textDecorationLine: 'line-through',
+    },
+    rowIconWrap: {
+      width: 30,
+      paddingTop: 2,
+      alignItems: 'center',
+    },
+    choreToggleButton: {
+      minWidth: 76,
+      minHeight: 40,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      borderColor: isDark ? colors.canvasText : withAlpha(colors.accentDashboard, 0.26),
+      backgroundColor: isDark ? colors.canvasText : withAlpha(colors.accentDashboard, 0.08),
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 14,
+    },
+    choreToggleButtonDone: {
+      backgroundColor: withAlpha(colors.success, 0.12),
+      borderColor: withAlpha(colors.success, 0.28),
+    },
+    choreToggleButtonLocked: {
+      backgroundColor: withAlpha(colors.locked, 0.18),
+      borderColor: withAlpha(colors.locked, 0.34),
+    },
+    choreToggleButtonText: {
+      color: isDark ? colors.canvasStrong : colors.accentDashboard,
+      fontWeight: '800',
+    },
+    choreToggleButtonTextDone: {
+      color: colors.success,
+    },
+    choreToggleButtonTextLocked: {
+      color: colors.inkMuted,
+    },
+    inlineTagRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.xs,
+    },
+    inlineTag: {
+      borderRadius: radii.pill,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderWidth: 1,
+    },
+    inlineTagText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    inlineTagWarm: {
+      backgroundColor: withAlpha(colors.warning, 0.12),
+      borderColor: withAlpha(colors.warning, 0.26),
+    },
+    inlineTagWarmText: {
+      color: colors.warning,
+    },
+    inlineTagNeutral: {
+      backgroundColor: colors.panelElevated,
+      borderColor: colors.line,
+    },
+    inlineTagNeutralText: {
+      color: colors.inkMuted,
+    },
+    inlineTagAccent: {
+      backgroundColor: withAlpha(colors.accentDashboard, 0.1),
+      borderColor: withAlpha(colors.accentDashboard, 0.24),
+    },
+    inlineTagAccentText: {
+      color: colors.accentDashboard,
+    },
+    helperText: {
+      color: colors.inkMuted,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    completedGroup: {
+      marginTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.line,
+      paddingTop: spacing.sm,
+      gap: 0,
+    },
+    completedLabel: {
+      color: colors.inkMuted,
+      fontSize: 12,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.7,
+      marginBottom: spacing.xs,
+    },
+    financeBand: {
+      backgroundColor: colors.canvas,
+      borderRadius: 24,
+      padding: spacing.lg,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      overflow: 'hidden',
+    },
+    financeCopy: {
+      flex: 1,
+      gap: 4,
+    },
+    financeEyebrow: {
+      color: colors.canvasTextMuted,
+      fontSize: 11,
+      textTransform: 'uppercase',
+      letterSpacing: 0.7,
+      fontWeight: '800',
+    },
+    financeTitle: {
+      color: colors.canvasText,
+      fontSize: 24,
+      fontWeight: '800',
+    },
+    financeBalances: {
+      color: colors.canvasTextMuted,
+      lineHeight: 20,
+      marginTop: 2,
+    },
+    financeArrowWrap: {
+      width: 42,
+      height: 42,
+      borderRadius: radii.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? colors.canvasText : withAlpha(colors.canvasText, 0.09),
+      borderWidth: 1,
+      borderColor: isDark ? colors.canvasText : colors.canvasLine,
+    },
+    menuOverlay: {
+      flex: 1,
+      justifyContent: 'flex-end',
+    },
+    menuBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: withAlpha(colors.canvasStrong, 0.48),
+    },
+    menuSheet: {
+      backgroundColor: colors.panel,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.xl,
+      gap: spacing.lg,
+      ...shadows.float,
+    },
+    menuHeader: {
+      gap: spacing.sm,
+    },
+    menuIdentity: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+    },
+    menuAvatar: {
+      width: 52,
+      height: 52,
+      borderRadius: radii.pill,
+    },
+    menuAvatarFallback: {
+      width: 52,
+      height: 52,
+      borderRadius: radii.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceMuted,
+    },
+    menuAvatarFallbackText: {
+      color: colors.accentDashboard,
+      fontWeight: '800',
+      fontSize: 16,
+    },
+    menuIdentityCopy: {
+      flex: 1,
+      gap: 3,
+    },
+    menuTitle: {
+      color: colors.ink,
+      fontSize: 22,
+      fontWeight: '800',
+    },
+    menuSubtitle: {
+      color: colors.inkMuted,
+      lineHeight: 19,
+    },
+    menuList: {
+      gap: spacing.sm,
+    },
+    menuMemberRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 14,
+      borderRadius: radii.md,
+      backgroundColor: colors.panelElevated,
+      borderWidth: 1,
+      borderColor: colors.line,
+    },
+    menuMemberRowSelected: {
+      borderColor: withAlpha(colors.accentDashboard, 0.34),
+      backgroundColor: withAlpha(colors.accentDashboard, 0.08),
+    },
+    menuMemberRowCopy: {
+      flex: 1,
+      gap: 3,
+    },
+    menuMemberName: {
+      color: colors.ink,
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    menuMemberNameSelected: {
+      color: colors.accentDashboard,
+    },
+    menuMemberMeta: {
+      color: colors.inkMuted,
+      fontSize: 13,
+    },
+    menuMemberMetaSelected: {
+      color: colors.accentDashboard,
+    },
+    menuFooter: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    menuSecondaryButton: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.panelElevated,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing.md,
+    },
+    menuSecondaryButtonText: {
+      color: colors.ink,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    menuPrimaryButton: {
+      minWidth: 110,
+      minHeight: 48,
+      borderRadius: radii.pill,
+      backgroundColor: isDark ? colors.canvasText : colors.accentDashboard,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing.lg,
+    },
+    menuPrimaryButtonText: {
+      color: isDark ? colors.canvasStrong : colors.onAccent,
+      fontWeight: '800',
+    },
   });
+
+  return styles;
+};

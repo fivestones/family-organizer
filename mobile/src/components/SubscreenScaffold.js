@@ -26,7 +26,7 @@ export function SubscreenScaffold({
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Text style={styles.backText}>Back</Text>
+          <Text style={styles.backText}>← Back</Text>
         </Pressable>
         {action ? <View>{action}</View> : <View />}
       </View>
@@ -72,12 +72,12 @@ const createStyles = (colors) =>
   },
   backButton: {
     alignSelf: 'flex-start',
-    minHeight: 38,
+    minHeight: 40,
     paddingHorizontal: spacing.md,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: colors.panelElevated,
+    backgroundColor: colors.panel,
     alignItems: 'center',
     justifyContent: 'center',
   },

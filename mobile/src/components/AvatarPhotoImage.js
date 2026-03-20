@@ -9,11 +9,12 @@ export function AvatarPhotoImage({
   style,
   fallback = null,
   testID,
+  resizeMode = 'cover',
 }) {
   const fileKey = getPhotoKey(photoUrls, preferredSize);
   const uri = usePresignedUrl(fileKey);
 
   if (!uri) return fallback;
 
-  return <Image testID={testID} source={{ uri }} style={style} />;
+  return <Image testID={testID} source={{ uri }} style={style} resizeMode={resizeMode} />;
 }
