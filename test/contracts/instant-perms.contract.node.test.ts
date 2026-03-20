@@ -39,4 +39,14 @@ describe('instant.perms contract', () => {
         const perms = rules as any;
         expect(perms.familyMembers.fields.pinHash).toContain("data.role != 'parent'");
     });
+
+    it('lets family principals link chore completions without opening broader chore writes', () => {
+        const perms = rules as any;
+        expect(perms.chores.allow.create).toBe('isParent');
+        expect(perms.chores.allow.update).toBe('isParent');
+        expect(perms.chores.allow.delete).toBe('isParent');
+        expect(perms.chores.allow.link.completions).toBe('isFamilyPrincipal');
+        expect(perms.chores.allow.link.$default).toBe('isParent');
+        expect(perms.chores.allow.unlink.$default).toBe('isParent');
+    });
 });

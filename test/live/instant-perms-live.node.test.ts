@@ -91,6 +91,8 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
     const cleanup = {
         calendarItems: new Set<string>(),
         allowanceTransactions: new Set<string>(),
+        chores: new Set<string>(),
+        choreCompletions: new Set<string>(),
     };
 
     beforeAll(async () => {
@@ -118,6 +120,12 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
 
     afterAll(async () => {
         const txs: any[] = [];
+        for (const entryId of Array.from(cleanup.choreCompletions)) {
+            txs.push(adminDb.tx.choreCompletions[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.chores)) {
+            txs.push(adminDb.tx.chores[entryId].delete());
+        }
         for (const entryId of Array.from(cleanup.calendarItems)) {
             txs.push(adminDb.tx.calendarItems[entryId].delete());
         }
@@ -222,6 +230,41 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
 
             await parentDb.transact(parentDb.tx.allowanceTransactions[validKidTxId].delete());
             cleanup.allowanceTransactions.delete(validKidTxId);
+
+            // Kid principal can mark chores complete for any family member by linking a completion row onto the chore.
+            const targetFamilyMember = parentRows[0] || kidFamilyMembers[0];
+            expect(targetFamilyMember?.id).toBeTruthy();
+
+            const choreId = instantId();
+            const completionId = instantId();
+            const nowIso = new Date().toISOString();
+
+            await parentDb.transact([
+                parentDb.tx.chores[choreId].update({
+                    title: 'Perms smoke chore',
+                    createdAt: nowIso,
+                    description: 'Kid can link completion rows',
+                    startDate: '2026-02-25T00:00:00.000Z',
+                    done: false,
+                    rotationType: 'none',
+                }),
+                parentDb.tx.chores[choreId].link({ assignees: targetFamilyMember.id }),
+                parentDb.tx.familyMembers[targetFamilyMember.id].link({ assignedChores: choreId }),
+            ]);
+            cleanup.chores.add(choreId);
+
+            await kidDb.transact([
+                kidDb.tx.choreCompletions[completionId].update({
+                    dateDue: '2026-02-25',
+                    dateCompleted: nowIso,
+                    completed: true,
+                    allowanceAwarded: false,
+                }),
+                kidDb.tx.chores[choreId].link({ completions: completionId }),
+                kidDb.tx.familyMembers[targetFamilyMember.id].link({ completedChores: completionId }),
+                kidDb.tx.familyMembers[targetFamilyMember.id].link({ markedCompletions: completionId }),
+            ]);
+            cleanup.choreCompletions.add(completionId);
         },
         120_000
     );

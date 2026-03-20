@@ -98,6 +98,26 @@ const FAMILY_CREATE_UPDATE = {
     },
 } as const;
 
+const CHORES_PARENT_WRITE_FAMILY_COMPLETIONS = {
+    bind: {
+        isParent: IS_PARENT,
+        isKid: IS_KID,
+        isFamilyPrincipal: IS_FAMILY_PRINCIPAL,
+    },
+    allow: {
+        view: 'isFamilyPrincipal',
+        create: 'isParent',
+        update: 'isParent',
+        delete: 'isParent',
+        // Kids need to attach completion rows to existing chores, but should not be able to relink assignees/assignments.
+        link: {
+            completions: 'isFamilyPrincipal',
+            $default: 'isParent',
+        },
+        unlink: { $default: 'isParent' },
+    },
+} as const;
+
 const MESSAGE_THREADS_READ_ONLY = {
     bind: {
         isParent: IS_PARENT,
@@ -298,7 +318,7 @@ const rules = {
             unlink: { $default: 'isParent' },
         },
     },
-    chores: PARENT_MUTABLE,
+    chores: CHORES_PARENT_WRITE_FAMILY_COMPLETIONS,
     dashboardConfigs: FAMILY_MUTABLE,
     deviceSessions: PARENT_MUTABLE,
     exchangeRates: FAMILY_MUTABLE,
