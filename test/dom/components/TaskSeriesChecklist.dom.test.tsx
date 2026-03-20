@@ -138,6 +138,29 @@ describe('TaskSeriesChecklist', () => {
         expect(screen.getByRole('checkbox')).toBeDisabled();
     });
 
+    it('shows a rounded percent-complete marker next to parent header rows', () => {
+        const onToggle = vi.fn();
+        const allTasks = [
+            task({ id: 'parent', text: 'Kitchen Cleanup', order: 1, isCompleted: false }),
+            task({ id: 'child-done', text: 'Wipe counters', order: 2, parentTask: [{ id: 'parent' }], workflowState: 'done', isCompleted: true }),
+            task({ id: 'child-review', text: 'Sweep floor', order: 3, parentTask: [{ id: 'parent' }], workflowState: 'needs_review', isCompleted: false }),
+            task({ id: 'child-active', text: 'Take out trash', order: 4, parentTask: [{ id: 'parent' }], workflowState: 'in_progress', isCompleted: false }),
+        ];
+
+        render(
+            <TaskSeriesChecklist
+                tasks={[allTasks[3]] as any}
+                allTasks={allTasks as any}
+                onToggle={onToggle}
+                isReadOnly={false}
+                selectedMember="kid-a"
+                showDetails={false}
+            />
+        );
+
+        expect(screen.getByText('67% complete')).toBeInTheDocument();
+    });
+
     it('toggles notes metadata visibility with the local "view details" link when global details are off', async () => {
         const user = userEvent.setup();
         const onToggle = vi.fn();

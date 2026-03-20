@@ -164,8 +164,16 @@ export function getTaskParentId(task: Pick<TaskProgressTaskLike, 'parentTask'> |
     return task.parentTask.id || undefined;
 }
 
+export function getChildTasks<T extends Pick<TaskProgressTaskLike, 'parentTask' | 'isDayBreak'>>(
+    parentId: string,
+    allTasks: T[] | null | undefined
+): T[] {
+    const safeTasks = allTasks || [];
+    return safeTasks.filter((task) => !task?.isDayBreak && getTaskParentId(task) === parentId);
+}
+
 export function taskHasChildren(taskId: string, allTasks: Array<Pick<TaskProgressTaskLike, 'id' | 'parentTask' | 'isDayBreak'>>): boolean {
-    return allTasks.some((task) => !task?.isDayBreak && getTaskParentId(task) === taskId);
+    return getChildTasks(taskId, allTasks).length > 0;
 }
 
 export function isActionableTask(
@@ -174,6 +182,20 @@ export function isActionableTask(
 ): boolean {
     if (task.isDayBreak) return false;
     return !taskHasChildren(task.id, allTasks);
+}
+
+export function getTaskChildProgressPercent<
+    T extends Pick<TaskProgressTaskLike, 'parentTask' | 'isDayBreak' | 'workflowState' | 'isCompleted'>
+>(parentId: string, allTasks: T[] | null | undefined): number | null {
+    const children = getChildTasks(parentId, allTasks);
+    if (children.length === 0) return null;
+
+    const completedCount = children.filter((child) => {
+        const state = getTaskWorkflowState(child);
+        return state === 'needs_review' || state === 'done';
+    }).length;
+
+    return Math.round((completedCount / children.length) * 100);
 }
 
 function toComparableTime(value: number | string | Date | null | undefined): number {

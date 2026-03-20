@@ -177,4 +177,62 @@ describe('task-update-mutations parent rollups', () => {
             })
         );
     });
+
+    it('reopens a done parent when one child moves back to in progress', () => {
+        const allTasks = [
+            makeTask({
+                id: 'parent',
+                workflowState: 'done',
+                isCompleted: true,
+                completedAt: '2026-03-10T09:00:00Z',
+                completedOnDate: '2026-03-10',
+                childTasksComplete: true,
+            }),
+            makeTask({
+                id: 'child-1',
+                parentTask: [{ id: 'parent' }],
+                workflowState: 'done',
+                isCompleted: true,
+                childTasksComplete: true,
+            }),
+            makeTask({
+                id: 'child-2',
+                parentTask: [{ id: 'parent' }],
+                workflowState: 'done',
+                isCompleted: true,
+                childTasksComplete: true,
+            }),
+            makeTask({
+                id: 'child-3',
+                parentTask: [{ id: 'parent' }],
+                workflowState: 'done',
+                isCompleted: true,
+                childTasksComplete: true,
+            }),
+        ];
+
+        const { transactions } = buildTaskUpdateTransactions({
+            tx,
+            createId,
+            taskId: 'child-3',
+            allTasks,
+            nextState: 'in_progress',
+            selectedDateKey: '2026-03-10',
+            actorFamilyMemberId: 'parent-user',
+            affectedFamilyMemberId: 'child-user',
+        });
+
+        expect(getTaskUpdate(transactions, 'parent')).toEqual(
+            expect.objectContaining({
+                payload: expect.objectContaining({
+                    workflowState: 'in_progress',
+                    lastActiveState: 'in_progress',
+                    isCompleted: false,
+                    completedAt: null,
+                    completedOnDate: null,
+                    childTasksComplete: false,
+                }),
+            })
+        );
+    });
 });

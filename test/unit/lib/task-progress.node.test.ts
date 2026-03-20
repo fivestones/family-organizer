@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    getTaskChildProgressPercent,
     getDerivedParentTaskWorkflowState,
     getLatestTaskFeedbackThread,
     getTaskUpdateFeedbackReplies,
@@ -111,5 +112,26 @@ describe('task-progress parent workflow aggregation', () => {
 
     it('stays not started when no child work has begun', () => {
         expect(getDerivedParentTaskWorkflowState([makeTaskState('not_started'), makeTaskState('not_started')])).toBe('not_started');
+    });
+
+    it('returns a rounded child completion percent based on done and needs-review children', () => {
+        const tasks = [
+            { id: 'parent' },
+            { id: 'child-1', parentTask: [{ id: 'parent' }], workflowState: 'done', isCompleted: true },
+            { id: 'child-2', parentTask: [{ id: 'parent' }], workflowState: 'needs_review', isCompleted: false },
+            { id: 'child-3', parentTask: [{ id: 'parent' }], workflowState: 'in_progress', isCompleted: false },
+        ] as any;
+
+        expect(getTaskChildProgressPercent('parent', tasks)).toBe(67);
+    });
+
+    it('returns 0 percent when none of the children are review-complete yet', () => {
+        const tasks = [
+            { id: 'parent' },
+            { id: 'child-1', parentTask: [{ id: 'parent' }], workflowState: 'not_started', isCompleted: false },
+            { id: 'child-2', parentTask: [{ id: 'parent' }], workflowState: 'in_progress', isCompleted: false },
+        ] as any;
+
+        expect(getTaskChildProgressPercent('parent', tasks)).toBe(0);
     });
 });

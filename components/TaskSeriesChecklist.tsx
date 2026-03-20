@@ -16,6 +16,7 @@ import { FocusOverlay } from '@/components/responses/FocusOverlay';
 import type { FocusPanelItem, FocusPanelState, FocusableItem } from '@/components/responses/focus-panel-types';
 import type { GradeTypeLike } from '@/lib/task-response-types';
 import {
+    getTaskChildProgressPercent,
     getBucketedTasks,
     getLatestTaskFeedbackThread,
     getLatestTaskUpdate,
@@ -599,6 +600,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         const currentState = getTaskWorkflowState(task);
         const canMutate = !isReadOnly;
         const { subtitle, immediateParentLabel } = getTaskContextMeta(task, allTasks);
+        const childProgressPercent = isHeader ? getTaskChildProgressPercent(task.id, allTasks) : null;
 
         if (isHeader) {
             return (
@@ -608,13 +610,20 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                     style={{ marginLeft: `${(task.indentationLevel || 0) * 1.5}rem` }}
                 >
                     <div className="flex min-w-0 flex-grow flex-col">
-                        <button
-                            type="button"
-                            onClick={() => openComposer(task, { intent: 'details' })}
-                            className="w-fit px-1 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground/80 transition-colors hover:text-sky-700 hover:underline"
-                        >
-                            {task.text}
-                        </button>
+                        <div className="flex min-w-0 items-center gap-2 px-1">
+                            <button
+                                type="button"
+                                onClick={() => openComposer(task, { intent: 'details' })}
+                                className="min-w-0 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground/80 transition-colors hover:text-sky-700 hover:underline"
+                            >
+                                {task.text}
+                            </button>
+                            {typeof childProgressPercent === 'number' ? (
+                                <span className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-sky-700">
+                                    {childProgressPercent}% complete
+                                </span>
+                            ) : null}
+                        </div>
                         {renderResponseFieldBadge(task)}
                         {renderReferenceDetails(task)}
                     </div>
