@@ -17,6 +17,7 @@
       "expo-audio",
       "expo-video"
     ],
+    "newArchEnabled": true,
     "experiments": {
       "typedRoutes": false
     }

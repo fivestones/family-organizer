@@ -1,4 +1,6 @@
 {
   "expo.jsEngine": "hermes",
+  "newArchEnabled": "true",
+  "ios.buildReactNativeFromSource": "true",
   "EX_DEV_CLIENT_NETWORK_INSPECTOR": "true"
 }
