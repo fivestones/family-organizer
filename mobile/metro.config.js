@@ -16,6 +16,11 @@ config.resolver.nodeModulesPaths = [
 // else so nested transitive deps resolve correctly (e.g. Expo's own
 // webidl-conversions@5 nested under whatwg-url-without-unicode).
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName.startsWith('@/')) {
+    const target = path.resolve(workspaceRoot, moduleName.slice(2));
+    return context.resolveRequest(context, target, platform);
+  }
+
   if (moduleName === 'react' || moduleName.startsWith('react/')) {
     const target = path.resolve(__dirname, 'node_modules', moduleName);
     return context.resolveRequest(context, target, platform);
