@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    getDerivedParentTaskWorkflowState,
     getLatestTaskFeedbackThread,
     getTaskUpdateFeedbackReplies,
     taskUpdateHasMeaningfulFeedbackContent,
@@ -72,5 +73,43 @@ describe('task-progress feedback threading helpers', () => {
 
         expect(taskUpdateHasMeaningfulFeedbackContent(replies[0])).toBe(true);
         expect(getTaskUpdateFeedbackReplies(replies).map((reply) => reply.id)).toEqual(['feedback-1', 'feedback-2']);
+    });
+});
+
+describe('task-progress parent workflow aggregation', () => {
+    function makeTaskState(state: string) {
+        return {
+            workflowState: state,
+            isCompleted: state === 'done',
+        } as const;
+    }
+
+    it('marks a parent as done only when every child is done', () => {
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('done'), makeTaskState('done')])).toBe('done');
+    });
+
+    it('marks a parent as needs review when all children are done or need review', () => {
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('done'), makeTaskState('needs_review')])).toBe('needs_review');
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('needs_review'), makeTaskState('needs_review')])).toBe('needs_review');
+    });
+
+    it('treats blocked as the highest-priority rolled up state', () => {
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('blocked'), makeTaskState('done')])).toBe('blocked');
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('blocked'), makeTaskState('skipped')])).toBe('blocked');
+    });
+
+    it('marks a parent as skipped when a child is skipped and none are blocked', () => {
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('skipped'), makeTaskState('done')])).toBe('skipped');
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('skipped'), makeTaskState('not_started')])).toBe('skipped');
+    });
+
+    it('marks partial mixed progress as in progress when work has started but review is not complete', () => {
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('done'), makeTaskState('not_started')])).toBe('in_progress');
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('in_progress'), makeTaskState('not_started')])).toBe('in_progress');
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('needs_review'), makeTaskState('not_started')])).toBe('in_progress');
+    });
+
+    it('stays not started when no child work has begun', () => {
+        expect(getDerivedParentTaskWorkflowState([makeTaskState('not_started'), makeTaskState('not_started')])).toBe('not_started');
     });
 });

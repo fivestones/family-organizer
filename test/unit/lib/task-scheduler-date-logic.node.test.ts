@@ -225,7 +225,12 @@ describe('task-scheduler date logic', () => {
                 expect.objectContaining({
                     entity: 'tasks',
                     id: 'parent',
-                    payload: { childTasksComplete: true },
+                    payload: expect.objectContaining({
+                        childTasksComplete: true,
+                        workflowState: 'done',
+                        isCompleted: true,
+                        completedOnDate: '2026-03-10',
+                    }),
                 }),
             ])
         );
@@ -234,7 +239,7 @@ describe('task-scheduler date logic', () => {
         expect(taskUpdate.payload.completedAt.toISOString()).toBe('2026-03-10T09:15:00.000Z');
     });
 
-    it('does not update parent childTasksComplete when another sibling is still incomplete', () => {
+    it('marks the parent in progress when another sibling is still incomplete', () => {
         const tasks: Task[] = [
             makeTask({ id: 'parent', text: 'Parent', order: 1, childTasksComplete: false }),
             makeTask({
@@ -271,8 +276,19 @@ describe('task-scheduler date logic', () => {
                 }),
             ])
         );
-        // Should NOT have a parent childTasksComplete update since child-2 is still incomplete
-        expect(txs.filter((t: any) => t.entity === 'tasks' && t.id === 'parent')).toHaveLength(0);
+        expect(txs).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    entity: 'tasks',
+                    id: 'parent',
+                    payload: expect.objectContaining({
+                        childTasksComplete: false,
+                        workflowState: 'in_progress',
+                        isCompleted: false,
+                    }),
+                }),
+            ])
+        );
     });
 
     it('unchecking a child clears completion metadata and bubbles childTasksComplete=false to ancestors', () => {
@@ -319,7 +335,13 @@ describe('task-scheduler date logic', () => {
             expect.objectContaining({
                 entity: 'tasks',
                 id: 'parent',
-                payload: { childTasksComplete: false },
+                payload: expect.objectContaining({
+                    childTasksComplete: false,
+                    workflowState: 'not_started',
+                    isCompleted: false,
+                    completedAt: null,
+                    completedOnDate: null,
+                }),
             }),
         ]));
     });

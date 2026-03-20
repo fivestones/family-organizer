@@ -4,6 +4,7 @@
 import { getNextChoreOccurrence } from '@/lib/chore-schedule';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 import {
+    getDerivedParentTaskWorkflowState,
     getTaskLastActiveState,
     getTaskParentId,
     getTaskWorkflowState,
@@ -201,6 +202,8 @@ function syncAncestorChildCompletionState(params: {
     taskMap: Map<string, TaskUpdateTaskLike>;
     transactions: any[];
     startingTaskId: string;
+    now: Date;
+    selectedDateKey: string;
 }) {
     let currentTask = params.taskMap.get(params.startingTaskId);
     let parentId = currentTask ? getTaskParentId(currentTask) : undefined;
@@ -211,13 +214,52 @@ function syncAncestorChildCompletionState(params: {
         if (!parent) break;
 
         const children = Array.from(params.taskMap.values()).filter((task) => getTaskParentId(task) === parentId);
-        const allChildrenFinished = children.every((child) => isTaskDone(child) && child.childTasksComplete !== false);
+        const allChildrenFinished = children.length > 0 && children.every((child) => isTaskDone(child) && child.childTasksComplete !== false);
+        const nextParentState = getDerivedParentTaskWorkflowState(children);
+        const currentParentState = getTaskWorkflowState(parent);
+        const previousActiveState = getTaskLastActiveState(parent);
+        const nextLastActiveState =
+            nextParentState === 'not_started' || nextParentState === 'in_progress' ? nextParentState : previousActiveState;
+        const nextIsCompleted = nextParentState === 'done';
+        const nextCompletedAt = nextIsCompleted
+            ? currentParentState === 'done'
+                ? parent.completedAt || null
+                : params.now
+            : null;
+        const nextCompletedOnDate = nextIsCompleted
+            ? currentParentState === 'done'
+                ? parent.completedOnDate || null
+                : params.selectedDateKey
+            : null;
 
-        if (parent.childTasksComplete !== allChildrenFinished) {
-            parent.childTasksComplete = allChildrenFinished;
+        const shouldUpdateParent =
+            parent.childTasksComplete !== allChildrenFinished ||
+            getTaskWorkflowState(parent) !== nextParentState ||
+            Boolean(parent.isCompleted) !== nextIsCompleted ||
+            getTaskLastActiveState(parent) !== nextLastActiveState ||
+            (parent.deferredUntilDate || null) !== null ||
+            (parent.completedOnDate || null) !== nextCompletedOnDate ||
+            (!nextIsCompleted && parent.completedAt != null) ||
+            (nextIsCompleted && currentParentState !== 'done');
+
+        parent.childTasksComplete = allChildrenFinished;
+        parent.workflowState = nextParentState;
+        parent.lastActiveState = nextLastActiveState;
+        parent.deferredUntilDate = null;
+        parent.isCompleted = nextIsCompleted;
+        parent.completedAt = nextCompletedAt;
+        parent.completedOnDate = nextCompletedOnDate;
+
+        if (shouldUpdateParent) {
             params.transactions.push(
                 params.tx.tasks[parent.id].update({
                     childTasksComplete: allChildrenFinished,
+                    workflowState: nextParentState,
+                    lastActiveState: nextLastActiveState,
+                    deferredUntilDate: null,
+                    isCompleted: nextIsCompleted,
+                    completedAt: nextCompletedAt,
+                    completedOnDate: nextCompletedOnDate,
                 })
             );
         }
@@ -455,6 +497,8 @@ export function buildTaskUpdateTransactions(params: BuildTaskUpdateTransactionsP
         taskMap,
         transactions,
         startingTaskId: params.taskId,
+        now,
+        selectedDateKey: params.selectedDateKey,
     });
 
     return { transactions, updateId };

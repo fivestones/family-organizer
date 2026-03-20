@@ -83,6 +83,58 @@ export function getTaskWorkflowState(task: Pick<TaskProgressTaskLike, 'workflowS
     return task?.isCompleted ? 'done' : 'not_started';
 }
 
+export function getDerivedParentTaskWorkflowState(
+    children: Array<Pick<TaskProgressTaskLike, 'workflowState' | 'isCompleted'> | null | undefined>
+): TaskWorkflowState {
+    const childStates = children.map((child) => getTaskWorkflowState(child));
+
+    if (childStates.length === 0) {
+        return 'not_started';
+    }
+
+    if (childStates.every((state) => state === 'done')) {
+        return 'done';
+    }
+
+    if (childStates.every((state) => state === 'blocked')) {
+        return 'blocked';
+    }
+
+    if (childStates.every((state) => state === 'skipped')) {
+        return 'skipped';
+    }
+
+    if (childStates.every((state) => state === 'blocked' || state === 'skipped')) {
+        return 'blocked';
+    }
+
+    if (childStates.includes('blocked')) {
+        return 'blocked';
+    }
+
+    if (childStates.includes('skipped')) {
+        return 'skipped';
+    }
+
+    if (childStates.every((state) => state === 'done' || state === 'needs_review')) {
+        return childStates.includes('needs_review') ? 'needs_review' : 'done';
+    }
+
+    if (childStates.every((state) => state === 'not_started')) {
+        return 'not_started';
+    }
+
+    if (childStates.includes('in_progress')) {
+        return 'in_progress';
+    }
+
+    if (childStates.some((state) => state === 'done' || state === 'needs_review')) {
+        return 'in_progress';
+    }
+
+    return 'not_started';
+}
+
 export function getTaskLastActiveState(task: Pick<TaskProgressTaskLike, 'lastActiveState' | 'workflowState' | 'isCompleted'> | null | undefined): TaskActiveState {
     if (isTaskActiveState(task?.lastActiveState)) {
         return task.lastActiveState;
