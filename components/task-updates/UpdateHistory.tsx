@@ -59,7 +59,15 @@ function getToneClass(state: string | null | undefined): string {
 
 export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) => {
     const nonDraftUpdates = (updates || []).filter((u) => !u.isDraft);
-    const sorted = sortTaskUpdates(nonDraftUpdates);
+    // Exclude updates that are replies — they'll be rendered threaded under their parent
+    const topLevelUpdates = nonDraftUpdates.filter((u) => {
+        const replyTo = u.replyTo;
+        if (!replyTo) return true;
+        // has-one link may be an object or a 1-element array
+        const resolved = Array.isArray(replyTo) ? replyTo[0] : replyTo;
+        return !resolved?.id;
+    });
+    const sorted = sortTaskUpdates(topLevelUpdates);
     const visible = limit ? sorted.slice(0, limit) : sorted;
 
     if (visible.length === 0) {
@@ -186,6 +194,41 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
                                     }))}
                                     responsive
                                 />
+                            </div>
+                        )}
+
+                        {/* Threaded replies (feedback on this update) */}
+                        {entry.replies && entry.replies.length > 0 && (
+                            <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                                {[...entry.replies]
+                                    .filter((r) => !r.isDraft && r.note?.trim())
+                                    .sort((a, b) => {
+                                        const tA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
+                                        const tB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
+                                        return (tA as number) - (tB as number);
+                                    })
+                                    .map((reply) => {
+                                        const replyActorName = getTaskUpdateActorName(reply);
+                                        const replyTimestamp = formatTimestamp(reply.createdAt);
+                                        return (
+                                            <div
+                                                key={reply.id}
+                                                className="rounded-lg border-l-2 border-indigo-300 bg-indigo-50/50 py-2 pl-3 pr-2"
+                                            >
+                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+                                                    {replyActorName && (
+                                                        <span className="font-medium text-slate-700">
+                                                            {replyActorName}
+                                                        </span>
+                                                    )}
+                                                    <span className="text-slate-400">{replyTimestamp}</span>
+                                                </div>
+                                                <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+                                                    {reply.note}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                             </div>
                         )}
                     </div>
