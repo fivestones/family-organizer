@@ -275,6 +275,7 @@ function ChoreList({
             files?: File[];
             restoreTiming?: 'now' | 'next_scheduled' | null;
             responseFieldValues?: ResponseFieldValueInput[];
+            replyToUpdateId?: string | null;
         },
         allTasks: Task[],
         chore: any,
@@ -308,6 +309,7 @@ function ChoreList({
                 referenceDate: safeSelectedDate,
                 attachments: uploadedAttachments,
                 responseFieldValues: input.responseFieldValues,
+                replyToUpdateId: input.replyToUpdateId,
             });
 
             if (transactions.length === 0) return;

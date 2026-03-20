@@ -34,6 +34,7 @@ export interface TaskChecklistUpdateInput {
     files?: File[];
     restoreTiming?: TaskRestoreTiming | null;
     responseFieldValues?: ResponseFieldValueInput[];
+    replyToUpdateId?: string | null;
 }
 
 interface Props {
@@ -1175,6 +1176,9 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                         variant="full"
                                                         canEdit={canWriteTaskProgress}
                                                         disabled={isReadOnly}
+                                                        isParentReviewer={isParentReviewer}
+                                                        ownerName={detailContext?.ownerName}
+                                                        gradeTypes={gradeTypes}
                                                         onFileUpload={handleResponseFileUpload}
                                                         onSubmit={async (submission) => {
                                                             setIsSubmittingComposer(true);
@@ -1185,6 +1189,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                                     responseFieldValues: submission.responseFieldValues,
                                                                     files: composerFiles,
                                                                     restoreTiming: composerRestoreTiming,
+                                                                    replyToUpdateId: submission.replyToUpdateId,
                                                                 });
                                                                 closeComposer();
                                                             } finally {
