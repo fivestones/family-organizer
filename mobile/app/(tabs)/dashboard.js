@@ -937,7 +937,7 @@ export default function DashboardTab() {
                                 return (
                                   <View key={`parent-${row.task.id}`} style={[styles.qRow, rowIndex > 0 && styles.qRowBorder]}>
                                     <Ionicons name="folder-outline" size={14} color={colors.inkMuted} />
-                                    <Text style={styles.qParentTitle} numberOfLines={1}>{row.task.title || 'Group'}</Text>
+                                    <Text style={styles.qParentTitle} numberOfLines={1}>{row.task.text || 'Group'}</Text>
                                   </View>
                                 );
                               }
@@ -964,7 +964,7 @@ export default function DashboardTab() {
                                 >
                                   <View style={styles.qRowCopy}>
                                     <View style={styles.qTaskTitleRow}>
-                                      <Text style={styles.qRowTitle} numberOfLines={1}>{row.task.title || 'Untitled'}</Text>
+                                      <Text style={styles.qRowTitle} numberOfLines={1}>{row.task.text || 'Untitled'}</Text>
                                       <View style={[styles.qStateChip, { backgroundColor: withAlpha(toneColor, 0.12), borderColor: withAlpha(toneColor, 0.3) }]}>
                                         <Text style={[styles.qStateText, { color: toneColor }]}>{formatTaskStateLabel(workflowState)}</Text>
                                       </View>
@@ -1346,7 +1346,7 @@ const createStyles = (colors, isDark) => {
       gap: spacing.sm,
     },
     quadrantCard: {
-      flex: 3,
+      flex: 1,
       backgroundColor: isDark ? colors.panel : colors.panel,
       borderRadius: radii.lg,
       borderWidth: isDark ? 1 : 0,
@@ -1355,7 +1355,9 @@ const createStyles = (colors, isDark) => {
       ...(isDark ? {} : shadows.card),
     },
     quadrantCardBottom: {
-      flex: 2,
+      flex: 0,
+      flexBasis: 180,
+      minHeight: 140,
     },
     quadrantHeader: {
       flexDirection: 'row',
