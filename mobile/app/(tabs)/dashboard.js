@@ -766,13 +766,13 @@ export default function DashboardTab() {
               <View style={styles.quadrantCard}>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() => router.push(‘/chores’)}
+                  onPress={() => router.push('/chores')}
                   style={styles.quadrantHeader}
                 >
                   <Ionicons name="checkmark-circle-outline" size={16} color={colors.accentChores} />
                   <Text style={styles.quadrantTitle}>Chores</Text>
                   <Text style={styles.quadrantMeta}>
-                    {incompleteChores.length} left{completedChores.length > 0 ? ` · ${completedChores.length} done` : ‘’}
+                    {incompleteChores.length} left{completedChores.length > 0 ? ` · ${completedChores.length} done` : ''}
                   </Text>
                   <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
                 </Pressable>
@@ -797,20 +797,20 @@ export default function DashboardTab() {
                             <Pressable
                               testID={`q-chore-toggle-${row.chore.id}`}
                               accessibilityRole="button"
-                              accessibilityLabel={`${row.isDone ? ‘Undo’ : ‘Complete’} ${row.chore.title}`}
+                              accessibilityLabel={`${row.isDone ? 'Undo' : 'Complete'} ${row.chore.title}`}
                               disabled={isBusy || blockedByUpForGrabs}
                               onPress={() => { void handleToggleCompletion(row.chore, viewedMember.id); }}
                               style={[styles.qCheck, row.isDone && styles.qCheckDone, (isBusy || blockedByUpForGrabs) && styles.qCheckLocked]}
                             >
                               <Ionicons
-                                name={row.isDone ? ‘checkmark-circle’ : ‘ellipse-outline’}
+                                name={row.isDone ? 'checkmark-circle' : 'ellipse-outline'}
                                 size={20}
                                 color={isBusy ? colors.inkMuted : blockedByUpForGrabs ? colors.inkMuted : row.isDone ? colors.success : colors.accentChores}
                               />
                             </Pressable>
                             <View style={styles.qRowCopy}>
                               <Text style={[styles.qRowTitle, row.isDone && styles.qRowTitleDone]} numberOfLines={1}>
-                                {row.chore.title || ‘Untitled’}
+                                {row.chore.title || 'Untitled'}
                               </Text>
                               {row.chore.isUpForGrabs ? (
                                 <Text style={styles.qRowMeta}>Up for grabs</Text>
@@ -837,7 +837,7 @@ export default function DashboardTab() {
                                   <Ionicons name="checkmark-circle" size={20} color={colors.success} />
                                 </Pressable>
                                 <Text style={[styles.qRowTitle, styles.qRowTitleDone]} numberOfLines={1}>
-                                  {row.chore.title || ‘Untitled’}
+                                  {row.chore.title || 'Untitled'}
                                 </Text>
                               </View>
                             );
@@ -853,7 +853,7 @@ export default function DashboardTab() {
               <View style={[styles.quadrantCard, styles.quadrantCardBottom]}>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() => router.push(‘/messages’)}
+                  onPress={() => router.push('/messages')}
                   style={styles.quadrantHeader}
                 >
                   <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.accentDashboard} />
@@ -871,7 +871,7 @@ export default function DashboardTab() {
                       <Pressable
                         key={`q-thread-${thread.id}`}
                         accessibilityRole="button"
-                        onPress={() => router.push({ pathname: ‘/messages’, params: { threadId: thread.id } })}
+                        onPress={() => router.push({ pathname: '/messages', params: { threadId: thread.id } })}
                         style={[styles.qRow, index > 0 && styles.qRowBorder]}
                       >
                         <View style={styles.qRowCopy}>
@@ -917,39 +917,39 @@ export default function DashboardTab() {
                         const parentTask = firstRef(task.parentTask);
                         if (parentTask && !parentIdsSeen.has(parentTask.id)) {
                           parentIdsSeen.add(parentTask.id);
-                          taskRows.push({ type: ‘parent’, task: parentTask, isSubtask: false });
+                          taskRows.push({ type: 'parent', task: parentTask, isSubtask: false });
                         }
-                        taskRows.push({ type: ‘task’, task, isSubtask: !!parentTask });
+                        taskRows.push({ type: 'task', task, isSubtask: !!parentTask });
                       }
 
                       return (
                         <View key={`q-series-${card.id}`}>
                           {/* Series name header */}
                           <View style={[styles.qSeriesHeader, cardIndex > 0 && styles.qRowBorder]}>
-                            <Text style={styles.qSeriesName} numberOfLines={1}>{card.series.name || ‘Untitled series’}</Text>
+                            <Text style={styles.qSeriesName} numberOfLines={1}>{card.series.name || 'Untitled series'}</Text>
                             <Text style={styles.qSeriesCount}>{card.incompleteCount} left</Text>
                           </View>
                           {taskRows.length === 0 ? (
                             <Text style={styles.qEmptyInline}>No scheduled tasks</Text>
                           ) : (
                             taskRows.map((row, rowIndex) => {
-                              if (row.type === ‘parent’) {
+                              if (row.type === 'parent') {
                                 return (
                                   <View key={`parent-${row.task.id}`} style={[styles.qRow, rowIndex > 0 && styles.qRowBorder]}>
                                     <Ionicons name="folder-outline" size={14} color={colors.inkMuted} />
-                                    <Text style={styles.qParentTitle} numberOfLines={1}>{row.task.title || ‘Group’}</Text>
+                                    <Text style={styles.qParentTitle} numberOfLines={1}>{row.task.title || 'Group'}</Text>
                                   </View>
                                 );
                               }
 
                               const workflowState = getTaskWorkflowState(row.task);
                               const latestUpdate = getLatestTaskUpdate(row.task);
-                              const note = String(latestUpdate?.note || ‘’).trim();
+                              const note = String(latestUpdate?.note || '').trim();
                               const toneColor =
-                                workflowState === ‘done’ ? colors.success
-                                : workflowState === ‘needs_review’ ? colors.accentDashboard
-                                : workflowState === ‘blocked’ ? colors.warning
-                                : workflowState === ‘skipped’ ? colors.inkMuted
+                                workflowState === 'done' ? colors.success
+                                : workflowState === 'needs_review' ? colors.accentDashboard
+                                : workflowState === 'blocked' ? colors.warning
+                                : workflowState === 'skipped' ? colors.inkMuted
                                 : colors.accentCalendar;
 
                               return (
@@ -957,14 +957,14 @@ export default function DashboardTab() {
                                   key={row.task.id || `task-${card.id}-${rowIndex}`}
                                   accessibilityRole="button"
                                   onPress={() => router.push({
-                                    pathname: ‘/task-series/series’,
-                                    params: { seriesId: card.series.id, choreId: card.chore?.id || ‘’, date: selectedDateKey, memberId: viewedMember?.id || ‘’ },
+                                    pathname: '/task-series/series',
+                                    params: { seriesId: card.series.id, choreId: card.chore?.id || '', date: selectedDateKey, memberId: viewedMember?.id || '' },
                                   })}
                                   style={[styles.qRow, rowIndex > 0 && styles.qRowBorder, row.isSubtask && styles.qSubtaskIndent]}
                                 >
                                   <View style={styles.qRowCopy}>
                                     <View style={styles.qTaskTitleRow}>
-                                      <Text style={styles.qRowTitle} numberOfLines={1}>{row.task.title || ‘Untitled’}</Text>
+                                      <Text style={styles.qRowTitle} numberOfLines={1}>{row.task.title || 'Untitled'}</Text>
                                       <View style={[styles.qStateChip, { backgroundColor: withAlpha(toneColor, 0.12), borderColor: withAlpha(toneColor, 0.3) }]}>
                                         <Text style={[styles.qStateText, { color: toneColor }]}>{formatTaskStateLabel(workflowState)}</Text>
                                       </View>
@@ -986,13 +986,13 @@ export default function DashboardTab() {
               <View style={[styles.quadrantCard, styles.quadrantCardBottom]}>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() => router.push(‘/calendar’)}
+                  onPress={() => router.push('/calendar')}
                   style={styles.quadrantHeader}
                 >
                   <Ionicons name="calendar-outline" size={16} color={colors.accentCalendar} />
                   <Text style={styles.quadrantTitle}>Calendar</Text>
                   {calendarEvents.length > 0 ? (
-                    <Text style={styles.quadrantMeta}>{calendarEvents.length} event{calendarEvents.length === 1 ? ‘’ : ‘s’}</Text>
+                    <Text style={styles.quadrantMeta}>{calendarEvents.length} event{calendarEvents.length === 1 ? '' : 's'}</Text>
                   ) : null}
                   <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
                 </Pressable>
@@ -1004,12 +1004,12 @@ export default function DashboardTab() {
                       <Pressable
                         key={`q-cal-${event.id}`}
                         accessibilityRole="button"
-                        onPress={() => router.push(‘/calendar’)}
+                        onPress={() => router.push('/calendar')}
                         style={[styles.qRow, index > 0 && styles.qRowBorder]}
                       >
                         <View style={styles.qRowCopy}>
                           <Text style={styles.qRowTitle} numberOfLines={1}>{event.title}</Text>
-                          <Text style={styles.qRowMeta}>{event.timeLabel}{event.isFamilyWide ? ‘ · Family’ : ‘’}</Text>
+                          <Text style={styles.qRowMeta}>{event.timeLabel}{event.isFamilyWide ? ' · Family' : ''}</Text>
                         </View>
                       </Pressable>
                     ))
