@@ -43,14 +43,6 @@ const MENU_ITEMS = [
     parentOnly: true,
   },
   {
-    key: 'settings',
-    title: 'Settings',
-    description: 'Local appearance plus shared currency and unit definitions.',
-    status: 'Live',
-    href: '/more/settings',
-    parentOnly: false,
-  },
-  {
     key: 'devTools',
     title: 'Dev Tools',
     description: 'Session details and debug helpers for simulator and device testing.',
