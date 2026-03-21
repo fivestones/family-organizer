@@ -673,89 +673,86 @@ export default function DashboardTab() {
     <>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.root}>
-          {/* Top row: avatar + name + badges (left) | date (right) */}
+          {/* Top row: [avatar] [Name's Day] [badges] --- [date] */}
           <View style={styles.topBar}>
-            <View style={styles.topBarLeft}>
-              <View style={styles.topBarNameRow}>
+            <Pressable
+              testID="dashboard-member-switcher"
+              accessibilityRole="button"
+              accessibilityLabel={`Viewing ${viewedMember?.name || 'family member'}. Tap to switch.`}
+              onPress={() => setMemberDropdownVisible(true)}
+              style={styles.topBarMemberTouchable}
+            >
+              <AvatarPhotoImage
+                photoUrls={viewedMember?.photoUrls}
+                preferredSize="320"
+                style={styles.topBarAvatar}
+                fallback={
+                  <View style={styles.topBarAvatarFallback}>
+                    <Text style={styles.topBarAvatarFallbackText}>{createInitials(viewedMember?.name)}</Text>
+                  </View>
+                }
+              />
+              <Text style={styles.topBarTitle} numberOfLines={1}>
+                {formatPossessiveLabel(viewedMember?.name, 'Day')}
+              </Text>
+            </Pressable>
+
+            {/* Badge pills */}
+            <View style={styles.statsRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`XP: ${viewedXp.current} of ${viewedXp.possible}`}
+                onPress={() => handleStatPress('xp')}
+                style={styles.statPill}
+              >
+                <Ionicons name="sparkles" size={14} color={colors.warning} />
+                <Text style={styles.statValue}>{viewedXp.current}/{viewedXp.possible}</Text>
+                <Text style={styles.statLabel}>XP</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${incompleteChores.length} chores left`}
+                onPress={() => handleStatPress('chores')}
+                style={styles.statPill}
+              >
+                <Ionicons name="checkmark-circle-outline" size={14} color={colors.accentChores} />
+                <Text style={styles.statValue}>{incompleteChores.length}</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${unreadThreads.length} unread messages`}
+                onPress={() => handleStatPress('messages')}
+                style={styles.statPill}
+              >
+                <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.accentDashboard} />
+                <Text style={styles.statValue}>{unreadThreads.length}</Text>
+              </Pressable>
+
+              {activeTaskCount > 0 ? (
                 <Pressable
-                  testID="dashboard-member-switcher"
                   accessibilityRole="button"
-                  accessibilityLabel={`Viewing ${viewedMember?.name || 'family member'}. Tap to switch.`}
-                  onPress={() => setMemberDropdownVisible(true)}
-                  style={styles.topBarMemberTouchable}
+                  accessibilityLabel={`${activeTaskCount} tasks to do`}
+                  onPress={() => handleStatPress('tasks')}
+                  style={styles.statPill}
                 >
-                  <AvatarPhotoImage
-                    photoUrls={viewedMember?.photoUrls}
-                    preferredSize="320"
-                    style={styles.topBarAvatar}
-                    fallback={
-                      <View style={styles.topBarAvatarFallback}>
-                        <Text style={styles.topBarAvatarFallbackText}>{createInitials(viewedMember?.name)}</Text>
-                      </View>
-                    }
-                  />
-                  <Text style={styles.topBarTitle} numberOfLines={1}>
-                    {formatPossessiveLabel(viewedMember?.name, 'Day')}
-                  </Text>
+                  <Ionicons name="list-outline" size={14} color={colors.accentCalendar} />
+                  <Text style={styles.statValue}>{activeTaskCount}</Text>
                 </Pressable>
+              ) : null}
 
-                {/* Badge pills on the same row as the name */}
-                <View style={styles.statsRow}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`XP: ${viewedXp.current} of ${viewedXp.possible}`}
-                    onPress={() => handleStatPress('xp')}
-                    style={styles.statPill}
-                  >
-                    <Ionicons name="sparkles" size={12} color={colors.warning} />
-                    <Text style={styles.statValue}>{viewedXp.current}/{viewedXp.possible}</Text>
-                  </Pressable>
-
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`${incompleteChores.length} chores left`}
-                    onPress={() => handleStatPress('chores')}
-                    style={styles.statPill}
-                  >
-                    <Ionicons name="checkmark-circle-outline" size={12} color={colors.accentChores} />
-                    <Text style={styles.statValue}>{incompleteChores.length}</Text>
-                  </Pressable>
-
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`${unreadThreads.length} unread messages`}
-                    onPress={() => handleStatPress('messages')}
-                    style={styles.statPill}
-                  >
-                    <Ionicons name="chatbubble-ellipses-outline" size={12} color={colors.accentDashboard} />
-                    <Text style={styles.statValue}>{unreadThreads.length}</Text>
-                  </Pressable>
-
-                  {activeTaskCount > 0 ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`${activeTaskCount} tasks to do`}
-                      onPress={() => handleStatPress('tasks')}
-                      style={styles.statPill}
-                    >
-                      <Ionicons name="list-outline" size={12} color={colors.accentCalendar} />
-                      <Text style={styles.statValue}>{activeTaskCount}</Text>
-                    </Pressable>
-                  ) : null}
-
-                  {newFeedbackCount > 0 ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`${newFeedbackCount} responses with new feedback`}
-                      onPress={() => handleStatPress('feedback')}
-                      style={styles.statPill}
-                    >
-                      <Ionicons name="chatbox-outline" size={12} color={colors.accentMore} />
-                      <Text style={styles.statValue}>{newFeedbackCount}</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
+              {newFeedbackCount > 0 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${newFeedbackCount} responses with new feedback`}
+                  onPress={() => handleStatPress('feedback')}
+                  style={styles.statPill}
+                >
+                  <Ionicons name="chatbox-outline" size={14} color={colors.accentMore} />
+                  <Text style={styles.statValue}>{newFeedbackCount}</Text>
+                </Pressable>
+              ) : null}
             </View>
 
             <Pressable
@@ -1262,16 +1259,6 @@ const createStyles = (colors, isDark) => {
       backgroundColor: colors.canvas,
       gap: spacing.sm,
     },
-    topBarLeft: {
-      flex: 1,
-      minWidth: 0,
-    },
-    topBarNameRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      flexWrap: 'wrap',
-      gap: spacing.xs,
-    },
     topBarMemberTouchable: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1329,26 +1316,34 @@ const createStyles = (colors, isDark) => {
       lineHeight: 18,
     },
 
-    // ── Badge pills (inline with name row) ──
+    // ── Badge pills (on top row between name and date) ──
     statsRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       alignItems: 'center',
-      gap: 4,
+      gap: spacing.xs,
+      flex: 1,
     },
     statPill: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 3,
-      paddingHorizontal: 7,
-      paddingVertical: 4,
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
       borderRadius: radii.pill,
-      backgroundColor: withAlpha(colors.canvasText, 0.06),
+      backgroundColor: withAlpha(colors.canvasText, 0.08),
+      borderWidth: 1,
+      borderColor: withAlpha(colors.canvasText, 0.06),
     },
     statValue: {
       color: colors.canvasText,
-      fontSize: 12,
+      fontSize: 14,
       fontWeight: '800',
+    },
+    statLabel: {
+      color: colors.canvasTextMuted,
+      fontSize: 12,
+      fontWeight: '600',
     },
 
     // ── Dropdown overlays ──
