@@ -15,6 +15,7 @@ import { radii, spacing, withAlpha } from '../src/theme/tokens';
 import { useAppSession } from '../src/providers/AppProviders';
 import { getFamilyMembersRoster } from '../src/lib/api-client';
 import { clearPendingParentAction, getPendingParentAction } from '../src/lib/session-prefs';
+import { deriveDeviceAuthIssueFromError } from '../src/lib/device-auth-issue';
 import { useAppTheme } from '../src/theme/ThemeProvider';
 import { useBootstrap } from './_layout';
 
@@ -53,6 +54,7 @@ export default function LockScreen() {
     bootstrapStatus,
     bootstrapError,
     retryBootstrap,
+    clearDeviceSession,
     principalType,
     canUseCachedParentPrincipal,
     isParentSessionSharedDevice,
@@ -125,6 +127,12 @@ export default function LockScreen() {
       })
       .catch((error) => {
         if (!cancelled) {
+          if (error?.status === 401) {
+            void clearDeviceSession({
+              issue: deriveDeviceAuthIssueFromError(error, 'lock_family_roster'),
+            });
+            return;
+          }
           setFamilyMembersError(error);
           setFamilyMembers([]);
         }
@@ -138,7 +146,7 @@ export default function LockScreen() {
     return () => {
       cancelled = true;
     };
-  }, [activationRequired, bootstrapStatus, instantReady, isAuthenticated]);
+  }, [activationRequired, bootstrapStatus, clearDeviceSession, instantReady, isAuthenticated]);
 
   const pendingRedirect = activationRequired
     ? '/activate'

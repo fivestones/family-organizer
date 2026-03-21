@@ -4,6 +4,7 @@ import { getDeviceSessionToken } from './device-session-store';
 
 const STORAGE_KEY = 'familyOrganizer.serverUrl';
 const CONFIG_CACHE_KEY = 'familyOrganizer.serverConfig';
+const CONFIG_FETCH_TIMEOUT_MS = 7000;
 
 // Module-level cache. Preloaded before any provider mounts.
 let _cachedUrl = null;
@@ -95,9 +96,19 @@ export async function fetchServerConfig() {
   const serverUrl = getServerUrl();
   if (serverUrl) {
     const token = await getDeviceSessionToken();
+    let timeoutId = null;
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const response = await fetch(`${serverUrl}/api/mobile/config`, { headers });
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      timeoutId = controller
+        ? setTimeout(() => {
+            controller.abort();
+          }, CONFIG_FETCH_TIMEOUT_MS)
+        : null;
+      const response = await fetch(`${serverUrl}/api/mobile/config`, {
+        headers,
+        ...(controller ? { signal: controller.signal } : {}),
+      });
       if (response.ok) {
         const config = await response.json();
         _cachedConfig = config;
@@ -105,6 +116,10 @@ export async function fetchServerConfig() {
       }
     } catch {
       // Network failure — use cached config if available
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 

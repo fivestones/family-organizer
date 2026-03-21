@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { AppProviders } from '../src/providers/AppProviders';
 import { ThemeProvider, useAppTheme } from '../src/theme/ThemeProvider';
 import { preloadServerUrl, fetchServerConfig } from '../src/lib/server-url';
@@ -14,10 +15,12 @@ export function useBootstrap() {
 
 function ServerUrlGate({ children }) {
   const [ready, setReady] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState(null);
   // Incrementing the key forces AppProviders to fully remount after re-bootstrap
   const [mountKey, setMountKey] = useState(0);
 
   const runBootstrap = useCallback(async () => {
+    setBootstrapError(null);
     await preloadServerUrl();
     const config = await fetchServerConfig();
     if (config?.instantAppId) {
@@ -26,24 +29,71 @@ function ServerUrlGate({ children }) {
         apiURI: config.instantApiURI,
         websocketURI: config.instantWebsocketURI,
       });
+      return;
     }
+    throw new Error('Could not load the mobile server configuration.');
   }, []);
 
   useEffect(() => {
-    runBootstrap().then(() => setReady(true));
+    let cancelled = false;
+
+    void runBootstrap()
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn('[ServerUrlGate] Bootstrap failed; continuing with stub providers.', error);
+          setBootstrapError(error);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setReady(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [runBootstrap]);
 
   const rebootstrap = useCallback(async () => {
-    await runBootstrap();
-    setMountKey((k) => k + 1);
+    setReady(false);
+    try {
+      await runBootstrap();
+      setMountKey((k) => k + 1);
+    } catch (error) {
+      console.warn('[ServerUrlGate] Rebootstrap failed.', error);
+      setBootstrapError(error);
+      throw error;
+    } finally {
+      setReady(true);
+    }
   }, [runBootstrap]);
 
-  if (!ready) return null;
+  if (!ready) {
+    return <BootstrapSplash />;
+  }
 
   return (
-    <BootstrapContext.Provider value={{ rebootstrap }}>
+    <BootstrapContext.Provider value={{ rebootstrap, bootstrapError }}>
       <React.Fragment key={mountKey}>{children}</React.Fragment>
     </BootstrapContext.Provider>
+  );
+}
+
+function BootstrapSplash() {
+  const { colors } = useAppTheme();
+
+  return (
+    <>
+      <StatusBar style="dark" backgroundColor={colors.bg} />
+      <View style={{ flex: 1, backgroundColor: colors.canvasStrong, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 }}>
+        <ActivityIndicator size="large" color={colors.canvasText} />
+        <Text style={{ color: colors.canvasText, fontSize: 18, fontWeight: '800', textAlign: 'center' }}>Preparing Family Organizer</Text>
+        <Text style={{ color: colors.canvasTextMuted, textAlign: 'center', lineHeight: 20 }}>
+          Connecting this device to the saved family server.
+        </Text>
+      </View>
+    </>
   );
 }
 
