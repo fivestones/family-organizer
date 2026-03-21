@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { CalendarDays, CheckCircle2, ListTodo, Sparkles, Users, User, Wallet2 } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ListTodo, Sparkles, Users, Wallet2 } from 'lucide-react';
 import { db } from '@/lib/db';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type UnitDefinition } from '@/lib/currency-utils';
@@ -31,8 +31,7 @@ import {
     type EnvelopeLike,
 } from '@/lib/dashboard-utils';
 import PersonalDashboard from '@/components/dashboard/PersonalDashboard';
-
-const DASHBOARD_VIEW_KEY = 'dashboard-view-mode';
+import { useDashboardViewMode } from '@/lib/dashboard-view-mode';
 
 const OVERDUE_LOOKBACK_DAYS = 7;
 const CHORE_LOOKAHEAD_DAYS = 14;
@@ -124,28 +123,16 @@ type MemberSnapshot = {
 };
 
 export default function WebFamilyDashboard() {
-    const [viewMode, setViewMode] = useState<'personal' | 'family'>('personal');
-
-    useEffect(() => {
-        try {
-            const saved = localStorage.getItem(DASHBOARD_VIEW_KEY);
-            if (saved === 'family' || saved === 'personal') setViewMode(saved);
-        } catch { /* ignore */ }
-    }, []);
-
-    const toggleView = (mode: 'personal' | 'family') => {
-        setViewMode(mode);
-        try { localStorage.setItem(DASHBOARD_VIEW_KEY, mode); } catch { /* ignore */ }
-    };
+    const [viewMode] = useDashboardViewMode();
 
     if (viewMode === 'personal') {
-        return <PersonalDashboard onSwitchToFamily={() => toggleView('family')} />;
+        return <PersonalDashboard />;
     }
 
-    return <FamilyOverviewDashboard onSwitchToPersonal={() => toggleView('personal')} />;
+    return <FamilyOverviewDashboard />;
 }
 
-function FamilyOverviewDashboard({ onSwitchToPersonal }: { onSwitchToPersonal: () => void }) {
+function FamilyOverviewDashboard() {
     const { data, isLoading, error } = db.useQuery({
         familyMembers: {
             $: { order: { order: 'asc' } },
@@ -474,13 +461,6 @@ function FamilyOverviewDashboard({ onSwitchToPersonal }: { onSwitchToPersonal: (
                             <div>
                                 <div className="flex items-center gap-2">
                                     <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Family Dashboard</p>
-                                    <button
-                                        onClick={onSwitchToPersonal}
-                                        className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100 transition-colors"
-                                    >
-                                        <User className="h-3 w-3" />
-                                        Personal
-                                    </button>
                                 </div>
                                 <h1 className="text-2xl font-semibold tracking-tight text-slate-900">What&apos;s Next</h1>
                                 <p className="text-xs text-slate-600">

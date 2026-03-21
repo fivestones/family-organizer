@@ -21,6 +21,7 @@ interface DayCalendarViewProps {
     anchorDate: Date;
     renderedDays: Date[];
     visibleDayCount: number;
+    bufferDays?: number;
     rowCount: number;
     hourHeight: number;
     fontScale: number;
@@ -570,6 +571,7 @@ export default function DayCalendarView({
     anchorDate,
     renderedDays,
     visibleDayCount,
+    bufferDays = DAY_VIEW_BUFFER_DAYS,
     rowCount,
     hourHeight,
     fontScale,
@@ -665,7 +667,7 @@ export default function DayCalendarView({
         if (viewports.length === 0 || dayWidth <= 0) return;
 
         suppressAnchorSyncRef.current = true;
-        const nextScrollLeft = DAY_VIEW_BUFFER_DAYS * dayWidth;
+        const nextScrollLeft = bufferDays * dayWidth;
         viewports.forEach((viewport) => {
             viewport.scrollLeft = nextScrollLeft;
         });
@@ -678,7 +680,7 @@ export default function DayCalendarView({
         window.requestAnimationFrame(() => {
             suppressAnchorSyncRef.current = false;
         });
-    }, [anchorDate, dayWidth, rowCount]);
+    }, [anchorDate, bufferDays, dayWidth, rowCount]);
 
     useLayoutEffect(() => {
         const nextTop = DAY_VIEW_DEFAULT_START_HOUR * effectiveHourHeight;

@@ -12,6 +12,7 @@ import { MessageNotificationBridge } from '@/components/messages/MessageNotifica
 import { SyncStatusBadge } from '@/components/SyncStatusBadge';
 import { PwaServiceWorkerRegistration } from '@/components/PwaServiceWorkerRegistration';
 import Link from 'next/link';
+import DashboardRouteViewPill from '@/components/dashboard/DashboardRouteViewPill';
 
 import NavbarDate from '@/components/NavbarDate';
 import { MainNav } from '@/components/MainNav';
@@ -139,6 +140,7 @@ export default function RootLayout({
                             </div>
                             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                                 <CalendarHeaderControls />
+                                <DashboardRouteViewPill />
                                 <SyncStatusBadge />
                                 <NavbarDate />
                                 <UserMenu />

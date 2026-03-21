@@ -157,6 +157,12 @@ interface CalendarProps {
     dayHeight?: number;
     eventFontScale?: number;
     commandBusEnabled?: boolean;
+    viewMode?: CalendarViewMode;
+    dayVisibleDays?: number;
+    dayRowCount?: number;
+    dayHourHeight?: number;
+    dayFontScale?: number;
+    dayBufferDays?: number;
 }
 
 interface MonthLabel {
@@ -1018,6 +1024,12 @@ const Calendar = ({
     dayHeight: controlledDayHeight,
     eventFontScale: controlledEventFontScale,
     commandBusEnabled,
+    viewMode: controlledViewMode,
+    dayVisibleDays: controlledDayVisibleDays,
+    dayRowCount: controlledDayRowCount,
+    dayHourHeight: controlledDayHourHeight,
+    dayFontScale: controlledDayFontScale,
+    dayBufferDays: controlledDayBufferDays,
 }: CalendarProps) => {
     // TODO: add displayInNepali = false, displayInRoman = true, can both be true and it will show them both
     // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
@@ -1072,6 +1084,10 @@ const Calendar = ({
         }
     });
     const [viewMode, setViewMode] = useState<CalendarViewMode>(() => {
+        if (controlledViewMode) {
+            return controlledViewMode;
+        }
+
         if (typeof window === 'undefined' || isMiniInfinite) {
             return 'monthly';
         }
@@ -1122,6 +1138,10 @@ const Calendar = ({
         [currentUser?.id]
     );
     const [dayVisibleDays, setDayVisibleDays] = useState<number>(() => {
+        if (typeof controlledDayVisibleDays === 'number') {
+            return clampCalendarDayVisibleDays(controlledDayVisibleDays);
+        }
+
         if (typeof window === 'undefined' || !commandsEnabled) {
             return CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT;
         }
@@ -1130,6 +1150,10 @@ const Calendar = ({
         return Number.isFinite(stored) ? clampCalendarDayVisibleDays(stored) : CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT;
     });
     const [dayRowCount, setDayRowCount] = useState<number>(() => {
+        if (typeof controlledDayRowCount === 'number') {
+            return clampCalendarDayRowCount(controlledDayRowCount);
+        }
+
         if (typeof window === 'undefined' || !commandsEnabled) {
             return CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT;
         }
@@ -1138,6 +1162,10 @@ const Calendar = ({
         return Number.isFinite(stored) ? clampCalendarDayRowCount(stored) : CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT;
     });
     const [dayHourHeight, setDayHourHeight] = useState<number>(() => {
+        if (typeof controlledDayHourHeight === 'number') {
+            return clampCalendarDayHourHeight(controlledDayHourHeight);
+        }
+
         if (typeof window === 'undefined' || !commandsEnabled) {
             return CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT;
         }
@@ -1146,6 +1174,10 @@ const Calendar = ({
         return Number.isFinite(stored) ? clampCalendarDayHourHeight(stored) : CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT;
     });
     const [dayFontScale, setDayFontScale] = useState<number>(() => {
+        if (typeof controlledDayFontScale === 'number') {
+            return clampCalendarDayFontScale(controlledDayFontScale);
+        }
+
         if (typeof window === 'undefined' || !commandsEnabled) {
             return CALENDAR_DAY_VIEW_FONT_SCALE_DEFAULT;
         }
@@ -1236,6 +1268,31 @@ const Calendar = ({
     const [dayAnchorDate, setDayAnchorDate] = useState<Date>(() => effectiveCurrentDate);
     const [dayViewVerticalResetKey, setDayViewVerticalResetKey] = useState(0);
     const [dayViewScrollRequest, setDayViewScrollRequest] = useState<{ nonce: number; dateKey: string; minute: number | null } | null>(null);
+
+    useEffect(() => {
+        if (!controlledViewMode) return;
+        setViewMode(controlledViewMode);
+    }, [controlledViewMode]);
+
+    useEffect(() => {
+        if (typeof controlledDayVisibleDays !== 'number') return;
+        setDayVisibleDays(clampCalendarDayVisibleDays(controlledDayVisibleDays));
+    }, [controlledDayVisibleDays]);
+
+    useEffect(() => {
+        if (typeof controlledDayRowCount !== 'number') return;
+        setDayRowCount(clampCalendarDayRowCount(controlledDayRowCount));
+    }, [controlledDayRowCount]);
+
+    useEffect(() => {
+        if (typeof controlledDayHourHeight !== 'number') return;
+        setDayHourHeight(clampCalendarDayHourHeight(controlledDayHourHeight));
+    }, [controlledDayHourHeight]);
+
+    useEffect(() => {
+        if (typeof controlledDayFontScale !== 'number') return;
+        setDayFontScale(clampCalendarDayFontScale(controlledDayFontScale));
+    }, [controlledDayFontScale]);
     const [dayViewDragPreview, setDayViewDragPreview] = useState<DayViewDragPreviewState | null>(null);
     const [agendaWindow, setAgendaWindow] = useState<CalendarRangeWindow>(() => {
         const today = new Date();
@@ -1536,15 +1593,15 @@ const Calendar = ({
         [scrollContainerHeight, scrollContainerWidth, yearLayoutReferenceMonths]
     );
     const dayRenderedStartDate = useMemo(
-        () => startOfDayDate(addDays(dayAnchorDate, -DAY_VIEW_BUFFER_DAYS)),
-        [dayAnchorDate]
+        () => startOfDayDate(addDays(dayAnchorDate, -(controlledDayBufferDays ?? DAY_VIEW_BUFFER_DAYS))),
+        [controlledDayBufferDays, dayAnchorDate]
     );
     const dayRenderedDays = useMemo(
         () =>
-            Array.from({ length: dayVisibleDays * dayRowCount + DAY_VIEW_BUFFER_DAYS * 2 }, (_unused, index) =>
+            Array.from({ length: dayVisibleDays * dayRowCount + (controlledDayBufferDays ?? DAY_VIEW_BUFFER_DAYS) * 2 }, (_unused, index) =>
                 addDays(dayRenderedStartDate, index)
             ),
-        [dayRenderedStartDate, dayRowCount, dayVisibleDays]
+        [controlledDayBufferDays, dayRenderedStartDate, dayRowCount, dayVisibleDays]
     );
     const dayRenderedEndDate = dayRenderedDays[dayRenderedDays.length - 1] ?? dayRenderedStartDate;
     const currentPeriodLabel = useMemo(() => {
@@ -5879,6 +5936,7 @@ const Calendar = ({
                                         anchorDate={dayAnchorDate}
                                         renderedDays={dayRenderedDays}
                                         visibleDayCount={dayVisibleDays}
+                                        bufferDays={controlledDayBufferDays ?? DAY_VIEW_BUFFER_DAYS}
                                         rowCount={dayRowCount}
                                         hourHeight={dayHourHeight}
                                         fontScale={dayFontScale}
