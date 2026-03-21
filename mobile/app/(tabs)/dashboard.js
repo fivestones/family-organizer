@@ -654,19 +654,26 @@ export default function DashboardTab() {
     const leftDesired = leftChars * CHAR_PX + CARD_PAD;
     const rightDesired = rightChars * CHAR_PX + CARD_PAD;
     if (leftDesired + rightDesired <= availW) {
-      // Both fit — split proportionally, biased toward 50/50
-      const raw = leftDesired / (leftDesired + rightDesired);
-      // Don't shift more than needed: clamp toward 0.5
-      return Math.max(MIN_COL_FRAC, Math.min(1 - MIN_COL_FRAC, raw));
+      // Both fit — only shift from 0.5 if one side actually needs it
+      // Give each side at least what it needs, keep rest centered
+      const leftMin = leftDesired / availW;
+      const rightMin = rightDesired / availW;
+      // Clamp to [leftMin, 1-rightMin], biased toward 0.5
+      return Math.max(leftMin, Math.min(1 - rightMin, 0.5));
     }
     // Both truncated — stay 50/50
     if (leftDesired > availW * 0.5 && rightDesired > availW * 0.5) return 0.5;
-    // Only one side truncated — give it more room
+    // Only one side truncated — give it more room, but never truncate the other side
     if (leftDesired > availW * 0.5) {
-      // Right fits in less space — give left what it needs up to limit
-      return Math.min(1 - MIN_COL_FRAC, leftDesired / availW);
+      // Left is truncated, right has room — shift split right
+      // Cap so right keeps at least rightDesired
+      const maxSplit = 1 - rightDesired / availW;
+      return Math.max(MIN_COL_FRAC, Math.min(1 - MIN_COL_FRAC, maxSplit));
     }
-    return Math.max(MIN_COL_FRAC, 1 - rightDesired / availW);
+    // Right is truncated, left has room — shift split left
+    // Floor so left keeps at least leftDesired
+    const minSplit = leftDesired / availW;
+    return Math.max(MIN_COL_FRAC, Math.min(1 - MIN_COL_FRAC, minSplit));
   }
 
   const availW = screenWidth - GRID_PAD;
