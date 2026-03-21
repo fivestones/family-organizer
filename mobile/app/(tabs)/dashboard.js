@@ -174,33 +174,6 @@ function formatTaskStateLabel(state) {
   }
 }
 
-function FeedSection({
-  title,
-  meta,
-  actionLabel = null,
-  onActionPress = null,
-  first = false,
-  children,
-  styles,
-}) {
-  return (
-    <View style={[styles.feedSection, !first && styles.feedSectionBorder]}>
-      <View style={styles.feedSectionHeader}>
-        <View style={styles.feedSectionCopy}>
-          <Text style={styles.feedSectionTitle}>{title}</Text>
-          {meta ? <Text style={styles.feedSectionMeta}>{meta}</Text> : null}
-        </View>
-        {actionLabel && onActionPress ? (
-          <Pressable accessibilityRole="button" onPress={onActionPress} style={styles.feedSectionAction}>
-            <Text style={styles.feedSectionActionText}>{actionLabel}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-      {children}
-    </View>
-  );
-}
-
 
 export default function DashboardTab() {
   const { colors, themeName } = useAppTheme();
@@ -785,372 +758,266 @@ export default function DashboardTab() {
             <Text style={styles.summaryText}>{summaryLine}</Text>
           </View>
 
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.contentSheet}>
-              <FeedSection
-                first
-                title="Task Series"
-                meta={
-                  taskSeriesCards.length > 0
-                    ? `${scheduledTaskCount} scheduled • ${activeTaskCount} active`
-                    : 'No task-series items scheduled for this day'
-                }
-                actionLabel={viewedMember?.id ? 'Open full view' : null}
-                onActionPress={openTaskSeriesOverview}
-                styles={styles}
-              >
-                {dashboardQuery.isLoading ? (
-                  <Text style={styles.emptyText}>Loading today’s task-series items…</Text>
-                ) : taskSeriesCards.length === 0 ? (
-                  <Text style={styles.emptyText}>
-                    No Task Series items are scheduled for {viewedMember?.name || 'this member'} on {formatMonthDay(selectedDate)}.
+          {/* 2×2 Quadrant grid */}
+          <View style={styles.quadrantGrid}>
+            {/* Left column: Chores (top) + Messages (bottom) */}
+            <View style={styles.quadrantColumn}>
+              {/* Top-left: Chores */}
+              <View style={styles.quadrantCard}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push(‘/chores’)}
+                  style={styles.quadrantHeader}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={16} color={colors.accentChores} />
+                  <Text style={styles.quadrantTitle}>Chores</Text>
+                  <Text style={styles.quadrantMeta}>
+                    {incompleteChores.length} left{completedChores.length > 0 ? ` · ${completedChores.length} done` : ‘’}
                   </Text>
-                ) : (
-                  <View style={styles.seriesBandList}>
-                    {taskSeriesCards.map((card, index) => {
-                      const previewTasks = card.scheduledTasks.slice(0, 3);
-                      const remainingTaskCount = Math.max(0, card.scheduledTasks.length - previewTasks.length);
-                      return (
-                        <View key={card.id} style={[styles.seriesBand, index > 0 && styles.seriesBandBorder]}>
-                          <View style={styles.seriesHeaderRow}>
-                            <View style={styles.seriesCopy}>
-                              <Text style={styles.seriesTitle}>{card.series.name || 'Untitled series'}</Text>
-                              <Text style={styles.seriesMeta}>
-                                {card.chore?.title ? `From ${card.chore.title}` : 'Task series'}
-                              </Text>
-                            </View>
-                            <Text style={styles.seriesCountText}>{card.incompleteCount} active</Text>
-                          </View>
+                  <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
+                </Pressable>
+                <ScrollView style={styles.quadrantTopScroll} showsVerticalScrollIndicator={false}>
+                  {dashboardQuery.isLoading ? (
+                    <Text style={styles.qEmptyText}>Loading…</Text>
+                  ) : incompleteChores.length === 0 && completedChores.length === 0 ? (
+                    <Text style={styles.qEmptyText}>No chores today</Text>
+                  ) : (
+                    <>
+                      {incompleteChores.map((row, index) => {
+                        const pKey = completionKey(row.chore.id, viewedMember.id, selectedDateKey);
+                        const isBusy = pendingCompletionKeys.has(pKey);
+                        const blockedByUpForGrabs =
+                          !!row.chore.isUpForGrabs &&
+                          !!row.upForGrabsCompletedById &&
+                          row.upForGrabsCompletedById !== viewedMember.id &&
+                          !row.isDone;
 
-                          <View style={styles.seriesSnapshotRow}>
-                            <Text style={styles.seriesSnapshotText}>Blocked {card.bucketedCounts.blocked}</Text>
-                            <Text style={styles.seriesSnapshotText}>Review {card.bucketedCounts.needs_review}</Text>
-                            <Text style={styles.seriesSnapshotText}>Done {card.bucketedCounts.done}</Text>
-                          </View>
-
-                          {previewTasks.length > 0 ? (
-                            <View style={styles.seriesPreviewList}>
-                              {previewTasks.map((task, index) => {
-                                const workflowState = getTaskWorkflowState(task);
-                                const latestUpdate = getLatestTaskUpdate(task);
-                                const latestNote = String(latestUpdate?.note || '').trim();
-                                const latestAttachmentCount =
-                                  (Array.isArray(latestUpdate?.attachments) ? latestUpdate.attachments.length : 0) ||
-                                  (Array.isArray(task.attachments) ? task.attachments.length : 0);
-                                const toneColor =
-                                  workflowState === 'done'
-                                    ? colors.success
-                                    : workflowState === 'needs_review'
-                                    ? colors.accentDashboard
-                                    : workflowState === 'blocked'
-                                    ? colors.warning
-                                    : workflowState === 'skipped'
-                                    ? colors.inkMuted
-                                    : colors.accentCalendar;
-
-                                return (
-                                  <View key={task.id || `${card.id}-${index}`} style={[styles.previewRow, index > 0 && styles.previewRowBorder]}>
-                                    <View style={styles.previewCopy}>
-                                      <View style={styles.previewTitleRow}>
-                                        <Text style={styles.previewTitle}>{task.title || 'Untitled task'}</Text>
-                                        <View
-                                          style={[
-                                            styles.previewStateChip,
-                                            {
-                                              backgroundColor: withAlpha(toneColor, workflowState === 'done' ? 0.16 : 0.12),
-                                              borderColor: withAlpha(toneColor, 0.3),
-                                            },
-                                          ]}
-                                        >
-                                          <Text style={[styles.previewStateText, { color: toneColor }]}>
-                                            {formatTaskStateLabel(workflowState)}
-                                          </Text>
-                                        </View>
-                                      </View>
-                                      {latestNote ? (
-                                        <Text style={styles.previewNote} numberOfLines={2}>
-                                          {latestNote}
-                                        </Text>
-                                      ) : latestAttachmentCount > 0 ? (
-                                        <Text style={styles.previewNote}>
-                                          {latestAttachmentCount} attachment{latestAttachmentCount === 1 ? '' : 's'}
-                                        </Text>
-                                      ) : null}
-                                    </View>
-                                  </View>
-                                );
-                              })}
-                            </View>
-                          ) : (
-                            <Text style={styles.emptyInlineText}>No actionable tasks in the schedule right now.</Text>
-                          )}
-
-                          {remainingTaskCount > 0 ? (
-                            <Text style={styles.remainingText}>
-                              {remainingTaskCount} more scheduled item{remainingTaskCount === 1 ? '' : 's'} in the checklist.
-                            </Text>
-                          ) : null}
-
-                          <View style={styles.seriesActionRow}>
+                        return (
+                          <View key={`q-chore-${row.chore.id}`} style={[styles.qRow, index > 0 && styles.qRowBorder]}>
                             <Pressable
+                              testID={`q-chore-toggle-${row.chore.id}`}
                               accessibilityRole="button"
-                              accessibilityLabel={`Open checklist for ${card.series.name || 'task series'}`}
-                              onPress={() =>
-                                router.push({
-                                  pathname: '/task-series/series',
-                                  params: {
-                                    seriesId: card.series.id,
-                                    choreId: card.chore?.id || '',
-                                    date: selectedDateKey,
-                                    memberId: viewedMember?.id || '',
-                                  },
-                                })
-                              }
-                              style={[styles.seriesActionButton, styles.seriesActionButtonPrimary]}
+                              accessibilityLabel={`${row.isDone ? ‘Undo’ : ‘Complete’} ${row.chore.title}`}
+                              disabled={isBusy || blockedByUpForGrabs}
+                              onPress={() => { void handleToggleCompletion(row.chore, viewedMember.id); }}
+                              style={[styles.qCheck, row.isDone && styles.qCheckDone, (isBusy || blockedByUpForGrabs) && styles.qCheckLocked]}
                             >
-                              <Text style={[styles.seriesActionText, styles.seriesActionTextPrimary]}>Open checklist</Text>
+                              <Ionicons
+                                name={row.isDone ? ‘checkmark-circle’ : ‘ellipse-outline’}
+                                size={20}
+                                color={isBusy ? colors.inkMuted : blockedByUpForGrabs ? colors.inkMuted : row.isDone ? colors.success : colors.accentChores}
+                              />
                             </Pressable>
-                            {currentUser?.role === 'parent' ? (
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Open review queue for ${card.series.name || 'task series'}`}
-                                onPress={() =>
-                                  router.push({
-                                    pathname: '/more/task-series/review',
-                                    params: { seriesId: card.series.id },
-                                  })
-                                }
-                                style={[styles.seriesActionButton, styles.seriesActionButtonSecondary]}
-                              >
-                                <Text style={[styles.seriesActionText, styles.seriesActionTextSecondary]}>Review queue</Text>
-                              </Pressable>
-                            ) : null}
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
-              </FeedSection>
-
-              <FeedSection
-                title="Chores"
-                meta={
-                  choreRows.length > 0
-                    ? `${incompleteChores.length} left • ${completedChores.length} finished`
-                    : 'No chores due for this day'
-                }
-                actionLabel="Open chores"
-                onActionPress={() => router.push('/chores')}
-                styles={styles}
-              >
-                {dashboardQuery.isLoading ? (
-                  <Text style={styles.emptyText}>Loading today’s chores…</Text>
-                ) : choreRows.length === 0 ? (
-                  <Text style={styles.emptyText}>
-                    No chores are due for {viewedMember?.name || 'this member'} on {formatMonthDay(selectedDate)}.
-                  </Text>
-                ) : (
-                  <View style={styles.flatList}>
-                    {incompleteChores.map((row, index) => {
-                      const pendingKey = completionKey(row.chore.id, viewedMember.id, selectedDateKey);
-                      const isBusy = pendingCompletionKeys.has(pendingKey);
-                      const blockedByUpForGrabs =
-                        !!row.chore.isUpForGrabs &&
-                        !!row.upForGrabsCompletedById &&
-                        row.upForGrabsCompletedById !== viewedMember.id &&
-                        !row.isDone;
-
-                      return (
-                        <View key={`dashboard-chore-${row.chore.id}`} style={[styles.flatRow, index > 0 && styles.flatRowBorder]}>
-                          <View style={styles.flatRowMain}>
-                            <View style={styles.flatRowTop}>
-                              <View style={styles.flatRowCopy}>
-                                <Text style={styles.flatRowTitle}>{row.chore.title || 'Untitled chore'}</Text>
-                                {row.chore.description ? <Text style={styles.flatRowBody}>{row.chore.description}</Text> : null}
-                              </View>
-                              <Pressable
-                                testID={`dashboard-chore-toggle-${row.chore.id}`}
-                                accessibilityRole="button"
-                                accessibilityLabel={`${row.isDone ? 'Mark not done' : 'Mark done'} ${row.chore.title || 'chore'}`}
-                                disabled={isBusy || blockedByUpForGrabs}
-                                onPress={() => {
-                                  void handleToggleCompletion(row.chore, viewedMember.id);
-                                }}
-                                style={[
-                                  styles.choreToggleButton,
-                                  row.isDone && styles.choreToggleButtonDone,
-                                  (isBusy || blockedByUpForGrabs) && styles.choreToggleButtonLocked,
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.choreToggleButtonText,
-                                    row.isDone && styles.choreToggleButtonTextDone,
-                                    (isBusy || blockedByUpForGrabs) && styles.choreToggleButtonTextLocked,
-                                  ]}
-                                >
-                                  {isBusy ? '…' : blockedByUpForGrabs ? 'Claimed' : row.isDone ? 'Done' : 'Mark'}
-                                </Text>
-                              </Pressable>
-                            </View>
-
-                            <View style={styles.inlineTagRow}>
-                              {row.chore.isUpForGrabs ? (
-                                <View style={[styles.inlineTag, styles.inlineTagWarm]}>
-                                  <Text style={[styles.inlineTagText, styles.inlineTagWarmText]}>Up for grabs</Text>
-                                </View>
-                              ) : null}
-                              {row.chore.isJoint ? (
-                                <View style={[styles.inlineTag, styles.inlineTagNeutral]}>
-                                  <Text style={[styles.inlineTagText, styles.inlineTagNeutralText]}>Joint</Text>
-                                </View>
-                              ) : null}
-                              {Number.isFinite(Number(row.chore.weight)) && row.chore.rewardType !== 'fixed' ? (
-                                <View style={[styles.inlineTag, styles.inlineTagAccent]}>
-                                  <Text style={[styles.inlineTagText, styles.inlineTagAccentText]}>
-                                    XP {Number(row.chore.weight) > 0 ? '+' : ''}
-                                    {Number(row.chore.weight || 0)}
-                                  </Text>
-                                </View>
-                              ) : null}
-                            </View>
-
-                            {blockedByUpForGrabs ? (
-                              <Text style={styles.helperText}>
-                                Claimed by {familyMemberNameById[row.upForGrabsCompletedById] || 'another member'}.
+                            <View style={styles.qRowCopy}>
+                              <Text style={[styles.qRowTitle, row.isDone && styles.qRowTitleDone]} numberOfLines={1}>
+                                {row.chore.title || ‘Untitled’}
                               </Text>
-                            ) : null}
+                              {row.chore.isUpForGrabs ? (
+                                <Text style={styles.qRowMeta}>Up for grabs</Text>
+                              ) : null}
+                            </View>
                           </View>
-                        </View>
-                      );
-                    })}
-
-                    {completedChores.length > 0 ? (
-                      <View style={styles.completedGroup}>
-                        <Text style={styles.completedLabel}>Finished</Text>
-                        {completedChores.map((row, index) => {
-                          const pendingKey = completionKey(row.chore.id, viewedMember.id, selectedDateKey);
-                          const isBusy = pendingCompletionKeys.has(pendingKey);
-                          return (
-                            <View key={`dashboard-completed-${row.chore.id}`} style={[styles.flatRow, index > 0 && styles.flatRowBorder]}>
-                              <View style={styles.flatRowTop}>
-                                <View style={styles.flatRowCopy}>
-                                  <Text style={[styles.flatRowTitle, styles.flatRowTitleDone]}>{row.chore.title || 'Untitled chore'}</Text>
-                                  {row.chore.description ? (
-                                    <Text style={[styles.flatRowBody, styles.flatRowBodyDone]}>{row.chore.description}</Text>
-                                  ) : null}
-                                </View>
+                        );
+                      })}
+                      {completedChores.length > 0 ? (
+                        <>
+                          <Text style={styles.qSectionLabel}>Finished</Text>
+                          {completedChores.map((row, index) => {
+                            const pKey = completionKey(row.chore.id, viewedMember.id, selectedDateKey);
+                            const isBusy = pendingCompletionKeys.has(pKey);
+                            return (
+                              <View key={`q-done-${row.chore.id}`} style={[styles.qRow, index > 0 && styles.qRowBorder]}>
                                 <Pressable
                                   accessibilityRole="button"
-                                  accessibilityLabel={`Mark ${row.chore.title || 'chore'} not done`}
+                                  accessibilityLabel={`Undo ${row.chore.title}`}
                                   disabled={isBusy}
-                                  onPress={() => {
-                                    void handleToggleCompletion(row.chore, viewedMember.id);
-                                  }}
-                                  style={[styles.choreToggleButton, styles.choreToggleButtonDone]}
+                                  onPress={() => { void handleToggleCompletion(row.chore, viewedMember.id); }}
+                                  style={[styles.qCheck, styles.qCheckDone]}
                                 >
-                                  <Text style={[styles.choreToggleButtonText, styles.choreToggleButtonTextDone]}>
-                                    {isBusy ? '…' : 'Done'}
-                                  </Text>
+                                  <Ionicons name="checkmark-circle" size={20} color={colors.success} />
                                 </Pressable>
+                                <Text style={[styles.qRowTitle, styles.qRowTitleDone]} numberOfLines={1}>
+                                  {row.chore.title || ‘Untitled’}
+                                </Text>
                               </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    ) : null}
-                  </View>
-                )}
-              </FeedSection>
+                            );
+                          })}
+                        </>
+                      ) : null}
+                    </>
+                  )}
+                </ScrollView>
+              </View>
 
-              <FeedSection
-                title="Calendar"
-                meta={
-                  calendarEvents.length > 0
-                    ? `${calendarEvents.length} upcoming event${calendarEvents.length === 1 ? '' : 's'}`
-                    : 'No upcoming events'
-                }
-                actionLabel="Open calendar"
-                onActionPress={() => router.push('/calendar')}
-                styles={styles}
-              >
-                {calendarEvents.length === 0 ? (
-                  <Text style={styles.emptyText}>No calendar events for {viewedMember?.name || 'this member'}.</Text>
-                ) : (
-                  <View style={styles.flatList}>
-                    {calendarEvents.map((event, index) => (
+              {/* Bottom-left: Messages */}
+              <View style={[styles.quadrantCard, styles.quadrantCardBottom]}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push(‘/messages’)}
+                  style={styles.quadrantHeader}
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.accentDashboard} />
+                  <Text style={styles.quadrantTitle}>Messages</Text>
+                  {unreadThreads.length > 0 ? (
+                    <Text style={styles.quadrantMeta}>{unreadThreads.length} unread</Text>
+                  ) : null}
+                  <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
+                </Pressable>
+                <ScrollView style={styles.quadrantBottomScroll} showsVerticalScrollIndicator={false}>
+                  {unreadThreads.length === 0 ? (
+                    <Text style={styles.qEmptyText}>All caught up</Text>
+                  ) : (
+                    unreadThreads.map((thread, index) => (
                       <Pressable
-                        key={`calendar-${event.id}`}
+                        key={`q-thread-${thread.id}`}
                         accessibilityRole="button"
-                        accessibilityLabel={`Open calendar for ${event.title}`}
-                        onPress={() => router.push('/calendar')}
-                        style={[styles.flatRow, index > 0 && styles.flatRowBorder]}
+                        onPress={() => router.push({ pathname: ‘/messages’, params: { threadId: thread.id } })}
+                        style={[styles.qRow, index > 0 && styles.qRowBorder]}
                       >
-                        <View style={styles.rowIconWrap}>
-                          <Ionicons name="calendar-outline" size={18} color={colors.accentCalendar} />
+                        <View style={styles.qRowCopy}>
+                          <Text style={styles.qRowTitle} numberOfLines={1}>{thread.displayName}</Text>
+                          <Text style={styles.qRowMeta} numberOfLines={1}>{thread.previewText}</Text>
                         </View>
-                        <View style={styles.flatRowCopy}>
-                          <Text style={styles.flatRowTitle}>{event.title}</Text>
-                          <Text style={styles.flatRowBody}>{event.timeLabel}</Text>
-                        </View>
-                        {event.isFamilyWide ? (
-                          <View style={[styles.inlineTag, styles.inlineTagNeutral]}>
-                            <Text style={[styles.inlineTagText, styles.inlineTagNeutralText]}>Family</Text>
-                          </View>
-                        ) : null}
+                        <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} />
                       </Pressable>
-                    ))}
-                  </View>
-                )}
-              </FeedSection>
-
-              <FeedSection
-                title="Unread Messages"
-                meta={
-                  unreadThreads.length > 0
-                    ? `${unreadThreads.length} thread${unreadThreads.length === 1 ? '' : 's'} waiting`
-                    : 'Nothing unread right now'
-                }
-                actionLabel="Open inbox"
-                onActionPress={() => router.push('/messages')}
-                styles={styles}
-              >
-                {unreadThreads.length === 0 ? (
-                  <Text style={styles.emptyText}>You’re caught up for {viewedMember?.name || 'this member'}.</Text>
-                ) : (
-                  <View style={styles.flatList}>
-                    {unreadThreads.map((thread, index) => (
-                      <Pressable
-                        key={`thread-${thread.id}`}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Open message thread ${thread.displayName}`}
-                        onPress={() =>
-                          router.push({
-                            pathname: '/messages',
-                            params: { threadId: thread.id },
-                          })
-                        }
-                        style={[styles.flatRow, index > 0 && styles.flatRowBorder]}
-                      >
-                        <View style={styles.rowIconWrap}>
-                          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.accentDashboard} />
-                        </View>
-                        <View style={styles.flatRowCopy}>
-                          <Text style={styles.flatRowTitle}>{thread.displayName}</Text>
-                          <Text style={styles.flatRowBody} numberOfLines={1}>
-                            {thread.previewText}
-                          </Text>
-                        </View>
-                        <Ionicons name="chevron-forward" size={16} color={colors.inkMuted} />
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-              </FeedSection>
-
+                    ))
+                  )}
+                </ScrollView>
+              </View>
             </View>
-          </ScrollView>
+
+            {/* Right column: Tasks (top) + Calendar (bottom) */}
+            <View style={styles.quadrantColumn}>
+              {/* Top-right: Tasks */}
+              <View style={styles.quadrantCard}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={openTaskSeriesOverview}
+                  style={styles.quadrantHeader}
+                >
+                  <Ionicons name="list-outline" size={16} color={colors.accentCalendar} />
+                  <Text style={styles.quadrantTitle}>Tasks</Text>
+                  {activeTaskCount > 0 ? (
+                    <Text style={styles.quadrantMeta}>{activeTaskCount} active</Text>
+                  ) : null}
+                  <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
+                </Pressable>
+                <ScrollView style={styles.quadrantTopScroll} showsVerticalScrollIndicator={false}>
+                  {dashboardQuery.isLoading ? (
+                    <Text style={styles.qEmptyText}>Loading…</Text>
+                  ) : taskSeriesCards.length === 0 ? (
+                    <Text style={styles.qEmptyText}>No tasks today</Text>
+                  ) : (
+                    taskSeriesCards.map((card, cardIndex) => {
+                      // Build flat task rows with parent/subtask grouping
+                      const taskRows = [];
+                      const parentIdsSeen = new Set();
+
+                      for (const task of card.scheduledTasks) {
+                        const parentTask = firstRef(task.parentTask);
+                        if (parentTask && !parentIdsSeen.has(parentTask.id)) {
+                          parentIdsSeen.add(parentTask.id);
+                          taskRows.push({ type: ‘parent’, task: parentTask, isSubtask: false });
+                        }
+                        taskRows.push({ type: ‘task’, task, isSubtask: !!parentTask });
+                      }
+
+                      return (
+                        <View key={`q-series-${card.id}`}>
+                          {/* Series name header */}
+                          <View style={[styles.qSeriesHeader, cardIndex > 0 && styles.qRowBorder]}>
+                            <Text style={styles.qSeriesName} numberOfLines={1}>{card.series.name || ‘Untitled series’}</Text>
+                            <Text style={styles.qSeriesCount}>{card.incompleteCount} left</Text>
+                          </View>
+                          {taskRows.length === 0 ? (
+                            <Text style={styles.qEmptyInline}>No scheduled tasks</Text>
+                          ) : (
+                            taskRows.map((row, rowIndex) => {
+                              if (row.type === ‘parent’) {
+                                return (
+                                  <View key={`parent-${row.task.id}`} style={[styles.qRow, rowIndex > 0 && styles.qRowBorder]}>
+                                    <Ionicons name="folder-outline" size={14} color={colors.inkMuted} />
+                                    <Text style={styles.qParentTitle} numberOfLines={1}>{row.task.title || ‘Group’}</Text>
+                                  </View>
+                                );
+                              }
+
+                              const workflowState = getTaskWorkflowState(row.task);
+                              const latestUpdate = getLatestTaskUpdate(row.task);
+                              const note = String(latestUpdate?.note || ‘’).trim();
+                              const toneColor =
+                                workflowState === ‘done’ ? colors.success
+                                : workflowState === ‘needs_review’ ? colors.accentDashboard
+                                : workflowState === ‘blocked’ ? colors.warning
+                                : workflowState === ‘skipped’ ? colors.inkMuted
+                                : colors.accentCalendar;
+
+                              return (
+                                <Pressable
+                                  key={row.task.id || `task-${card.id}-${rowIndex}`}
+                                  accessibilityRole="button"
+                                  onPress={() => router.push({
+                                    pathname: ‘/task-series/series’,
+                                    params: { seriesId: card.series.id, choreId: card.chore?.id || ‘’, date: selectedDateKey, memberId: viewedMember?.id || ‘’ },
+                                  })}
+                                  style={[styles.qRow, rowIndex > 0 && styles.qRowBorder, row.isSubtask && styles.qSubtaskIndent]}
+                                >
+                                  <View style={styles.qRowCopy}>
+                                    <View style={styles.qTaskTitleRow}>
+                                      <Text style={styles.qRowTitle} numberOfLines={1}>{row.task.title || ‘Untitled’}</Text>
+                                      <View style={[styles.qStateChip, { backgroundColor: withAlpha(toneColor, 0.12), borderColor: withAlpha(toneColor, 0.3) }]}>
+                                        <Text style={[styles.qStateText, { color: toneColor }]}>{formatTaskStateLabel(workflowState)}</Text>
+                                      </View>
+                                    </View>
+                                    {note ? <Text style={styles.qRowMeta} numberOfLines={2}>{note}</Text> : null}
+                                  </View>
+                                </Pressable>
+                              );
+                            })
+                          )}
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </View>
+
+              {/* Bottom-right: Calendar */}
+              <View style={[styles.quadrantCard, styles.quadrantCardBottom]}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push(‘/calendar’)}
+                  style={styles.quadrantHeader}
+                >
+                  <Ionicons name="calendar-outline" size={16} color={colors.accentCalendar} />
+                  <Text style={styles.quadrantTitle}>Calendar</Text>
+                  {calendarEvents.length > 0 ? (
+                    <Text style={styles.quadrantMeta}>{calendarEvents.length} event{calendarEvents.length === 1 ? ‘’ : ‘s’}</Text>
+                  ) : null}
+                  <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
+                </Pressable>
+                <ScrollView style={styles.quadrantBottomScroll} showsVerticalScrollIndicator={false}>
+                  {calendarEvents.length === 0 ? (
+                    <Text style={styles.qEmptyText}>No events coming up</Text>
+                  ) : (
+                    calendarEvents.map((event, index) => (
+                      <Pressable
+                        key={`q-cal-${event.id}`}
+                        accessibilityRole="button"
+                        onPress={() => router.push(‘/calendar’)}
+                        style={[styles.qRow, index > 0 && styles.qRowBorder]}
+                      >
+                        <View style={styles.qRowCopy}>
+                          <Text style={styles.qRowTitle} numberOfLines={1}>{event.title}</Text>
+                          <Text style={styles.qRowMeta}>{event.timeLabel}{event.isFamilyWide ? ‘ · Family’ : ‘’}</Text>
+                        </View>
+                      </Pressable>
+                    ))
+                  )}
+                </ScrollView>
+              </View>
+            </View>
+          </View>
         </View>
       </SafeAreaView>
 
@@ -1465,333 +1332,171 @@ const createStyles = (colors, isDark) => {
       backgroundColor: colors.accentDashboard,
     },
 
-    // ── Content below ──
-    scroll: {
+    // ── 2×2 Quadrant grid ──
+    quadrantGrid: {
       flex: 1,
-      backgroundColor: colors.bg,
+      flexDirection: 'row',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.sm,
     },
-    scrollContent: {
-      padding: spacing.md,
-      paddingBottom: spacing.xxl,
+    quadrantColumn: {
+      flex: 1,
+      gap: spacing.sm,
     },
-    contentSheet: {
+    quadrantCard: {
+      flex: 3,
       backgroundColor: isDark ? colors.panel : colors.panel,
-      borderRadius: 30,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm,
+      borderRadius: radii.lg,
       borderWidth: isDark ? 1 : 0,
       borderColor: isDark ? colors.line : 'transparent',
+      overflow: 'hidden',
       ...(isDark ? {} : shadows.card),
     },
-    feedSection: {
-      gap: spacing.md,
-      paddingVertical: spacing.md,
+    quadrantCardBottom: {
+      flex: 2,
     },
-    feedSectionBorder: {
-      borderTopWidth: 1,
-      borderTopColor: colors.line,
-    },
-    feedSectionHeader: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
-      gap: spacing.md,
-    },
-    feedSectionCopy: {
-      flex: 1,
-      gap: 4,
-    },
-    feedSectionTitle: {
-      color: colors.ink,
-      fontSize: 21,
-      fontWeight: '800',
-    },
-    feedSectionMeta: {
-      color: colors.inkMuted,
-      lineHeight: 18,
-    },
-    feedSectionAction: {
-      paddingHorizontal: 12,
-      paddingVertical: 9,
-      borderRadius: radii.pill,
-      backgroundColor: isDark ? colors.canvasText : colors.panelElevated,
-      borderWidth: 1,
-      borderColor: isDark ? colors.canvasText : colors.line,
-    },
-    feedSectionActionText: {
-      color: isDark ? colors.canvasStrong : colors.ink,
-      fontWeight: '700',
-      fontSize: 12,
-    },
-    emptyText: {
-      color: colors.inkMuted,
-      lineHeight: 20,
-    },
-    emptyInlineText: {
-      color: colors.inkMuted,
-      fontSize: 13,
-      lineHeight: 18,
-    },
-    seriesBandList: {
-      gap: 0,
-    },
-    seriesBand: {
-      paddingVertical: spacing.md,
-      gap: spacing.sm,
-    },
-    seriesBandBorder: {
-      borderTopWidth: 1,
-      borderTopColor: colors.line,
-    },
-    seriesHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'baseline',
-      justifyContent: 'space-between',
-      gap: spacing.sm,
-    },
-    seriesCopy: {
-      flex: 1,
-      gap: 4,
-    },
-    seriesTitle: {
-      color: colors.ink,
-      fontSize: 18,
-      fontWeight: '800',
-    },
-    seriesMeta: {
-      color: colors.inkMuted,
-      lineHeight: 18,
-    },
-    seriesCountText: {
-      color: colors.inkMuted,
-      fontSize: 12,
-      fontWeight: '800',
-    },
-    seriesSnapshotRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: spacing.xs,
-    },
-    seriesSnapshotText: {
-      color: colors.inkMuted,
-      fontSize: 12,
-    },
-    seriesPreviewList: {
-      marginLeft: 10,
-      gap: 0,
-    },
-    previewRow: {
-      paddingLeft: spacing.md,
-      paddingRight: 0,
-      paddingVertical: 10,
-      borderLeftWidth: 2,
-      borderLeftColor: withAlpha(colors.line, isDark ? 0.9 : 1),
-    },
-    previewRowBorder: {
-      borderTopWidth: 1,
-      borderTopColor: colors.line,
-    },
-    previewCopy: {
-      gap: 6,
-    },
-    previewTitleRow: {
+    quadrantHeader: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: spacing.sm,
+      gap: 6,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.line,
     },
-    previewTitle: {
+    quadrantTitle: {
       color: colors.ink,
       fontSize: 15,
-      fontWeight: '700',
+      fontWeight: '800',
+    },
+    quadrantMeta: {
+      color: colors.inkMuted,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    quadrantChevron: {
+      marginLeft: 'auto',
+    },
+    quadrantTopScroll: {
       flex: 1,
-      minWidth: 0,
+      paddingHorizontal: spacing.md,
     },
-    previewStateChip: {
-      paddingHorizontal: 9,
-      paddingVertical: 4,
-      borderRadius: radii.pill,
-      borderWidth: 1,
+    quadrantBottomScroll: {
+      flex: 1,
+      paddingHorizontal: spacing.md,
     },
-    previewStateText: {
-      fontSize: 10,
-      textTransform: 'uppercase',
-      letterSpacing: 0.45,
-      fontWeight: '800',
-    },
-    previewNote: {
-      color: colors.inkMuted,
-      fontSize: 13,
-      lineHeight: 18,
-    },
-    remainingText: {
-      color: colors.inkMuted,
-      fontSize: 12,
-      marginLeft: 10,
-    },
-    seriesActionRow: {
+
+    // ── Quadrant row items ──
+    qRow: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: spacing.xs,
-      marginLeft: 10,
-      paddingTop: 2,
-    },
-    seriesActionButton: {
-      borderRadius: radii.pill,
-      paddingHorizontal: 14,
-      paddingVertical: 9,
-      borderWidth: 1,
-    },
-    seriesActionButtonPrimary: {
-      backgroundColor: isDark ? colors.canvasText : colors.accentDashboard,
-      borderColor: isDark ? colors.canvasText : colors.accentDashboard,
-    },
-    seriesActionButtonSecondary: {
-      backgroundColor: colors.panel,
-      borderColor: colors.line,
-    },
-    seriesActionText: {
-      fontSize: 12,
-      fontWeight: '800',
-    },
-    seriesActionTextPrimary: {
-      color: isDark ? colors.canvasStrong : colors.onAccent,
-    },
-    seriesActionTextSecondary: {
-      color: colors.ink,
-    },
-    flatList: {
-      gap: 0,
-    },
-    flatRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       gap: spacing.sm,
-      paddingVertical: 14,
+      paddingVertical: 10,
     },
-    flatRowBorder: {
+    qRowBorder: {
       borderTopWidth: 1,
       borderTopColor: colors.line,
     },
-    flatRowMain: {
-      flex: 1,
-      gap: spacing.sm,
-    },
-    flatRowTop: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: spacing.md,
-    },
-    flatRowCopy: {
+    qRowCopy: {
       flex: 1,
       minWidth: 0,
-      gap: 4,
+      gap: 2,
     },
-    flatRowTitle: {
+    qRowTitle: {
       color: colors.ink,
-      fontSize: 16,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    qRowTitleDone: {
+      color: colors.inkMuted,
+      textDecorationLine: 'line-through',
+    },
+    qRowMeta: {
+      color: colors.inkMuted,
+      fontSize: 12,
+      lineHeight: 16,
+    },
+    qEmptyText: {
+      color: colors.inkMuted,
+      fontSize: 13,
+      paddingVertical: spacing.md,
+      textAlign: 'center',
+    },
+    qEmptyInline: {
+      color: colors.inkMuted,
+      fontSize: 12,
+      paddingVertical: 6,
+      paddingHorizontal: spacing.sm,
+    },
+    qSectionLabel: {
+      color: colors.inkMuted,
+      fontSize: 11,
       fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginTop: spacing.sm,
+      marginBottom: 2,
     },
-    flatRowTitleDone: {
-      color: colors.inkMuted,
-      textDecorationLine: 'line-through',
-    },
-    flatRowBody: {
-      color: colors.inkMuted,
-      lineHeight: 18,
-    },
-    flatRowBodyDone: {
-      textDecorationLine: 'line-through',
-    },
-    rowIconWrap: {
-      width: 30,
-      paddingTop: 2,
-      alignItems: 'center',
-    },
-    choreToggleButton: {
-      minWidth: 76,
-      minHeight: 40,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: isDark ? colors.canvasText : withAlpha(colors.accentDashboard, 0.26),
-      backgroundColor: isDark ? colors.canvasText : withAlpha(colors.accentDashboard, 0.08),
+
+    // ── Chore check circles ──
+    qCheck: {
+      width: 28,
+      height: 28,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 14,
     },
-    choreToggleButtonDone: {
-      backgroundColor: withAlpha(colors.success, 0.12),
-      borderColor: withAlpha(colors.success, 0.28),
+    qCheckDone: {},
+    qCheckLocked: {
+      opacity: 0.5,
     },
-    choreToggleButtonLocked: {
-      backgroundColor: withAlpha(colors.locked, 0.18),
-      borderColor: withAlpha(colors.locked, 0.34),
-    },
-    choreToggleButtonText: {
-      color: isDark ? colors.canvasStrong : colors.accentDashboard,
-      fontWeight: '800',
-    },
-    choreToggleButtonTextDone: {
-      color: colors.success,
-    },
-    choreToggleButtonTextLocked: {
-      color: colors.inkMuted,
-    },
-    inlineTagRow: {
+
+    // ── Task series in quadrant ──
+    qSeriesHeader: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 8,
       gap: spacing.xs,
     },
-    inlineTag: {
-      borderRadius: radii.pill,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderWidth: 1,
+    qSeriesName: {
+      color: colors.ink,
+      fontSize: 13,
+      fontWeight: '800',
+      flex: 1,
     },
-    inlineTagText: {
+    qSeriesCount: {
+      color: colors.inkMuted,
       fontSize: 11,
       fontWeight: '700',
     },
-    inlineTagWarm: {
-      backgroundColor: withAlpha(colors.warning, 0.12),
-      borderColor: withAlpha(colors.warning, 0.26),
-    },
-    inlineTagWarmText: {
-      color: colors.warning,
-    },
-    inlineTagNeutral: {
-      backgroundColor: colors.panelElevated,
-      borderColor: colors.line,
-    },
-    inlineTagNeutralText: {
-      color: colors.inkMuted,
-    },
-    inlineTagAccent: {
-      backgroundColor: withAlpha(colors.accentDashboard, 0.1),
-      borderColor: withAlpha(colors.accentDashboard, 0.24),
-    },
-    inlineTagAccentText: {
-      color: colors.accentDashboard,
-    },
-    helperText: {
+    qParentTitle: {
       color: colors.inkMuted,
       fontSize: 13,
-      lineHeight: 18,
+      fontWeight: '700',
+      fontStyle: 'italic',
+      flex: 1,
     },
-    completedGroup: {
-      marginTop: spacing.sm,
-      borderTopWidth: 1,
-      borderTopColor: colors.line,
-      paddingTop: spacing.sm,
-      gap: 0,
+    qSubtaskIndent: {
+      paddingLeft: 20,
     },
-    completedLabel: {
-      color: colors.inkMuted,
-      fontSize: 12,
-      fontWeight: '800',
+    qTaskTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    qStateChip: {
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      borderRadius: radii.pill,
+      borderWidth: 1,
+    },
+    qStateText: {
+      fontSize: 9,
       textTransform: 'uppercase',
-      letterSpacing: 0.7,
-      marginBottom: spacing.xs,
+      letterSpacing: 0.4,
+      fontWeight: '800',
     },
   });
 
