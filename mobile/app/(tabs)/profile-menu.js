@@ -1,7 +1,8 @@
-import { Redirect } from 'expo-router';
+import { View } from 'react-native';
 
-// This tab is intercepted by a tabPress listener in _layout.js to open the profile menu modal.
-// If somehow navigated to directly, redirect to the dashboard.
+// This tab is never navigated to — the tabBarButton in _layout.js intercepts
+// taps to open the profile menu modal instead. This file exists only because
+// Expo Router requires a file for each Tabs.Screen.
 export default function ProfileMenuPlaceholder() {
-  return <Redirect href="/dashboard" />;
+  return <View />;
 }
