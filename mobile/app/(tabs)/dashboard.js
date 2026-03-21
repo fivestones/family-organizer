@@ -519,6 +519,39 @@ export default function DashboardTab() {
   const [memberDropdownVisible, setMemberDropdownVisible] = useState(false);
   const [dateDropdownVisible, setDateDropdownVisible] = useState(false);
 
+  // Dynamic quadrant sizing — top cards size to content, bottom cards fill remaining
+  const [leftColH, setLeftColH] = useState(0);
+  const [rightColH, setRightColH] = useState(0);
+  const [choresScrollH, setChoresScrollH] = useState(0);
+  const [tasksScrollH, setTasksScrollH] = useState(0);
+
+  const Q_HEADER = 42;
+  const Q_BOTTOM_MIN = 140;
+  const Q_GAP = 8;
+
+  const leftTopH = useMemo(() => {
+    if (!leftColH || !choresScrollH) return undefined;
+    return Math.min(Q_HEADER + choresScrollH, leftColH - Q_BOTTOM_MIN - Q_GAP);
+  }, [leftColH, choresScrollH]);
+
+  const rightTopH = useMemo(() => {
+    if (!rightColH || !tasksScrollH) return undefined;
+    return Math.min(Q_HEADER + tasksScrollH, rightColH - Q_BOTTOM_MIN - Q_GAP);
+  }, [rightColH, tasksScrollH]);
+
+  // Dynamic column width — give more room to whichever side has truncated titles
+  const columnFlex = useMemo(() => {
+    const maxChoreLen = choreRows.reduce((m, r) => Math.max(m, (r.chore.title || '').length), 0);
+    const maxTaskLen = taskSeriesCards.reduce((m, c) =>
+      c.scheduledTasks.reduce((m2, t) => Math.max(m2, (t.text || '').length), m), 0);
+    const THRESHOLD = 30;
+    const tasksTrunc = maxTaskLen > THRESHOLD && taskSeriesCards.length > 0;
+    const choresTrunc = maxChoreLen > THRESHOLD && choreRows.length > 0;
+    if (tasksTrunc && !choresTrunc) return { left: 2, right: 3 };
+    if (choresTrunc && !tasksTrunc) return { left: 3, right: 2 };
+    return { left: 1, right: 1 };
+  }, [choreRows, taskSeriesCards]);
+
   async function handleToggleCompletion(chore, familyMemberId) {
     if (!currentUser?.id) {
       Alert.alert('Login required', 'Choose a family member before marking chores complete.');
@@ -761,9 +794,12 @@ export default function DashboardTab() {
           {/* 2×2 Quadrant grid */}
           <View style={styles.quadrantGrid}>
             {/* Left column: Chores (top) + Messages (bottom) */}
-            <View style={styles.quadrantColumn}>
+            <View
+              style={[styles.quadrantColumn, { flex: columnFlex.left }]}
+              onLayout={(e) => setLeftColH(e.nativeEvent.layout.height)}
+            >
               {/* Top-left: Chores */}
-              <View style={styles.quadrantCard}>
+              <View style={[styles.quadrantCard, leftTopH != null && { height: leftTopH, flex: 0 }]}>
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => router.push('/chores')}
@@ -776,7 +812,11 @@ export default function DashboardTab() {
                   </Text>
                   <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
                 </Pressable>
-                <ScrollView style={styles.quadrantTopScroll} showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  style={styles.quadrantTopScroll}
+                  showsVerticalScrollIndicator={false}
+                  onContentSizeChange={(_, h) => setChoresScrollH(h)}
+                >
                   {dashboardQuery.isLoading ? (
                     <Text style={styles.qEmptyText}>Loading…</Text>
                   ) : incompleteChores.length === 0 && completedChores.length === 0 ? (
@@ -887,9 +927,12 @@ export default function DashboardTab() {
             </View>
 
             {/* Right column: Tasks (top) + Calendar (bottom) */}
-            <View style={styles.quadrantColumn}>
+            <View
+              style={[styles.quadrantColumn, { flex: columnFlex.right }]}
+              onLayout={(e) => setRightColH(e.nativeEvent.layout.height)}
+            >
               {/* Top-right: Tasks */}
-              <View style={styles.quadrantCard}>
+              <View style={[styles.quadrantCard, rightTopH != null && { height: rightTopH, flex: 0 }]}>
                 <Pressable
                   accessibilityRole="button"
                   onPress={openTaskSeriesOverview}
@@ -902,7 +945,11 @@ export default function DashboardTab() {
                   ) : null}
                   <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
                 </Pressable>
-                <ScrollView style={styles.quadrantTopScroll} showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  style={styles.quadrantTopScroll}
+                  showsVerticalScrollIndicator={false}
+                  onContentSizeChange={(_, h) => setTasksScrollH(h)}
+                >
                   {dashboardQuery.isLoading ? (
                     <Text style={styles.qEmptyText}>Loading…</Text>
                   ) : taskSeriesCards.length === 0 ? (
@@ -964,7 +1011,7 @@ export default function DashboardTab() {
                                 >
                                   <View style={styles.qRowCopy}>
                                     <View style={styles.qTaskTitleRow}>
-                                      <Text style={styles.qRowTitle} numberOfLines={1}>{row.task.text || 'Untitled'}</Text>
+                                      <Text style={[styles.qRowTitle, styles.qTaskTitleFlex]} numberOfLines={1}>{row.task.text || 'Untitled'}</Text>
                                       <View style={[styles.qStateChip, { backgroundColor: withAlpha(toneColor, 0.12), borderColor: withAlpha(toneColor, 0.3) }]}>
                                         <Text style={[styles.qStateText, { color: toneColor }]}>{formatTaskStateLabel(workflowState)}</Text>
                                       </View>
@@ -1355,8 +1402,7 @@ const createStyles = (colors, isDark) => {
       ...(isDark ? {} : shadows.card),
     },
     quadrantCardBottom: {
-      flex: 0,
-      flexBasis: 180,
+      flex: 1,
       minHeight: 140,
     },
     quadrantHeader: {
@@ -1488,7 +1534,12 @@ const createStyles = (colors, isDark) => {
       alignItems: 'center',
       gap: spacing.xs,
     },
+    qTaskTitleFlex: {
+      flex: 1,
+      minWidth: 0,
+    },
     qStateChip: {
+      flexShrink: 0,
       paddingHorizontal: 7,
       paddingVertical: 2,
       borderRadius: radii.pill,
