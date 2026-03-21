@@ -16,7 +16,16 @@ import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { getTasksForDate } from '../../../lib/task-scheduler';
-import { getBucketedTasks, getLatestTaskUpdate, getTaskWorkflowState, isTaskDone } from '../../../lib/task-progress';
+import {
+  getBucketedTasks,
+  getLatestTaskUpdate,
+  getTaskWorkflowState,
+  isTaskDone,
+  getTopLevelTaskUpdates,
+  getTaskUpdateTime,
+  isTaskUpdateReply,
+  taskUpdateHasMeaningfulFeedbackContent,
+} from '../../../lib/task-progress';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 
 const DAY_RANGE = 7;
@@ -192,28 +201,14 @@ function FeedSection({
   );
 }
 
-function MetricPill({ icon, label, value, colors, styles }) {
-  return (
-    <View style={styles.metricPill}>
-      <View style={styles.metricIconWrap}>
-        <Ionicons name={icon} size={14} color={colors.canvasText} />
-      </View>
-      <View>
-        <Text style={styles.metricLabel}>{label}</Text>
-        <Text style={styles.metricValue}>{value}</Text>
-      </View>
-    </View>
-  );
-}
 
 export default function DashboardTab() {
   const { colors, themeName } = useAppTheme();
   const isDark = themeName === 'dark';
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
-  const { db, currentUser, familyMembers, isAuthenticated, instantReady, lock } = useAppSession();
+  const { db, currentUser, familyMembers, isAuthenticated, instantReady } = useAppSession();
   const [selectedDate, setSelectedDate] = useState(() => localDateToUTC(new Date()));
   const [viewedMemberId, setViewedMemberId] = useState('');
-  const [menuVisible, setMenuVisible] = useState(false);
   const [pendingCompletionKeys, setPendingCompletionKeys] = useState(() => new Set());
   const currentUserIdRef = useRef('');
 
@@ -498,22 +493,58 @@ export default function DashboardTab() {
     [taskSeriesCards]
   );
 
-  const heroSummary = useMemo(() => {
-    const pieces = [];
-    if (taskSeriesCards.length > 0) {
-      pieces.push(`${taskSeriesCards.length} task list${taskSeriesCards.length === 1 ? '' : 's'}`);
+  // Count tasks with new parent feedback that the kid hasn't responded to yet.
+  // A task counts if: it has a feedback reply (isTaskUpdateReply + meaningful content),
+  // AND there is no subsequent top-level (non-reply) update by the kid after that feedback.
+  const newFeedbackCount = useMemo(() => {
+    let count = 0;
+    for (const card of taskSeriesCards) {
+      for (const task of card.allTasks) {
+        const updates = task.updates || [];
+        // Get all non-draft top-level updates (kid submissions)
+        const topLevel = getTopLevelTaskUpdates({ updates });
+        // Get all feedback replies
+        const feedbackReplies = updates.filter(
+          (u) => !u.isDraft && isTaskUpdateReply(u) && taskUpdateHasMeaningfulFeedbackContent(u)
+        );
+        if (feedbackReplies.length === 0) continue;
+
+        // Find the latest feedback time
+        const latestFeedbackTime = Math.max(...feedbackReplies.map((r) => getTaskUpdateTime(r)));
+        // Check if any top-level update came after the latest feedback
+        const hasSubsequentUpdate = topLevel.some(
+          (u) => getTaskUpdateTime(u) > latestFeedbackTime
+        );
+        if (!hasSubsequentUpdate) {
+          count++;
+        }
+      }
     }
-    if (incompleteChores.length > 0) {
-      pieces.push(`${incompleteChores.length} chore${incompleteChores.length === 1 ? '' : 's'} left`);
+    return count;
+  }, [taskSeriesCards]);
+
+  // Track which task series have tasks with new feedback (for navigation)
+  const feedbackSeriesId = useMemo(() => {
+    for (const card of taskSeriesCards) {
+      for (const task of card.allTasks) {
+        const updates = task.updates || [];
+        const feedbackReplies = updates.filter(
+          (u) => !u.isDraft && isTaskUpdateReply(u) && taskUpdateHasMeaningfulFeedbackContent(u)
+        );
+        if (feedbackReplies.length === 0) continue;
+        const latestFeedbackTime = Math.max(...feedbackReplies.map((r) => getTaskUpdateTime(r)));
+        const topLevel = getTopLevelTaskUpdates({ updates });
+        const hasSubsequentUpdate = topLevel.some((u) => getTaskUpdateTime(u) > latestFeedbackTime);
+        if (!hasSubsequentUpdate) {
+          return { seriesId: card.series.id, choreId: card.chore?.id || '' };
+        }
+      }
     }
-    if (unreadThreads.length > 0) {
-      pieces.push(`${unreadThreads.length} unread thread${unreadThreads.length === 1 ? '' : 's'}`);
-    }
-    if (pieces.length === 0) {
-      return `A calmer view of ${viewedMember?.name || 'today'} with the essentials spread across the full screen.`;
-    }
-    return pieces.join(' • ');
-  }, [incompleteChores.length, taskSeriesCards.length, unreadThreads.length, viewedMember?.name]);
+    return null;
+  }, [taskSeriesCards]);
+
+  const [memberDropdownVisible, setMemberDropdownVisible] = useState(false);
+  const [dateDropdownVisible, setDateDropdownVisible] = useState(false);
 
   async function handleToggleCompletion(chore, familyMemberId) {
     if (!currentUser?.id) {
@@ -580,16 +611,6 @@ export default function DashboardTab() {
     }
   }
 
-  async function handleLockAndSwitchUser() {
-    try {
-      setMenuVisible(false);
-      await lock();
-      router.replace('/lock?intent=switch-user');
-    } catch (error) {
-      Alert.alert('Unable to switch user', error?.message || 'Please try again.');
-    }
-  }
-
   function openFinanceForViewedMember() {
     if (!viewedMember?.id) return;
     router.push({
@@ -606,105 +627,135 @@ export default function DashboardTab() {
     });
   }
 
-  const menuButton = currentUser ? (
-    <Pressable
-      testID="dashboard-open-user-menu"
-      accessibilityRole="button"
-      accessibilityLabel={`Open dashboard menu for ${currentUser.name}`}
-      onPress={() => setMenuVisible(true)}
-      style={styles.heroMenuButton}
-      hitSlop={10}
-    >
-      <AvatarPhotoImage
-        photoUrls={currentUser.photoUrls}
-        preferredSize="320"
-        style={styles.heroMenuAvatar}
-        fallback={
-          <View style={styles.heroMenuFallback}>
-            <Text style={styles.heroMenuFallbackText}>{createInitials(currentUser.name)}</Text>
-          </View>
-        }
-      />
-    </Pressable>
-  ) : null;
+  function handleStatPress(stat) {
+    if (stat === 'chores') {
+      router.push('/chores');
+    } else if (stat === 'messages') {
+      router.push('/messages');
+    } else if (stat === 'tasks') {
+      openTaskSeriesOverview();
+    } else if (stat === 'feedback' && feedbackSeriesId) {
+      router.push({
+        pathname: '/task-series/series',
+        params: {
+          seriesId: feedbackSeriesId.seriesId,
+          choreId: feedbackSeriesId.choreId,
+          date: selectedDateKey,
+          memberId: viewedMember?.id || '',
+        },
+      });
+    } else if (stat === 'xp') {
+      router.push('/chores');
+    }
+  }
+
+  function formatWeekdayDate(date) {
+    const weekday = date.toLocaleDateString(undefined, { weekday: 'long' });
+    const monthDay = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return `${weekday}, ${monthDay}`;
+  }
 
   return (
     <>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.root}>
-          <View style={styles.heroSection}>
-            <View style={[styles.heroGlowOrb, styles.heroGlowOrbLeft, { backgroundColor: withAlpha(colors.accentDashboard, 0.22) }]} />
-            <View style={[styles.heroGlowOrb, styles.heroGlowOrbBottom, { backgroundColor: withAlpha(colors.canvasText, 0.06) }]} />
-            {isDark ? (
-              <View style={[styles.heroGlowOrb, styles.heroGlowOrbTopRight, { backgroundColor: withAlpha(colors.accentMore, 0.18) }]} />
-            ) : null}
-            {viewedMember?.photoUrls ? (
+          {/* Compact top bar */}
+          <View style={styles.topBar}>
+            <Pressable
+              testID="dashboard-member-switcher"
+              accessibilityRole="button"
+              accessibilityLabel={`Viewing ${viewedMember?.name || 'family member'}. Tap to switch.`}
+              onPress={() => setMemberDropdownVisible(true)}
+              style={styles.topBarLeft}
+            >
               <AvatarPhotoImage
-                photoUrls={viewedMember.photoUrls}
-                preferredSize="1200"
-                resizeMode="cover"
-                style={styles.heroFaceBackdrop}
+                photoUrls={viewedMember?.photoUrls}
+                preferredSize="320"
+                style={styles.topBarAvatar}
+                fallback={
+                  <View style={styles.topBarAvatarFallback}>
+                    <Text style={styles.topBarAvatarFallbackText}>{createInitials(viewedMember?.name)}</Text>
+                  </View>
+                }
               />
+              <Text style={styles.topBarTitle} numberOfLines={1}>
+                {formatPossessiveLabel(viewedMember?.name, 'Day')}
+              </Text>
+              <Ionicons name="chevron-down" size={16} color={colors.canvasTextMuted} />
+            </Pressable>
+
+            <Pressable
+              testID="dashboard-date-picker"
+              accessibilityRole="button"
+              accessibilityLabel={`Selected date: ${formatWeekdayDate(selectedDate)}. Tap to change.`}
+              onPress={() => setDateDropdownVisible(true)}
+              style={styles.topBarRight}
+            >
+              <Text style={styles.topBarDate}>{formatWeekdayDate(selectedDate)}</Text>
+              <Ionicons name="chevron-down" size={14} color={colors.canvasTextMuted} />
+            </Pressable>
+          </View>
+
+          {/* Summary stats row */}
+          <View style={styles.statsRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${incompleteChores.length} chores left`}
+              onPress={() => handleStatPress('chores')}
+              style={styles.statPill}
+            >
+              <Ionicons name="checkmark-circle-outline" size={14} color={colors.accentChores} />
+              <Text style={styles.statValue}>{incompleteChores.length}</Text>
+              <Text style={styles.statLabel}>chores</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${unreadThreads.length} unread messages`}
+              onPress={() => handleStatPress('messages')}
+              style={styles.statPill}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.accentDashboard} />
+              <Text style={styles.statValue}>{unreadThreads.length}</Text>
+              <Text style={styles.statLabel}>unread</Text>
+            </Pressable>
+
+            {activeTaskCount > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${activeTaskCount} tasks to do`}
+                onPress={() => handleStatPress('tasks')}
+                style={styles.statPill}
+              >
+                <Ionicons name="list-outline" size={14} color={colors.accentCalendar} />
+                <Text style={styles.statValue}>{activeTaskCount}</Text>
+                <Text style={styles.statLabel}>tasks</Text>
+              </Pressable>
             ) : null}
-            <View style={styles.heroScrim} />
 
-            <View style={styles.heroTopRow}>
-              <View style={styles.heroViewerChip}>
-                <AvatarPhotoImage
-                  photoUrls={viewedMember?.photoUrls}
-                  preferredSize="320"
-                  style={styles.heroViewerAvatar}
-                  fallback={
-                    <View style={styles.heroViewerFallback}>
-                      <Text style={styles.heroViewerFallbackText}>{createInitials(viewedMember?.name)}</Text>
-                    </View>
-                  }
-                />
-                <View style={styles.heroViewerCopy}>
-                  <Text style={styles.heroViewerLabel}>Viewing</Text>
-                  <Text style={styles.heroViewerName}>{viewedMember?.name || 'Family member'}</Text>
-                </View>
-              </View>
-              {menuButton}
-            </View>
+            {newFeedbackCount > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${newFeedbackCount} responses with new feedback`}
+                onPress={() => handleStatPress('feedback')}
+                style={styles.statPill}
+              >
+                <Ionicons name="chatbox-outline" size={14} color={colors.accentMore} />
+                <Text style={styles.statValue}>{newFeedbackCount}</Text>
+                <Text style={styles.statLabel}>feedback</Text>
+              </Pressable>
+            ) : null}
 
-            <View style={styles.heroTitleBlock}>
-              <Text style={styles.heroDate}>{formatLongDate(selectedDate)}</Text>
-              <Text style={styles.heroTitle}>{formatPossessiveLabel(viewedMember?.name, 'day')}</Text>
-              <Text style={styles.heroSubtitle}>{heroSummary}</Text>
-            </View>
-
-            <View style={styles.metricRow}>
-              <MetricPill icon="sparkles" label="XP" value={`${viewedXp.current}/${viewedXp.possible}`} colors={colors} styles={styles} />
-              <MetricPill icon="list" label="Tasks" value={`${activeTaskCount}`} colors={colors} styles={styles} />
-              <MetricPill icon="chatbubble-ellipses" label="Unread" value={`${unreadThreads.length}`} colors={colors} styles={styles} />
-            </View>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateRailContent}>
-              {dateStrip.map((date) => {
-                const dateKey = formatDateKeyUTC(date);
-                const isSelected = dateKey === selectedDateKey;
-                const isToday = dateKey === todayDateKey;
-                return (
-                  <Pressable
-                    key={date.toISOString()}
-                    testID={`dashboard-date-chip-${dateKey}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={`View dashboard for ${formatLongDate(date)}`}
-                    style={[styles.dateRailPill, isSelected && styles.dateRailPillSelected]}
-                    onPress={() => setSelectedDate(date)}
-                  >
-                    <Text style={[styles.dateRailDay, isSelected && styles.dateRailTextSelected]}>
-                      {formatDayLabel(date)}
-                    </Text>
-                    <Text style={[styles.dateRailDate, isSelected && styles.dateRailTextSelected]}>
-                      {formatMonthDay(date)}
-                    </Text>
-                    {!isSelected && isToday ? <View style={styles.dateTodayDot} /> : null}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`XP: ${viewedXp.current} of ${viewedXp.possible}`}
+              onPress={() => handleStatPress('xp')}
+              style={styles.statPill}
+            >
+              <Ionicons name="sparkles" size={14} color={colors.warning} />
+              <Text style={styles.statValue}>{viewedXp.current}/{viewedXp.possible}</Text>
+              <Text style={styles.statLabel}>XP</Text>
+            </Pressable>
           </View>
 
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -1094,77 +1145,80 @@ export default function DashboardTab() {
         </View>
       </SafeAreaView>
 
-      <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
-        <View style={styles.menuOverlay}>
-          <Pressable style={styles.menuBackdrop} onPress={() => setMenuVisible(false)} />
-          <View style={styles.menuSheet}>
-            <View style={styles.menuHeader}>
-              <View style={styles.menuIdentity}>
-                <AvatarPhotoImage
-                  photoUrls={currentUser?.photoUrls}
-                  preferredSize="320"
-                  style={styles.menuAvatar}
-                  fallback={
-                    <View style={styles.menuAvatarFallback}>
-                      <Text style={styles.menuAvatarFallbackText}>{createInitials(currentUser?.name)}</Text>
-                    </View>
-                  }
-                />
-                <View style={styles.menuIdentityCopy}>
-                  <Text style={styles.menuTitle}>{currentUser?.name || 'Current member'}</Text>
-                  <Text style={styles.menuSubtitle}>Choose whose dashboard you want to view on this device.</Text>
-                </View>
-              </View>
-            </View>
+      {/* Member switcher dropdown */}
+      <Modal visible={memberDropdownVisible} transparent animationType="fade" onRequestClose={() => setMemberDropdownVisible(false)}>
+        <Pressable style={styles.dropdownOverlay} onPress={() => setMemberDropdownVisible(false)}>
+          <View style={styles.dropdownSheet}>
+            <Text style={styles.dropdownHeading}>View someone's day</Text>
+            {members.map((member) => {
+              const selected = member.id === viewedMember?.id;
+              return (
+                <Pressable
+                  key={`member-pick-${member.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${member.name}'s dashboard`}
+                  onPress={() => {
+                    setViewedMemberId(member.id);
+                    setMemberDropdownVisible(false);
+                  }}
+                  style={[styles.dropdownMemberRow, selected && styles.dropdownMemberRowSelected]}
+                >
+                  <AvatarPhotoImage
+                    photoUrls={member.photoUrls}
+                    preferredSize="64"
+                    style={styles.dropdownMemberAvatar}
+                    fallback={
+                      <View style={styles.dropdownMemberAvatarFallback}>
+                        <Text style={styles.dropdownMemberAvatarFallbackText}>{createInitials(member.name)}</Text>
+                      </View>
+                    }
+                  />
+                  <Text style={[styles.dropdownMemberName, selected && styles.dropdownMemberNameSelected]}>
+                    {member.name}
+                  </Text>
+                  {selected ? <Ionicons name="checkmark-circle" size={18} color={colors.accentDashboard} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
 
-            <View style={styles.menuList}>
-              {members.map((member) => {
-                const selected = member.id === viewedMember?.id;
+      {/* Date picker dropdown (carousel) */}
+      <Modal visible={dateDropdownVisible} transparent animationType="fade" onRequestClose={() => setDateDropdownVisible(false)}>
+        <Pressable style={styles.dropdownOverlay} onPress={() => setDateDropdownVisible(false)}>
+          <View style={[styles.dropdownSheet, styles.dropdownSheetDate]}>
+            <Text style={styles.dropdownHeading}>Choose a date</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateCarouselContent}>
+              {dateStrip.map((date) => {
+                const dateKey = formatDateKeyUTC(date);
+                const isSelected = dateKey === selectedDateKey;
+                const isToday = dateKey === todayDateKey;
                 return (
                   <Pressable
-                    key={`dashboard-menu-${member.id}`}
+                    key={date.toISOString()}
+                    testID={`dashboard-date-chip-${dateKey}`}
                     accessibilityRole="button"
-                    accessibilityLabel={`View ${member.name}'s dashboard`}
+                    accessibilityLabel={`View dashboard for ${formatLongDate(date)}`}
+                    style={[styles.dateCarouselPill, isSelected && styles.dateCarouselPillSelected]}
                     onPress={() => {
-                      setViewedMemberId(member.id);
-                      setMenuVisible(false);
+                      setSelectedDate(date);
+                      setDateDropdownVisible(false);
                     }}
-                    style={[styles.menuMemberRow, selected && styles.menuMemberRowSelected]}
                   >
-                    <View style={styles.menuMemberRowCopy}>
-                      <Text style={[styles.menuMemberName, selected && styles.menuMemberNameSelected]}>{member.name}</Text>
-                      <Text style={[styles.menuMemberMeta, selected && styles.menuMemberMetaSelected]}>
-                        {selected ? 'Currently viewing' : member.role || 'member'}
-                      </Text>
-                    </View>
-                    {selected ? <Ionicons name="checkmark-circle" size={20} color={colors.accentDashboard} /> : null}
+                    <Text style={[styles.dateCarouselDay, isSelected && styles.dateCarouselTextSelected]}>
+                      {formatDayLabel(date)}
+                    </Text>
+                    <Text style={[styles.dateCarouselDate, isSelected && styles.dateCarouselTextSelected]}>
+                      {formatMonthDay(date)}
+                    </Text>
+                    {!isSelected && isToday ? <View style={styles.dateCarouselTodayDot} /> : null}
                   </Pressable>
                 );
               })}
-            </View>
-
-            <View style={styles.menuFooter}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Lock app and switch login"
-                onPress={() => {
-                  void handleLockAndSwitchUser();
-                }}
-                style={styles.menuSecondaryButton}
-              >
-                <Text style={styles.menuSecondaryButtonText}>Lock and switch login</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close dashboard menu"
-                onPress={() => setMenuVisible(false)}
-                style={styles.menuPrimaryButton}
-              >
-                <Text style={styles.menuPrimaryButtonText}>Done</Text>
-              </Pressable>
-            </View>
+            </ScrollView>
           </View>
-        </View>
+        </Pressable>
       </Modal>
     </>
   );
@@ -1180,237 +1234,208 @@ const createStyles = (colors, isDark) => {
       flex: 1,
       backgroundColor: colors.canvasStrong,
     },
-    heroSection: {
-      position: 'relative',
-      overflow: 'hidden',
-      backgroundColor: colors.canvas,
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.sm,
-      paddingBottom: spacing.sm,
-      gap: spacing.sm,
-    },
-    heroGlowOrb: {
-      position: 'absolute',
-      borderRadius: radii.pill,
-    },
-    heroGlowOrbLeft: {
-      width: 190,
-      height: 190,
-      left: -38,
-      top: -24,
-    },
-    heroGlowOrbBottom: {
-      width: 210,
-      height: 210,
-      left: 94,
-      bottom: -138,
-    },
-    heroGlowOrbTopRight: {
-      width: 180,
-      height: 180,
-      right: -44,
-      top: 44,
-    },
-    heroFaceBackdrop: {
-      position: 'absolute',
-      width: 430,
-      height: 560,
-      right: -160,
-      top: -108,
-      opacity: isDark ? 0.12 : 0.18,
-    },
-    heroScrim: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: withAlpha(colors.canvasStrong, isDark ? 0.3 : 0.18),
-    },
-    heroTopRow: {
+
+    // ── Compact top bar ──
+    topBar: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      gap: spacing.md,
-      zIndex: 1,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      backgroundColor: colors.canvas,
+      gap: spacing.sm,
     },
-    heroViewerChip: {
+    topBarLeft: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      borderRadius: radii.pill,
-      backgroundColor: withAlpha(colors.canvasText, 0.08),
-      borderWidth: 1,
-      borderColor: colors.canvasLine,
-      maxWidth: '74%',
-    },
-    heroViewerAvatar: {
-      width: 36,
-      height: 36,
-      borderRadius: radii.pill,
-    },
-    heroViewerFallback: {
-      width: 36,
-      height: 36,
-      borderRadius: radii.pill,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: withAlpha(colors.canvasText, 0.16),
-    },
-    heroViewerFallbackText: {
-      color: colors.canvasText,
-      fontWeight: '800',
-      fontSize: 13,
-    },
-    heroViewerCopy: {
       flex: 1,
       minWidth: 0,
     },
-    heroViewerLabel: {
-      color: colors.canvasTextMuted,
-      fontSize: 11,
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
-      fontWeight: '800',
+    topBarAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
     },
-    heroViewerName: {
-      color: colors.canvasText,
-      fontSize: 15,
-      fontWeight: '800',
-      marginTop: 2,
-    },
-    heroMenuButton: {
-      width: 46,
-      height: 46,
-      borderRadius: radii.pill,
-      overflow: 'hidden',
-      backgroundColor: withAlpha(colors.canvasText, 0.08),
-      borderWidth: 1,
-      borderColor: colors.canvasLine,
+    topBarAvatarFallback: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
+      backgroundColor: withAlpha(colors.canvasText, 0.12),
     },
-    heroMenuAvatar: {
-      width: '100%',
-      height: '100%',
-    },
-    heroMenuFallback: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: withAlpha(colors.canvasText, 0.16),
-    },
-    heroMenuFallbackText: {
+    topBarAvatarFallbackText: {
       color: colors.canvasText,
       fontWeight: '800',
       fontSize: 14,
     },
-    heroTitleBlock: {
-      gap: spacing.xs,
-      zIndex: 1,
-      paddingTop: spacing.xs,
+    topBarTitle: {
+      color: colors.canvasText,
+      fontSize: 20,
+      fontWeight: '800',
+      flex: 1,
+      minWidth: 0,
     },
-    heroDate: {
+    topBarRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: radii.pill,
+      backgroundColor: withAlpha(colors.canvasText, 0.06),
+    },
+    topBarDate: {
       color: colors.canvasTextMuted,
       fontSize: 13,
       fontWeight: '700',
     },
-    heroTitle: {
-      color: colors.canvasText,
-      fontSize: 34,
-      lineHeight: 38,
-      fontWeight: '800',
-      maxWidth: '76%',
-    },
-    heroSubtitle: {
-      color: colors.canvasTextMuted,
-      fontSize: 14,
-      lineHeight: 20,
-      maxWidth: '84%',
-    },
-    metricRow: {
+
+    // ── Stats row ──
+    statsRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: spacing.sm,
-      zIndex: 1,
+      gap: spacing.xs,
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.xs,
+      paddingBottom: spacing.sm,
+      backgroundColor: colors.canvas,
     },
-    metricPill: {
+    statPill: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
       borderRadius: radii.pill,
-      backgroundColor: withAlpha(colors.canvasText, 0.08),
+      backgroundColor: withAlpha(colors.canvasText, 0.06),
       borderWidth: 1,
-      borderColor: colors.canvasLine,
+      borderColor: withAlpha(colors.canvasText, 0.06),
     },
-    metricIconWrap: {
-      width: 24,
-      height: 24,
-      borderRadius: radii.pill,
+    statValue: {
+      color: colors.canvasText,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    statLabel: {
+      color: colors.canvasTextMuted,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+
+    // ── Dropdown overlays ──
+    dropdownOverlay: {
+      flex: 1,
+      backgroundColor: withAlpha(colors.canvasStrong, 0.48),
+      justifyContent: 'flex-start',
+      paddingTop: 100,
+      paddingHorizontal: spacing.lg,
+    },
+    dropdownSheet: {
+      backgroundColor: colors.panel,
+      borderRadius: 20,
+      padding: spacing.md,
+      gap: spacing.xs,
+      ...shadows.float,
+    },
+    dropdownSheetDate: {
+      paddingBottom: spacing.md,
+    },
+    dropdownHeading: {
+      color: colors.inkMuted,
+      fontSize: 12,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginBottom: spacing.xs,
+    },
+    dropdownMemberRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: 10,
+      paddingHorizontal: spacing.sm,
+      borderRadius: radii.md,
+    },
+    dropdownMemberRowSelected: {
+      backgroundColor: withAlpha(colors.accentDashboard, 0.08),
+    },
+    dropdownMemberAvatar: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+    },
+    dropdownMemberAvatarFallback: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: withAlpha(colors.canvasText, 0.08),
+      backgroundColor: withAlpha(colors.canvasText, 0.1),
     },
-    metricLabel: {
-      color: colors.canvasTextMuted,
-      fontSize: 10,
-      textTransform: 'uppercase',
-      letterSpacing: 0.5,
-      fontWeight: '800',
-    },
-    metricValue: {
+    dropdownMemberAvatarFallbackText: {
       color: colors.canvasText,
-      fontSize: 15,
       fontWeight: '800',
-      marginTop: 1,
+      fontSize: 12,
     },
-    dateRailContent: {
+    dropdownMemberName: {
+      flex: 1,
+      color: colors.ink,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    dropdownMemberNameSelected: {
+      color: colors.accentDashboard,
+    },
+
+    // ── Date carousel in dropdown ──
+    dateCarouselContent: {
       gap: spacing.sm,
-      paddingTop: 2,
-      paddingBottom: 2,
-      zIndex: 1,
+      paddingVertical: spacing.xs,
     },
-    dateRailPill: {
-      minWidth: 86,
+    dateCarouselPill: {
+      minWidth: 76,
       paddingHorizontal: 12,
       paddingVertical: 10,
-      borderRadius: 22,
-      backgroundColor: withAlpha(colors.canvasText, 0.07),
+      borderRadius: 18,
+      backgroundColor: withAlpha(colors.canvasText, 0.06),
       borderWidth: 1,
-      borderColor: colors.canvasLine,
+      borderColor: colors.line,
       alignItems: 'center',
       justifyContent: 'center',
       position: 'relative',
     },
-    dateRailPillSelected: {
-      backgroundColor: isDark ? colors.canvasText : colors.panel,
-      borderColor: isDark ? colors.canvasText : withAlpha(colors.panel, 0.95),
-      ...(isDark ? shadows.float : shadows.card),
+    dateCarouselPillSelected: {
+      backgroundColor: isDark ? colors.canvasText : colors.accentDashboard,
+      borderColor: isDark ? colors.canvasText : colors.accentDashboard,
     },
-    dateRailDay: {
-      color: colors.canvasTextMuted,
+    dateCarouselDay: {
+      color: colors.inkMuted,
       fontSize: 11,
       textTransform: 'uppercase',
-      letterSpacing: 0.6,
+      letterSpacing: 0.5,
       fontWeight: '800',
     },
-    dateRailDate: {
-      color: colors.canvasText,
+    dateCarouselDate: {
+      color: colors.ink,
       fontSize: 14,
       fontWeight: '800',
       marginTop: 2,
     },
-    dateRailTextSelected: {
-      color: isDark ? colors.canvasStrong : colors.ink,
+    dateCarouselTextSelected: {
+      color: isDark ? colors.canvasStrong : colors.onAccent,
     },
-    dateTodayDot: {
+    dateCarouselTodayDot: {
       position: 'absolute',
-      bottom: 8,
-      width: 6,
-      height: 6,
+      bottom: 6,
+      width: 5,
+      height: 5,
       borderRadius: radii.pill,
       backgroundColor: colors.accentDashboard,
     },
+
+    // ── Content below ──
     scroll: {
       flex: 1,
       backgroundColor: colors.bg,
@@ -1424,7 +1449,6 @@ const createStyles = (colors, isDark) => {
       borderRadius: 30,
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.sm,
-      marginTop: -26,
       borderWidth: isDark ? 1 : 0,
       borderColor: isDark ? colors.line : 'transparent',
       ...(isDark ? {} : shadows.card),
@@ -1778,134 +1802,6 @@ const createStyles = (colors, isDark) => {
       backgroundColor: isDark ? colors.canvasText : withAlpha(colors.canvasText, 0.09),
       borderWidth: 1,
       borderColor: isDark ? colors.canvasText : colors.canvasLine,
-    },
-    menuOverlay: {
-      flex: 1,
-      justifyContent: 'flex-end',
-    },
-    menuBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: withAlpha(colors.canvasStrong, 0.48),
-    },
-    menuSheet: {
-      backgroundColor: colors.panel,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.lg,
-      paddingBottom: spacing.xl,
-      gap: spacing.lg,
-      ...shadows.float,
-    },
-    menuHeader: {
-      gap: spacing.sm,
-    },
-    menuIdentity: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-    },
-    menuAvatar: {
-      width: 52,
-      height: 52,
-      borderRadius: radii.pill,
-    },
-    menuAvatarFallback: {
-      width: 52,
-      height: 52,
-      borderRadius: radii.pill,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.surfaceMuted,
-    },
-    menuAvatarFallbackText: {
-      color: colors.accentDashboard,
-      fontWeight: '800',
-      fontSize: 16,
-    },
-    menuIdentityCopy: {
-      flex: 1,
-      gap: 3,
-    },
-    menuTitle: {
-      color: colors.ink,
-      fontSize: 22,
-      fontWeight: '800',
-    },
-    menuSubtitle: {
-      color: colors.inkMuted,
-      lineHeight: 19,
-    },
-    menuList: {
-      gap: spacing.sm,
-    },
-    menuMemberRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: spacing.md,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 14,
-      borderRadius: radii.md,
-      backgroundColor: colors.panelElevated,
-      borderWidth: 1,
-      borderColor: colors.line,
-    },
-    menuMemberRowSelected: {
-      borderColor: withAlpha(colors.accentDashboard, 0.34),
-      backgroundColor: withAlpha(colors.accentDashboard, 0.08),
-    },
-    menuMemberRowCopy: {
-      flex: 1,
-      gap: 3,
-    },
-    menuMemberName: {
-      color: colors.ink,
-      fontSize: 16,
-      fontWeight: '800',
-    },
-    menuMemberNameSelected: {
-      color: colors.accentDashboard,
-    },
-    menuMemberMeta: {
-      color: colors.inkMuted,
-      fontSize: 13,
-    },
-    menuMemberMetaSelected: {
-      color: colors.accentDashboard,
-    },
-    menuFooter: {
-      flexDirection: 'row',
-      gap: spacing.sm,
-    },
-    menuSecondaryButton: {
-      flex: 1,
-      minHeight: 48,
-      borderRadius: radii.pill,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.panelElevated,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: spacing.md,
-    },
-    menuSecondaryButtonText: {
-      color: colors.ink,
-      fontWeight: '700',
-      textAlign: 'center',
-    },
-    menuPrimaryButton: {
-      minWidth: 110,
-      minHeight: 48,
-      borderRadius: radii.pill,
-      backgroundColor: isDark ? colors.canvasText : colors.accentDashboard,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: spacing.lg,
-    },
-    menuPrimaryButtonText: {
-      color: isDark ? colors.canvasStrong : colors.onAccent,
-      fontWeight: '800',
     },
   });
 
