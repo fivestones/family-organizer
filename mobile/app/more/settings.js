@@ -116,7 +116,8 @@ export default function SettingsScreen() {
   const searchParams = useLocalSearchParams();
   const { requireParentAction } = useParentActionGate();
   const { colors, themeName, setThemeName, themeOptions } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const isDark = themeName === 'dark';
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const {
     db,
     isAuthenticated,
@@ -928,7 +929,7 @@ export default function SettingsScreen() {
   );
 }
 
-const createStyles = (colors) =>
+const createStyles = (colors, isDark) =>
   StyleSheet.create({
   content: {
     gap: spacing.md,
@@ -1000,9 +1001,9 @@ const createStyles = (colors) =>
     fontSize: 12,
   },
   themeCard: {
-    backgroundColor: withAlpha(colors.accentMore, 0.08),
+    backgroundColor: isDark ? colors.surfaceMuted : withAlpha(colors.accentMore, 0.08),
     borderWidth: 1,
-    borderColor: withAlpha(colors.accentMore, 0.2),
+    borderColor: isDark ? withAlpha(colors.accentMore, 0.24) : withAlpha(colors.accentMore, 0.2),
     borderRadius: radii.md,
     padding: spacing.md,
     gap: spacing.sm,
@@ -1028,15 +1029,15 @@ const createStyles = (colors) =>
   },
   themeOption: {
     borderWidth: 1,
-    borderColor: withAlpha(colors.accentMore, 0.2),
-    backgroundColor: colors.panelElevated,
+    borderColor: withAlpha(colors.accentMore, isDark ? 0.24 : 0.2),
+    backgroundColor: isDark ? colors.panel : colors.panelElevated,
     borderRadius: radii.sm,
     padding: spacing.md,
     gap: spacing.xs,
   },
   themeOptionSelected: {
-    borderColor: colors.accentMore,
-    backgroundColor: withAlpha(colors.accentMore, 0.08),
+    borderColor: isDark ? colors.canvasText : colors.accentMore,
+    backgroundColor: isDark ? withAlpha(colors.accentMore, 0.12) : withAlpha(colors.accentMore, 0.08),
   },
   themeOptionHeader: {
     flexDirection: 'row',
@@ -1051,7 +1052,7 @@ const createStyles = (colors) =>
     flex: 1,
   },
   themeOptionLabelSelected: {
-    color: colors.accentMore,
+    color: isDark ? colors.canvasText : colors.accentMore,
   },
   themeOptionBadge: {
     color: colors.inkMuted,
@@ -1059,7 +1060,7 @@ const createStyles = (colors) =>
     fontWeight: '700',
   },
   themeOptionBadgeSelected: {
-    color: colors.accentMore,
+    color: isDark ? colors.canvasTextMuted : colors.accentMore,
   },
   themeOptionDescription: {
     color: colors.inkMuted,
@@ -1075,12 +1076,12 @@ const createStyles = (colors) =>
     height: 20,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: withAlpha(colors.panelElevated, 0.8),
+    borderColor: isDark ? colors.line : withAlpha(colors.panelElevated, 0.8),
   },
   summaryCard: {
-    backgroundColor: withAlpha(colors.accentMore, 0.1),
+    backgroundColor: isDark ? colors.surfaceMuted : withAlpha(colors.accentMore, 0.1),
     borderWidth: 1,
-    borderColor: withAlpha(colors.accentMore, 0.22),
+    borderColor: withAlpha(colors.accentMore, isDark ? 0.28 : 0.22),
     borderRadius: radii.md,
     padding: spacing.md,
     gap: spacing.xs,

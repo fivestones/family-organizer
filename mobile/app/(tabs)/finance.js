@@ -208,8 +208,9 @@ function firstParam(value) {
 }
 
 export default function FinanceTab() {
-  const { colors } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, themeName } = useAppTheme();
+  const isDark = themeName === 'dark';
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const searchParams = useLocalSearchParams();
   const { requireParentAction } = useParentActionGate();
   const {
@@ -1440,7 +1441,7 @@ export default function FinanceTab() {
   );
 }
 
-const createStyles = (colors) =>
+const createStyles = (colors, isDark) =>
   StyleSheet.create({
   scroll: {
     flex: 1,
@@ -1450,13 +1451,13 @@ const createStyles = (colors) =>
     gap: spacing.md,
   },
   heroCard: {
-    backgroundColor: withAlpha(colors.accentFinance, 0.1),
+    backgroundColor: isDark ? colors.surfaceMuted : withAlpha(colors.accentFinance, 0.1),
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: withAlpha(colors.accentFinance, 0.22),
+    borderColor: withAlpha(colors.accentFinance, isDark ? 0.26 : 0.22),
     padding: spacing.lg,
     gap: spacing.md,
-    ...shadows.card,
+    ...(isDark ? {} : shadows.card),
   },
   heroEyebrow: {
     color: colors.accentFinance,
@@ -1487,25 +1488,25 @@ const createStyles = (colors) =>
   heroBadge: {
     alignSelf: 'flex-start',
     borderRadius: radii.pill,
-    backgroundColor: colors.panelElevated,
+    backgroundColor: isDark ? colors.canvasText : colors.panelElevated,
     borderWidth: 1,
-    borderColor: withAlpha(colors.accentFinance, 0.22),
+    borderColor: isDark ? colors.canvasText : withAlpha(colors.accentFinance, 0.22),
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   heroBadgeLabel: {
-    color: colors.accentFinance,
+    color: isDark ? colors.canvasStrong : colors.accentFinance,
     fontWeight: '700',
     fontSize: 12,
   },
   panel: {
-    backgroundColor: colors.panelElevated,
+    backgroundColor: isDark ? colors.panel : colors.panelElevated,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.line,
     padding: spacing.lg,
     gap: spacing.md,
-    ...shadows.card,
+    ...(isDark ? {} : shadows.card),
   },
   panelHeaderRow: {
     flexDirection: 'row',
@@ -1541,15 +1542,15 @@ const createStyles = (colors) =>
     gap: 6,
   },
   memberChipSelected: {
-    borderColor: withAlpha(colors.accentFinance, 0.3),
-    backgroundColor: withAlpha(colors.accentFinance, 0.1),
+    borderColor: isDark ? colors.canvasText : withAlpha(colors.accentFinance, 0.3),
+    backgroundColor: isDark ? colors.canvasText : withAlpha(colors.accentFinance, 0.1),
   },
   memberChipText: {
     color: colors.ink,
     fontWeight: '700',
   },
   memberChipTextSelected: {
-    color: colors.accentFinance,
+    color: isDark ? colors.canvasStrong : colors.accentFinance,
   },
   memberChipMeta: {
     color: colors.inkMuted,
@@ -1557,7 +1558,7 @@ const createStyles = (colors) =>
     fontWeight: '700',
   },
   memberChipMetaSelected: {
-    color: colors.accentFinance,
+    color: isDark ? colors.canvasStrong : colors.accentFinance,
   },
   actionScopeCard: {
     borderWidth: 1,
@@ -1595,8 +1596,8 @@ const createStyles = (colors) =>
     justifyContent: 'center',
   },
   actionButtonPrimary: {
-    backgroundColor: withAlpha(colors.accentFinance, 0.18),
-    borderColor: withAlpha(colors.accentFinance, 0.34),
+    backgroundColor: isDark ? colors.canvasText : withAlpha(colors.accentFinance, 0.18),
+    borderColor: isDark ? colors.canvasText : withAlpha(colors.accentFinance, 0.34),
   },
   actionButtonLocked: {
     backgroundColor: withAlpha(colors.locked, 0.18),
@@ -1611,7 +1612,7 @@ const createStyles = (colors) =>
     fontSize: 13,
   },
   actionButtonTextPrimary: {
-    color: colors.accentFinance,
+    color: isDark ? colors.canvasStrong : colors.accentFinance,
     fontWeight: '800',
     fontSize: 13,
   },

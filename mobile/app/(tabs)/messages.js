@@ -93,8 +93,9 @@ export default function MessagesTab() {
     const value = searchParams.threadId;
     return Array.isArray(value) ? value[0] : value;
   }, [searchParams.threadId]);
-  const { colors } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, themeName } = useAppTheme();
+  const isDark = themeName === 'dark';
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { currentUser, isAuthenticated, instantReady } = useAppSession();
   const [selectedThreadId, setSelectedThreadId] = useState(null);
   const [threadSearch, setThreadSearch] = useState('');
@@ -995,7 +996,7 @@ export default function MessagesTab() {
   );
 }
 
-const createStyles = (colors) =>
+const createStyles = (colors, isDark) =>
   StyleSheet.create({
     listPane: {
       flex: 1,
@@ -1176,7 +1177,7 @@ const createStyles = (colors) =>
       minHeight: 40,
       paddingHorizontal: spacing.md,
       borderRadius: radii.pill,
-      backgroundColor: colors.accentDashboard,
+      backgroundColor: isDark ? colors.canvasText : colors.accentDashboard,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1184,7 +1185,7 @@ const createStyles = (colors) =>
       opacity: 0.6,
     },
     primaryButtonText: {
-      color: colors.onAccent,
+      color: isDark ? colors.canvasStrong : colors.onAccent,
       fontWeight: '800',
     },
     ghostButton: {
@@ -1193,7 +1194,7 @@ const createStyles = (colors) =>
       borderRadius: radii.pill,
       borderWidth: 1,
       borderColor: colors.line,
-      backgroundColor: colors.panelElevated,
+      backgroundColor: isDark ? colors.surfaceMuted : colors.panelElevated,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1383,7 +1384,7 @@ const createStyles = (colors) =>
       backgroundColor: colors.panel,
       padding: spacing.md,
       gap: spacing.sm,
-      ...shadows.card,
+      ...(isDark ? {} : shadows.card),
     },
     composerInput: {
       minHeight: 96,
@@ -1450,22 +1451,22 @@ const createStyles = (colors) =>
       paddingHorizontal: spacing.md,
       borderRadius: radii.pill,
       borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.panelElevated,
+      borderColor: isDark ? colors.canvasText : colors.line,
+      backgroundColor: isDark ? colors.canvasText : colors.panelElevated,
       alignItems: 'center',
       justifyContent: 'center',
     },
     headerChipActive: {
-      borderColor: withAlpha(colors.accentDashboard, 0.24),
-      backgroundColor: withAlpha(colors.accentDashboard, 0.12),
+      borderColor: isDark ? colors.accentDashboard : withAlpha(colors.accentDashboard, 0.24),
+      backgroundColor: isDark ? withAlpha(colors.accentDashboard, 0.2) : withAlpha(colors.accentDashboard, 0.12),
     },
     headerChipText: {
-      color: colors.ink,
+      color: isDark ? colors.canvasStrong : colors.ink,
       fontWeight: '700',
       fontSize: 12,
     },
     headerChipTextActive: {
-      color: colors.accentDashboard,
+      color: isDark ? colors.canvasText : colors.accentDashboard,
     },
     modalOverlay: {
       flex: 1,

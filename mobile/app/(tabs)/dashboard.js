@@ -729,11 +729,11 @@ export default function DashboardTab() {
                   </Text>
                 ) : (
                   <View style={styles.seriesBandList}>
-                    {taskSeriesCards.map((card) => {
+                    {taskSeriesCards.map((card, index) => {
                       const previewTasks = card.scheduledTasks.slice(0, 3);
                       const remainingTaskCount = Math.max(0, card.scheduledTasks.length - previewTasks.length);
                       return (
-                        <View key={card.id} style={styles.seriesBand}>
+                        <View key={card.id} style={[styles.seriesBand, index > 0 && styles.seriesBandBorder]}>
                           <View style={styles.seriesHeaderRow}>
                             <View style={styles.seriesCopy}>
                               <Text style={styles.seriesTitle}>{card.series.name || 'Untitled series'}</Text>
@@ -741,9 +741,7 @@ export default function DashboardTab() {
                                 {card.chore?.title ? `From ${card.chore.title}` : 'Task series'}
                               </Text>
                             </View>
-                            <View style={styles.seriesCountBadge}>
-                              <Text style={styles.seriesCountText}>{card.incompleteCount} active</Text>
-                            </View>
+                            <Text style={styles.seriesCountText}>{card.incompleteCount} active</Text>
                           </View>
 
                           <View style={styles.seriesSnapshotRow}>
@@ -1188,8 +1186,8 @@ const createStyles = (colors, isDark) => {
       backgroundColor: colors.canvas,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.sm,
-      paddingBottom: spacing.lg,
-      gap: spacing.md,
+      paddingBottom: spacing.sm,
+      gap: spacing.sm,
     },
     heroGlowOrb: {
       position: 'absolute',
@@ -1317,15 +1315,15 @@ const createStyles = (colors, isDark) => {
     },
     heroTitle: {
       color: colors.canvasText,
-      fontSize: 38,
-      lineHeight: 42,
+      fontSize: 34,
+      lineHeight: 38,
       fontWeight: '800',
       maxWidth: '76%',
     },
     heroSubtitle: {
       color: colors.canvasTextMuted,
-      fontSize: 15,
-      lineHeight: 22,
+      fontSize: 14,
+      lineHeight: 20,
       maxWidth: '84%',
     },
     metricRow: {
@@ -1339,7 +1337,7 @@ const createStyles = (colors, isDark) => {
       alignItems: 'center',
       gap: 10,
       paddingHorizontal: 12,
-      paddingVertical: 10,
+      paddingVertical: 8,
       borderRadius: radii.pill,
       backgroundColor: withAlpha(colors.canvasText, 0.08),
       borderWidth: 1,
@@ -1375,7 +1373,7 @@ const createStyles = (colors, isDark) => {
     dateRailPill: {
       minWidth: 86,
       paddingHorizontal: 12,
-      paddingVertical: 11,
+      paddingVertical: 10,
       borderRadius: 22,
       backgroundColor: withAlpha(colors.canvasText, 0.07),
       borderWidth: 1,
@@ -1425,14 +1423,15 @@ const createStyles = (colors, isDark) => {
       backgroundColor: isDark ? colors.panel : colors.panel,
       borderRadius: 30,
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
+      paddingVertical: spacing.sm,
+      marginTop: -26,
       borderWidth: isDark ? 1 : 0,
       borderColor: isDark ? colors.line : 'transparent',
       ...(isDark ? {} : shadows.card),
     },
     feedSection: {
       gap: spacing.md,
-      paddingVertical: spacing.lg,
+      paddingVertical: spacing.md,
     },
     feedSectionBorder: {
       borderTopWidth: 1,
@@ -1480,19 +1479,19 @@ const createStyles = (colors, isDark) => {
       lineHeight: 18,
     },
     seriesBandList: {
-      gap: spacing.md,
+      gap: 0,
     },
     seriesBand: {
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: 24,
-      padding: spacing.md,
-      gap: spacing.md,
-      borderWidth: 1,
-      borderColor: isDark ? withAlpha(colors.canvasText, 0.05) : withAlpha(colors.accentDashboard, 0.12),
+      paddingVertical: spacing.md,
+      gap: spacing.sm,
+    },
+    seriesBandBorder: {
+      borderTopWidth: 1,
+      borderTopColor: colors.line,
     },
     seriesHeaderRow: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'baseline',
       justifyContent: 'space-between',
       gap: spacing.sm,
     },
@@ -1509,16 +1508,8 @@ const createStyles = (colors, isDark) => {
       color: colors.inkMuted,
       lineHeight: 18,
     },
-    seriesCountBadge: {
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-      borderRadius: radii.pill,
-      backgroundColor: colors.panel,
-      borderWidth: 1,
-      borderColor: colors.line,
-    },
     seriesCountText: {
-      color: colors.ink,
+      color: colors.inkMuted,
       fontSize: 12,
       fontWeight: '800',
     },
@@ -1532,15 +1523,15 @@ const createStyles = (colors, isDark) => {
       fontSize: 12,
     },
     seriesPreviewList: {
-      backgroundColor: isDark ? colors.panelElevated : withAlpha(colors.panel, 0.78),
-      borderRadius: radii.md,
-      borderWidth: 1,
-      borderColor: withAlpha(colors.line, 0.8),
-      overflow: 'hidden',
+      marginLeft: 10,
+      gap: 0,
     },
     previewRow: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: 12,
+      paddingLeft: spacing.md,
+      paddingRight: 0,
+      paddingVertical: 10,
+      borderLeftWidth: 2,
+      borderLeftColor: withAlpha(colors.line, isDark ? 0.9 : 1),
     },
     previewRowBorder: {
       borderTopWidth: 1,
@@ -1582,11 +1573,14 @@ const createStyles = (colors, isDark) => {
     remainingText: {
       color: colors.inkMuted,
       fontSize: 12,
+      marginLeft: 10,
     },
     seriesActionRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: spacing.xs,
+      marginLeft: 10,
+      paddingTop: 2,
     },
     seriesActionButton: {
       borderRadius: radii.pill,

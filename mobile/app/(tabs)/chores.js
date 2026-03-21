@@ -76,8 +76,9 @@ function completionKey(choreId, memberId, dateKey) {
 }
 
 export default function ChoresTab() {
-  const { colors } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, themeName } = useAppTheme();
+  const isDark = themeName === 'dark';
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const {
     db,
     currentUser,
@@ -532,7 +533,9 @@ export default function ChoresTab() {
           ) : null}
         </View>
 
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.contentShell}>
+          <View style={styles.contentGlow} />
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Family Filter</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
@@ -833,21 +836,22 @@ export default function ChoresTab() {
               </View>
             )}
           </View>
-        </ScrollView>
+          </ScrollView>
+        </View>
       </View>
     </SafeAreaView>
   );
 }
 
-const createStyles = (colors) =>
+const createStyles = (colors, isDark) =>
   StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.canvasStrong,
   },
   root: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.canvasStrong,
   },
   topStrip: {
     minHeight: 32,
@@ -858,13 +862,13 @@ const createStyles = (colors) =>
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
-    backgroundColor: withAlpha(colors.accentChores, 0.08),
+    backgroundColor: colors.canvas,
     borderBottomWidth: 1,
-    borderBottomColor: withAlpha(colors.accentChores, 0.18),
+    borderBottomColor: colors.canvasLine,
   },
   topStripText: {
     flex: 1,
-    color: colors.inkMuted,
+    color: colors.canvasTextMuted,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
@@ -881,7 +885,8 @@ const createStyles = (colors) =>
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.panelElevated,
+    backgroundColor: withAlpha(colors.canvasText, 0.08),
+    borderColor: colors.canvasLine,
   },
   statusIconParent: {
     backgroundColor: withAlpha(colors.accentMore, 0.14),
@@ -900,15 +905,16 @@ const createStyles = (colors) =>
     height: 28,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: withAlpha(colors.accentChores, 0.24),
-    backgroundColor: colors.panelElevated,
+    borderColor: isDark ? colors.canvasText : withAlpha(colors.accentChores, 0.24),
+    backgroundColor: isDark ? colors.canvasText : colors.panelElevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroBlock: {
+    backgroundColor: colors.canvas,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
     gap: spacing.sm,
   },
   heroRow: {
@@ -944,7 +950,7 @@ const createStyles = (colors) =>
     minWidth: 0,
   },
   heroEyebrow: {
-    color: colors.inkMuted,
+    color: colors.canvasTextMuted,
     fontSize: 12,
     lineHeight: 16,
     textTransform: 'uppercase',
@@ -952,30 +958,52 @@ const createStyles = (colors) =>
     fontWeight: '800',
   },
   heroTitle: {
-    color: colors.ink,
+    color: colors.canvasText,
     fontSize: 24,
     lineHeight: 28,
     fontWeight: '800',
   },
   heroSub: {
-    color: colors.inkMuted,
+    color: colors.canvasTextMuted,
     marginTop: 2,
     fontSize: 13,
     lineHeight: 18,
   },
   heroMetaXp: {
-    color: colors.accentChores,
+    color: colors.canvasText,
     fontWeight: '700',
     marginTop: 5,
     fontSize: 12,
     lineHeight: 16,
   },
+  contentShell: {
+    flex: 1,
+    marginTop: -8,
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+    borderTopWidth: isDark ? 1 : 0,
+    borderTopColor: isDark ? colors.line : 'transparent',
+  },
+  contentGlow: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    top: 0,
+    height: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    backgroundColor: isDark ? withAlpha(colors.accentChores, 0.08) : withAlpha(colors.panel, 0.45),
+  },
   scroll: {
     flex: 1,
+    backgroundColor: colors.bg,
   },
   scrollContent: {
     gap: spacing.md,
     paddingHorizontal: spacing.md,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
   },
   dateChooser: {
@@ -989,8 +1017,9 @@ const createStyles = (colors) =>
     width: 88,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.panel,
+    borderColor: isDark ? colors.canvasLine : colors.line,
+    backgroundColor: withAlpha(colors.canvasText, isDark ? 0.08 : 0),
+    ...(isDark ? {} : { backgroundColor: colors.panel }),
     paddingHorizontal: 12,
     paddingVertical: 9,
     alignItems: 'center',
@@ -1010,13 +1039,13 @@ const createStyles = (colors) =>
     letterSpacing: 0.6,
   },
   dateMiniLabel: {
-    color: colors.ink,
+    color: isDark ? colors.canvasText : colors.ink,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '800',
   },
   panel: {
-    backgroundColor: colors.panelElevated,
+    backgroundColor: isDark ? colors.panel : colors.panelElevated,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.line,
@@ -1039,7 +1068,7 @@ const createStyles = (colors) =>
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.sm,
-    backgroundColor: colors.panelElevated,
+    backgroundColor: isDark ? colors.surfaceMuted : colors.panelElevated,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 6,
@@ -1080,26 +1109,26 @@ const createStyles = (colors) =>
     minWidth: 82,
   },
   dateChipSelected: {
-    backgroundColor: colors.accentChores,
-    borderColor: colors.accentChores,
+    backgroundColor: isDark ? colors.canvasText : colors.accentChores,
+    borderColor: isDark ? colors.canvasText : colors.accentChores,
   },
   dateChipDay: { color: colors.inkMuted, fontSize: 11, fontWeight: '700' },
   dateChipDate: { color: colors.ink, marginTop: 2, fontWeight: '700' },
-  dateChipTextSelected: { color: colors.onAccent },
+  dateChipTextSelected: { color: isDark ? colors.canvasStrong : colors.onAccent },
   memberChip: {
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.pill,
-    backgroundColor: colors.panelElevated,
+    backgroundColor: isDark ? colors.surfaceMuted : colors.panelElevated,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   memberChipSelected: {
-    backgroundColor: withAlpha(colors.accentChores, 0.1),
-    borderColor: withAlpha(colors.accentChores, 0.24),
+    backgroundColor: isDark ? colors.canvasText : withAlpha(colors.accentChores, 0.1),
+    borderColor: isDark ? colors.canvasText : withAlpha(colors.accentChores, 0.24),
   },
   memberChipText: { color: colors.ink, fontWeight: '600' },
-  memberChipTextSelected: { color: colors.accentChores },
+  memberChipTextSelected: { color: isDark ? colors.canvasStrong : colors.accentChores },
   viewOptionList: { gap: spacing.sm },
   viewOptionRow: {
     flexDirection: 'row',
@@ -1108,7 +1137,7 @@ const createStyles = (colors) =>
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.sm,
-    backgroundColor: colors.panelElevated,
+    backgroundColor: isDark ? colors.surfaceMuted : colors.panelElevated,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -1139,7 +1168,7 @@ const createStyles = (colors) =>
     width: 20,
     height: 20,
     borderRadius: 999,
-    backgroundColor: colors.panelElevated,
+    backgroundColor: isDark ? colors.panel : colors.panelElevated,
     borderWidth: 1,
     borderColor: withAlpha(colors.locked, 0.28),
   },
@@ -1151,9 +1180,9 @@ const createStyles = (colors) =>
   metaText: { color: colors.inkMuted, fontSize: 12 },
   markAllButton: {
     borderWidth: 1,
-    borderColor: withAlpha(colors.accentChores, 0.24),
+    borderColor: isDark ? colors.canvasText : withAlpha(colors.accentChores, 0.24),
     borderRadius: radii.pill,
-    backgroundColor: withAlpha(colors.accentChores, 0.1),
+    backgroundColor: isDark ? colors.canvasText : withAlpha(colors.accentChores, 0.1),
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
@@ -1161,7 +1190,7 @@ const createStyles = (colors) =>
     opacity: 0.55,
   },
   markAllButtonText: {
-    color: colors.accentChores,
+    color: isDark ? colors.canvasStrong : colors.accentChores,
     fontWeight: '800',
     fontSize: 11,
   },
@@ -1172,7 +1201,7 @@ const createStyles = (colors) =>
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.md,
-    backgroundColor: colors.panel,
+    backgroundColor: isDark ? colors.surfaceMuted : colors.panel,
     padding: spacing.md,
     gap: spacing.sm,
   },
@@ -1195,7 +1224,7 @@ const createStyles = (colors) =>
   tagWarmText: { color: colors.warning },
   tagXp: { backgroundColor: withAlpha(colors.accentCalendar, 0.1), borderColor: withAlpha(colors.accentCalendar, 0.24) },
   tagXpText: { color: colors.accentCalendar },
-  tagNeutral: { backgroundColor: colors.panelElevated, borderColor: colors.line },
+  tagNeutral: { backgroundColor: isDark ? colors.panel : colors.panelElevated, borderColor: colors.line },
   tagNeutralText: { color: colors.inkMuted },
   helperText: { color: colors.inkMuted, fontSize: 12 },
   toggleList: { gap: spacing.sm },
@@ -1206,7 +1235,7 @@ const createStyles = (colors) =>
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.sm,
-    backgroundColor: colors.panelElevated,
+    backgroundColor: isDark ? colors.surfaceMuted : colors.panelElevated,
     paddingHorizontal: 10,
     paddingVertical: 10,
   },
@@ -1218,8 +1247,8 @@ const createStyles = (colors) =>
     justifyContent: 'center',
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: withAlpha(colors.accentChores, 0.24),
-    backgroundColor: withAlpha(colors.accentChores, 0.08),
+    borderColor: isDark ? colors.canvasText : withAlpha(colors.accentChores, 0.24),
+    backgroundColor: isDark ? colors.canvasText : withAlpha(colors.accentChores, 0.08),
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
@@ -1233,7 +1262,7 @@ const createStyles = (colors) =>
     borderColor: withAlpha(colors.locked, 0.28),
   },
   toggleButtonBusy: { opacity: 0.7 },
-  toggleButtonText: { color: colors.accentChores, fontWeight: '800', fontSize: 12 },
+  toggleButtonText: { color: isDark ? colors.canvasStrong : colors.accentChores, fontWeight: '800', fontSize: 12 },
   toggleButtonTextDone: { color: colors.success },
   toggleButtonTextDisabled: { color: colors.inkMuted },
   completionSummary: { color: colors.inkMuted, fontSize: 12, marginTop: 2 },
