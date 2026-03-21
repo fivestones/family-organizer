@@ -1286,8 +1286,7 @@ const createStyles = (colors, isDark) => {
       color: colors.canvasText,
       fontSize: 20,
       fontWeight: '800',
-      flex: 1,
-      minWidth: 0,
+      flexShrink: 1,
     },
     topBarRight: {
       flexDirection: 'row',
