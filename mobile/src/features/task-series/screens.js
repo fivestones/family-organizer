@@ -35,24 +35,27 @@ import { RichTextHtmlEditor } from './RichTextHtmlEditor';
 import { clearTaskUpdateDraft, loadTaskUpdateDraft, saveTaskUpdateDraft } from './drafts';
 import { buildTaskUpdateTransactions, buildClearNotedTransactions, buildNotedTransactions, validateUpdateSubmission } from '../../../../lib/task-update-mutations';
 import {
-  getLatestTaskFeedbackThread,
+  getTaskHistoryEntries,
+  getLatestTaskResponseThread,
   getTaskResponseSubmissions,
   getTaskUpdateActorName,
   getTaskUpdateAffectedName,
   getTaskUpdateFeedbackReplies,
+  getTaskUpdateReplyToId,
   getTaskStatusLabel,
   getTaskWorkflowState,
   getTaskProgressPlaceholder,
   isActionableTask,
   isTaskDone,
-  isTaskUpdateReply,
   sortTaskUpdates,
+  taskUpdateHasMeaningfulFeedbackContent,
+  taskUpdateHasStateTransition,
 } from '../../../../lib/task-progress';
 import { buildTaskBinEntries, groupByAttention, sortTaskBinEntries } from '../../../../lib/task-bins';
 import { formatGradeDisplay } from '../../../../lib/grade-utils';
 import { computeSeriesGrade } from '../../../../lib/task-response-aggregation';
 import { RESPONSE_FIELD_TYPE_LABELS } from '../../../../lib/task-response-types';
-import { getTaskUpdateStateLabel, getTaskUpdateVisibleStates } from '../../../../lib/task-update-ui';
+import { getTaskUpdateStateLabel, getTaskUpdateVisibleStates, TASK_UPDATE_ALL_STATES } from '../../../../lib/task-update-ui';
 import {
   areTodayTasksFinished,
   buildCatchUpTransactions,
@@ -134,9 +137,15 @@ function resolveGradeType(entry) {
 }
 
 function buildTaskStatusOptions(task, isParentReviewer) {
+  if (isParentReviewer) return TASK_UPDATE_ALL_STATES.slice();
   return getTaskUpdateVisibleStates(getTaskWorkflowState(task), {
     isReviewMode: isParentReviewer,
   });
+}
+
+function getDefaultParentPanelMode(currentState, canShowFeedbackMode) {
+  if (!canShowFeedbackMode) return 'response';
+  return currentState === 'in_progress' || currentState === 'not_started' ? 'response' : 'feedback';
 }
 
 function buildSeriesStatus(series, infoMap, today) {
@@ -677,6 +686,9 @@ function FeedbackReplies({ replies, colors, onOpenAttachment }) {
               ? formatGradeDisplay(reply.gradeNumericValue, gradeType)
               : reply.gradeDisplayValue || String(reply.gradeNumericValue)
             : reply.gradeDisplayValue || '';
+        const hasStateTransition = taskUpdateHasStateTransition(reply);
+        const fromState = reply.fromState ? getTaskStatusLabel(reply.fromState) : null;
+        const toState = reply.toState ? getTaskStatusLabel(reply.toState) : null;
 
         return (
           <View key={reply.id} style={{ borderRadius: radii.md, borderWidth: 1, borderColor: withAlpha(colors.accentMore, 0.24), backgroundColor: withAlpha(colors.accentMore, 0.08), padding: spacing.md, gap: spacing.xs }}>
@@ -684,6 +696,16 @@ function FeedbackReplies({ replies, colors, onOpenAttachment }) {
               {getTaskUpdateActorName(reply) ? <Text style={{ color: colors.accentMore, fontSize: 12, fontWeight: '800' }}>{getTaskUpdateActorName(reply)}</Text> : null}
               {reply.createdAt ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>{formatTimestamp(reply.createdAt)}</Text> : null}
             </View>
+            {hasStateTransition && toState ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' }}>
+                <StatusPill
+                  colors={colors}
+                  label={toState}
+                  tone={reply.toState === 'done' ? 'success' : reply.toState === 'needs_review' ? 'warning' : reply.toState === 'blocked' ? 'danger' : reply.toState === 'in_progress' ? 'accent' : 'neutral'}
+                />
+                {fromState && fromState !== toState ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>from {fromState}</Text> : null}
+              </View>
+            ) : null}
             {gradeLabel ? <Text style={{ color: colors.success, fontSize: 13, fontWeight: '800' }}>Grade: {gradeLabel}</Text> : null}
             {reply.note ? <Text style={{ color: colors.ink, fontSize: 13, lineHeight: 18 }}>{reply.note}</Text> : null}
             <AttachmentChips attachments={reply.attachments || []} onOpen={onOpenAttachment} />
@@ -695,7 +717,8 @@ function FeedbackReplies({ replies, colors, onOpenAttachment }) {
 }
 
 function UpdateHistoryList({ task, colors, onOpenAttachment }) {
-  const updates = sortTaskUpdates((task?.updates || []).filter((entry) => !entry.isDraft && !isTaskUpdateReply(entry)));
+  const updates = getTaskHistoryEntries(task?.updates || []);
+  const updatesById = new Map((task?.updates || []).map((entry) => [entry.id, entry]));
   if (!updates.length) {
     return (
       <View style={{ borderRadius: radii.md, borderWidth: 1, borderColor: colors.line, borderStyle: 'dashed', backgroundColor: withAlpha(colors.ink, 0.03), padding: spacing.md }}>
@@ -714,19 +737,28 @@ function UpdateHistoryList({ task, colors, onOpenAttachment }) {
               ? formatGradeDisplay(entry.gradeNumericValue, gradeType)
               : entry.gradeDisplayValue || String(entry.gradeNumericValue)
             : entry.gradeDisplayValue || '';
+        const replyToId = getTaskUpdateReplyToId(entry);
+        const replyTarget = replyToId ? updatesById.get(replyToId) || null : null;
+        const replyTargetActorName = getTaskUpdateActorName(replyTarget);
+        const isStatusOnlyReply = !!replyToId && !taskUpdateHasMeaningfulFeedbackContent(entry);
+        const fromState = entry.fromState ? getTaskStatusLabel(entry.fromState) : null;
+        const toState = entry.toState ? getTaskStatusLabel(entry.toState) : getTaskStatusLabel('not_started');
         return (
           <View key={entry.id} style={{ borderRadius: radii.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel, padding: spacing.md, gap: spacing.xs }}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              <StatusPill colors={colors} label={getTaskStatusLabel(entry.toState || 'not_started')} tone={entry.toState === 'done' ? 'success' : entry.toState === 'needs_review' ? 'warning' : entry.toState === 'blocked' ? 'danger' : 'neutral'} />
+              {replyToId && !isStatusOnlyReply ? <StatusPill colors={colors} label="Feedback" tone="accent" /> : null}
+              <StatusPill colors={colors} label={toState} tone={entry.toState === 'done' ? 'success' : entry.toState === 'needs_review' ? 'warning' : entry.toState === 'blocked' ? 'danger' : entry.toState === 'in_progress' ? 'accent' : 'neutral'} />
+              {fromState && toState && fromState !== toState ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>from {fromState}</Text> : null}
               {getTaskUpdateActorName(entry) ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>by {getTaskUpdateActorName(entry)}</Text> : null}
               {getTaskUpdateAffectedName(entry) && getTaskUpdateAffectedName(entry) !== getTaskUpdateActorName(entry) ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>for {getTaskUpdateAffectedName(entry)}</Text> : null}
+              {replyTargetActorName && !isStatusOnlyReply ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>on {replyTargetActorName}'s response</Text> : null}
               {entry.createdAt ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>{formatTimestamp(entry.createdAt)}</Text> : null}
             </View>
             {gradeLabel ? <Text style={{ color: colors.success, fontSize: 13, fontWeight: '800' }}>Grade: {gradeLabel}</Text> : null}
             {entry.note ? <Text style={{ color: colors.ink, fontSize: 13, lineHeight: 18 }}>{entry.note}</Text> : null}
             <ResponseFieldValueSummary entry={entry} colors={colors} onOpenAttachment={onOpenAttachment} />
             <AttachmentChips attachments={entry.attachments || []} onOpen={onOpenAttachment} />
-            <FeedbackReplies replies={entry.replies} colors={colors} onOpenAttachment={onOpenAttachment} />
+            {!replyToId ? <FeedbackReplies replies={entry.replies} colors={colors} onOpenAttachment={onOpenAttachment} /> : null}
           </View>
         );
       })}
@@ -901,8 +933,11 @@ function TaskUpdateComposerCard({
 }) {
   const isParentReviewer = currentUser?.role === 'parent';
   const owner = firstRef(series?.familyMember);
+  const currentState = getTaskWorkflowState(task);
   const submissions = useMemo(() => getTaskResponseSubmissions(task?.updates || []), [task?.updates]);
-  const reviewMode = isParentReviewer && submissions.length > 0;
+  const canShowFeedbackMode = isParentReviewer && submissions.length > 0;
+  const [parentPanelMode, setParentPanelMode] = useState(getDefaultParentPanelMode(currentState, canShowFeedbackMode));
+  const reviewMode = canShowFeedbackMode && parentPanelMode === 'feedback';
   const [selectedSubmissionIndex, setSelectedSubmissionIndex] = useState(0);
   const [noteMode, setNoteMode] = useState('feedback');
   const [selectedState, setSelectedState] = useState(getTaskWorkflowState(task));
@@ -918,9 +953,17 @@ function TaskUpdateComposerCard({
   const draftTimerRef = useRef(null);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const audioRecorderState = useAudioRecorderState(audioRecorder, 200);
-  const currentState = getTaskWorkflowState(task);
   const latestUpdate = useMemo(() => sortTaskUpdates((task?.updates || []).filter((entry) => !entry.isDraft))[0] || null, [task?.updates]);
   const selectedSubmission = reviewMode ? submissions[selectedSubmissionIndex] || null : null;
+
+  useEffect(() => {
+    setParentPanelMode(getDefaultParentPanelMode(currentState, canShowFeedbackMode));
+  }, [task?.id, currentState, canShowFeedbackMode]);
+
+  useEffect(() => {
+    if (selectedSubmissionIndex < submissions.length) return;
+    setSelectedSubmissionIndex(0);
+  }, [selectedSubmissionIndex, submissions.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -948,6 +991,7 @@ function TaskUpdateComposerCard({
     setGradeValue('');
     setSelectedGradeTypeId(gradeTypes?.[0]?.id || null);
     setNoteMode('feedback');
+    setParentPanelMode(getDefaultParentPanelMode(getTaskWorkflowState(task), isParentReviewer && submissions.length > 0));
     setFiles([]);
     setRestoreTiming(null);
     setSelectedSubmissionIndex(0);
@@ -973,7 +1017,7 @@ function TaskUpdateComposerCard({
     return () => {
       cancelled = true;
     };
-  }, [gradeTypes, latestUpdate, task]);
+  }, [gradeTypes, isParentReviewer, latestUpdate, submissions.length, task]);
 
   useEffect(() => {
     const hasDraftContent =
@@ -1027,9 +1071,9 @@ function TaskUpdateComposerCard({
         toState: selectedState,
         requiredResponseFields: (task?.responseFields || []).filter((field) => field.required),
         filledFieldIds,
-        isParentReviewingExistingSubmission: reviewMode && noteMode === 'feedback',
+        isParentReviewingExistingSubmission: isParentReviewer,
       }),
-    [filledFieldIds, noteMode, reviewMode, selectedState, task?.responseFields]
+    [filledFieldIds, isParentReviewer, selectedState, task?.responseFields]
   );
 
   async function pickEvidenceFiles() {
@@ -1097,6 +1141,9 @@ function TaskUpdateComposerCard({
       Alert.alert('Login required', 'Choose a family member before updating task status.');
       return;
     }
+    if (validation && !validation.valid) {
+      return;
+    }
 
     const nextState = validation?.routedState || selectedState;
     const replyToUpdateId =
@@ -1144,7 +1191,7 @@ function TaskUpdateComposerCard({
         replyToUpdateId,
       });
 
-        await db.transact(transactions);
+      await db.transact(transactions);
     } catch (error) {
       try {
         // Use the shared db from session if available.
@@ -1174,11 +1221,33 @@ function TaskUpdateComposerCard({
     }));
   }
 
-  const latestReviewedThread = getLatestTaskFeedbackThread(task);
+  const latestResponseThread = getLatestTaskResponseThread(task);
   const ownerName = owner?.name || 'Task owner';
 
   return (
     <View style={{ gap: spacing.md }}>
+      {canShowFeedbackMode ? (
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          {[
+            { key: 'response', label: 'Submit response' },
+            { key: 'feedback', label: 'Feedback on previous response' },
+          ].map((mode) => {
+            const active = parentPanelMode === mode.key;
+            return (
+              <Pressable
+                key={mode.key}
+                accessibilityRole="button"
+                accessibilityLabel={mode.label}
+                onPress={() => setParentPanelMode(mode.key)}
+                style={{ flex: 1, borderRadius: radii.pill, borderWidth: 1, borderColor: active ? colors.accentMore : colors.line, backgroundColor: active ? colors.accentMore : colors.panel, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, alignItems: 'center' }}
+              >
+                <Text style={{ color: active ? colors.onAccent : colors.inkMuted, fontWeight: '800', fontSize: 12 }}>{mode.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
       {reviewMode ? (
         <View style={{ gap: spacing.sm }}>
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
@@ -1226,12 +1295,12 @@ function TaskUpdateComposerCard({
             </View>
           ) : null}
         </View>
-      ) : latestReviewedThread ? (
+      ) : latestResponseThread ? (
         <View style={{ borderRadius: radii.md, borderWidth: 1, borderColor: withAlpha(colors.accentMore, 0.24), backgroundColor: withAlpha(colors.accentMore, 0.06), padding: spacing.md, gap: spacing.sm }}>
-          <Text style={{ color: colors.accentMore, fontSize: 12, fontWeight: '800' }}>Latest reviewed response</Text>
-          {latestReviewedThread.submission.note ? <Text style={{ color: colors.ink, fontSize: 13, lineHeight: 18 }}>{latestReviewedThread.submission.note}</Text> : null}
-          <ResponseFieldValueSummary entry={latestReviewedThread.submission} colors={colors} onOpenAttachment={setPreviewAttachment} />
-          <FeedbackReplies replies={latestReviewedThread.feedbackReplies} colors={colors} onOpenAttachment={setPreviewAttachment} />
+          <Text style={{ color: colors.accentMore, fontSize: 12, fontWeight: '800' }}>Latest response</Text>
+          {latestResponseThread.submission.note ? <Text style={{ color: colors.ink, fontSize: 13, lineHeight: 18 }}>{latestResponseThread.submission.note}</Text> : null}
+          <ResponseFieldValueSummary entry={latestResponseThread.submission} colors={colors} onOpenAttachment={setPreviewAttachment} />
+          <FeedbackReplies replies={latestResponseThread.feedbackReplies} colors={colors} onOpenAttachment={setPreviewAttachment} />
         </View>
       ) : null}
 
@@ -1435,11 +1504,11 @@ function TaskUpdateComposerCard({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Save task update"
-        disabled={isSaving || audioRecorderState.isRecording}
+        disabled={isSaving || audioRecorderState.isRecording || Boolean(validation && !validation.valid)}
         onPress={() => {
           void handleSubmit();
         }}
-        style={{ borderRadius: radii.pill, borderWidth: 1, borderColor: colors.accentMore, backgroundColor: colors.accentMore, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: isSaving || audioRecorderState.isRecording ? 0.5 : 1 }}
+        style={{ borderRadius: radii.pill, borderWidth: 1, borderColor: colors.accentMore, backgroundColor: colors.accentMore, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: isSaving || audioRecorderState.isRecording || (validation && !validation.valid) ? 0.5 : 1 }}
       >
         <Text style={{ color: colors.onAccent, fontSize: 13, fontWeight: '800' }}>
           {audioRecorderState.isRecording ? 'Stop recording first' : isSaving ? 'Saving…' : `Submit as ${getTaskStatusLabel(validation?.routedState || selectedState)}`}

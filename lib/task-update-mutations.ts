@@ -124,12 +124,12 @@ export function validateUpdateSubmission({
     toState: TaskWorkflowState;
     requiredResponseFields: TaskResponseFieldLikeForValidation[];
     filledFieldIds: Set<string>;
-    /** When true, the parent is reviewing/approving an existing child submission.
-     *  Response field requirements are bypassed since the child already submitted. */
+    /** When true, a parent reviewer is allowed to change status without filling
+     *  required response fields in the current composer. */
     isParentReviewingExistingSubmission?: boolean;
 }): TaskUpdateValidationResult {
-    // When a parent is reviewing an existing submission, they don't need to fill
-    // response fields — the child already did. Allow any state transition.
+    // Parent reviewers can always set status without filling required response
+    // fields in the current composer.
     if (isParentReviewingExistingSubmission) {
         return { valid: true };
     }

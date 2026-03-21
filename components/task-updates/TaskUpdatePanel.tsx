@@ -208,6 +208,13 @@ function formatReviewTimestamp(value: number | string | Date | null | undefined)
     });
 }
 
+type ParentPanelMode = 'response' | 'feedback';
+
+function getDefaultParentPanelMode(currentState: TaskWorkflowState, canShowFeedbackMode: boolean): ParentPanelMode {
+    if (!canShowFeedbackMode) return 'response';
+    return currentState === 'in_progress' || currentState === 'not_started' ? 'response' : 'feedback';
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -236,10 +243,14 @@ export const TaskUpdatePanel: React.FC<Props> = ({
     // ---- Review mode detection ----
     const submissions = useMemo(() => getSubmissions(task.updates), [task.updates]);
     const hasExistingSubmission = submissions.length > 0;
-    const isReviewMode =
+    const canShowFeedbackMode =
         variant === 'full' &&
         isParentReviewer === true &&
         hasExistingSubmission;
+    const [parentPanelMode, setParentPanelMode] = useState<ParentPanelMode>(() =>
+        getDefaultParentPanelMode(currentState, canShowFeedbackMode)
+    );
+    const isReviewMode = canShowFeedbackMode && parentPanelMode === 'feedback';
 
     // ---- Review mode state ----
     const [selectedSubmissionIndex, setSelectedSubmissionIndex] = useState(0);
@@ -250,6 +261,15 @@ export const TaskUpdatePanel: React.FC<Props> = ({
     const selectedSubmission = isReviewMode ? submissions[selectedSubmissionIndex] ?? null : null;
     const selectedSubmissionUpdate = selectedSubmission?.update ?? null;
     const selectedSubmissionId = selectedSubmissionUpdate?.id ?? null;
+
+    useEffect(() => {
+        setParentPanelMode(getDefaultParentPanelMode(currentState, canShowFeedbackMode));
+    }, [task.id, currentState, canShowFeedbackMode]);
+
+    useEffect(() => {
+        if (selectedSubmissionIndex < submissions.length) return;
+        setSelectedSubmissionIndex(0);
+    }, [selectedSubmissionIndex, submissions.length]);
 
     // ---- Load draft or compute defaults ----
     const initialDraft = useRef(variant === 'full' ? loadDraft(task.id) : null);
@@ -417,9 +437,9 @@ export const TaskUpdatePanel: React.FC<Props> = ({
             toState: selectedState,
             requiredResponseFields: sortedFields.filter((f) => f.required),
             filledFieldIds,
-            isParentReviewingExistingSubmission: isReviewMode,
+            isParentReviewingExistingSubmission: isParentReviewer === true,
         });
-    }, [selectedState, sortedFields, filledFieldIds, isReviewMode]);
+    }, [selectedState, sortedFields, filledFieldIds, isParentReviewer]);
 
     // ---- Quick states: show a smart subset, with expand option ----
     const quickStates = useMemo(
@@ -427,7 +447,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
         [currentState, isReviewMode]
     );
 
-    const visibleStates = showAllStates ? TASK_UPDATE_ALL_STATES : quickStates;
+    const visibleStates = isParentReviewer ? TASK_UPDATE_ALL_STATES : (showAllStates ? TASK_UPDATE_ALL_STATES : quickStates);
 
     // ---- Grade helpers ----
     const selectedGradeType = gradeTypes?.find((g) => g.id === selectedGradeTypeId);
@@ -519,6 +539,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                     toState: nextState,
                     requiredResponseFields: sortedFields.filter((f) => f.required),
                     filledFieldIds,
+                    isParentReviewingExistingSubmission: isParentReviewer === true,
                 });
                 if (!inlineValidation.valid) {
                     // Don't submit — validation message will show via state update
@@ -550,7 +571,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                 setIsSubmitting(false);
             }
         },
-        [onSubmit, canEdit, onRequireAuth, sortedFields, filledFieldIds, fieldValues]
+        [onSubmit, canEdit, onRequireAuth, sortedFields, filledFieldIds, fieldValues, isParentReviewer]
     );
 
     // ======= INLINE VARIANT (compact, for task card) =======
@@ -561,6 +582,7 @@ export const TaskUpdatePanel: React.FC<Props> = ({
                   toState: selectedState,
                   requiredResponseFields: sortedFields.filter((f) => f.required),
                   filledFieldIds,
+                  isParentReviewingExistingSubmission: isParentReviewer === true,
               })
             : null;
 
@@ -677,6 +699,34 @@ export const TaskUpdatePanel: React.FC<Props> = ({
 
     // ======= FULL VARIANT (for dialog/detail panel) =======
     const effectiveSubmitState = validation?.routedState || selectedState;
+    const parentModeToggle = canShowFeedbackMode ? (
+        <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-1">
+            <button
+                type="button"
+                onClick={() => setParentPanelMode('response')}
+                className={cn(
+                    'flex-1 rounded-md px-3 py-2 text-xs font-semibold transition-all',
+                    parentPanelMode === 'response'
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                )}
+            >
+                Submit response
+            </button>
+            <button
+                type="button"
+                onClick={() => setParentPanelMode('feedback')}
+                className={cn(
+                    'flex-1 rounded-md px-3 py-2 text-xs font-semibold transition-all',
+                    parentPanelMode === 'feedback'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                )}
+            >
+                Feedback on previous response
+            </button>
+        </div>
+    ) : null;
 
     // --------------- REVIEW MODE LAYOUT ---------------
     if (isReviewMode && selectedSubmissionUpdate) {
@@ -687,6 +737,8 @@ export const TaskUpdatePanel: React.FC<Props> = ({
 
         return (
             <div className="space-y-5">
+                {parentModeToggle}
+
                 {/* ---- Feedback on a response / General task update toggle ---- */}
                 <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-1">
                     <button
@@ -997,6 +1049,8 @@ export const TaskUpdatePanel: React.FC<Props> = ({
     // --------------- STANDARD (NON-REVIEW) LAYOUT ---------------
     return (
         <div className="space-y-5">
+            {parentModeToggle}
+
             {/* Response fields */}
             {hasResponseFields && (
                 <div className="space-y-4">

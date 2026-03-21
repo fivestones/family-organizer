@@ -120,6 +120,11 @@ describe('TaskUpdatePanel parent review flow', () => {
             />
         );
 
+        expect(screen.getByRole('button', { name: /submit response/i })).toBeInTheDocument();
+        expect(screen.getByTestId('response-field-input')).toBeInTheDocument();
+        expect(screen.queryByText(/judah's response/i)).not.toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /feedback on previous response/i }));
         expect(screen.getByText(/judah's response/i)).toBeInTheDocument();
 
         await user.click(screen.getByRole('button', { name: /^Done$/i }));
@@ -130,6 +135,33 @@ describe('TaskUpdatePanel parent review flow', () => {
                 nextState: 'done',
                 responseFieldValues: [],
                 replyToUpdateId: 'submission-1',
+            })
+        );
+    });
+
+    it('does not block a parent from setting review status when required response fields are empty', async () => {
+        const user = userEvent.setup();
+        const onSubmit = vi.fn();
+
+        render(
+            <TaskUpdatePanel
+                task={makeTask('in_progress')}
+                variant="full"
+                canEdit
+                isParentReviewer
+                ownerName="Judah"
+                onSubmit={onSubmit}
+            />
+        );
+
+        await user.click(screen.getByRole('button', { name: /^Needs review$/i }));
+        await user.click(screen.getByRole('button', { name: /submit as needs review/i }));
+
+        expect(onSubmit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                nextState: 'needs_review',
+                responseFieldValues: [],
+                replyToUpdateId: null,
             })
         );
     });

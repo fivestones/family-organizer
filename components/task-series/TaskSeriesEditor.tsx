@@ -23,10 +23,11 @@ import { useAuth } from '@/components/AuthProvider';
 import TaskItemExtension, { TaskDateContext } from './TaskItem';
 import { TaskDetailsPopover } from './TaskDetailsPopover';
 import { ResponseFieldEditor } from './ResponseFieldEditor';
+import { UpdateHistory } from '@/components/task-updates/UpdateHistory';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { cn } from '@/lib/utils';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
-import { getTaskUpdateActorName, getTaskStatusLabel, isTaskWorkflowState, sortTaskUpdates, type TaskUpdateLike } from '@/lib/task-progress';
+import { getTaskHistoryEntries, type TaskUpdateLike } from '@/lib/task-progress';
 import { countTaskDayBlocks, computePlannedEndDate, type ChoreScheduleInfo } from '@/lib/task-series-schedule';
 import type { Task as SchedulerTask } from '@/lib/task-scheduler';
 import { computeDeletionImpact, taskHasData, type TaskLikeForGuard } from '@/lib/task-data-guard';
@@ -242,30 +243,6 @@ const formatTaskMetaDate = (value: Date | string | null | undefined) => {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-const formatTaskHistoryDate = (value: number | Date | string | null | undefined) => {
-    if (!value) return 'Unknown time';
-    const date = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(date.getTime())) return 'Unknown time';
-    return date.toLocaleString();
-};
-
-const historyToneClassName = (state: string | null | undefined) => {
-    switch (state) {
-        case 'done':
-            return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-        case 'blocked':
-            return 'border-rose-200 bg-rose-50 text-rose-700';
-        case 'needs_review':
-            return 'border-amber-200 bg-amber-50 text-amber-700';
-        case 'skipped':
-            return 'border-slate-200 bg-slate-100 text-slate-700';
-        case 'in_progress':
-            return 'border-sky-200 bg-sky-50 text-sky-700';
-        default:
-            return 'border-slate-200 bg-slate-50 text-slate-600';
-    }
-};
-
 type TaskSeriesCardProps = {
     db: any;
     seriesId: string;
@@ -295,7 +272,7 @@ const TaskSeriesCard = ({
     const [specificTime, setSpecificTime] = useState(persistedTask?.specificTime || '');
     const [overrideWorkAhead, setOverrideWorkAhead] = useState(Boolean(persistedTask?.overrideWorkAhead));
     const [uploading, setUploading] = useState(false);
-    const historyEntries = sortTaskUpdates(persistedTask?.updates || []);
+    const historyEntries = getTaskHistoryEntries(persistedTask?.updates || []);
 
     useEffect(() => {
         setNotes(persistedTask?.notes || '');
@@ -588,28 +565,7 @@ const TaskSeriesCard = ({
                             No later updates yet. Creation-time notes and attachments stay on the card itself.
                         </div>
                     ) : (
-                        <div className="mt-4 space-y-3">
-                            {historyEntries.map((entry) => {
-                                const nextState = isTaskWorkflowState(entry.toState) ? entry.toState : 'not_started';
-                                const stateLabel = getTaskStatusLabel(nextState);
-                                const actorName = getTaskUpdateActorName(entry);
-                                return (
-                                    <div key={entry.id} className="rounded-xl border border-white bg-white p-3 shadow-sm">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-semibold', historyToneClassName(nextState))}>
-                                                {stateLabel}
-                                            </span>
-                                            {actorName ? <span className="text-xs text-slate-500">by {actorName}</span> : null}
-                                            <span className="text-xs text-slate-400">{formatTaskHistoryDate(entry.createdAt)}</span>
-                                        </div>
-                                        {entry.note ? <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{entry.note}</div> : null}
-                                        {entry.attachments?.length ? (
-                                            <AttachmentCollection attachments={entry.attachments} className="mt-3" variant="compact" />
-                                        ) : null}
-                                    </div>
-                                );
-                            })}
-                        </div>
+                        <UpdateHistory updates={persistedTask?.updates || []} className="mt-4" />
                     )}
                 </div>
             ) : null}

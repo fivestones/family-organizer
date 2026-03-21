@@ -7,7 +7,10 @@ import { cn } from '@/lib/utils';
 import {
     getTaskUpdateActorName,
     getTaskUpdateFeedbackReplies,
+    getTaskStatusLabel,
+    taskUpdateHasStateTransition,
     type TaskUpdateLike,
+    type TaskWorkflowState,
 } from '@/lib/task-progress';
 
 function formatTimestamp(value: number | string | Date | null | undefined): string {
@@ -124,6 +127,9 @@ export const TaskFeedbackReplies: React.FC<{
                 const actorName = getTaskUpdateActorName(reply);
                 const timestamp = formatTimestamp(reply.createdAt);
                 const gradeType = resolveGradeType(reply);
+                const hasStateTransition = taskUpdateHasStateTransition(reply);
+                const fromState = reply.fromState ? getTaskStatusLabel(reply.fromState as TaskWorkflowState) : null;
+                const toState = reply.toState ? getTaskStatusLabel(reply.toState as TaskWorkflowState) : null;
 
                 return (
                     <div
@@ -140,6 +146,16 @@ export const TaskFeedbackReplies: React.FC<{
                             ) : null}
                             {timestamp ? <span className="text-slate-400">{timestamp}</span> : null}
                         </div>
+                        {hasStateTransition && toState ? (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
+                                <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 font-semibold text-slate-700">
+                                    {toState}
+                                </span>
+                                {fromState && fromState !== toState ? (
+                                    <span className="text-slate-400">from {fromState}</span>
+                                ) : null}
+                            </div>
+                        ) : null}
                         {(reply.gradeDisplayValue != null || reply.gradeNumericValue != null) && (
                             <div className="mt-2 flex flex-wrap items-center gap-2">
                                 {reply.gradeNumericValue != null ? (
@@ -188,7 +204,7 @@ export const TaskResponseFeedbackThread: React.FC<{
     submission,
     feedbackReplies,
     className,
-    label = 'Latest reviewed response',
+    label = 'Latest response',
     tone = 'indigo',
 }) => {
     const actorName = getTaskUpdateActorName(submission);

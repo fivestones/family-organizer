@@ -20,14 +20,16 @@ import { getPresignedFileUrl } from '../../lib/api-client';
 import { buildTaskUpdateTransactions } from '../../../../lib/task-update-mutations';
 import {
   getBucketedTasks,
-  getLatestTaskFeedbackThread,
+  getLatestTaskResponseThread,
   getLatestTaskUpdate,
   getTaskChildProgressPercent,
   getTaskLastActiveState,
   getTaskStatusLabel,
   getTaskUpdateActorName,
+  getTaskUpdateReplyToId,
   getTaskWorkflowState,
   isTaskDone,
+  taskUpdateHasMeaningfulFeedbackContent,
 } from '../../../../lib/task-progress';
 import {
   areTodayTasksFinished,
@@ -63,6 +65,26 @@ function toDateKey(value) {
 
 function parseDateKey(value) {
   return new Date(`${toDateKey(value)}T00:00:00Z`);
+}
+
+function stripHtml(value) {
+  return String(value || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getResponsePreview(entry) {
+  if (entry?.note) return entry.note;
+
+  for (const value of entry?.responseFieldValues || []) {
+    const richText = stripHtml(value?.richTextContent);
+    if (richText) return richText;
+    if (value?.fileName) return value.fileName;
+    if (value?.fileUrl) return 'Attached file';
+  }
+
+  return null;
 }
 
 function getTaskParentId(task) {
@@ -297,15 +319,19 @@ function StatusBadge({ colors, state, emphasis = false }) {
 }
 
 function TaskFeedbackSummary({ task, colors }) {
-  const thread = getLatestTaskFeedbackThread(task);
+  const thread = getLatestTaskResponseThread(task);
   if (!thread) return null;
 
   const latestFeedback = thread.feedbackReplies[thread.feedbackReplies.length - 1];
+  const responsePreview = getResponsePreview(thread.submission);
+  const feedbackPreview =
+    latestFeedback?.note ||
+    (latestFeedback?.gradeDisplayValue ? `Grade: ${latestFeedback.gradeDisplayValue}` : null);
   return (
     <View style={{ borderRadius: radii.md, borderWidth: 1, borderColor: withAlpha(colors.accentMore, 0.24), backgroundColor: withAlpha(colors.accentMore, 0.06), padding: spacing.md, gap: spacing.xs }}>
-      <Text style={{ color: colors.accentMore, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>Latest reviewed response</Text>
-      {thread.submission.note ? <Text style={{ color: colors.ink, fontSize: 12, lineHeight: 17 }}>{thread.submission.note}</Text> : null}
-      {latestFeedback?.note ? <Text style={{ color: colors.inkMuted, fontSize: 12, lineHeight: 17 }}>{latestFeedback.note}</Text> : null}
+      <Text style={{ color: colors.accentMore, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>Latest response</Text>
+      {responsePreview ? <Text style={{ color: colors.ink, fontSize: 12, lineHeight: 17 }}>{responsePreview}</Text> : null}
+      {feedbackPreview ? <Text style={{ color: colors.inkMuted, fontSize: 12, lineHeight: 17 }}>{feedbackPreview}</Text> : null}
     </View>
   );
 }
@@ -533,6 +559,10 @@ export function TaskSeriesChecklistScreen() {
   function renderTaskRow(task, bucketState = null) {
     const currentState = getTaskWorkflowState(task);
     const latestEntry = getLatestTaskUpdate(task);
+    const latestEntryIsThreadedFeedback =
+      !!latestEntry &&
+      !!getTaskUpdateReplyToId(latestEntry) &&
+      taskUpdateHasMeaningfulFeedbackContent(latestEntry);
     const links = buildTaskLinks(task);
     const hasChildren = hasScheduledChildren(task.id, context.scheduledIds, context.allTasks);
     const isHeader = hasChildren || (task.isDayBreak ? false : !context.scheduledIds.has(task.id));
@@ -572,7 +602,7 @@ export function TaskSeriesChecklistScreen() {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, alignItems: 'center' }}>
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={styles.title}>{task.text}</Text>
-            {latestEntry?.note ? <Text style={styles.body}>{latestEntry.note}</Text> : task.notes ? <Text style={styles.body}>{task.notes}</Text> : null}
+            {!latestEntryIsThreadedFeedback && latestEntry?.note ? <Text style={styles.body}>{latestEntry.note}</Text> : task.notes ? <Text style={styles.body}>{task.notes}</Text> : null}
           </View>
           <StatusBadge colors={colors} state={bucketState || currentState} emphasis={bucketState === 'needs_review'} />
         </View>

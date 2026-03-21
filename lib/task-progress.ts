@@ -279,6 +279,10 @@ export function taskUpdateHasMeaningfulResponseContent(entry: TaskUpdateLike | n
     });
 }
 
+export function taskUpdateHasStateTransition(entry: TaskUpdateLike | null | undefined): boolean {
+    return Boolean(entry?.fromState && entry?.toState && entry.fromState !== entry.toState);
+}
+
 export function taskUpdateHasMeaningfulFeedbackContent(entry: TaskUpdateLike | null | undefined): boolean {
     if (!entry) return false;
     const hasNote = Boolean(entry.note?.trim());
@@ -292,6 +296,32 @@ export function getTaskUpdateFeedbackReplies(source: TaskUpdateLike | TaskUpdate
     return sortTaskUpdates(replies)
         .filter((reply) => !reply.isDraft && taskUpdateHasMeaningfulFeedbackContent(reply))
         .reverse();
+}
+
+export function getTaskHistoryEntries(source: TaskUpdateSource): TaskUpdateLike[] {
+    return getNonDraftTaskUpdates(source)
+        .filter((entry) => {
+            if (isTaskUpdateReply(entry)) {
+                return taskUpdateHasStateTransition(entry) && !taskUpdateHasMeaningfulFeedbackContent(entry);
+            }
+
+            return (
+                taskUpdateHasMeaningfulResponseContent(entry) ||
+                taskUpdateHasMeaningfulFeedbackContent(entry) ||
+                taskUpdateHasStateTransition(entry)
+            );
+        })
+        .sort((left, right) => {
+            const leftFeedbackTime = isTaskUpdateReply(left)
+                ? 0
+                : Math.max(0, ...getTaskUpdateFeedbackReplies(left).map((reply) => getTaskUpdateTime(reply)));
+            const rightFeedbackTime = isTaskUpdateReply(right)
+                ? 0
+                : Math.max(0, ...getTaskUpdateFeedbackReplies(right).map((reply) => getTaskUpdateTime(reply)));
+            const leftSortTime = Math.max(getTaskUpdateTime(left), leftFeedbackTime);
+            const rightSortTime = Math.max(getTaskUpdateTime(right), rightFeedbackTime);
+            return rightSortTime - leftSortTime;
+        });
 }
 
 export function getLatestTaskResponseUpdate(source: TaskUpdateSource): TaskUpdateLike | null {
@@ -324,10 +354,15 @@ export function getTaskResponseSubmissions(
 }
 
 export function getLatestTaskFeedbackThread(source: TaskUpdateSource): { submission: TaskUpdateLike; feedbackReplies: TaskUpdateLike[] } | null {
+    const thread = getLatestTaskResponseThread(source);
+    if (!thread || thread.feedbackReplies.length === 0) return null;
+    return thread;
+}
+
+export function getLatestTaskResponseThread(source: TaskUpdateSource): { submission: TaskUpdateLike; feedbackReplies: TaskUpdateLike[] } | null {
     const submission = getLatestTaskResponseUpdate(source);
     if (!submission) return null;
     const feedbackReplies = getTaskUpdateFeedbackReplies(submission);
-    if (feedbackReplies.length === 0) return null;
     return { submission, feedbackReplies };
 }
 

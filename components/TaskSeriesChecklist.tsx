@@ -18,15 +18,17 @@ import type { GradeTypeLike } from '@/lib/task-response-types';
 import {
     getTaskChildProgressPercent,
     getBucketedTasks,
-    getLatestTaskFeedbackThread,
+    getLatestTaskResponseThread,
     getLatestTaskUpdate,
     getTaskUpdateActorName,
+    getTaskUpdateReplyToId,
     getTaskLastActiveState,
     getTaskStatusLabel,
     getTaskWorkflowState,
     isActionableTask,
     isTaskDone,
     sortTaskUpdates,
+    taskUpdateHasMeaningfulFeedbackContent,
     type TaskBucketState,
     type TaskRestoreTiming,
     type TaskWorkflowState,
@@ -544,10 +546,13 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const renderProgressMeta = (task: Task) => {
         const latestEntry = getLatestTaskUpdate(task);
         if (!latestEntry) return null;
+        const latestEntryIsThreadedFeedback =
+            Boolean(getTaskUpdateReplyToId(latestEntry)) &&
+            taskUpdateHasMeaningfulFeedbackContent(latestEntry);
+        if (latestEntryIsThreadedFeedback) return null;
 
         const actorName = getTaskUpdateActorName(latestEntry);
         const createdAt = latestEntry.createdAt ? new Date(latestEntry.createdAt).toLocaleString() : null;
-        const attachmentCount = latestEntry.attachments?.length || 0;
 
         return (
             <div className="mt-2 rounded-md border border-slate-200 bg-white/80 px-3 py-2 text-[11px] text-slate-600">
@@ -580,8 +585,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         );
     };
 
-    const renderLatestReviewedResponseThread = (task: Task, className?: string) => {
-        const thread = getLatestTaskFeedbackThread(task);
+    const renderLatestResponseThread = (task: Task, className?: string) => {
+        const thread = getLatestTaskResponseThread(task);
         if (!thread) return null;
 
         return (
@@ -589,7 +594,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                 submission={thread.submission}
                 feedbackReplies={thread.feedbackReplies}
                 className={className}
-                label="Latest reviewed response"
+                label="Latest response"
                 tone="indigo"
             />
         );
@@ -665,7 +670,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                             </div>
                             {renderReferenceDetails(task)}
                             {renderProgressMeta(task)}
-                            {renderLatestReviewedResponseThread(task, 'mt-3')}
+                            {renderLatestResponseThread(task, 'mt-3')}
                         </div>
                     </div>
 
@@ -735,7 +740,10 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
 
     const renderBucketTaskRow = (task: Task, state: TaskBucketState) => {
         const latestEntry = getLatestTaskUpdate(task);
-        const latestFeedbackThread = getLatestTaskFeedbackThread(task);
+        const latestResponseThread = getLatestTaskResponseThread(task);
+        const latestEntryIsThreadedFeedback =
+            Boolean(latestEntry && getTaskUpdateReplyToId(latestEntry)) &&
+            taskUpdateHasMeaningfulFeedbackContent(latestEntry);
         const actorName = getTaskUpdateActorName(latestEntry);
         const createdAt = formatDateTimeLabel(latestEntry?.createdAt);
 
@@ -812,17 +820,19 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                         </div>
 
                         {/* Update metadata — above response content */}
-                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-slate-500">
-                            {actorName ? <span>Latest by {actorName}</span> : null}
-                            {createdAt ? <span>{createdAt}</span> : null}
-                        </div>
+                        {!latestEntryIsThreadedFeedback ? (
+                            <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-slate-500">
+                                {actorName ? <span>Latest by {actorName}</span> : null}
+                                {createdAt ? <span>{createdAt}</span> : null}
+                            </div>
+                        ) : null}
 
-                        {latestFeedbackThread ? (
+                        {latestResponseThread ? (
                             <TaskResponseFeedbackThread
-                                submission={latestFeedbackThread.submission}
-                                feedbackReplies={latestFeedbackThread.feedbackReplies}
+                                submission={latestResponseThread.submission}
+                                feedbackReplies={latestResponseThread.feedbackReplies}
                                 className="mt-3"
-                                label="Latest reviewed response"
+                                label="Latest response"
                                 tone="indigo"
                             />
                         ) : null}
@@ -830,7 +840,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                         {/* Response fields: read-only summary when all submitted,
                             inline editor (pre-populated) when some are missing */}
                         {task.responseFields && task.responseFields.length > 0 ? (
-                            allFieldsSubmitted && !latestFeedbackThread ? (
+                            allFieldsSubmitted && !latestResponseThread ? (
                                 // All response fields answered — read-only summary
                                 renderResponseSummary(latestEntry?.responseFieldValues)
                             ) : effectiveMemberId && (state === 'blocked' || state === 'skipped') ? (
@@ -856,14 +866,14 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                         }
                                     />
                                 </div>
-                            ) : hasSubmittedResponse && !latestFeedbackThread ? (
+                            ) : hasSubmittedResponse && !latestResponseThread ? (
                                 // Partial responses exist — show what we have
                                 renderResponseSummary(latestEntry?.responseFieldValues)
                             ) : null
                         ) : null}
 
-                        {latestEntry?.note ? <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{latestEntry.note}</div> : null}
-                        {latestEntry?.attachments?.length ? (
+                        {!latestEntryIsThreadedFeedback && latestEntry?.note ? <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{latestEntry.note}</div> : null}
+                        {!latestEntryIsThreadedFeedback && latestEntry?.attachments?.length ? (
                             <AttachmentCollection attachments={latestEntry.attachments} className="mt-2" variant="compact" />
                         ) : null}
                     </div>

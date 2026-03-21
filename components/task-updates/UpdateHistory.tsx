@@ -5,10 +5,12 @@ import { cn } from '@/lib/utils';
 import { AttachmentThumbnailRow } from '@/components/attachments/AttachmentThumbnail';
 import { TaskFeedbackReplies, TaskResponseFieldValuesList } from '@/components/task-updates/TaskUpdateThread';
 import {
-    getTopLevelTaskUpdates,
+    getTaskHistoryEntries,
     getTaskStatusLabel,
     getTaskUpdateActorName,
     getTaskUpdateAffectedName,
+    getTaskUpdateReplyToId,
+    taskUpdateHasMeaningfulFeedbackContent,
     type TaskUpdateLike,
     type TaskWorkflowState,
 } from '@/lib/task-progress';
@@ -54,8 +56,9 @@ function getToneClass(state: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) => {
-    const sorted = getTopLevelTaskUpdates(updates);
+    const sorted = getTaskHistoryEntries(updates);
     const visible = limit ? sorted.slice(0, limit) : sorted;
+    const updatesById = new Map((updates || []).map((entry) => [entry.id || '', entry]));
 
     if (visible.length === 0) {
         return (
@@ -74,11 +77,20 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
                 const affectedName = getTaskUpdateAffectedName(entry);
                 const timestamp = formatTimestamp(entry.createdAt);
                 const hasGrade = entry.gradeDisplayValue != null;
+                const replyToId = getTaskUpdateReplyToId(entry);
+                const replyTarget = replyToId ? updatesById.get(replyToId) || null : null;
+                const replyTargetActorName = getTaskUpdateActorName(replyTarget);
+                const isStatusOnlyReply = Boolean(replyToId) && !taskUpdateHasMeaningfulFeedbackContent(entry);
 
                 return (
                     <div key={entry.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                         {/* Header: state transition + metadata */}
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
+                            {replyToId && !isStatusOnlyReply && (
+                                <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 font-semibold text-indigo-700">
+                                    Feedback
+                                </span>
+                            )}
                             {toState && (
                                 <span
                                     className={cn(
@@ -95,6 +107,9 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
                             {actorName && <span>by {actorName}</span>}
                             {affectedName && actorName !== affectedName && (
                                 <span className="text-slate-400">for {affectedName}</span>
+                            )}
+                            {replyTargetActorName && !isStatusOnlyReply && (
+                                <span className="text-slate-400">on {replyTargetActorName}'s response</span>
                             )}
                             <span className="text-slate-400">{timestamp}</span>
                         </div>
@@ -149,8 +164,8 @@ export const UpdateHistory: React.FC<Props> = ({ updates, limit, className }) =>
                             </div>
                         )}
 
-                        {/* Threaded replies (feedback on this update) */}
-                        <TaskFeedbackReplies replies={entry.replies} className="mt-3 border-t border-slate-100 pt-3" tone="indigo" />
+                        {!replyToId ? <TaskFeedbackReplies replies={entry.replies} className="mt-3 border-t border-slate-100 pt-3" tone="indigo" /> : null}
+
                     </div>
                 );
             })}
