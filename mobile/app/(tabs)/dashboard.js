@@ -755,6 +755,19 @@ export default function DashboardTab() {
               ) : null}
             </View>
 
+            {/* Mini finance chip */}
+            <Pressable
+              testID="dashboard-open-finance"
+              accessibilityRole="button"
+              accessibilityLabel={`Open finance for ${viewedMember?.name || 'selected member'}`}
+              onPress={openFinanceForViewedMember}
+              style={styles.financeChip}
+            >
+              <Text style={styles.financeChipText} numberOfLines={1}>
+                {formatBalancesInline(viewedFinanceMember?.totalBalances || {}, unitMap)}
+              </Text>
+            </Pressable>
+
             <Pressable
               testID="dashboard-date-picker"
               accessibilityRole="button"
@@ -1136,24 +1149,6 @@ export default function DashboardTab() {
                 )}
               </FeedSection>
 
-              <FeedSection title="Finance" meta="Balances for the selected dashboard member" styles={styles}>
-                <Pressable
-                  testID="dashboard-open-finance"
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open finance for ${viewedMember?.name || 'selected member'}`}
-                  onPress={openFinanceForViewedMember}
-                  style={styles.financeBand}
-                >
-                  <View style={styles.financeCopy}>
-                    <Text style={styles.financeEyebrow}>Currency totals</Text>
-                    <Text style={styles.financeTitle}>{viewedMember?.name || 'Selected member'}</Text>
-                    <Text style={styles.financeBalances}>{formatBalancesInline(viewedFinanceMember?.totalBalances || {}, unitMap)}</Text>
-                  </View>
-                  <View style={styles.financeArrowWrap}>
-                    <Ionicons name="arrow-forward" size={18} color={isDark ? colors.canvasStrong : colors.canvasText} />
-                  </View>
-                </Pressable>
-              </FeedSection>
             </View>
           </ScrollView>
         </View>
@@ -1287,6 +1282,20 @@ const createStyles = (colors, isDark) => {
       fontSize: 20,
       fontWeight: '800',
       flexShrink: 1,
+    },
+    financeChip: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: radii.pill,
+      backgroundColor: withAlpha(colors.accentFinance, 0.12),
+      borderWidth: 1,
+      borderColor: withAlpha(colors.accentFinance, 0.2),
+      maxWidth: 160,
+    },
+    financeChipText: {
+      color: colors.canvasText,
+      fontSize: 13,
+      fontWeight: '700',
     },
     topBarRight: {
       flexDirection: 'row',
@@ -1783,46 +1792,6 @@ const createStyles = (colors, isDark) => {
       textTransform: 'uppercase',
       letterSpacing: 0.7,
       marginBottom: spacing.xs,
-    },
-    financeBand: {
-      backgroundColor: colors.canvas,
-      borderRadius: 24,
-      padding: spacing.lg,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-      overflow: 'hidden',
-    },
-    financeCopy: {
-      flex: 1,
-      gap: 4,
-    },
-    financeEyebrow: {
-      color: colors.canvasTextMuted,
-      fontSize: 11,
-      textTransform: 'uppercase',
-      letterSpacing: 0.7,
-      fontWeight: '800',
-    },
-    financeTitle: {
-      color: colors.canvasText,
-      fontSize: 24,
-      fontWeight: '800',
-    },
-    financeBalances: {
-      color: colors.canvasTextMuted,
-      lineHeight: 20,
-      marginTop: 2,
-    },
-    financeArrowWrap: {
-      width: 42,
-      height: 42,
-      borderRadius: radii.pill,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: isDark ? colors.canvasText : withAlpha(colors.canvasText, 0.09),
-      borderWidth: 1,
-      borderColor: isDark ? colors.canvasText : colors.canvasLine,
     },
   });
 
