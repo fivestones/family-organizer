@@ -87,6 +87,32 @@ describe('ChoreCalendarView', () => {
         expect(endDateArg).toBeInstanceOf(Date);
     });
 
+    it('sorts rotation preview rows by assignment order', async () => {
+        choreUtilsMocks.getChoreAssignmentGridFromChore.mockResolvedValue({});
+
+        const { container } = render(
+            <ChoreCalendarView
+                chore={{
+                    id: 'chore-ordered',
+                    title: 'Counters',
+                    startDate: '2026-03-01T00:00:00.000Z',
+                    assignments: [
+                        { order: 4, familyMember: { id: 'm5', name: 'Ransom' } },
+                        { order: 0, familyMember: { id: 'm1', name: 'David' } },
+                        { order: 2, familyMember: { id: 'm3', name: 'Judah' } },
+                        { order: 3, familyMember: { id: 'm4', name: 'Sarala' } },
+                        { order: 1, familyMember: { id: 'm2', name: 'Mandy' } },
+                    ],
+                }}
+            />
+        );
+
+        await screen.findByText('David');
+
+        const rowLabels = Array.from(container.querySelectorAll('tbody > tr > td:first-child')).map((cell) => cell.textContent?.trim());
+        expect(rowLabels).toEqual(['David', 'Mandy', 'Judah', 'Sarala', 'Ransom']);
+    });
+
     it('renders green dot for completed and orange dot for missed (today)', async () => {
         const todayStr = dateKey(todayUTC());
         choreUtilsMocks.getChoreAssignmentGridFromChore.mockResolvedValue({

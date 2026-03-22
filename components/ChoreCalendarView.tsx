@@ -4,6 +4,11 @@ import { cn } from '@/lib/utils';
 import { useDebouncedCallback } from 'use-debounce';
 
 type DotStatus = 'completed' | 'missed' | 'future';
+type FamilyMemberLike = { id?: string; name?: string | null } | null | undefined;
+type AssignmentLike = {
+  order?: number | null;
+  familyMember?: FamilyMemberLike | FamilyMemberLike[] | null;
+} | null | undefined;
 
 function getDotStatus(
   assignment: { assigned: boolean; completed: boolean } | undefined,
@@ -25,6 +30,24 @@ const DOT_CLASSES: Record<DotStatus, string> = {
   future: 'bg-gray-300',
 };
 
+function getLinkedMember(value?: FamilyMemberLike | FamilyMemberLike[] | null) {
+  if (!value) return null;
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return candidate?.id ? candidate : null;
+}
+
+function getPreviewFamilyMembers(chore: any) {
+  const assignments = Array.isArray(chore?.assignments) ? [...chore.assignments] : [];
+  if (assignments.length > 0) {
+    return assignments
+      .sort((left: AssignmentLike, right: AssignmentLike) => Number(left?.order ?? 0) - Number(right?.order ?? 0))
+      .map((assignment: AssignmentLike) => getLinkedMember(assignment?.familyMember))
+      .filter(Boolean);
+  }
+
+  return Array.isArray(chore?.assignees) ? chore.assignees.filter((member: any) => member?.id) : [];
+}
+
 const ChoreCalendarView: React.FC<{ chore: any; anchorDate?: Date }> = ({ chore, anchorDate }) => {
   const today = useMemo(() => toUTCDate(new Date()), []);
   const scrollAnchorDate = useMemo(() => {
@@ -33,10 +56,10 @@ const ChoreCalendarView: React.FC<{ chore: any; anchorDate?: Date }> = ({ chore,
     }
     return today;
   }, [anchorDate, today]);
+  const familyMembers = useMemo(() => getPreviewFamilyMembers(chore), [chore]);
 
   const [dateAssignments, setDateAssignments] = useState<Record<string, Record<string, { assigned: boolean; completed: boolean }>>>({});
   const [dates, setDates] = useState<Date[]>([]);
-  const [familyMembers, setFamilyMembers] = useState<any[]>([]);
   const [rangeStart, setRangeStart] = useState<Date | null>(null);
   const [rangeEnd, setRangeEnd] = useState<Date | null>(null);
   const [choreStartDate, setChoreStartDate] = useState<Date | null>(null);
@@ -79,14 +102,6 @@ const ChoreCalendarView: React.FC<{ chore: any; anchorDate?: Date }> = ({ chore,
     }
     return arr;
   }, []);
-
-  // Extract family members from chore (only on chore change)
-  useEffect(() => {
-    const members = (chore.assignments && chore.assignments.length > 0)
-      ? chore.assignments.filter((a: any) => a?.familyMember).map((a: any) => a.familyMember)
-      : (chore.assignees || []).filter(Boolean);
-    setFamilyMembers(members);
-  }, [chore]);
 
   // Initial load: compute range and grid data
   useEffect(() => {
