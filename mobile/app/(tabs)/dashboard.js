@@ -1335,12 +1335,11 @@ const createStyles = (colors, isDark) => {
     // is cropped at the right edge and bottom. Fades on top + left (interior edges).
     bgFaceWrap: {
       position: 'absolute',
-      bottom: -120,
-      right: -100,
+      bottom: -80,
+      right: -60,
       width: '90%',
-      height: '85%',
-      zIndex: 0,
-      opacity: isDark ? 0.12 : 0.14,
+      height: '80%',
+      opacity: isDark ? 0.18 : 0.15,
     },
     bgFaceImage: {
       width: '100%',
@@ -1368,7 +1367,7 @@ const createStyles = (colors, isDark) => {
       justifyContent: 'space-between',
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
-      backgroundColor: colors.canvas,
+      backgroundColor: 'transparent',
       gap: spacing.sm,
     },
     topBarMemberTouchable: {
@@ -1433,7 +1432,7 @@ const createStyles = (colors, isDark) => {
     summarySection: {
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.sm,
-      backgroundColor: colors.canvas,
+      backgroundColor: 'transparent',
     },
     summaryText: {
       color: colors.canvasTextMuted,
@@ -1590,7 +1589,7 @@ const createStyles = (colors, isDark) => {
       paddingBottom: spacing.sm,
     },
     quadrantCard: {
-      backgroundColor: isDark ? colors.panel : colors.panel,
+      backgroundColor: withAlpha(colors.panel, isDark ? 0.85 : 0.92),
       borderRadius: radii.lg,
       borderWidth: isDark ? 1 : 0,
       borderColor: isDark ? colors.line : 'transparent',
