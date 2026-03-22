@@ -1331,15 +1331,16 @@ const createStyles = (colors, isDark) => {
     },
 
     // ── Background face image ──
+    // Anchored bottom-right, overflowing off screen edges so the face
+    // is cropped at the right edge and bottom. Fades on top + left (interior edges).
     bgFaceWrap: {
       position: 'absolute',
-      top: -60,
-      right: -40,
-      width: '85%',
-      height: '75%',
-      overflow: 'hidden',
+      bottom: -120,
+      right: -100,
+      width: '90%',
+      height: '85%',
       zIndex: 0,
-      opacity: isDark ? 0.06 : 0.08,
+      opacity: isDark ? 0.12 : 0.14,
     },
     bgFaceImage: {
       width: '100%',
@@ -1349,16 +1350,16 @@ const createStyles = (colors, isDark) => {
       position: 'absolute',
       backgroundColor: colors.canvasStrong,
     },
-    // Top fade: 4 strips from top, decreasing opacity
-    bgFadeTop1: { top: 0, left: 0, right: 0, height: 40, opacity: 1 },
-    bgFadeTop2: { top: 40, left: 0, right: 0, height: 40, opacity: 0.75 },
-    bgFadeTop3: { top: 80, left: 0, right: 0, height: 40, opacity: 0.5 },
-    bgFadeTop4: { top: 120, left: 0, right: 0, height: 50, opacity: 0.25 },
-    // Left fade: 4 strips from left, decreasing opacity
-    bgFadeLeft1: { top: 0, left: 0, bottom: 0, width: 40, opacity: 1 },
-    bgFadeLeft2: { top: 0, left: 40, bottom: 0, width: 40, opacity: 0.75 },
-    bgFadeLeft3: { top: 0, left: 80, bottom: 0, width: 40, opacity: 0.5 },
-    bgFadeLeft4: { top: 0, left: 120, bottom: 0, width: 50, opacity: 0.25 },
+    // Top fade (interior top edge): strips from top, decreasing opacity
+    bgFadeTop1: { top: 0, left: 0, right: 0, height: 60, opacity: 1 },
+    bgFadeTop2: { top: 60, left: 0, right: 0, height: 50, opacity: 0.7 },
+    bgFadeTop3: { top: 110, left: 0, right: 0, height: 50, opacity: 0.4 },
+    bgFadeTop4: { top: 160, left: 0, right: 0, height: 60, opacity: 0.15 },
+    // Left fade (interior left edge): strips from left, decreasing opacity
+    bgFadeLeft1: { top: 0, left: 0, bottom: 0, width: 60, opacity: 1 },
+    bgFadeLeft2: { top: 0, left: 60, bottom: 0, width: 50, opacity: 0.7 },
+    bgFadeLeft3: { top: 0, left: 110, bottom: 0, width: 50, opacity: 0.4 },
+    bgFadeLeft4: { top: 0, left: 160, bottom: 0, width: 60, opacity: 0.15 },
 
     // ── Compact top bar ──
     topBar: {
