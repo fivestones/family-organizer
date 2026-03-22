@@ -131,14 +131,18 @@ async function toBuffer(body: any): Promise<Buffer> {
     return Buffer.concat(chunks);
 }
 
-export async function getS3ObjectBuffer(key: string): Promise<Buffer> {
+export async function getS3ObjectDownload(key: string) {
     const client = getS3InternalClient();
-    const response = await client.send(
+    return client.send(
         new GetObjectCommand({
             Bucket: getBucketName(),
             Key: key,
         })
     );
+}
+
+export async function getS3ObjectBuffer(key: string): Promise<Buffer> {
+    const response = await getS3ObjectDownload(key);
     return toBuffer(response.Body);
 }
 

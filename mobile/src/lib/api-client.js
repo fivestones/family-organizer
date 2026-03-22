@@ -6,6 +6,10 @@ export function getApiBaseUrl() {
   return getServerUrl();
 }
 
+export function getMobileFileContentUrl(fileKey) {
+  return `${getApiBaseUrl()}/api/mobile/files/content/${encodeURIComponent(fileKey)}`;
+}
+
 async function authHeaders() {
   const token = await getDeviceSessionToken();
   return token ? { Authorization: `Bearer ${token}` } : {};

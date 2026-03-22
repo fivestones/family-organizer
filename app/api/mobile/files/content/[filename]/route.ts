@@ -10,18 +10,18 @@ export async function GET(
 ) {
     const deviceAuth = getDeviceAuthContextFromNextRequest(request);
     if (!deviceAuth.authorized) {
-        return new NextResponse('Unauthorized device', { status: 401 });
+        return NextResponse.json({ error: 'Unauthorized device' }, { status: 401 });
     }
 
     const { filename } = await params;
     if (!filename) {
-        return new NextResponse('Filename missing', { status: 400 });
+        return NextResponse.json({ error: 'Filename missing' }, { status: 400 });
     }
 
     try {
         return await createS3FileResponse(filename);
     } catch (error) {
-        console.error('Error streaming file:', error);
-        return new NextResponse('File unavailable', { status: 404 });
+        console.error('Error streaming mobile file:', error);
+        return NextResponse.json({ error: 'File unavailable' }, { status: 404 });
     }
 }

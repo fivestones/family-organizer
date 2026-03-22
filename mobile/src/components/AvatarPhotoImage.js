@@ -1,7 +1,14 @@
 import React from 'react';
-import { Image } from 'react-native';
-import { usePresignedUrl } from '../hooks/usePresignedUrl';
-import { getPhotoKey } from '../lib/photo-urls';
+import { Image as ExpoImage } from 'expo-image';
+import { useCachedFileUri } from '../hooks/useCachedFileUri';
+import { prefetchCachedFileUris } from '../lib/file-cache';
+import { getPhotoKey, getPhotoKeys } from '../lib/photo-urls';
+
+function getContentFit(resizeMode) {
+  if (resizeMode === 'contain') return 'contain';
+  if (resizeMode === 'stretch') return 'fill';
+  return 'cover';
+}
 
 export function AvatarPhotoImage({
   photoUrls,
@@ -12,9 +19,26 @@ export function AvatarPhotoImage({
   resizeMode = 'cover',
 }) {
   const fileKey = getPhotoKey(photoUrls, preferredSize);
-  const uri = usePresignedUrl(fileKey);
+  const uri = useCachedFileUri(fileKey);
+
+  React.useEffect(() => {
+    const variantKeys = getPhotoKeys(photoUrls);
+    if (variantKeys.length === 0) return;
+
+    void prefetchCachedFileUris(variantKeys);
+  }, [photoUrls]);
 
   if (!uri) return fallback;
 
-  return <Image testID={testID} source={{ uri }} style={style} resizeMode={resizeMode} />;
+  return (
+    <ExpoImage
+      testID={testID}
+      source={{ uri, cacheKey: fileKey || undefined }}
+      style={style}
+      contentFit={getContentFit(resizeMode)}
+      cachePolicy="disk"
+      recyclingKey={fileKey || null}
+      transition={120}
+    />
+  );
 }

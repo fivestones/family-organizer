@@ -20,3 +20,16 @@ export function getPhotoKey(photoUrls, preferredSize = '64') {
 
   return null;
 }
+
+export function getPhotoKeys(photoUrls) {
+  const keys = new Set();
+
+  ['64', '320', '1200'].forEach((size) => {
+    const key = asString(photoUrls?.[size]);
+    if (key) {
+      keys.add(key);
+    }
+  });
+
+  return Array.from(keys);
+}
