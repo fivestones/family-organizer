@@ -41,8 +41,11 @@ def write_ui_test_file
         enterPin(childPin)
         app.buttons["member-confirm-button"].tap()
 
-        XCTAssertTrue(app.buttons["chores-switch-user-button"].waitForExistence(timeout: 15), "Expected chores screen")
-        app.buttons["chores-switch-user-button"].tap()
+        XCTAssertTrue(app.buttons["chores-member-switcher"].waitForExistence(timeout: 15), "Expected chores screen")
+        XCTAssertTrue(app.tabBars.buttons["tab-profile-menu"].waitForExistence(timeout: 5), "Expected profile menu tab")
+        app.tabBars.buttons["tab-profile-menu"].tap()
+        XCTAssertTrue(app.buttons["profile-menu-switch-user-button"].waitForExistence(timeout: 5), "Expected Switch User action")
+        app.buttons["profile-menu-switch-user-button"].tap()
 
         XCTAssertTrue(app.buttons["member-card-judah"].waitForExistence(timeout: 10), "Expected lock screen after Switch User")
       }
@@ -54,7 +57,7 @@ def write_ui_test_file
         enterPin(parentPin)
         app.buttons["member-confirm-button"].tap()
 
-        XCTAssertTrue(app.buttons["chores-switch-user-button"].waitForExistence(timeout: 15), "Expected chores screen after parent unlock")
+        XCTAssertTrue(app.buttons["chores-member-switcher"].waitForExistence(timeout: 15), "Expected chores screen after parent unlock")
 
         let moreTab = app.tabBars.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "More")).firstMatch
         XCTAssertTrue(moreTab.waitForExistence(timeout: 5), "Expected More tab")

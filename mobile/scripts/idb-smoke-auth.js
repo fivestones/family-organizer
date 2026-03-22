@@ -239,35 +239,38 @@ function waitForLockScreen(timeoutMs = 8000) {
   return waitForAnyScreen(["Who’s using the app?", "Who's using the app?"], timeoutMs);
 }
 
+function openProfileMenu(tree) {
+  tapElement(tree, { id: 'tab-profile-menu' }, 'Profile menu tab button');
+  return waitForElement({ id: 'profile-menu-switch-user-button' }, 'Profile menu switch user button', 5000).tree;
+}
+
+function switchUserFromAuthenticatedScreen(tree) {
+  const menuTree = openProfileMenu(tree);
+  tapElement(menuTree, { id: 'profile-menu-switch-user-button' }, 'Profile menu switch user button');
+  return waitForLockScreen(8000);
+}
+
 function ensureLockScreen(tree) {
   if (findElement(tree, { labelIncludes: "Who’s using the app?" }) || findElement(tree, { labelIncludes: "Who's using the app?" })) {
     return tree;
   }
 
   // If we are already inside the app (e.g. persisted authenticated session), navigate to lock.
-  if (findElement(tree, { id: 'chores-switch-user-button' })) {
+  if (findElement(tree, { id: 'chores-member-switcher' })) {
     logStep('Authenticated app detected on Chores; locking to reach login screen');
-    tapElement(tree, { id: 'chores-switch-user-button' }, 'Chores switch user button');
-    return waitForLockScreen(8000);
+    return switchUserFromAuthenticatedScreen(tree);
   }
 
-  if (findElement(tree, { id: 'tab-more' }) || findElement(tree, { labelIncludes: 'More, tab' })) {
-    logStep('Authenticated app detected on a tab screen; opening More to lock');
-    tapElement(tree, { id: 'tab-more' }, 'More tab button');
-    const maybeMoreTree =
-      maybeWaitForElement({ id: 'more-lock-app-button' }, 'More lock app button', 3000)?.tree || describeAll();
-    if (findElement(maybeMoreTree, { id: 'more-lock-app-button' })) {
-      tapElement(maybeMoreTree, { id: 'more-lock-app-button' }, 'More lock app button');
-      return waitForLockScreen(8000);
-    }
+  if (findElement(tree, { id: 'tab-profile-menu' })) {
+    logStep('Authenticated app detected on a tab screen; opening profile menu to switch user');
+    return switchUserFromAuthenticatedScreen(tree);
   }
 
   if (findElement(tree, { id: 'tab-chores' }) || findElement(tree, { labelIncludes: 'Chores, tab' })) {
     tapElement(tree, { id: 'tab-chores' }, 'Chores tab button');
-    const choresTree = maybeWaitForElement({ id: 'chores-switch-user-button' }, 'Chores switch user button', 4000)?.tree;
+    const choresTree = maybeWaitForElement({ id: 'chores-member-switcher' }, 'Chores member switcher', 4000)?.tree;
     if (choresTree) {
-      tapElement(choresTree, { id: 'chores-switch-user-button' }, 'Chores switch user button');
-      return waitForLockScreen(8000);
+      return switchUserFromAuthenticatedScreen(choresTree);
     }
   }
 
@@ -305,22 +308,12 @@ function main() {
   tree = describeAll();
   tapElement(tree, { id: 'member-confirm-button' }, 'Unlock button');
   tree = waitForScreen('Chores', 8000);
-  requireElement(tree, { id: 'chores-switch-user-button' }, 'Chores switch user button');
+  requireElement(tree, { id: 'chores-member-switcher' }, 'Chores member switcher');
 
   logStep('Child flow: Switch User');
   sleep(400);
   tree = describeAll();
-  tapElement(tree, { id: 'chores-switch-user-button' }, 'Chores switch user button');
-  tree =
-    maybeWaitForScreen("Who’s using the app?", 2000) ||
-    maybeWaitForScreen("Who's using the app?", 2000) ||
-    (() => {
-    const refreshed = describeAll();
-    if (findElement(refreshed, { id: 'chores-switch-user-button' })) {
-      tapElement(refreshed, { id: 'chores-switch-user-button' }, 'Chores switch user button (retry)');
-    }
-    return waitForAnyScreen(["Who’s using the app?", "Who's using the app?"], 8000);
-  })();
+  tree = switchUserFromAuthenticatedScreen(tree);
   requireElement(tree, { id: 'member-card-judah' }, 'lock screen family member cards');
 
   logStep('Parent flow: David elevation');
@@ -339,8 +332,7 @@ function main() {
   tree = describeAll();
   tapElement(tree, { id: 'member-confirm-button' }, 'parent Unlock button');
   tree = waitForScreen('Chores', 8000);
-  tree = waitForElement({ id: 'chores-switch-user-button' }, 'Chores switch user button', 6000).tree;
-  requireElement(tree, { labelIncludes: 'Parent mode' }, 'Parent mode indicator');
+  waitForElement({ id: 'chores-member-switcher' }, 'Chores member switcher', 6000);
 
   logStep('Parent flow: More tab -> Lock App');
   tapElement(tree, { labelIncludes: 'More, tab' }, 'More tab button');

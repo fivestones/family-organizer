@@ -257,21 +257,20 @@ function ensureLockScreen(tree) {
     return tree;
   }
 
-  if (findElement(tree, { id: 'chores-switch-user-button' })) {
+  if (findElement(tree, { id: 'chores-member-switcher' })) {
     logStep('Authenticated app detected on Chores; locking to reach login screen');
-    tapElement(tree, { id: 'chores-switch-user-button' }, 'Chores switch user button');
+    tapElement(tree, { id: 'tab-profile-menu' }, 'Profile menu tab button');
+    const profileMenuTree = waitForElement({ id: 'profile-menu-switch-user-button' }, 'Profile menu switch user button', 5000).tree;
+    tapElement(profileMenuTree, { id: 'profile-menu-switch-user-button' }, 'Profile menu switch user button');
     return waitForAnyScreen(["Who’s using the app?", "Who's using the app?"], 8000);
   }
 
-  if (findElement(tree, { id: 'tab-more' }) || findElement(tree, { labelIncludes: 'More, tab' })) {
-    logStep('Authenticated app detected; opening More to lock');
-    tapElement(tree, { id: 'tab-more' }, 'More tab button');
-    const maybeMoreTree =
-      maybeWaitForElement({ id: 'more-lock-app-button' }, 'More lock app button', 3000)?.tree || describeAll();
-    if (findElement(maybeMoreTree, { id: 'more-lock-app-button' })) {
-      tapElement(maybeMoreTree, { id: 'more-lock-app-button' }, 'More lock app button');
-      return waitForAnyScreen(["Who’s using the app?", "Who's using the app?"], 8000);
-    }
+  if (findElement(tree, { id: 'tab-profile-menu' })) {
+    logStep('Authenticated app detected; opening profile menu to switch user');
+    tapElement(tree, { id: 'tab-profile-menu' }, 'Profile menu tab button');
+    const profileMenuTree = waitForElement({ id: 'profile-menu-switch-user-button' }, 'Profile menu switch user button', 5000).tree;
+    tapElement(profileMenuTree, { id: 'profile-menu-switch-user-button' }, 'Profile menu switch user button');
+    return waitForAnyScreen(["Who’s using the app?", "Who's using the app?"], 8000);
   }
 
   return tree;

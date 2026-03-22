@@ -388,10 +388,7 @@ export default function DashboardTab() {
         const assignedMembers = getAssignedMembersForChoreOnDate(chore, selectedDate);
         if (assignedMembers.length === 0) return null;
 
-        const choreAssigneeIds = new Set((chore.assignees || []).map((assignee) => assignee?.id).filter(Boolean));
-        const assignedMemberIds = new Set(assignedMembers.map((assignee) => assignee.id));
-        const matchesViewedMember = assignedMemberIds.has(viewedMember.id) || choreAssigneeIds.has(viewedMember.id);
-        if (!matchesViewedMember) return null;
+        if (!assignedMembers.some((member) => member.id === viewedMember.id)) return null;
 
         const completionsOnDate = getCompletedChoreCompletionsForDate(chore, selectedDate);
         const firstCompletedByOther = completionsOnDate.find((completion) => completionMemberId(completion));

@@ -234,6 +234,7 @@ export default function TabsLayout() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Open settings"
+                testID="profile-menu-settings-button"
                 onPress={handleOpenSettings}
                 style={styles.menuRow}
               >
@@ -244,6 +245,7 @@ export default function TabsLayout() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Switch user"
+                testID="profile-menu-switch-user-button"
                 onPress={() => { void handleSwitchUser(); }}
                 style={styles.menuRow}
               >
@@ -254,6 +256,7 @@ export default function TabsLayout() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Log out and deactivate device"
+                testID="profile-menu-logout-button"
                 onPress={() => { void handleLogout(); }}
                 style={[styles.menuRow, styles.menuRowDanger]}
               >

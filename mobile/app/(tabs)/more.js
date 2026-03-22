@@ -27,6 +27,14 @@ const MENU_ITEMS = [
     parentOnly: true,
   },
   {
+    key: 'routineMarkers',
+    title: 'Routine Markers',
+    description: 'Track household-wide routine milestones without keeping them in the chores list.',
+    status: 'Live',
+    href: '/more/routine-markers',
+    parentOnly: true,
+  },
+  {
     key: 'allowanceDistribution',
     title: 'Allowance Distribution',
     description: 'Preview household payout readiness before the execution workflow lands.',

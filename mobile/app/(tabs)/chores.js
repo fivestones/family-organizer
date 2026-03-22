@@ -1,23 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { id, tx } from '@instantdb/react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import {
   HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
-  SHARED_ROUTINE_MARKER_PRESETS,
   calculateDailyXP,
   formatDateKeyUTC,
   getFamilyDayDateUTC,
   getAssignedMembersForChoreOnDate,
   getCompletedChoreCompletionsForDate,
   getMemberCompletionForDate,
-  localDateToUTC,
   parseSharedScheduleSettings,
   sortChoresForDisplay,
 } from '@family-organizer/shared-core';
-import { radii, spacing, withAlpha } from '../../src/theme/tokens';
+import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
+import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 
@@ -38,12 +37,10 @@ function formatLongDate(date) {
   });
 }
 
-function formatTopStripDate(date) {
-  return date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+function formatWeekdayDate(date) {
+  const weekday = date.toLocaleDateString(undefined, { weekday: 'long' });
+  const monthDay = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return `${weekday}, ${monthDay}`;
 }
 
 function formatPossessive(name) {
@@ -90,21 +87,37 @@ export default function ChoresTab() {
     familyMembers,
     isAuthenticated,
     instantReady,
-    isOnline,
-    connectionStatus,
     principalType,
-    lock,
   } = useAppSession();
+  const currentUserIdRef = useRef('');
   const [selectedDate, setSelectedDate] = useState(() => getFamilyDayDateUTC(new Date()));
-  const [selectedMemberId, setSelectedMemberId] = useState('all');
-  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [viewedMemberId, setViewedMemberId] = useState('');
+  const [memberDropdownVisible, setMemberDropdownVisible] = useState(false);
+  const [dateDropdownVisible, setDateDropdownVisible] = useState(false);
+  const [viewSettingsVisible, setViewSettingsVisible] = useState(false);
   const [pendingCompletionKeys, setPendingCompletionKeys] = useState(() => new Set());
   const [isMarkingVisibleDone, setIsMarkingVisibleDone] = useState(false);
 
   useEffect(() => {
-    if (!currentUser) return;
-    setSelectedMemberId((prev) => (prev === 'all' ? currentUser.id : prev));
-  }, [currentUser]);
+    if (!currentUser?.id) {
+      currentUserIdRef.current = '';
+      setViewedMemberId('');
+      return;
+    }
+
+    if (currentUserIdRef.current !== currentUser.id) {
+      currentUserIdRef.current = currentUser.id;
+      setViewedMemberId(currentUser.id);
+      return;
+    }
+
+    setViewedMemberId((previous) => {
+      if (previous && familyMembers.some((member) => member.id === previous)) {
+        return previous;
+      }
+      return currentUser.id;
+    });
+  }, [currentUser?.id, familyMembers]);
 
   const selectedDateKey = useMemo(() => formatDateKeyUTC(selectedDate), [selectedDate]);
 
@@ -160,45 +173,27 @@ export default function ChoresTab() {
     [familyMembers]
   );
 
-  const dailyXpByMember = useMemo(() => calculateDailyXP(chores, familyMembers, selectedDate), [chores, familyMembers, selectedDate]);
-
-  const dailyXpRows = useMemo(
-    () =>
-      familyMembers.map((member) => {
-        const stats = dailyXpByMember[member.id] || { current: 0, possible: 0 };
-        const possibleForBar = stats.possible > 0 ? stats.possible : Math.max(stats.current, 0);
-        const progressRatio = possibleForBar > 0 ? Math.min(1, Math.max(0, stats.current / possibleForBar)) : 0;
-        return {
-          member,
-          ...stats,
-          progressRatio,
-        };
-      }),
-    [dailyXpByMember, familyMembers]
+  const viewedMember = useMemo(
+    () => familyMembers.find((member) => member.id === viewedMemberId) || currentUser || familyMembers[0] || null,
+    [currentUser, familyMembers, viewedMemberId]
   );
+
+  const dailyXpByMember = useMemo(() => calculateDailyXP(chores, familyMembers, selectedDate), [chores, familyMembers, selectedDate]);
+  const viewedXp = dailyXpByMember[viewedMember?.id] || { current: 0, possible: 0 };
 
   const visibleChores = useMemo(() => {
     const visibleRows = chores
       .map((chore) => {
+        if (!viewedMember?.id) return null;
+
         const assignedMembers = getAssignedMembersForChoreOnDate(chore, selectedDate);
         if (assignedMembers.length === 0) return null;
-
-        const choreAssigneeIds = new Set((chore.assignees || []).map((assignee) => assignee?.id).filter(Boolean));
-        const assignedMemberIds = new Set(assignedMembers.map((assignee) => assignee.id));
-
-        const matchesFilter =
-          selectedMemberId === 'all' || assignedMemberIds.has(selectedMemberId) || choreAssigneeIds.has(selectedMemberId);
-
-        if (!matchesFilter) return null;
+        if (!assignedMembers.some((member) => member.id === viewedMember.id)) return null;
 
         const completionsOnDate = getCompletedChoreCompletionsForDate(chore, selectedDate);
         const firstCompletedByOther = completionsOnDate.find((completion) => completionMemberId(completion));
         const completedById = completionMemberId(firstCompletedByOther);
-
-        const toggleMembers =
-          selectedMemberId === 'all'
-            ? assignedMembers
-            : assignedMembers.filter((member) => member.id === selectedMemberId);
+        const toggleMembers = assignedMembers.filter((member) => member.id === viewedMember.id);
 
         return {
           chore,
@@ -233,97 +228,34 @@ export default function ChoresTab() {
         ...row,
         timing: timingById.get(row.chore.id) || null,
       }));
-  }, [chores, routineMarkerStatuses, selectedDate, selectedMemberId]);
+  }, [chores, routineMarkerStatuses, scheduleSettings, selectedDate, viewedMember?.id]);
 
-  const selectedMemberName =
-    selectedMemberId === 'all'
-      ? 'All'
-      : familyMembers.find((member) => member.id === selectedMemberId)?.name || 'Unknown';
+  const viewedMemberName = viewedMember?.name || 'Family member';
+  const headerTitle = formatPossessive(viewedMemberName);
+  const remainingChoreCount = useMemo(() => {
+    if (!viewedMember?.id) return 0;
 
-  const heroTitle = selectedMemberId === 'all' ? 'Household chores' : formatPossessive(selectedMemberName);
-  const heroSubtitle =
-    selectedMemberId === 'all' ? 'Viewing every family member' : `Filtering chores for ${selectedMemberName}`;
+    return visibleChores.reduce((count, row) => {
+      const completion = getMemberCompletionForDate(row.chore, viewedMember.id, selectedDate);
+      const blockedByUpForGrabs =
+        !!row.chore?.isUpForGrabs &&
+        !!row.upForGrabsCompletedById &&
+        row.upForGrabsCompletedById !== viewedMember.id &&
+        !completion?.completed;
 
-  const selectedXpSummary =
-    selectedMemberId === 'all'
-      ? dailyXpRows.reduce(
-          (acc, row) => ({ current: acc.current + row.current, possible: acc.possible + row.possible }),
-          { current: 0, possible: 0 }
-        )
-      : dailyXpByMember[selectedMemberId] || { current: 0, possible: 0 };
+      return completion?.completed || blockedByUpForGrabs ? count : count + 1;
+    }, 0);
+  }, [selectedDate, viewedMember?.id, visibleChores]);
+  const completedChoreCount = Math.max(0, visibleChores.length - remainingChoreCount);
+  const summaryLine = useMemo(() => {
+    if (!viewedMember?.id) return `Choose a family member to view chores for ${formatMonthDay(selectedDate)}.`;
+    if (visibleChores.length === 0) return `No chores due for ${formatMonthDay(selectedDate)}.`;
+    return `${remainingChoreCount} left · ${completedChoreCount} done · ${visibleChores.length} scheduled`;
+  }, [completedChoreCount, remainingChoreCount, selectedDate, viewedMember?.id, visibleChores.length]);
 
   const todayDateKey = formatDateKeyUTC(getFamilyDayDateUTC(new Date(), scheduleSettings));
-  const canShowRoutineMarkers = principalType === 'parent';
-  const canEditRoutineMarkers = canShowRoutineMarkers && selectedDateKey === todayDateKey;
-  const routineMarkerStatusByKey = useMemo(() => {
-    const next = new Map();
-    (routineMarkerStatuses || []).forEach((status) => {
-      if (String(status?.date || '') !== selectedDateKey) return;
-      if (status?.markerKey) {
-        next.set(status.markerKey, status);
-      }
-    });
-    return next;
-  }, [routineMarkerStatuses, selectedDateKey]);
 
-  async function markRoutineMarkerHappened(markerKey) {
-    if (!canEditRoutineMarkers) return;
-
-    const recordKey = `${selectedDateKey}:${markerKey}`;
-    const existing = (routineMarkerStatuses || []).find((status) => String(status?.key || '') === recordKey);
-    const timestamp = new Date().toISOString();
-
-    try {
-      if (existing?.id) {
-        await db.transact([
-          tx.routineMarkerStatuses[existing.id].update({
-            startedAt: timestamp,
-            completedAt: timestamp,
-            startedById: currentUser?.id || null,
-            completedById: currentUser?.id || null,
-          }),
-        ]);
-      } else {
-        const statusId = id();
-        await db.transact([
-          tx.routineMarkerStatuses[statusId].update({
-            key: recordKey,
-            markerKey,
-            date: selectedDateKey,
-            startedAt: timestamp,
-            completedAt: timestamp,
-            startedById: currentUser?.id || null,
-            completedById: currentUser?.id || null,
-          }),
-        ]);
-      }
-    } catch (error) {
-      Alert.alert('Unable to update marker', error?.message || 'Please try again.');
-    }
-  }
-
-  async function clearRoutineMarkerStatus(markerKey) {
-    if (!canEditRoutineMarkers) return;
-
-    const recordKey = `${selectedDateKey}:${markerKey}`;
-    const existing = (routineMarkerStatuses || []).find((status) => String(status?.key || '') === recordKey);
-    if (!existing?.id) return;
-
-    try {
-      await db.transact([
-        tx.routineMarkerStatuses[existing.id].update({
-          startedAt: null,
-          completedAt: null,
-          startedById: null,
-          completedById: null,
-        }),
-      ]);
-    } catch (error) {
-      Alert.alert('Unable to reset marker', error?.message || 'Please try again.');
-    }
-  }
-
-  const defaultViewSetting = selectedMemberId !== 'all';
+  const defaultViewSetting = true;
   const showChoreDescriptions = currentUser?.viewShowChoreDescriptions ?? defaultViewSetting;
   const showTaskDetails = currentUser?.viewShowTaskDetails ?? defaultViewSetting;
 
@@ -464,17 +396,8 @@ export default function ChoresTab() {
     );
   }
 
-  async function handleSwitchUserPress() {
-    try {
-      await lock();
-      router.replace('/lock?intent=switch-user');
-    } catch (error) {
-      Alert.alert('Unable to switch user', error?.message || 'Please try again.');
-    }
-  }
-
   function openTaskSeriesOverview() {
-    const memberId = selectedMemberId === 'all' ? currentUser?.id : selectedMemberId;
+    const memberId = viewedMember?.id;
     if (!memberId) {
       Alert.alert('Login required', 'Choose a family member before opening task series.');
       return;
@@ -491,203 +414,355 @@ export default function ChoresTab() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <View style={styles.root}>
-        <View style={styles.topStrip}>
-          <Text style={styles.topStripText} numberOfLines={1}>
-            {formatTopStripDate(selectedDate)} • XP {selectedXpSummary.current}
-            {selectedXpSummary.possible > 0 ? `/${selectedXpSummary.possible}` : ''}
-          </Text>
-          <View style={styles.topStripActions}>
-            <View
-              accessible
-              accessibilityRole="image"
-              accessibilityLabel={isOnline ? 'Online' : 'Offline'}
-              style={[
-                styles.statusIcon,
-                {
-                  backgroundColor: withAlpha(isOnline ? colors.success : colors.warning, 0.14),
-                  borderColor: withAlpha(isOnline ? colors.success : colors.warning, 0.28),
-                },
-              ]}
-            >
-              <Ionicons
-                name={isOnline ? 'wifi' : 'cloud-offline-outline'}
-                size={14}
-                color={isOnline ? colors.success : colors.warning}
-              />
-            </View>
-            <View
-              accessible
-              accessibilityRole="image"
-              accessibilityLabel={
-                connectionStatus === 'authenticated'
-                  ? 'Instant connected'
-                  : `Instant ${connectionStatus || 'connecting'}`
-              }
-              style={[
-                styles.statusIcon,
-                {
-                  backgroundColor: withAlpha(connectionStatus === 'authenticated' ? colors.success : colors.locked, 0.14),
-                  borderColor: withAlpha(connectionStatus === 'authenticated' ? colors.success : colors.locked, 0.28),
-                },
-              ]}
-            >
-              <Ionicons
-                name={connectionStatus === 'authenticated' ? 'radio' : 'sync-outline'}
-                size={14}
-                color={connectionStatus === 'authenticated' ? colors.success : colors.inkMuted}
-              />
-            </View>
-            <View
-              accessible
-              accessibilityRole="image"
-              accessibilityLabel={
-                principalType === 'parent' ? 'Parent mode' : principalType === 'kid' ? 'Kid mode' : 'No active mode'
-              }
-              style={[
-                styles.statusIcon,
-                principalType === 'parent'
-                  ? styles.statusIconParent
-                  : principalType === 'kid'
-                  ? styles.statusIconKid
-                  : styles.statusIconNeutral,
-              ]}
-            >
-              <Ionicons
-                name={
-                  principalType === 'parent'
-                    ? 'shield-checkmark'
-                    : principalType === 'kid'
-                    ? 'sparkles'
-                    : 'help-circle-outline'
-                }
-                size={14}
-                color={
-                  principalType === 'parent'
-                    ? colors.accentMore
-                    : principalType === 'kid'
-                    ? colors.accentChores
-                    : colors.inkMuted
-                }
-              />
-            </View>
+    <>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <View style={styles.root}>
+          <View style={styles.topBar}>
             <Pressable
-              testID="chores-switch-user-button"
+              testID="chores-member-switcher"
               accessibilityRole="button"
-              accessibilityLabel="Switch user"
-              style={styles.topStripSwitchButton}
-              hitSlop={10}
-              onPress={() => {
-                void handleSwitchUserPress();
-              }}
+              accessibilityLabel={`Viewing ${viewedMemberName}. Tap to choose a family member.`}
+              onPress={() => setMemberDropdownVisible(true)}
+              style={styles.topBarMemberTouchable}
             >
-              <Ionicons name="people-outline" size={16} color={colors.accentChores} />
+              <AvatarPhotoImage
+                photoUrls={viewedMember?.photoUrls}
+                preferredSize="320"
+                style={styles.topBarAvatar}
+                fallback={
+                  <View style={styles.topBarAvatarFallback}>
+                    <Text style={styles.topBarAvatarFallbackText}>{createInitials(viewedMemberName)}</Text>
+                  </View>
+                }
+              />
+              <Text style={styles.topBarTitle} numberOfLines={1}>
+                {headerTitle}
+              </Text>
             </Pressable>
-          </View>
-        </View>
 
-        <View style={styles.heroBlock}>
-          <View style={styles.heroRow}>
-            <View style={styles.heroIdentity}>
-              <View style={styles.heroAvatarFallback}>
-                <Text style={styles.heroAvatarFallbackText}>
-                  {createInitials(selectedMemberId === 'all' ? heroTitle : selectedMemberName)}
+            <View style={styles.statsRow}>
+              <View style={styles.statPill}>
+                <Ionicons name="sparkles" size={14} color={colors.warning} />
+                <Text style={styles.statValue}>
+                  {viewedXp.current}/{viewedXp.possible}
                 </Text>
+                <Text style={styles.statLabel}>XP</Text>
               </View>
-              <View style={styles.heroCopy}>
-                <Text style={styles.heroEyebrow}>Chores</Text>
-                <Text style={styles.heroTitle}>{heroTitle}</Text>
-                <Text style={styles.heroSub}>{heroSubtitle}</Text>
-                <Text style={styles.heroMetaXp}>
-                  Signed in as {currentUser?.name || 'Not selected'} • {selectedXpSummary.current}
-                  {selectedXpSummary.possible > 0 ? `/${selectedXpSummary.possible}` : ''} XP today
-                </Text>
+
+              <View style={styles.statPill}>
+                <Ionicons name="checkmark-circle-outline" size={14} color={colors.accentChores} />
+                <Text style={styles.statValue}>{remainingChoreCount}</Text>
+                <Text style={styles.statLabel}>Left</Text>
               </View>
             </View>
+
             <Pressable
-              testID="chores-toggle-date-picker"
+              testID="chores-view-settings-button"
               accessibilityRole="button"
-              accessibilityLabel={`Choose chores date. Currently ${formatLongDate(selectedDate)}`}
-              onPress={() => setDatePickerVisible((previous) => !previous)}
-              style={[styles.dateMiniCard, datePickerVisible && styles.dateMiniCardActive]}
+              accessibilityLabel="Open chores view settings"
+              onPress={() => setViewSettingsVisible(true)}
+              style={styles.headerUtilityButton}
             >
-              <Text style={styles.dateMiniWeekday}>{formatDayLabel(selectedDate)}</Text>
-              <Text style={styles.dateMiniLabel}>{formatMonthDay(selectedDate)}</Text>
+              <Ionicons name="ellipsis-horizontal" size={18} color={colors.accentChores} />
+            </Pressable>
+
+            <Pressable
+              testID="chores-date-picker"
+              accessibilityRole="button"
+              accessibilityLabel={`Selected date: ${formatWeekdayDate(selectedDate)}. Tap to change.`}
+              onPress={() => setDateDropdownVisible(true)}
+              style={styles.topBarRight}
+            >
+              <Text style={styles.topBarDate}>{formatWeekdayDate(selectedDate)}</Text>
+              <Ionicons name="chevron-down" size={14} color={colors.canvasTextMuted} />
             </Pressable>
           </View>
 
-          {datePickerVisible ? (
-            <View style={styles.dateChooser}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateStrip}>
-                {dateStrip.map((date) => {
-                  const isSelected = formatDateKeyUTC(date) === selectedDateKey;
-                  return (
+          <View style={styles.summarySection}>
+            <Text style={styles.summaryText}>{summaryLine}</Text>
+          </View>
+
+          <View style={styles.contentShell}>
+            <View style={styles.contentGlow} />
+            <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+              <View style={styles.panel}>
+                <View style={styles.panelHeaderRow}>
+                  <Text style={styles.panelTitle}>Task Series</Text>
+                  <Text style={styles.metaText}>{viewedMemberName}</Text>
+                </View>
+                <Text style={styles.metaText}>
+                  Open the native task-series view for responses, review threads, pull-forward, and the full mobile task detail flow.
+                </Text>
+                <View style={[styles.panelHeaderActions, { marginTop: spacing.sm }]}>
+                  <Pressable
+                    testID="chores-open-task-series-button"
+                    accessibilityRole="button"
+                    accessibilityLabel="Open task series"
+                    onPress={openTaskSeriesOverview}
+                    style={styles.markAllButton}
+                  >
+                    <Text style={styles.markAllButtonText}>Open Task Series</Text>
+                  </Pressable>
+                  {principalType === 'parent' ? (
                     <Pressable
-                      key={date.toISOString()}
-                      testID={`chores-date-chip-${formatDateKeyUTC(date)}`}
+                      testID="chores-open-task-series-manager-button"
                       accessibilityRole="button"
-                      accessibilityLabel={`Select chores for ${formatLongDate(date)}`}
-                      style={[styles.dateChip, isSelected && styles.dateChipSelected]}
-                      onPress={() => {
-                        setSelectedDate(date);
-                        setDatePickerVisible(false);
-                      }}
+                      accessibilityLabel="Open task series manager"
+                      onPress={openTaskSeriesManager}
+                      style={styles.markAllButton}
                     >
-                      <Text style={[styles.dateChipDay, isSelected && styles.dateChipTextSelected]}>
-                        {formatDayLabel(date)}
-                      </Text>
-                      <Text style={[styles.dateChipDate, isSelected && styles.dateChipTextSelected]}>
-                        {formatMonthDay(date)}
+                      <Text style={styles.markAllButtonText}>Manager</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={styles.panel}>
+                <View style={styles.panelHeaderRow}>
+                  <Text style={styles.panelTitle}>Due Chores</Text>
+                  <View style={styles.panelHeaderActions}>
+                    <Text style={styles.metaText}>
+                      {choresQuery.isLoading ? 'Loading…' : `${visibleChores.length} scheduled • ${chores.length} total chores`}
+                    </Text>
+                    <Pressable
+                      testID="chores-mark-visible-done-button"
+                      accessibilityRole="button"
+                      accessibilityLabel="Mark all visible chores done"
+                      onPress={handleMarkVisibleDonePress}
+                      disabled={isMarkingVisibleDone || visibleChores.length === 0}
+                      style={[
+                        styles.markAllButton,
+                        (isMarkingVisibleDone || visibleChores.length === 0) && styles.markAllButtonDisabled,
+                      ]}
+                    >
+                      <Text style={styles.markAllButtonText}>
+                        {isMarkingVisibleDone ? 'Working…' : 'Mark Visible Done'}
                       </Text>
                     </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          ) : null}
-        </View>
+                  </View>
+                </View>
 
-        <View style={styles.contentShell}>
-          <View style={styles.contentGlow} />
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>Family Filter</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
-              <Pressable
-                testID="chores-member-filter-all"
-                accessibilityRole="button"
-                accessibilityLabel="Filter chores for all family members"
-                style={[styles.memberChip, selectedMemberId === 'all' && styles.memberChipSelected]}
-                onPress={() => setSelectedMemberId('all')}
-              >
-                <Text style={[styles.memberChipText, selectedMemberId === 'all' && styles.memberChipTextSelected]}>
-                  All
-                </Text>
-              </Pressable>
-              {familyMembers.map((member) => {
-                const selected = selectedMemberId === member.id;
+                {choresQuery.error ? (
+                  <Text style={styles.errorText}>{choresQuery.error.message || 'Failed to load chores'}</Text>
+                ) : visibleChores.length === 0 ? (
+                  <Text style={styles.emptyText}>No chores are due for this date.</Text>
+                ) : (
+                  <View style={styles.cards}>
+                    {visibleChores.map(({ chore, toggleMembers, completionsOnDate, upForGrabsCompletedById, timing }, index) => {
+                      const previousTiming = index > 0 ? visibleChores[index - 1]?.timing : null;
+                      const showSectionHeader = !previousTiming || previousTiming?.sectionKey !== timing?.sectionKey;
+                      const upForGrabsCompletedByName =
+                        upForGrabsCompletedById ? familyMemberNameById[upForGrabsCompletedById] || 'another member' : null;
+
+                      return (
+                        <React.Fragment key={chore.id}>
+                          {showSectionHeader ? (
+                            <View style={[styles.sectionChip, timing?.isActiveNow && styles.sectionChipActive]}>
+                              <Text style={[styles.sectionChipText, timing?.isActiveNow && styles.sectionChipTextActive]}>
+                                {timing?.sectionLabel || 'Anytime'}
+                                {timing?.isActiveNow ? ' • Now' : ''}
+                              </Text>
+                            </View>
+                          ) : null}
+                          <View style={styles.choreCard}>
+                            <View style={styles.choreHeaderRow}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.choreTitle}>{chore.title || 'Untitled chore'}</Text>
+                                {!!chore.description && showChoreDescriptions ? (
+                                  <Text style={styles.choreDescription}>{chore.description}</Text>
+                                ) : null}
+                              </View>
+                              <View style={styles.tagRow}>
+                                {timing?.label ? (
+                                  <View style={[styles.tag, styles.tagSky]}>
+                                    <Text style={[styles.tagText, styles.tagSkyText]}>{timing.label}</Text>
+                                  </View>
+                                ) : null}
+                                {chore.isUpForGrabs ? (
+                                  <View style={[styles.tag, styles.tagWarm]}>
+                                    <Text style={[styles.tagText, styles.tagWarmText]}>Up for grabs</Text>
+                                  </View>
+                                ) : null}
+                                {chore.rewardType !== 'fixed' && Number.isFinite(Number(chore.weight)) ? (
+                                  <View style={[styles.tag, styles.tagXp]}>
+                                    <Text style={[styles.tagText, styles.tagXpText]}>
+                                      XP {Number(chore.weight) > 0 ? '+' : ''}
+                                      {Number(chore.weight || 0)}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                                {chore.rewardType === 'fixed' ? (
+                                  <View style={[styles.tag, styles.tagNeutral]}>
+                                    <Text style={[styles.tagText, styles.tagNeutralText]}>Fixed reward</Text>
+                                  </View>
+                                ) : null}
+                                {chore.isJoint ? (
+                                  <View style={[styles.tag, styles.tagNeutral]}>
+                                    <Text style={[styles.tagText, styles.tagNeutralText]}>Joint</Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                            </View>
+
+                            {chore.isUpForGrabs && upForGrabsCompletedByName ? (
+                              <Text style={styles.helperText}>Completed today by {upForGrabsCompletedByName}</Text>
+                            ) : null}
+
+                            <View style={styles.toggleList}>
+                              {toggleMembers.map((member) => {
+                                const completion = getMemberCompletionForDate(chore, member.id, selectedDate);
+                                const isDone = !!completion?.completed;
+                                const isBusy = pendingCompletionKeys.has(completionKey(chore.id, member.id, selectedDateKey));
+                                const blockedByUpForGrabs =
+                                  !!chore.isUpForGrabs &&
+                                  !!upForGrabsCompletedById &&
+                                  upForGrabsCompletedById !== member.id &&
+                                  !isDone;
+
+                                return (
+                                  <View key={`${chore.id}:${member.id}`} style={styles.toggleRow}>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={styles.toggleMetaSolo}>
+                                        {blockedByUpForGrabs
+                                          ? 'Already claimed'
+                                          : isDone
+                                          ? `Done • ${
+                                              completion?.dateCompleted
+                                                ? new Date(completion.dateCompleted).toLocaleTimeString([], {
+                                                    hour: 'numeric',
+                                                    minute: '2-digit',
+                                                  })
+                                                : 'today'
+                                            }`
+                                          : 'Not done yet'}
+                                      </Text>
+                                    </View>
+                                    <Pressable
+                                      testID={`chore-toggle-${chore.id}-${member.id}`}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={`${
+                                        isDone ? 'Mark not done' : 'Mark done'
+                                      } for ${viewedMemberName} on ${chore.title || 'chore'}`}
+                                      disabled={isBusy || blockedByUpForGrabs}
+                                      onPress={() => handleToggleCompletion(chore, member.id)}
+                                      style={[
+                                        styles.toggleButton,
+                                        isDone && styles.toggleButtonDone,
+                                        blockedByUpForGrabs && styles.toggleButtonDisabled,
+                                        isBusy && styles.toggleButtonBusy,
+                                      ]}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.toggleButtonText,
+                                          isDone && styles.toggleButtonTextDone,
+                                          blockedByUpForGrabs && styles.toggleButtonTextDisabled,
+                                        ]}
+                                      >
+                                        {isBusy ? '…' : isDone ? 'Done' : 'Mark'}
+                                      </Text>
+                                    </Pressable>
+                                  </View>
+                                );
+                              })}
+                            </View>
+
+                            {completionsOnDate.length > 0 ? (
+                              <Text style={styles.completionSummary}>
+                                {completionsOnDate.length} completion{completionsOnDate.length === 1 ? '' : 's'} recorded today
+                              </Text>
+                            ) : null}
+                          </View>
+                        </React.Fragment>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </SafeAreaView>
+
+      <Modal visible={memberDropdownVisible} transparent animationType="fade" onRequestClose={() => setMemberDropdownVisible(false)}>
+        <Pressable style={styles.dropdownOverlay} onPress={() => setMemberDropdownVisible(false)}>
+          <View style={styles.dropdownSheet}>
+            <Text style={styles.dropdownHeading}>View someone&apos;s chores</Text>
+            {familyMembers.map((member) => {
+              const selected = member.id === viewedMember?.id;
+              return (
+                <Pressable
+                  key={`chores-member-pick-${member.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${member.name}'s chores`}
+                  onPress={() => {
+                    setViewedMemberId(member.id);
+                    setMemberDropdownVisible(false);
+                  }}
+                  style={[styles.dropdownMemberRow, selected && styles.dropdownMemberRowSelected]}
+                >
+                  <AvatarPhotoImage
+                    photoUrls={member.photoUrls}
+                    preferredSize="64"
+                    style={styles.dropdownMemberAvatar}
+                    fallback={
+                      <View style={styles.dropdownMemberAvatarFallback}>
+                        <Text style={styles.dropdownMemberAvatarFallbackText}>{createInitials(member.name)}</Text>
+                      </View>
+                    }
+                  />
+                  <Text style={[styles.dropdownMemberName, selected && styles.dropdownMemberNameSelected]}>
+                    {member.name}
+                  </Text>
+                  {selected ? <Ionicons name="checkmark-circle" size={18} color={colors.accentChores} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={dateDropdownVisible} transparent animationType="fade" onRequestClose={() => setDateDropdownVisible(false)}>
+        <Pressable style={styles.dropdownOverlay} onPress={() => setDateDropdownVisible(false)}>
+          <View style={[styles.dropdownSheet, styles.dropdownSheetDate]}>
+            <Text style={styles.dropdownHeading}>Choose a date</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateCarouselContent}>
+              {dateStrip.map((date) => {
+                const dateKey = formatDateKeyUTC(date);
+                const isSelected = dateKey === selectedDateKey;
+                const isToday = dateKey === todayDateKey;
                 return (
                   <Pressable
-                    key={member.id}
-                    testID={`chores-member-filter-${member.id}`}
+                    key={date.toISOString()}
+                    testID={`chores-date-chip-${dateKey}`}
                     accessibilityRole="button"
-                    accessibilityLabel={`Filter chores for ${member.name}`}
-                    style={[styles.memberChip, selected && styles.memberChipSelected]}
-                    onPress={() => setSelectedMemberId(member.id)}
+                    accessibilityLabel={`View chores for ${formatLongDate(date)}`}
+                    style={[styles.dateCarouselPill, isSelected && styles.dateCarouselPillSelected]}
+                    onPress={() => {
+                      setSelectedDate(date);
+                      setDateDropdownVisible(false);
+                    }}
                   >
-                    <Text style={[styles.memberChipText, selected && styles.memberChipTextSelected]}>{member.name}</Text>
+                    <Text style={[styles.dateCarouselDay, isSelected && styles.dateCarouselTextSelected]}>
+                      {formatDayLabel(date)}
+                    </Text>
+                    <Text style={[styles.dateCarouselDate, isSelected && styles.dateCarouselTextSelected]}>
+                      {formatMonthDay(date)}
+                    </Text>
+                    {!isSelected && isToday ? <View style={styles.dateCarouselTodayDot} /> : null}
                   </Pressable>
                 );
               })}
             </ScrollView>
           </View>
+        </Pressable>
+      </Modal>
 
-          <View style={styles.panel}>
-            <View style={styles.panelHeaderRow}>
-              <Text style={styles.panelTitle}>View Options</Text>
-              <Text style={styles.metaText}>{currentUser ? 'Saved per member' : 'Login required'}</Text>
-            </View>
+      <Modal visible={viewSettingsVisible} transparent animationType="fade" onRequestClose={() => setViewSettingsVisible(false)}>
+        <Pressable style={styles.dropdownOverlay} onPress={() => setViewSettingsVisible(false)}>
+          <View style={styles.dropdownSheet}>
+            <Text style={styles.dropdownHeading}>Chores view settings</Text>
+            <Text style={styles.dropdownMetaText}>{currentUser ? 'Saved per signed-in member' : 'Login required'}</Text>
             <View style={styles.viewOptionList}>
               <Pressable
                 testID="chores-view-toggle-descriptions"
@@ -736,291 +811,9 @@ export default function ChoresTab() {
               </Pressable>
             </View>
           </View>
-
-          <View style={styles.panel}>
-            <View style={styles.panelHeaderRow}>
-              <Text style={styles.panelTitle}>Daily XP</Text>
-              <Text style={styles.metaText}>{formatMonthDay(selectedDate)}</Text>
-            </View>
-            <View style={styles.xpGrid}>
-              {dailyXpRows.map((row) => {
-                const isSelected =
-                  selectedMemberId === 'all' ? currentUser?.id === row.member.id : selectedMemberId === row.member.id;
-                return (
-                  <View key={`xp-${row.member.id}`} style={[styles.xpCard, isSelected && styles.xpCardSelected]}>
-                    <View style={styles.xpCardHeader}>
-                      <Text style={styles.xpName}>{row.member.name}</Text>
-                      <Text style={styles.xpValue}>
-                        {row.current}
-                        {row.possible > 0 ? ` / ${row.possible}` : ''}
-                      </Text>
-                    </View>
-                    <View style={styles.xpTrack}>
-                      <View style={[styles.xpFill, { width: `${Math.round(row.progressRatio * 100)}%` }]} />
-                    </View>
-                    <Text style={styles.xpHint}>
-                      {row.possible > 0
-                        ? `${Math.round(row.progressRatio * 100)}% of possible XP`
-                        : row.current === 0
-                        ? 'No weighted chores due'
-                        : 'Completed XP only'}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
-          <View style={styles.panel}>
-            <View style={styles.panelHeaderRow}>
-              <Text style={styles.panelTitle}>Task Series</Text>
-              <Text style={styles.metaText}>{selectedMemberId === 'all' ? 'Current member' : selectedMemberName}</Text>
-            </View>
-            <Text style={styles.metaText}>
-              Open the native task-series view for responses, review threads, pull-forward, and the full mobile task detail flow.
-            </Text>
-            <View style={[styles.panelHeaderActions, { marginTop: spacing.sm }]}>
-              <Pressable
-                testID="chores-open-task-series-button"
-                accessibilityRole="button"
-                accessibilityLabel="Open task series"
-                onPress={openTaskSeriesOverview}
-                style={styles.markAllButton}
-              >
-                <Text style={styles.markAllButtonText}>Open Task Series</Text>
-              </Pressable>
-              {principalType === 'parent' ? (
-                <Pressable
-                  testID="chores-open-task-series-manager-button"
-                  accessibilityRole="button"
-                  accessibilityLabel="Open task series manager"
-                  onPress={openTaskSeriesManager}
-                  style={styles.markAllButton}
-                >
-                  <Text style={styles.markAllButtonText}>Manager</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-
-          <View style={styles.panel}>
-            <View style={styles.panelHeaderRow}>
-              <Text style={styles.panelTitle}>Due Chores</Text>
-              <View style={styles.panelHeaderActions}>
-                <Text style={styles.metaText}>
-                  {choresQuery.isLoading ? 'Loading…' : `${visibleChores.length} due • ${chores.length} total chores`}
-                </Text>
-                <Pressable
-                  testID="chores-mark-visible-done-button"
-                  accessibilityRole="button"
-                  accessibilityLabel="Mark all visible chores done"
-                  onPress={handleMarkVisibleDonePress}
-                  disabled={isMarkingVisibleDone || visibleChores.length === 0}
-                  style={[
-                    styles.markAllButton,
-                    (isMarkingVisibleDone || visibleChores.length === 0) && styles.markAllButtonDisabled,
-                  ]}
-                >
-                  <Text style={styles.markAllButtonText}>
-                    {isMarkingVisibleDone ? 'Working…' : 'Mark Visible Done'}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-
-            {canShowRoutineMarkers ? (
-            <View style={styles.routinePanel}>
-              <View style={styles.routinePanelHeader}>
-                <Text style={styles.routinePanelTitle}>Routine markers</Text>
-                <Text style={styles.routinePanelMeta}>
-                  {selectedDateKey === todayDateKey ? 'Today' : 'Selected day'}
-                </Text>
-              </View>
-              <View style={styles.routineGrid}>
-                {(scheduleSettings?.routineMarkers || SHARED_ROUTINE_MARKER_PRESETS).map((marker) => {
-                  const status = routineMarkerStatusByKey.get(marker.key);
-                  const completedLabel = status?.completedAt
-                    ? new Date(status.completedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-                    : status?.startedAt
-                    ? new Date(status.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-                    : 'Not marked';
-
-                  return (
-                    <View key={marker.key} style={styles.routineCard}>
-                      <View style={styles.routineCardHeader}>
-                        <Text style={styles.routineCardTitle}>{marker.label}</Text>
-                        <Text style={styles.routineCardMeta}>{marker.defaultTime || '--:--'}</Text>
-                      </View>
-                      <Text style={styles.routineCardDetail}>Happened: {completedLabel}</Text>
-                      <View style={styles.routineCardActions}>
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => markRoutineMarkerHappened(marker.key)}
-                          disabled={!canEditRoutineMarkers}
-                          style={[styles.routineActionButton, !canEditRoutineMarkers && styles.routineActionButtonDisabled]}
-                        >
-                          <Text style={styles.routineActionButtonText}>Mark happened</Text>
-                        </Pressable>
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => clearRoutineMarkerStatus(marker.key)}
-                          disabled={!canEditRoutineMarkers}
-                          style={[styles.routineGhostButton, !canEditRoutineMarkers && styles.routineActionButtonDisabled]}
-                        >
-                          <Text style={styles.routineGhostButtonText}>Reset</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
-            ) : null}
-
-            {choresQuery.error ? (
-              <Text style={styles.errorText}>{choresQuery.error.message || 'Failed to load chores'}</Text>
-            ) : visibleChores.length === 0 ? (
-              <Text style={styles.emptyText}>No chores are due for this date/filter.</Text>
-            ) : (
-              <View style={styles.cards}>
-                {visibleChores.map(({ chore, toggleMembers, completionsOnDate, upForGrabsCompletedById, timing }, index) => {
-                  const previousTiming = index > 0 ? visibleChores[index - 1]?.timing : null;
-                  const showSectionHeader = !previousTiming || previousTiming?.sectionKey !== timing?.sectionKey;
-                  const upForGrabsCompletedByName =
-                    upForGrabsCompletedById ? familyMemberNameById[upForGrabsCompletedById] || 'another member' : null;
-
-                  return (
-                    <React.Fragment key={chore.id}>
-                      {showSectionHeader ? (
-                        <View style={[styles.sectionChip, timing?.isActiveNow && styles.sectionChipActive]}>
-                          <Text style={[styles.sectionChipText, timing?.isActiveNow && styles.sectionChipTextActive]}>
-                            {timing?.sectionLabel || 'Anytime'}
-                            {timing?.isActiveNow ? ' • Now' : ''}
-                          </Text>
-                        </View>
-                      ) : null}
-                      <View style={styles.choreCard}>
-                        <View style={styles.choreHeaderRow}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.choreTitle}>{chore.title || 'Untitled chore'}</Text>
-                            {!!chore.description && showChoreDescriptions ? (
-                              <Text style={styles.choreDescription}>{chore.description}</Text>
-                            ) : null}
-                          </View>
-                          <View style={styles.tagRow}>
-                            {timing?.label ? (
-                              <View style={[styles.tag, styles.tagSky]}>
-                                <Text style={[styles.tagText, styles.tagSkyText]}>{timing.label}</Text>
-                              </View>
-                            ) : null}
-                            {chore.isUpForGrabs ? (
-                              <View style={[styles.tag, styles.tagWarm]}>
-                                <Text style={[styles.tagText, styles.tagWarmText]}>Up for grabs</Text>
-                              </View>
-                            ) : null}
-                            {chore.rewardType !== 'fixed' && Number.isFinite(Number(chore.weight)) ? (
-                              <View style={[styles.tag, styles.tagXp]}>
-                                <Text style={[styles.tagText, styles.tagXpText]}>
-                                  XP {Number(chore.weight) > 0 ? '+' : ''}
-                                  {Number(chore.weight || 0)}
-                                </Text>
-                              </View>
-                            ) : null}
-                            {chore.rewardType === 'fixed' ? (
-                              <View style={[styles.tag, styles.tagNeutral]}>
-                                <Text style={[styles.tagText, styles.tagNeutralText]}>Fixed reward</Text>
-                              </View>
-                            ) : null}
-                            {chore.isJoint ? (
-                              <View style={[styles.tag, styles.tagNeutral]}>
-                                <Text style={[styles.tagText, styles.tagNeutralText]}>Joint</Text>
-                              </View>
-                            ) : null}
-                          </View>
-                        </View>
-
-                        {chore.isUpForGrabs && upForGrabsCompletedByName ? (
-                          <Text style={styles.helperText}>Completed today by {upForGrabsCompletedByName}</Text>
-                        ) : null}
-
-                        <View style={styles.toggleList}>
-                          {toggleMembers.map((member) => {
-                          const completion = getMemberCompletionForDate(chore, member.id, selectedDate);
-                          const isDone = !!completion?.completed;
-                          const isBusy = pendingCompletionKeys.has(completionKey(chore.id, member.id, selectedDateKey));
-                          const blockedByUpForGrabs =
-                            !!chore.isUpForGrabs &&
-                            !!upForGrabsCompletedById &&
-                            upForGrabsCompletedById !== member.id &&
-                            !isDone;
-
-                            return (
-                              <View key={`${chore.id}:${member.id}`} style={styles.toggleRow}>
-                              <View style={{ flex: 1 }}>
-                                <Text style={styles.toggleName}>
-                                  {member.name || familyMemberNameById[member.id] || 'Member'}
-                                </Text>
-                                <Text style={styles.toggleMeta}>
-                                  {blockedByUpForGrabs
-                                    ? 'Already claimed'
-                                    : isDone
-                                    ? `Done • ${
-                                        completion?.dateCompleted
-                                          ? new Date(completion.dateCompleted).toLocaleTimeString([], {
-                                              hour: 'numeric',
-                                              minute: '2-digit',
-                                            })
-                                          : 'today'
-                                      }`
-                                    : 'Not done yet'}
-                                </Text>
-                              </View>
-                              <Pressable
-                                testID={`chore-toggle-${chore.id}-${member.id}`}
-                                accessibilityRole="button"
-                                accessibilityLabel={`${
-                                  isDone ? 'Mark not done' : 'Mark done'
-                                } for ${member.name || 'member'} on ${chore.title || 'chore'}`}
-                                disabled={isBusy || blockedByUpForGrabs}
-                                onPress={() => handleToggleCompletion(chore, member.id)}
-                                style={[
-                                  styles.toggleButton,
-                                  isDone && styles.toggleButtonDone,
-                                  blockedByUpForGrabs && styles.toggleButtonDisabled,
-                                  isBusy && styles.toggleButtonBusy,
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.toggleButtonText,
-                                    isDone && styles.toggleButtonTextDone,
-                                    blockedByUpForGrabs && styles.toggleButtonTextDisabled,
-                                  ]}
-                                >
-                                  {isBusy ? '…' : isDone ? 'Done' : 'Mark'}
-                                </Text>
-                              </Pressable>
-                              </View>
-                            );
-                          })}
-                        </View>
-
-                        {completionsOnDate.length > 0 ? (
-                          <Text style={styles.completionSummary}>
-                            {completionsOnDate.length} completion{completionsOnDate.length === 1 ? '' : 's'} recorded today
-                          </Text>
-                        ) : null}
-                      </View>
-                    </React.Fragment>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-          </ScrollView>
-        </View>
-      </View>
-    </SafeAreaView>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -1033,6 +826,110 @@ const createStyles = (colors, isDark) =>
   root: {
     flex: 1,
     backgroundColor: colors.canvasStrong,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.canvas,
+    gap: spacing.sm,
+  },
+  topBarMemberTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minWidth: 0,
+  },
+  topBarAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  topBarAvatarFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withAlpha(colors.canvasText, 0.12),
+  },
+  topBarAvatarFallbackText: {
+    color: colors.canvasText,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  topBarTitle: {
+    color: colors.canvasText,
+    fontSize: 20,
+    fontWeight: '800',
+    flexShrink: 1,
+    maxWidth: 180,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flex: 1,
+  },
+  statPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    backgroundColor: withAlpha(colors.canvasText, 0.08),
+    borderWidth: 1,
+    borderColor: withAlpha(colors.canvasText, 0.06),
+  },
+  statValue: {
+    color: colors.canvasText,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  statLabel: {
+    color: colors.canvasTextMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  headerUtilityButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radii.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: withAlpha(colors.accentChores, 0.22),
+    backgroundColor: withAlpha(colors.accentChores, 0.1),
+  },
+  topBarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+    backgroundColor: withAlpha(colors.canvasText, 0.06),
+    maxWidth: 170,
+  },
+  topBarDate: {
+    color: colors.canvasTextMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  summarySection: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.canvas,
+  },
+  summaryText: {
+    color: colors.canvasTextMuted,
+    fontSize: 13,
+    lineHeight: 18,
   },
   topStrip: {
     minHeight: 32,
@@ -1358,6 +1255,118 @@ const createStyles = (colors, isDark) =>
     borderColor: withAlpha(colors.accentChores, 0.26),
     backgroundColor: colors.panelElevated,
   },
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: withAlpha(colors.canvasStrong, 0.48),
+    justifyContent: 'flex-start',
+    paddingTop: 100,
+    paddingHorizontal: spacing.lg,
+  },
+  dropdownSheet: {
+    backgroundColor: colors.panel,
+    borderRadius: 20,
+    padding: spacing.md,
+    gap: spacing.xs,
+    ...shadows.float,
+  },
+  dropdownSheetDate: {
+    paddingBottom: spacing.md,
+  },
+  dropdownHeading: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: spacing.xs,
+  },
+  dropdownMetaText: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    marginBottom: spacing.sm,
+  },
+  dropdownMemberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.md,
+  },
+  dropdownMemberRowSelected: {
+    backgroundColor: withAlpha(colors.accentChores, 0.08),
+  },
+  dropdownMemberAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  dropdownMemberAvatarFallback: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withAlpha(colors.canvasText, 0.1),
+  },
+  dropdownMemberAvatarFallbackText: {
+    color: colors.canvasText,
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  dropdownMemberName: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  dropdownMemberNameSelected: {
+    color: colors.accentChores,
+  },
+  dateCarouselContent: {
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  dateCarouselPill: {
+    minWidth: 76,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 18,
+    backgroundColor: withAlpha(colors.canvasText, 0.06),
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  dateCarouselPillSelected: {
+    backgroundColor: isDark ? colors.canvasText : colors.accentChores,
+    borderColor: isDark ? colors.canvasText : colors.accentChores,
+  },
+  dateCarouselDay: {
+    color: colors.inkMuted,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    fontWeight: '800',
+  },
+  dateCarouselDate: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  dateCarouselTextSelected: {
+    color: isDark ? colors.canvasStrong : colors.onAccent,
+  },
+  dateCarouselTodayDot: {
+    position: 'absolute',
+    bottom: 6,
+    width: 5,
+    height: 5,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accentChores,
+  },
   metaText: { color: colors.inkMuted, fontSize: 12 },
   markAllButton: {
     borderWidth: 1,
@@ -1532,6 +1541,7 @@ const createStyles = (colors, isDark) =>
   },
   toggleName: { color: colors.ink, fontWeight: '700' },
   toggleMeta: { color: colors.inkMuted, fontSize: 12, marginTop: 2 },
+  toggleMetaSolo: { color: colors.inkMuted, fontSize: 12 },
   toggleButton: {
     minWidth: 62,
     alignItems: 'center',

@@ -24,11 +24,11 @@ final class FamilyOrganizerUITests: XCTestCase {
     enterPin(childPin)
     tapUnlockButton()
 
-    let choresSwitchButton = app.buttons["chores-switch-user-button"]
-    if !choresSwitchButton.waitForExistence(timeout: 15) {
+    let choresMemberSwitcher = app.buttons["chores-member-switcher"]
+    if !choresMemberSwitcher.waitForExistence(timeout: 15) {
       failWithLockStateContext("Expected chores screen after Judah login")
     }
-    choresSwitchButton.tap()
+    openProfileMenuAndSwitchUser()
 
     XCTAssertTrue(app.buttons["member-card-judah"].waitForExistence(timeout: 10), "Expected lock screen after Switch User")
   }
@@ -40,8 +40,8 @@ final class FamilyOrganizerUITests: XCTestCase {
     enterPin(parentPin)
     tapUnlockButton()
 
-    let choresSwitchButton = app.buttons["chores-switch-user-button"]
-    if !choresSwitchButton.waitForExistence(timeout: 15) {
+    let choresMemberSwitcher = app.buttons["chores-member-switcher"]
+    if !choresMemberSwitcher.waitForExistence(timeout: 15) {
       failWithLockStateContext("Expected chores screen after parent unlock")
     }
 
@@ -136,9 +136,9 @@ final class FamilyOrganizerUITests: XCTestCase {
       return
     }
 
-    let choresSwitchButton = app.buttons["chores-switch-user-button"]
-    if choresSwitchButton.waitForExistence(timeout: 2) {
-      choresSwitchButton.tap()
+    let choresMemberSwitcher = app.buttons["chores-member-switcher"]
+    if choresMemberSwitcher.waitForExistence(timeout: 2) {
+      openProfileMenuAndSwitchUser()
       XCTAssertTrue(app.buttons["member-card-judah"].waitForExistence(timeout: 10), "Expected family member cards after Switch User")
       return
     }
@@ -230,7 +230,7 @@ final class FamilyOrganizerUITests: XCTestCase {
     }
 
     // Retry once if the first tap was consumed by scroll settling.
-    if app.buttons["member-confirm-button"].exists && !app.buttons["chores-switch-user-button"].exists {
+    if app.buttons["member-confirm-button"].exists && !app.buttons["chores-member-switcher"].exists {
       RunLoop.current.run(until: Date().addingTimeInterval(0.35))
       let retryButton = app.buttons["member-confirm-button"]
       if retryButton.exists && retryButton.isEnabled {
@@ -241,6 +241,16 @@ final class FamilyOrganizerUITests: XCTestCase {
         }
       }
     }
+  }
+
+  private func openProfileMenuAndSwitchUser() {
+    let profileTab = app.tabBars.buttons["tab-profile-menu"]
+    XCTAssertTrue(profileTab.waitForExistence(timeout: 5), "Expected profile menu tab")
+    profileTab.tap()
+
+    let switchUserButton = app.buttons["profile-menu-switch-user-button"]
+    XCTAssertTrue(switchUserButton.waitForExistence(timeout: 5), "Expected Switch User action in profile menu")
+    switchUserButton.tap()
   }
 
   private func isButtonOverlappedByKeyboard(_ button: XCUIElement) -> Bool {
