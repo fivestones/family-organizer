@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { id, tx } from '@instantdb/react-native';
@@ -13,6 +13,8 @@ import {
   localDateToUTC,
 } from '@family-organizer/shared-core';
 import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
+import { usePresignedUrl } from '../../src/hooks/usePresignedUrl';
+import { getPhotoKey } from '../../src/lib/photo-urls';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { getTasksForDate } from '../../../lib/task-scheduler';
@@ -258,6 +260,9 @@ export default function DashboardTab() {
     () => members.find((member) => member.id === viewedMemberId) || currentUser || members[0] || null,
     [currentUser, members, viewedMemberId]
   );
+
+  const bgPhotoKey = getPhotoKey(viewedMember?.photoUrls, '1200');
+  const bgPhotoUri = usePresignedUrl(bgPhotoKey);
 
   const membersWithBalances = useMemo(() => {
     return members.map((member) => {
@@ -823,6 +828,27 @@ export default function DashboardTab() {
     <>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.root}>
+          {/* Background face image — low opacity, zoomed, faded edges */}
+          {bgPhotoUri ? (
+            <View style={styles.bgFaceWrap} pointerEvents="none">
+              <Image
+                source={{ uri: bgPhotoUri }}
+                style={styles.bgFaceImage}
+                resizeMode="cover"
+              />
+              {/* Top edge fade: gradient-like strips from opaque to transparent */}
+              <View style={[styles.bgFadeStrip, styles.bgFadeTop1]} />
+              <View style={[styles.bgFadeStrip, styles.bgFadeTop2]} />
+              <View style={[styles.bgFadeStrip, styles.bgFadeTop3]} />
+              <View style={[styles.bgFadeStrip, styles.bgFadeTop4]} />
+              {/* Left edge fade */}
+              <View style={[styles.bgFadeStrip, styles.bgFadeLeft1]} />
+              <View style={[styles.bgFadeStrip, styles.bgFadeLeft2]} />
+              <View style={[styles.bgFadeStrip, styles.bgFadeLeft3]} />
+              <View style={[styles.bgFadeStrip, styles.bgFadeLeft4]} />
+            </View>
+          ) : null}
+
           {/* Top row: [avatar] [Name's Day] [badges] --- [date] */}
           <View style={styles.topBar}>
             <Pressable
@@ -1303,6 +1329,36 @@ const createStyles = (colors, isDark) => {
       flex: 1,
       backgroundColor: colors.canvasStrong,
     },
+
+    // ── Background face image ──
+    bgFaceWrap: {
+      position: 'absolute',
+      top: -60,
+      right: -40,
+      width: '85%',
+      height: '75%',
+      overflow: 'hidden',
+      zIndex: 0,
+      opacity: isDark ? 0.06 : 0.08,
+    },
+    bgFaceImage: {
+      width: '100%',
+      height: '100%',
+    },
+    bgFadeStrip: {
+      position: 'absolute',
+      backgroundColor: colors.canvasStrong,
+    },
+    // Top fade: 4 strips from top, decreasing opacity
+    bgFadeTop1: { top: 0, left: 0, right: 0, height: 40, opacity: 1 },
+    bgFadeTop2: { top: 40, left: 0, right: 0, height: 40, opacity: 0.75 },
+    bgFadeTop3: { top: 80, left: 0, right: 0, height: 40, opacity: 0.5 },
+    bgFadeTop4: { top: 120, left: 0, right: 0, height: 50, opacity: 0.25 },
+    // Left fade: 4 strips from left, decreasing opacity
+    bgFadeLeft1: { top: 0, left: 0, bottom: 0, width: 40, opacity: 1 },
+    bgFadeLeft2: { top: 0, left: 40, bottom: 0, width: 40, opacity: 0.75 },
+    bgFadeLeft3: { top: 0, left: 80, bottom: 0, width: 40, opacity: 0.5 },
+    bgFadeLeft4: { top: 0, left: 120, bottom: 0, width: 50, opacity: 0.25 },
 
     // ── Compact top bar ──
     topBar: {
