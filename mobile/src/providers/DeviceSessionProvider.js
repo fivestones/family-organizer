@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import { AppState } from 'react-native';
 import { getDeviceSessionToken, setDeviceSessionToken } from '../lib/device-session-store';
 import { refreshMobileDeviceSession } from '../lib/api-client';
+import { recordDiagnostic } from '../lib/diagnostics';
 import { buildDeviceAuthIssue, deriveDeviceAuthIssueFromError } from '../lib/device-auth-issue';
 
 const DeviceSessionContext = createContext(null);
@@ -48,6 +49,10 @@ export function DeviceSessionProvider({ children }) {
       setTokenState(token);
       setActivationRequired(!token);
       setNetworkValidated(!token);
+      recordDiagnostic('device_session_bootstrap', 'resolved', {
+        hasToken: Boolean(token),
+        hadError: Boolean(lastError),
+      });
       if (token) {
         setActivationIssue(null);
       } else if (lastError) {
@@ -83,6 +88,7 @@ export function DeviceSessionProvider({ children }) {
       if (refreshInFlightRef.current) return;
 
       refreshInFlightRef.current = true;
+      recordDiagnostic('device_session_refresh', 'start', { source });
       try {
         const refreshed = await refreshMobileDeviceSession();
         if (!isMounted) return;
@@ -94,6 +100,10 @@ export function DeviceSessionProvider({ children }) {
           setActivationRequired(false);
           setActivationIssue(null);
           setNetworkValidated(true);
+          recordDiagnostic('device_session_refresh', 'success', {
+            source,
+            hasToken: Boolean(refreshed.deviceSessionToken),
+          });
         }
       } catch (error) {
         if (!isMounted) return;
@@ -111,8 +121,17 @@ export function DeviceSessionProvider({ children }) {
                 : 'device_session_refresh'
             )
           );
+          recordDiagnostic('device_session_refresh', 'unauthorized', {
+            source,
+            status: error?.status || null,
+          });
           return;
         }
+        recordDiagnostic('device_session_refresh', 'error', {
+          source,
+          status: error?.status || null,
+          message: error?.message || 'unknown',
+        });
         // Keep the existing token on transient failures. The backend will reject stale tokens and the UI can re-activate.
       } finally {
         refreshInFlightRef.current = false;

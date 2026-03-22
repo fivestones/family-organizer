@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { radii, spacing } from '../../src/theme/tokens';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/SubscreenScaffold';
+import { clearDiagnosticsTimeline, formatDiagnosticDetails, getDiagnosticsTimeline, subscribeDiagnosticsTimeline } from '../../src/lib/diagnostics';
 import { clearPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 
@@ -17,6 +18,7 @@ export default function DevToolsScreen() {
   const { requireParentAction } = useParentActionGate();
   const { colors } = useAppTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
+  const [diagnostics, setDiagnostics] = useState(() => getDiagnosticsTimeline());
   const {
     currentUser,
     principalType,
@@ -36,6 +38,13 @@ export default function DevToolsScreen() {
     if (principalType !== 'parent') return;
     void clearPendingParentAction();
   }, [principalType, searchParams.resumeParentAction]);
+
+  useEffect(() => subscribeDiagnosticsTimeline(setDiagnostics), []);
+
+  const recentDiagnostics = useMemo(
+    () => diagnostics.slice().reverse().slice(0, 60),
+    [diagnostics]
+  );
 
   async function handoffToParent() {
     await requireParentAction({
@@ -114,6 +123,64 @@ export default function DevToolsScreen() {
           <Text style={styles.value}>{Math.round(parentSharedDeviceIdleTimeoutMs / 60000)} min</Text>
         </View>
       </View>
+
+      <View style={styles.panel}>
+        <View style={styles.timelineHeader}>
+          <Text style={styles.panelTitle}>Diagnostics Timeline</Text>
+          <Text style={styles.timelineCount}>{diagnostics.length} events</Text>
+        </View>
+        <View style={styles.actionRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Share diagnostics timeline"
+            style={styles.actionButton}
+            onPress={() =>
+              Share.share({
+                message: JSON.stringify(diagnostics, null, 2),
+                title: 'Family Organizer diagnostics',
+              })
+            }
+          >
+            <Text style={styles.actionText}>Share JSON</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Clear diagnostics timeline"
+            style={styles.actionButton}
+            onPress={() => {
+              clearDiagnosticsTimeline();
+              setDiagnostics([]);
+            }}
+          >
+            <Text style={styles.actionText}>Clear</Text>
+          </Pressable>
+        </View>
+        {recentDiagnostics.length === 0 ? (
+          <Text style={styles.emptyText}>No diagnostics recorded yet.</Text>
+        ) : (
+          <ScrollView style={styles.timeline} contentContainerStyle={styles.timelineContent}>
+            {recentDiagnostics.map((event, index) => (
+              <View key={event.id || `${event.ts}-${index}`} style={styles.eventRow}>
+                <View style={styles.eventHeader}>
+                  <Text style={styles.eventTitle}>
+                    {event.type} · {event.phase}
+                  </Text>
+                  <Text style={styles.eventTime}>
+                    {new Date(event.ts).toLocaleTimeString([], {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })}
+                  </Text>
+                </View>
+                {!!formatDiagnosticDetails(event.details) ? (
+                  <Text style={styles.eventDetails}>{formatDiagnosticDetails(event.details)}</Text>
+                ) : null}
+              </View>
+            ))}
+          </ScrollView>
+        )}
+      </View>
     </SubscreenScaffold>
   );
 }
@@ -138,6 +205,33 @@ const createStyles = (colors) =>
     justifyContent: 'space-between',
     gap: spacing.md,
   },
+  timelineHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  timelineCount: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  actionButton: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  actionText: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   label: {
     color: colors.inkMuted,
     fontSize: 12,
@@ -148,5 +242,42 @@ const createStyles = (colors) =>
     fontWeight: '700',
     flexShrink: 1,
     textAlign: 'right',
+  },
+  timeline: {
+    maxHeight: 360,
+  },
+  timelineContent: {
+    gap: spacing.sm,
+  },
+  eventRow: {
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: spacing.sm,
+    gap: 4,
+  },
+  eventHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  eventTitle: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: '800',
+    flex: 1,
+  },
+  eventTime: {
+    color: colors.inkMuted,
+    fontSize: 11,
+  },
+  eventDetails: {
+    color: colors.inkMuted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  emptyText: {
+    color: colors.inkMuted,
+    fontSize: 12,
   },
   });

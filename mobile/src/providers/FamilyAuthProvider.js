@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { db } from '../lib/instant-db';
+import { recordDiagnostic } from '../lib/diagnostics';
 import { useDeviceSession } from './DeviceSessionProvider';
 import { useInstantPrincipal } from './InstantPrincipalProvider';
 import { clearCurrentFamilyMemberId, getCurrentFamilyMemberId, setCurrentFamilyMemberId } from '../lib/session-prefs';
@@ -76,6 +77,21 @@ export function FamilyAuthProvider({ children }) {
     () => familyMembers.find((member) => member.id === currentFamilyMemberId) || null,
     [currentFamilyMemberId, familyMembers]
   );
+
+  useEffect(() => {
+    if (!canQueryFamilyData) return;
+    if (familyQuery.error) {
+      recordDiagnostic('family_roster', 'error', {
+        message: familyQuery.error?.message || 'unknown',
+      });
+      return;
+    }
+    if (familyMembers.length > 0) {
+      recordDiagnostic('family_roster', 'hydrated', {
+        count: familyMembers.length,
+      });
+    }
+  }, [canQueryFamilyData, familyMembers.length, familyQuery.error]);
 
   useEffect(() => {
     if (authenticatedFamilyMemberId) {

@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { AppProviders } from '../src/providers/AppProviders';
+import { recordDiagnostic } from '../src/lib/diagnostics';
 import { ThemeProvider, useAppTheme } from '../src/theme/ThemeProvider';
 import { preloadServerConfig, preloadServerUrl, refreshServerConfig } from '../src/lib/server-url';
 import { getInstantDbConfig, initInstantDb, resetInstantDb } from '../src/lib/instant-db';
@@ -21,14 +22,21 @@ function ServerUrlGate({ children }) {
 
   const runBootstrap = useCallback(async ({ resetDb = false } = {}) => {
     setBootstrapError(null);
+    recordDiagnostic('bootstrap_config', 'start', { resetDb });
     await preloadServerUrl();
     const cachedConfig = await preloadServerConfig();
+    recordDiagnostic('bootstrap_config', 'cache_probe', {
+      hasCachedConfig: Boolean(cachedConfig?.instantAppId),
+    });
 
     if (resetDb) {
       resetInstantDb();
     }
 
     if (cachedConfig?.instantAppId) {
+      recordDiagnostic('bootstrap_config', 'init_from_cache', {
+        appId: cachedConfig.instantAppId,
+      });
       await initInstantDb(
         {
           appId: cachedConfig.instantAppId,
@@ -39,12 +47,19 @@ function ServerUrlGate({ children }) {
       );
       void refreshServerConfig().catch((error) => {
         console.warn('[ServerUrlGate] Background config refresh failed.', error);
+        recordDiagnostic('bootstrap_config_refresh', 'error', {
+          status: error?.status || null,
+          message: error?.message || 'unknown',
+        });
       });
       return;
     }
 
     const config = await refreshServerConfig();
     if (config?.instantAppId) {
+      recordDiagnostic('bootstrap_config', 'init_from_network', {
+        appId: config.instantAppId,
+      });
       const currentConfig = getInstantDbConfig();
       const needsForceInit =
         resetDb ||
@@ -63,6 +78,7 @@ function ServerUrlGate({ children }) {
       return;
     }
 
+    recordDiagnostic('bootstrap_config', 'missing', null);
     throw new Error('Could not load the mobile server configuration.');
   }, []);
 

@@ -29,6 +29,7 @@ import {
   setParentUnlocked,
   setPreferredPrincipal,
 } from '../lib/session-prefs';
+import { recordDiagnostic } from '../lib/diagnostics';
 
 export const InstantPrincipalContext = createContext(null);
 
@@ -133,26 +134,39 @@ export function InstantPrincipalProvider({ children }) {
       setPrincipalValidated(true);
       setParentUnlockedState(false);
       setHasCachedParentPrincipal(false);
+      recordDiagnostic('principal_restore', persist ? 'shared_kid_network_success' : 'shared_kid_cached_success', {
+        persist,
+      });
       return true;
     };
 
     const cachedKidToken = await getKidPrincipalToken();
     if (cachedKidToken) {
+      recordDiagnostic('principal_restore', 'shared_kid_cached_start', null);
       try {
         return await applyKidPrincipal(cachedKidToken);
       } catch (error) {
         if (error?.status === 401) {
           await setKidPrincipalToken(null);
+          recordDiagnostic('principal_restore', 'shared_kid_cached_unauthorized', {
+            status: error?.status || null,
+          });
         } else {
+          recordDiagnostic('principal_restore', 'shared_kid_cached_error', {
+            status: error?.status || null,
+            message: error?.message || 'unknown',
+          });
           throw error;
         }
       }
     }
 
     if (!allowNetworkFetch) {
+      recordDiagnostic('principal_restore', 'shared_kid_network_skipped', null);
       return false;
     }
 
+    recordDiagnostic('principal_restore', 'shared_kid_network_start', null);
     const response = await getSharedKidInstantToken();
     return applyKidPrincipal(response.token, { persist: true });
   }, []);
@@ -167,6 +181,9 @@ export function InstantPrincipalProvider({ children }) {
 
     setIsSwitchingPrincipal(true);
     setBootstrapStatus('signing_in');
+    recordDiagnostic('principal_sign_in', 'start', {
+      familyMemberId,
+    });
     try {
       const response = await getMemberInstantToken({ familyMemberId, pin });
       await db.auth.signInWithToken(response.token);
@@ -200,10 +217,19 @@ export function InstantPrincipalProvider({ children }) {
       bootstrappedRef.current = true;
       setBootstrapError(null);
       setBootstrapStatus('ready');
+      recordDiagnostic('principal_sign_in', 'success', {
+        familyMemberId,
+        principalType: nextPrincipalType,
+      });
     } catch (error) {
       if (error?.status === 401) {
         await resetForUnauthorizedDevice(error);
       }
+      recordDiagnostic('principal_sign_in', 'error', {
+        familyMemberId,
+        status: error?.status || null,
+        message: error?.message || 'unknown',
+      });
       setBootstrapError(error);
       setBootstrapStatus('error');
       throw error;
@@ -215,6 +241,9 @@ export function InstantPrincipalProvider({ children }) {
   const ensureKidPrincipal = useCallback(async (opts = {}) => {
     setIsSwitchingPrincipal(true);
     setBootstrapStatus('signing_in');
+    recordDiagnostic('principal_demote', 'start', {
+      clearParentSession: Boolean(opts.clearParentSession),
+    });
     try {
       setPrincipalValidated(false);
       setParentUnlockedState(false);
@@ -232,6 +261,7 @@ export function InstantPrincipalProvider({ children }) {
       await clearCurrentFamilyMemberId();
       setBootstrapError(null);
       setBootstrapStatus('ready');
+      recordDiagnostic('principal_demote', 'success', null);
     } finally {
       setIsSwitchingPrincipal(false);
     }
@@ -321,6 +351,7 @@ export function InstantPrincipalProvider({ children }) {
         setBootstrapError(null);
         setPrincipalValidated(false);
         setPrincipalType('unknown');
+        recordDiagnostic('principal_restore', 'waiting_for_device', null);
         return;
       }
 
@@ -333,6 +364,9 @@ export function InstantPrincipalProvider({ children }) {
         setBootstrapStatus('ready');
         setBootstrapError(null);
         bootstrappedRef.current = true;
+        recordDiagnostic('principal_restore', 'already_authenticated', {
+          principalType: auth.user?.type || 'unknown',
+        });
         return;
       }
 
@@ -343,22 +377,32 @@ export function InstantPrincipalProvider({ children }) {
       bootstrappedRef.current = true;
       setBootstrapStatus('restoring_session');
       setBootstrapError(null);
+      recordDiagnostic('principal_restore', 'start', null);
 
       const cachedMemberToken = await getActiveMemberPrincipalToken();
       if (cachedMemberToken) {
+        recordDiagnostic('principal_restore', 'cached_member_start', null);
         try {
           await db.auth.signInWithToken(cachedMemberToken);
           if (!cancelled) {
             setPrincipalValidated(true);
             setBootstrapStatus('ready');
           }
+          recordDiagnostic('principal_restore', 'cached_member_success', null);
           return;
         } catch (error) {
           if (error?.status === 401) {
             console.warn('Cached member session restore failed with 401; clearing active member token.', error);
             await setActiveMemberPrincipalToken(null);
+            recordDiagnostic('principal_restore', 'cached_member_unauthorized', {
+              status: error?.status || null,
+            });
           } else {
             console.warn('Cached member session restore failed; keeping token for a later retry.', error);
+            recordDiagnostic('principal_restore', 'cached_member_error', {
+              status: error?.status || null,
+              message: error?.message || 'unknown',
+            });
             if (!cancelled) {
               setBootstrapError(error);
               setBootstrapStatus('ready');
@@ -382,6 +426,10 @@ export function InstantPrincipalProvider({ children }) {
           return;
         }
         console.warn('Shared kid principal restore failed; keeping cached data available for a later retry.', error);
+        recordDiagnostic('principal_restore', 'shared_kid_error', {
+          status: error?.status || null,
+          message: error?.message || 'unknown',
+        });
         if (!cancelled) {
           setBootstrapError(error);
           setBootstrapStatus('ready');
