@@ -356,6 +356,16 @@ const rules = {
     presence: FAMILY_MUTABLE,
     pushDevices: PUSH_DEVICES_READ_ONLY,
     routineMarkerStatuses: PARENT_MUTABLE,
+    shortcutTokens: {
+        allow: {
+            view: 'false',
+            create: 'false',
+            update: 'false',
+            delete: 'false',
+            link: { $default: 'false' },
+            unlink: { $default: 'false' },
+        },
+    },
     gradeTypes: PARENT_MUTABLE,
     settings: PARENT_MUTABLE,
     taskAttachments: FAMILY_MUTABLE,

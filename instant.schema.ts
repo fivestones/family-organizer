@@ -377,6 +377,17 @@ const _schema = i.schema({
             startedAt: i.string().optional(),
             startedById: i.string().optional(),
         }),
+        shortcutTokens: i.entity({
+            capability: i.string().indexed(),
+            createdAt: i.string().indexed(),
+            issuedDeviceName: i.string().optional(),
+            issuedPlatform: i.string().indexed().optional(),
+            label: i.string().indexed(),
+            lastUsedAt: i.string().indexed().optional(),
+            parentFamilyMemberId: i.string().indexed(),
+            revokedAt: i.string().indexed().optional(),
+            tokenHash: i.string().unique().indexed(),
+        }),
         settings: i.entity({
             name: i.string(),
             value: i.string(),
