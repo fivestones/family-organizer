@@ -4,8 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { AppProviders } from '../src/providers/AppProviders';
 import { ThemeProvider, useAppTheme } from '../src/theme/ThemeProvider';
-import { preloadServerUrl, fetchServerConfig } from '../src/lib/server-url';
-import { initInstantDb } from '../src/lib/instant-db';
+import { preloadServerConfig, preloadServerUrl, refreshServerConfig } from '../src/lib/server-url';
+import { getInstantDbConfig, initInstantDb, resetInstantDb } from '../src/lib/instant-db';
 
 const BootstrapContext = createContext(null);
 
@@ -19,18 +19,50 @@ function ServerUrlGate({ children }) {
   // Incrementing the key forces AppProviders to fully remount after re-bootstrap
   const [mountKey, setMountKey] = useState(0);
 
-  const runBootstrap = useCallback(async () => {
+  const runBootstrap = useCallback(async ({ resetDb = false } = {}) => {
     setBootstrapError(null);
     await preloadServerUrl();
-    const config = await fetchServerConfig();
-    if (config?.instantAppId) {
-      initInstantDb({
-        appId: config.instantAppId,
-        apiURI: config.instantApiURI,
-        websocketURI: config.instantWebsocketURI,
+    const cachedConfig = await preloadServerConfig();
+
+    if (resetDb) {
+      resetInstantDb();
+    }
+
+    if (cachedConfig?.instantAppId) {
+      await initInstantDb(
+        {
+          appId: cachedConfig.instantAppId,
+          apiURI: cachedConfig.instantApiURI,
+          websocketURI: cachedConfig.instantWebsocketURI,
+        },
+        { force: resetDb }
+      );
+      void refreshServerConfig().catch((error) => {
+        console.warn('[ServerUrlGate] Background config refresh failed.', error);
       });
       return;
     }
+
+    const config = await refreshServerConfig();
+    if (config?.instantAppId) {
+      const currentConfig = getInstantDbConfig();
+      const needsForceInit =
+        resetDb ||
+        !currentConfig ||
+        currentConfig.appId !== config.instantAppId ||
+        currentConfig.apiURI !== config.instantApiURI ||
+        currentConfig.websocketURI !== config.instantWebsocketURI;
+      await initInstantDb(
+        {
+          appId: config.instantAppId,
+          apiURI: config.instantApiURI,
+          websocketURI: config.instantWebsocketURI,
+        },
+        { force: needsForceInit }
+      );
+      return;
+    }
+
     throw new Error('Could not load the mobile server configuration.');
   }, []);
 
@@ -55,10 +87,10 @@ function ServerUrlGate({ children }) {
     };
   }, [runBootstrap]);
 
-  const rebootstrap = useCallback(async () => {
+  const rebootstrap = useCallback(async (options = {}) => {
     setReady(false);
     try {
-      await runBootstrap();
+      await runBootstrap(options);
       setMountKey((k) => k + 1);
     } catch (error) {
       console.warn('[ServerUrlGate] Rebootstrap failed.', error);

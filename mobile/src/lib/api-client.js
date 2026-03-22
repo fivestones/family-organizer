@@ -102,6 +102,18 @@ export async function getMemberInstantToken({ familyMemberId, pin }) {
   return parseJson(response);
 }
 
+export async function getSharedKidInstantToken() {
+  const response = await fetch(`${getApiBaseUrl()}/api/mobile/instant-auth-kid-token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+    },
+    body: JSON.stringify({}),
+  });
+  return parseJson(response);
+}
+
 export async function getParentInstantToken({ familyMemberId, pin }) {
   const response = await fetch(`${getApiBaseUrl()}/api/mobile/instant-auth-parent-token`, {
     headers: {

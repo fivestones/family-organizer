@@ -8,6 +8,7 @@ import { radii, spacing, shadows, withAlpha } from '../../src/theme/tokens';
 import { db } from '../../src/lib/instant-db';
 import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
 import { revokeMobileDeviceSession } from '../../src/lib/api-client';
+import { countUnreadThreadMemberships } from '../../src/lib/message-memberships';
 
 function createInitials(name) {
   const words = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -19,6 +20,7 @@ export default function TabsLayout() {
   const { colors } = useAppTheme();
   const {
     activationRequired,
+    canRenderCachedData,
     currentUser,
     isAuthenticated,
     instantReady,
@@ -36,27 +38,19 @@ export default function TabsLayout() {
       ? {
           messageThreadMembers: {
           },
-          messageThreads: {},
         }
       : null
   );
 
-  const unreadMessageCount = React.useMemo(() => {
-    const memberships = unreadMessagesQuery.data?.messageThreadMembers || [];
-    const threads = unreadMessagesQuery.data?.messageThreads || [];
-    const threadsById = new Map(threads.map((thread) => [thread.id, thread]));
-    return memberships.filter((membership) => {
-      const thread = threadsById.get(membership.threadId);
-      const latest = thread?.latestMessageAt ? new Date(thread.latestMessageAt).getTime() : 0;
-      const readAt = membership?.lastReadAt ? new Date(membership.lastReadAt).getTime() : 0;
-      return latest > readAt;
-    }).length;
-  }, [unreadMessagesQuery.data?.messageThreadMembers, unreadMessagesQuery.data?.messageThreads]);
+  const unreadMessageCount = React.useMemo(
+    () => countUnreadThreadMemberships(unreadMessagesQuery.data?.messageThreadMembers || []),
+    [unreadMessagesQuery.data?.messageThreadMembers]
+  );
 
   if (activationRequired) return <Redirect href="/activate" />;
   if (!isAuthenticated) return <Redirect href="/lock" />;
 
-  if (isBootstrapping || !instantReady) {
+  if ((isBootstrapping && !canRenderCachedData) || !instantReady) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.canvasStrong, gap: 10 }}>
         <ActivityIndicator size="large" color={colors.accentChores} />

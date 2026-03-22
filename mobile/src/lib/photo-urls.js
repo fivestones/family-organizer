@@ -8,6 +8,12 @@ function asString(value) {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
+export function isDirectPhotoUrl(value) {
+  const normalized = asString(value);
+  if (!normalized) return false;
+  return /^(https?:\/\/|file:\/\/|data:|content:\/\/|ph:\/\/|assets-library:\/\/)/i.test(normalized);
+}
+
 export function getPhotoKey(photoUrls, preferredSize = '64') {
   if (!photoUrls) return null;
 

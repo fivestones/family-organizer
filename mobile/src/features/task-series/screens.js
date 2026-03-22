@@ -21,6 +21,7 @@ import {
 import { radii, shadows, spacing, withAlpha } from '../../theme/tokens';
 import { useAppTheme } from '../../theme/ThemeProvider';
 import { useAppSession } from '../../providers/AppProviders';
+import { useParentActionGate } from '../../hooks/useParentActionGate';
 import { SubscreenScaffold, ParentAccessNotice } from '../../components/SubscreenScaffold';
 import { AttachmentPreviewModal } from '../../components/AttachmentPreviewModal';
 import {
@@ -1930,6 +1931,7 @@ export function TaskSeriesReviewScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { width } = useWindowDimensions();
   const isWide = width >= 980;
+  const { requireParentAction } = useParentActionGate();
   const { db, currentUser, isAuthenticated, instantReady, principalType } = useAppSession();
   const [view, setView] = useState(preselectedSeriesId ? 'all' : 'attention');
   const [filters, setFilters] = useState({
@@ -1992,7 +1994,17 @@ export function TaskSeriesReviewScreen() {
   if (principalType !== 'parent') {
     return (
       <SubscreenScaffold title="Task Review" subtitle="Parent mode is required for the review queue." accent={colors.accentMore}>
-        <ParentAccessNotice body="Log in as a parent to review task responses, grade work, and manage overdue items." onContinue={() => router.push('/lock')} />
+        <ParentAccessNotice
+          body="Log in as a parent to review task responses, grade work, and manage overdue items."
+          onContinue={() =>
+            requireParentAction({
+              actionId: 'task-series:review',
+              actionLabel: 'Task Review',
+              payload: { href: '/more/task-series/review' },
+              returnPath: '/more/task-series/review',
+            })
+          }
+        />
       </SubscreenScaffold>
     );
   }
@@ -2277,6 +2289,7 @@ export function TaskSeriesManagerScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { width } = useWindowDimensions();
   const isWide = width >= 980;
+  const { requireParentAction } = useParentActionGate();
   const { db, currentUser, isAuthenticated, instantReady, principalType } = useAppSession();
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState([]);
@@ -2328,7 +2341,17 @@ export function TaskSeriesManagerScreen() {
   if (principalType !== 'parent') {
     return (
       <SubscreenScaffold title="Task Series" subtitle="Parent mode is required for the task-series manager." accent={colors.accentMore}>
-        <ParentAccessNotice body="Log in as a parent to manage series, review progress, and edit task plans." onContinue={() => router.push('/lock')} />
+        <ParentAccessNotice
+          body="Log in as a parent to manage series, review progress, and edit task plans."
+          onContinue={() =>
+            requireParentAction({
+              actionId: 'task-series:manager',
+              actionLabel: 'Task Series Manager',
+              payload: { href: '/more/task-series' },
+              returnPath: '/more/task-series',
+            })
+          }
+        />
       </SubscreenScaffold>
     );
   }

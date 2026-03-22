@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
 import { ensureCachedFileUri, getCachedFileUri } from '../lib/file-cache';
+import { isDirectPhotoUrl } from '../lib/photo-urls';
 
 export function useCachedFileUri(fileKey) {
   const normalizedKey = typeof fileKey === 'string' ? fileKey.trim() : '';
-  const [uri, setUri] = useState(() => getCachedFileUri(normalizedKey));
+  const [uri, setUri] = useState(() => (isDirectPhotoUrl(normalizedKey) ? normalizedKey : getCachedFileUri(normalizedKey)));
 
   useEffect(() => {
     if (!normalizedKey) {
       setUri(null);
+      return;
+    }
+
+    if (isDirectPhotoUrl(normalizedKey)) {
+      setUri(normalizedKey);
       return;
     }
 

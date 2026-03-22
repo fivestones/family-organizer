@@ -13,6 +13,7 @@ export function DeviceSessionProvider({ children }) {
   const [deviceSessionToken, setTokenState] = useState(null);
   const [activationRequired, setActivationRequired] = useState(true);
   const [activationIssue, setActivationIssue] = useState(null);
+  const [networkValidated, setNetworkValidated] = useState(false);
   const refreshInFlightRef = useRef(false);
   const hasLaunchValidationRef = useRef(false);
 
@@ -46,6 +47,7 @@ export function DeviceSessionProvider({ children }) {
 
       setTokenState(token);
       setActivationRequired(!token);
+      setNetworkValidated(!token);
       if (token) {
         setActivationIssue(null);
       } else if (lastError) {
@@ -91,6 +93,7 @@ export function DeviceSessionProvider({ children }) {
           setTokenState(refreshed.deviceSessionToken);
           setActivationRequired(false);
           setActivationIssue(null);
+          setNetworkValidated(true);
         }
       } catch (error) {
         if (!isMounted) return;
@@ -99,6 +102,7 @@ export function DeviceSessionProvider({ children }) {
           if (!isMounted) return;
           setTokenState(null);
           setActivationRequired(true);
+          setNetworkValidated(true);
           setActivationIssue(
             deriveDeviceAuthIssueFromError(
               error,
@@ -137,11 +141,13 @@ export function DeviceSessionProvider({ children }) {
       activationRequired,
       deviceSessionToken,
       activationIssue,
+      networkValidated,
       async completeActivation(token) {
         await setDeviceSessionToken(token);
         setTokenState(token);
         setActivationRequired(false);
         setActivationIssue(null);
+        setNetworkValidated(false);
         hasLaunchValidationRef.current = true;
       },
       async clearDeviceSession(options = {}) {
@@ -150,12 +156,13 @@ export function DeviceSessionProvider({ children }) {
         setTokenState(null);
         setActivationRequired(true);
         setActivationIssue(issue);
+        setNetworkValidated(false);
       },
       clearActivationIssue() {
         setActivationIssue(null);
       },
     }),
-    [activationIssue, activationRequired, deviceSessionToken, isBootstrapping]
+    [activationIssue, activationRequired, deviceSessionToken, isBootstrapping, networkValidated]
   );
 
   return <DeviceSessionContext.Provider value={value}>{children}</DeviceSessionContext.Provider>;

@@ -26,7 +26,7 @@ function mapMember(member) {
 
 export function FamilyAuthProvider({ children }) {
   const { deviceSessionToken } = useDeviceSession();
-  const { auth, instantReady, principalType, ensureKidPrincipal } = useInstantPrincipal();
+  const { auth, canQueryFamilyData, canRenderCachedData, instantReady, principalType, ensureKidPrincipal } = useInstantPrincipal();
   const [isRestoringSelection, setIsRestoringSelection] = useState(true);
   const [lastSelectedMemberId, setLastSelectedMemberId] = useState(null);
 
@@ -64,29 +64,25 @@ export function FamilyAuthProvider({ children }) {
       },
     },
     {
-      enabled: Boolean(deviceSessionToken && instantReady && auth.user),
+      enabled: Boolean(deviceSessionToken && canQueryFamilyData),
     }
   );
 
   const familyMembers = useMemo(() => (familyQuery.data?.familyMembers || []).map(mapMember), [familyQuery.data?.familyMembers]);
-  const currentFamilyMemberId =
+  const authenticatedFamilyMemberId =
     auth.user && typeof auth.user.familyMemberId === 'string' ? String(auth.user.familyMemberId) : null;
+  const currentFamilyMemberId = authenticatedFamilyMemberId || lastSelectedMemberId || null;
   const currentUser = useMemo(
     () => familyMembers.find((member) => member.id === currentFamilyMemberId) || null,
     [currentFamilyMemberId, familyMembers]
   );
 
   useEffect(() => {
-    if (currentFamilyMemberId) {
-      void setCurrentFamilyMemberId(currentFamilyMemberId);
-      setLastSelectedMemberId(currentFamilyMemberId);
-      return;
+    if (authenticatedFamilyMemberId) {
+      void setCurrentFamilyMemberId(authenticatedFamilyMemberId);
+      setLastSelectedMemberId(authenticatedFamilyMemberId);
     }
-
-    if (!auth.user) {
-      setLastSelectedMemberId(null);
-    }
-  }, [auth.user, currentFamilyMemberId]);
+  }, [auth.user, authenticatedFamilyMemberId]);
 
   const login = useCallback(async (member) => {
     if (!member?.id) return;
@@ -109,7 +105,9 @@ export function FamilyAuthProvider({ children }) {
       currentUser,
       currentUserId: currentFamilyMemberId,
       lastSelectedMemberId,
-      isAuthenticated: !!currentUser,
+      isAuthenticated: !!currentUser && Boolean(deviceSessionToken && instantReady),
+      canRenderCachedData,
+      canQueryFamilyData,
       isRestoringSelection,
       familyMembers,
       familyMembersLoading: familyQuery.isLoading,
@@ -123,9 +121,13 @@ export function FamilyAuthProvider({ children }) {
       clearFamilySessionState,
       currentFamilyMemberId,
       currentUser,
+      canQueryFamilyData,
+      canRenderCachedData,
+      deviceSessionToken,
       familyMembers,
       familyQuery.error,
       familyQuery.isLoading,
+      instantReady,
       isRestoringSelection,
       lastSelectedMemberId,
       login,

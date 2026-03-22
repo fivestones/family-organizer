@@ -21,7 +21,9 @@ export default function DevToolsScreen() {
     currentUser,
     principalType,
     bootstrapStatus,
+    canRenderCachedData,
     connectionStatus,
+    networkValidated,
     deviceSessionToken,
     activationRequired,
     isOnline,
@@ -90,6 +92,14 @@ export default function DevToolsScreen() {
         <View style={styles.row}>
           <Text style={styles.label}>Bootstrap</Text>
           <Text style={styles.value}>{bootstrapStatus}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.label}>Local cache</Text>
+          <Text style={styles.value}>{canRenderCachedData ? 'Renderable' : 'Waiting'}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.label}>Network validation</Text>
+          <Text style={styles.value}>{networkValidated ? 'Validated' : 'Pending'}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>Connection</Text>

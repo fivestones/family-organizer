@@ -68,7 +68,9 @@ export default function MoreTab() {
     lock,
     currentUser,
     principalType,
+    canRenderCachedData,
     connectionStatus,
+    networkValidated,
     isOnline,
     bootstrapStatus,
     deviceSessionToken,
@@ -173,6 +175,14 @@ export default function MoreTab() {
         <View style={styles.statusRow}>
           <Text style={styles.statusLabel}>Principal bootstrap</Text>
           <Text style={styles.statusValue}>{bootstrapStatus}</Text>
+        </View>
+        <View style={styles.statusRow}>
+          <Text style={styles.statusLabel}>Local cache</Text>
+          <Text style={styles.statusValue}>{canRenderCachedData ? 'Renderable' : 'Waiting'}</Text>
+        </View>
+        <View style={styles.statusRow}>
+          <Text style={styles.statusLabel}>Network validation</Text>
+          <Text style={styles.statusValue}>{networkValidated ? 'Validated' : 'Pending'}</Text>
         </View>
         <View style={styles.statusRow}>
           <Text style={styles.statusLabel}>Device session</Text>

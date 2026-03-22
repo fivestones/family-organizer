@@ -1,11 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { db } from '../lib/instant-db';
-import { getMemberInstantToken } from '../lib/api-client';
+import { getMemberInstantToken, getSharedKidInstantToken } from '../lib/api-client';
 import {
-  clearPrincipalTokens,
   getActiveMemberPrincipalToken,
+  getKidPrincipalToken,
   setActiveMemberPrincipalToken,
+  setKidPrincipalToken,
   setParentPrincipalToken,
 } from '../lib/device-session-store';
 import { deriveDeviceAuthIssueFromError } from '../lib/device-auth-issue';
@@ -20,6 +21,7 @@ import {
   getParentLastActivityAt,
   getParentSharedDeviceIdleTimeoutMs,
   getParentSharedDeviceMode,
+  getPreferredPrincipal,
   getParentUnlocked,
   setCurrentFamilyMemberId,
   setParentLastActivityAt,
@@ -41,12 +43,13 @@ async function safeSignOutInstant() {
 }
 
 export function InstantPrincipalProvider({ children }) {
-  const { deviceSessionToken, clearDeviceSession } = useDeviceSession();
+  const { deviceSessionToken, clearDeviceSession, networkValidated: deviceNetworkValidated } = useDeviceSession();
   const auth = db.useAuth();
   const connectionStatus = db.useConnectionStatus();
   const [bootstrapStatus, setBootstrapStatus] = useState('waiting_for_device');
   const [bootstrapError, setBootstrapError] = useState(null);
   const [bootstrapVersion, setBootstrapVersion] = useState(0);
+  const [principalValidated, setPrincipalValidated] = useState(false);
   const [principalType, setPrincipalType] = useState('unknown');
   const [isSwitchingPrincipal, setIsSwitchingPrincipal] = useState(false);
   const [parentUnlocked, setParentUnlockedState] = useState(false);
@@ -71,11 +74,13 @@ export function InstantPrincipalProvider({ children }) {
       setPrincipalType('unknown');
       setParentUnlockedState(false);
       setHasCachedParentPrincipal(false);
+      setPrincipalValidated(false);
       return;
     }
 
     const nextPrincipalType = user.type === 'parent' ? 'parent' : 'kid';
     setPrincipalType(nextPrincipalType);
+    setPrincipalValidated(true);
     if (nextPrincipalType === 'parent') {
       setParentUnlockedState(true);
       setHasCachedParentPrincipal(true);
@@ -85,27 +90,72 @@ export function InstantPrincipalProvider({ children }) {
     }
   }, []);
 
-  const clearPrincipalState = useCallback(async () => {
+  const clearPrincipalState = useCallback(async (options = {}) => {
     clearIdleTimer();
     bootstrappedRef.current = false;
     setBootstrapError(null);
     setBootstrapStatus(deviceSessionToken ? 'ready' : 'waiting_for_device');
+    setPrincipalValidated(false);
     setPrincipalType('unknown');
     setParentUnlockedState(false);
     setHasCachedParentPrincipal(false);
     setIsParentSessionSharedDevice(DEFAULT_PARENT_SHARED_DEVICE);
-    await clearPrincipalTokens();
+    await setActiveMemberPrincipalToken(null);
+    await setParentPrincipalToken(null);
+    if (options.clearKidToken !== false) {
+      await setKidPrincipalToken(null);
+    }
     await clearCurrentFamilyMemberId();
     await clearPrincipalPrefs();
     await clearPreferredPrincipal();
     await clearParentSharedDeviceMode();
-    await safeSignOutInstant();
+    if (options.signOut !== false) {
+      await safeSignOutInstant();
+    }
   }, [clearIdleTimer, deviceSessionToken]);
 
   const resetForUnauthorizedDevice = useCallback(async (error = null) => {
     await clearPrincipalState();
     await clearDeviceSession({ issue: deriveDeviceAuthIssueFromError(error, 'instant_principal') });
   }, [clearDeviceSession, clearPrincipalState]);
+
+  const signIntoSharedKidPrincipal = useCallback(async ({ allowNetworkFetch = true } = {}) => {
+    const applyKidPrincipal = async (token, { persist = false } = {}) => {
+      await db.auth.signInWithToken(token);
+      if (persist) {
+        await setKidPrincipalToken(token);
+      }
+      await setParentPrincipalToken(null);
+      await setParentUnlocked(false);
+      await clearParentLastActivityAt();
+      await setPreferredPrincipal('kid');
+      setPrincipalType('kid');
+      setPrincipalValidated(true);
+      setParentUnlockedState(false);
+      setHasCachedParentPrincipal(false);
+      return true;
+    };
+
+    const cachedKidToken = await getKidPrincipalToken();
+    if (cachedKidToken) {
+      try {
+        return await applyKidPrincipal(cachedKidToken);
+      } catch (error) {
+        if (error?.status === 401) {
+          await setKidPrincipalToken(null);
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    if (!allowNetworkFetch) {
+      return false;
+    }
+
+    const response = await getSharedKidInstantToken();
+    return applyKidPrincipal(response.token, { persist: true });
+  }, []);
 
   const signInFamilyMember = useCallback(async ({ familyMemberId, pin, sharedDevice } = {}) => {
     if (!deviceSessionToken) {
@@ -146,6 +196,7 @@ export function InstantPrincipalProvider({ children }) {
       }
 
       setPrincipalType(nextPrincipalType);
+      setPrincipalValidated(true);
       bootstrappedRef.current = true;
       setBootstrapError(null);
       setBootstrapStatus('ready');
@@ -163,16 +214,28 @@ export function InstantPrincipalProvider({ children }) {
 
   const ensureKidPrincipal = useCallback(async (opts = {}) => {
     setIsSwitchingPrincipal(true);
+    setBootstrapStatus('signing_in');
     try {
-      await clearPrincipalState();
+      setPrincipalValidated(false);
+      setParentUnlockedState(false);
+      setHasCachedParentPrincipal(false);
+      await setActiveMemberPrincipalToken(null);
+      await setParentPrincipalToken(null);
+      await setPreferredPrincipal('kid');
+      await setParentUnlocked(false);
+      await clearParentLastActivityAt();
       if (opts.clearParentSession) {
         await clearParentSharedDeviceMode();
         setIsParentSessionSharedDevice(DEFAULT_PARENT_SHARED_DEVICE);
       }
+      await signIntoSharedKidPrincipal();
+      await clearCurrentFamilyMemberId();
+      setBootstrapError(null);
+      setBootstrapStatus('ready');
     } finally {
       setIsSwitchingPrincipal(false);
     }
-  }, [clearPrincipalState]);
+  }, [signIntoSharedKidPrincipal]);
 
   const elevateParentPrincipal = useCallback(async ({ familyMemberId, pin, sharedDevice }) => {
     await signInFamilyMember({ familyMemberId, pin, sharedDevice });
@@ -185,6 +248,7 @@ export function InstantPrincipalProvider({ children }) {
   const retryBootstrap = useCallback(() => {
     bootstrappedRef.current = false;
     setBootstrapError(null);
+    setPrincipalValidated(false);
     setBootstrapVersion((value) => value + 1);
   }, []);
 
@@ -218,15 +282,17 @@ export function InstantPrincipalProvider({ children }) {
         return;
       }
 
-      const [storedParentUnlocked, storedSharedMode, storedLastActivity, storedToken] = await Promise.all([
+      const [storedParentUnlocked, storedSharedMode, storedLastActivity, storedToken, storedPreferredPrincipal] = await Promise.all([
         getParentUnlocked(),
         getParentSharedDeviceMode(),
         getParentLastActivityAt(),
         getActiveMemberPrincipalToken(),
+        getPreferredPrincipal(),
       ]);
 
       if (cancelled) return;
 
+      setPrincipalType(storedPreferredPrincipal);
       setParentUnlockedState(storedParentUnlocked);
       setIsParentSessionSharedDevice(storedSharedMode);
       setHasCachedParentPrincipal(Boolean(storedParentUnlocked && storedToken));
@@ -253,11 +319,12 @@ export function InstantPrincipalProvider({ children }) {
         bootstrappedRef.current = false;
         setBootstrapStatus('waiting_for_device');
         setBootstrapError(null);
+        setPrincipalValidated(false);
         setPrincipalType('unknown');
         return;
       }
 
-      if (!isPrefsLoaded || auth.isLoading) {
+      if (!isPrefsLoaded) {
         return;
       }
 
@@ -270,37 +337,56 @@ export function InstantPrincipalProvider({ children }) {
       }
 
       if (bootstrappedRef.current) {
-        setBootstrapStatus('ready');
         return;
       }
 
       bootstrappedRef.current = true;
-      setBootstrapStatus('signing_in');
+      setBootstrapStatus('restoring_session');
       setBootstrapError(null);
 
-      const cachedToken = await getActiveMemberPrincipalToken();
-      if (!cachedToken) {
-        if (!cancelled) {
-          setBootstrapStatus('ready');
+      const cachedMemberToken = await getActiveMemberPrincipalToken();
+      if (cachedMemberToken) {
+        try {
+          await db.auth.signInWithToken(cachedMemberToken);
+          if (!cancelled) {
+            setPrincipalValidated(true);
+            setBootstrapStatus('ready');
+          }
+          return;
+        } catch (error) {
+          if (error?.status === 401) {
+            console.warn('Cached member session restore failed with 401; clearing active member token.', error);
+            await setActiveMemberPrincipalToken(null);
+          } else {
+            console.warn('Cached member session restore failed; keeping token for a later retry.', error);
+            if (!cancelled) {
+              setBootstrapError(error);
+              setBootstrapStatus('ready');
+            }
+            bootstrappedRef.current = false;
+            return;
+          }
         }
-        return;
       }
 
       try {
-        await db.auth.signInWithToken(cachedToken);
+        await signIntoSharedKidPrincipal();
         if (!cancelled) {
+          setPrincipalValidated(true);
           setBootstrapStatus('ready');
+          setBootstrapError(null);
         }
       } catch (error) {
-        console.warn('Cached member session restore failed; clearing active member token.', error);
-        await setActiveMemberPrincipalToken(null);
-        if (!cancelled) {
-          setBootstrapError(null);
-          setBootstrapStatus('ready');
-          setPrincipalType('unknown');
-          setHasCachedParentPrincipal(false);
-          setParentUnlockedState(false);
+        if (error?.status === 401) {
+          await resetForUnauthorizedDevice(error);
+          return;
         }
+        console.warn('Shared kid principal restore failed; keeping cached data available for a later retry.', error);
+        if (!cancelled) {
+          setBootstrapError(error);
+          setBootstrapStatus('ready');
+        }
+        bootstrappedRef.current = false;
       }
     }
 
@@ -309,12 +395,13 @@ export function InstantPrincipalProvider({ children }) {
       cancelled = true;
     };
   }, [
-    auth.isLoading,
     auth.user,
     bootstrapVersion,
     clearIdleTimer,
     deviceSessionToken,
     isPrefsLoaded,
+    resetForUnauthorizedDevice,
+    signIntoSharedKidPrincipal,
     syncPrincipalFromUser,
   ]);
 
@@ -340,7 +427,11 @@ export function InstantPrincipalProvider({ children }) {
     return () => subscription.remove();
   }, [isParentSessionSharedDevice, parentUnlocked, principalType, recordParentActivity]);
 
-  const instantReady = bootstrapStatus === 'ready' && !auth.isLoading;
+  const canRenderCachedData = Boolean(deviceSessionToken && isPrefsLoaded);
+  const hasFamilyPrincipal = auth.user?.type === 'kid' || auth.user?.type === 'parent';
+  const canQueryFamilyData = Boolean(deviceSessionToken && hasFamilyPrincipal);
+  const networkValidated = Boolean(deviceNetworkValidated && principalValidated);
+  const instantReady = canRenderCachedData;
 
   const value = useMemo(() => ({
     auth,
@@ -351,7 +442,11 @@ export function InstantPrincipalProvider({ children }) {
     parentUnlocked,
     isParentSessionSharedDevice,
     hasCachedParentPrincipal,
+    canRenderCachedData,
+    canQueryFamilyData,
+    hasFamilyPrincipal,
     instantReady,
+    networkValidated,
     connectionStatus,
     db,
     ensureKidPrincipal,
@@ -366,16 +461,22 @@ export function InstantPrincipalProvider({ children }) {
     auth,
     bootstrapError,
     bootstrapStatus,
+    canRenderCachedData,
+    canQueryFamilyData,
     clearPrincipalState,
     connectionStatus,
     demoteParentPrincipal,
+    deviceNetworkValidated,
     elevateParentPrincipal,
     ensureKidPrincipal,
     hasCachedParentPrincipal,
+    hasFamilyPrincipal,
     instantReady,
     isParentSessionSharedDevice,
     isSwitchingPrincipal,
+    networkValidated,
     parentUnlocked,
+    principalValidated,
     principalType,
     recordParentActivity,
     retryBootstrap,

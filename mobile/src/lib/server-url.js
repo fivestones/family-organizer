@@ -46,6 +46,21 @@ export async function preloadServerUrl() {
   }
 }
 
+export async function preloadServerConfig() {
+  if (_cachedConfig) return _cachedConfig;
+
+  try {
+    const stored = await AsyncStorage.getItem(CONFIG_CACHE_KEY);
+    if (stored) {
+      _cachedConfig = JSON.parse(stored);
+    }
+  } catch {
+    // Ignore parse errors.
+  }
+
+  return _cachedConfig;
+}
+
 /**
  * Persist a new server URL and update the module cache immediately.
  */
@@ -79,20 +94,7 @@ export async function clearServerUrl() {
  * Uses a locally cached version first, then tries to refresh from network.
  * Returns the config object or null if unavailable.
  */
-export async function fetchServerConfig() {
-  // Try cached config first
-  if (!_cachedConfig) {
-    try {
-      const stored = await AsyncStorage.getItem(CONFIG_CACHE_KEY);
-      if (stored) {
-        _cachedConfig = JSON.parse(stored);
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
-
-  // Try to fetch fresh config from the server (requires device session token)
+export async function refreshServerConfig() {
   const serverUrl = getServerUrl();
   if (serverUrl) {
     const token = await getDeviceSessionToken();
@@ -124,6 +126,11 @@ export async function fetchServerConfig() {
   }
 
   return _cachedConfig;
+}
+
+export async function fetchServerConfig() {
+  await preloadServerConfig();
+  return refreshServerConfig();
 }
 
 /**

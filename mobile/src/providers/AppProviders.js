@@ -42,7 +42,11 @@ function StubInstantProviders({ children }) {
     parentUnlocked: false,
     isParentSessionSharedDevice: false,
     hasCachedParentPrincipal: false,
+    canRenderCachedData: false,
+    canQueryFamilyData: false,
+    hasFamilyPrincipal: false,
     instantReady: false,
+    networkValidated: false,
     connectionStatus: null,
     db: null,
     ensureKidPrincipal: NOOP_ASYNC,
@@ -110,10 +114,15 @@ export function useAppSession() {
   const principalBootstrapping =
     !device.activationRequired &&
     db != null &&
+    !principal.canRenderCachedData &&
     (principal.bootstrapStatus === 'signing_in' ||
+      principal.bootstrapStatus === 'restoring_session' ||
       (principal.bootstrapStatus === 'waiting_for_device' && !!device.deviceSessionToken));
 
-  const isBootstrapping = device.isBootstrapping || principalBootstrapping || family.isRestoringSelection;
+  const isBootstrapping =
+    device.isBootstrapping ||
+    principalBootstrapping ||
+    family.isRestoringSelection;
 
   return {
     ...device,

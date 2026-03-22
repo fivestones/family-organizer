@@ -13,9 +13,7 @@ import { ScreenScaffold, PlaceholderCard } from '../src/components/ScreenScaffol
 import { AvatarPhotoImage } from '../src/components/AvatarPhotoImage';
 import { radii, spacing, withAlpha } from '../src/theme/tokens';
 import { useAppSession } from '../src/providers/AppProviders';
-import { getFamilyMembersRoster } from '../src/lib/api-client';
 import { clearPendingParentAction, getPendingParentAction } from '../src/lib/session-prefs';
-import { deriveDeviceAuthIssueFromError } from '../src/lib/device-auth-issue';
 import { useAppTheme } from '../src/theme/ThemeProvider';
 import { useBootstrap } from './_layout';
 
@@ -39,8 +37,7 @@ function automationMemberKey(member) {
 
 function deviceCanLoadRoster(instantReady, bootstrapStatus, isAuthenticated) {
   if (isAuthenticated) return false;
-  if (!instantReady) return false;
-  return bootstrapStatus !== 'signing_in';
+  return instantReady && bootstrapStatus !== 'waiting_for_device';
 }
 
 export default function LockScreen() {
@@ -48,13 +45,15 @@ export default function LockScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { rebootstrap } = useBootstrap();
   const {
+    db,
     activationRequired,
+    canQueryFamilyData,
+    familyMembers: sessionFamilyMembers,
     isAuthenticated,
     instantReady,
     bootstrapStatus,
     bootstrapError,
     retryBootstrap,
-    clearDeviceSession,
     principalType,
     canUseCachedParentPrincipal,
     isParentSessionSharedDevice,
@@ -62,9 +61,6 @@ export default function LockScreen() {
     signInFamilyMember,
     login,
   } = useAppSession();
-  const [familyMembers, setFamilyMembers] = useState([]);
-  const [familyMembersLoading, setFamilyMembersLoading] = useState(false);
-  const [familyMembersError, setFamilyMembersError] = useState(null);
 
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [pin, setPin] = useState('');
@@ -74,24 +70,8 @@ export default function LockScreen() {
   const [pendingParentAction, setPendingParentActionState] = useState(null);
   const [pendingParentActionLoaded, setPendingParentActionLoaded] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState('');
+  const [lastKnownFamilyMembers, setLastKnownFamilyMembers] = useState([]);
   const hardwarePinInputRef = useRef(null);
-
-  const selectedMember = useMemo(
-    () => familyMembers.find((member) => member.id === selectedMemberId) || null,
-    [familyMembers, selectedMemberId]
-  );
-
-  const isParentSelection = selectedMember?.role === 'parent';
-  const parentPinCanBeSkipped =
-    isParentSelection && canUseCachedParentPrincipal && principalType === 'parent';
-  const isDetailMode = !!selectedMember;
-  const pinEntryRequired = isParentSelection || Boolean(selectedMember?.hasPin);
-  const pinSlots = Math.max(4, Math.min(MAX_PIN_LENGTH, Math.max(pin.length, 4)));
-
-  const focusHardwarePinInput = useCallback(() => {
-    if (!selectedMember) return;
-    hardwarePinInputRef.current?.focus?.();
-  }, [selectedMember]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,43 +90,78 @@ export default function LockScreen() {
     };
   }, []);
 
+  const rosterQuery = db?.useQuery?.(
+    activationRequired ||
+      !canQueryFamilyData ||
+      !deviceCanLoadRoster(instantReady, bootstrapStatus, isAuthenticated)
+      ? null
+      : {
+          familyMembers: {
+            $: { order: { order: 'asc' } },
+          },
+        }
+  ) || { data: null, isLoading: false, error: null };
+
+  const liveFamilyMembers = useMemo(() => {
+    const sourceMembers =
+      Array.isArray(sessionFamilyMembers) && sessionFamilyMembers.length > 0
+        ? sessionFamilyMembers
+        : rosterQuery.data?.familyMembers || [];
+    return sourceMembers.map((member) => ({ ...member, hasPin: Boolean(member?.pinHash) }));
+  }, [rosterQuery.data?.familyMembers, sessionFamilyMembers]);
+  const familyMembersError = rosterQuery.error;
+  const hasRosterResult = Array.isArray(rosterQuery.data?.familyMembers);
+  const familyMembers = useMemo(() => {
+    if (liveFamilyMembers.length > 0) {
+      return liveFamilyMembers;
+    }
+    if (!familyMembersError && lastKnownFamilyMembers.length > 0) {
+      return lastKnownFamilyMembers;
+    }
+    return liveFamilyMembers;
+  }, [familyMembersError, lastKnownFamilyMembers, liveFamilyMembers]);
+  const familyMembersLoading =
+    familyMembers.length === 0 &&
+    !familyMembersError &&
+    !activationRequired &&
+    !canQueryFamilyData &&
+    !isAuthenticated &&
+    bootstrapStatus !== 'error'
+      ? true
+      : familyMembers.length === 0 &&
+        !familyMembersError &&
+        !activationRequired &&
+        canQueryFamilyData &&
+        deviceCanLoadRoster(instantReady, bootstrapStatus, isAuthenticated) &&
+        (rosterQuery.isLoading || !hasRosterResult);
+
   useEffect(() => {
-    if (activationRequired || !deviceCanLoadRoster(instantReady, bootstrapStatus, isAuthenticated)) {
+    if (activationRequired) {
+      setLastKnownFamilyMembers([]);
       return;
     }
 
-    let cancelled = false;
-    setFamilyMembersLoading(true);
-    setFamilyMembersError(null);
+    if (liveFamilyMembers.length > 0) {
+      setLastKnownFamilyMembers(liveFamilyMembers);
+    }
+  }, [activationRequired, liveFamilyMembers]);
 
-    void getFamilyMembersRoster()
-      .then((payload) => {
-        if (!cancelled) {
-          setFamilyMembers(Array.isArray(payload?.familyMembers) ? payload.familyMembers : []);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          if (error?.status === 401) {
-            void clearDeviceSession({
-              issue: deriveDeviceAuthIssueFromError(error, 'lock_family_roster'),
-            });
-            return;
-          }
-          setFamilyMembersError(error);
-          setFamilyMembers([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setFamilyMembersLoading(false);
-        }
-      });
+  const selectedMember = useMemo(
+    () => familyMembers.find((member) => member.id === selectedMemberId) || null,
+    [familyMembers, selectedMemberId]
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [activationRequired, bootstrapStatus, clearDeviceSession, instantReady, isAuthenticated]);
+  const isParentSelection = selectedMember?.role === 'parent';
+  const parentPinCanBeSkipped =
+    isParentSelection && canUseCachedParentPrincipal && principalType === 'parent';
+  const isDetailMode = !!selectedMember;
+  const pinEntryRequired = isParentSelection || Boolean(selectedMember?.hasPin);
+  const pinSlots = Math.max(4, Math.min(MAX_PIN_LENGTH, Math.max(pin.length, 4)));
+
+  const focusHardwarePinInput = useCallback(() => {
+    if (!selectedMember) return;
+    hardwarePinInputRef.current?.focus?.();
+  }, [selectedMember]);
 
   const pendingRedirect = activationRequired
     ? '/activate'
@@ -391,14 +406,14 @@ export default function LockScreen() {
       headerMode="compact"
       layoutMode={isDetailMode ? 'compact' : 'default'}
     >
-      {!instantReady || bootstrapStatus === 'signing_in' ? (
+      {(!canQueryFamilyData || !instantReady) && familyMembers.length === 0 ? (
         <View style={styles.centerPanel}>
           <ActivityIndicator size="large" color={colors.accentMore} />
           <Text style={styles.centerTitle}>Connecting to InstantDB</Text>
           <Text style={styles.centerText}>
             {bootstrapStatus === 'error'
               ? bootstrapError?.message || 'Unable to connect to family data.'
-              : 'Signing into the shared family principal and loading member profiles.'}
+              : 'Restoring the shared family principal and local household data.'}
           </Text>
           {(bootstrapStatus === 'error' || bootstrapError) && (
             <Pressable

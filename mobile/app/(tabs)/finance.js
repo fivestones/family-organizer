@@ -241,7 +241,7 @@ export default function FinanceTab() {
   const [handledResumeNonce, setHandledResumeNonce] = useState('');
   const requestedMemberId = String(firstParam(searchParams.memberId) || '');
 
-  const financeQuery = db.useQuery(
+  const financeBaseQuery = db.useQuery(
     isAuthenticated && instantReady
       ? {
           familyMembers: {
@@ -249,8 +249,15 @@ export default function FinanceTab() {
             allowanceEnvelopes: {},
           },
           unitDefinitions: {},
+        }
+      : null
+  );
+
+  const transactionsQuery = db.useQuery(
+    isAuthenticated && instantReady
+      ? {
           allowanceTransactions: {
-            $: { order: { createdAt: 'desc' } },
+            $: { order: { createdAt: 'desc' }, first: 40 },
             envelope: { familyMember: {} },
             sourceEnvelope: { familyMember: {} },
             destinationEnvelope: { familyMember: {} },
@@ -259,10 +266,12 @@ export default function FinanceTab() {
       : null
   );
 
-  const familyMembers = useMemo(() => financeQuery.data?.familyMembers || [], [financeQuery.data?.familyMembers]);
-  const unitDefinitions = useMemo(() => financeQuery.data?.unitDefinitions || [], [financeQuery.data?.unitDefinitions]);
-  const transactions = useMemo(() => financeQuery.data?.allowanceTransactions || [], [financeQuery.data?.allowanceTransactions]);
+  const familyMembers = useMemo(() => financeBaseQuery.data?.familyMembers || [], [financeBaseQuery.data?.familyMembers]);
+  const unitDefinitions = useMemo(() => financeBaseQuery.data?.unitDefinitions || [], [financeBaseQuery.data?.unitDefinitions]);
+  const transactions = useMemo(() => transactionsQuery.data?.allowanceTransactions || [], [transactionsQuery.data?.allowanceTransactions]);
   const unitMap = useMemo(() => buildUnitMap(unitDefinitions), [unitDefinitions]);
+  const financeLoading = (financeBaseQuery.isLoading && familyMembers.length === 0) || (transactionsQuery.isLoading && transactions.length === 0);
+  const financeError = financeBaseQuery.error || transactionsQuery.error;
 
   const membersWithFinance = useMemo(() => {
     return familyMembers.map((member) => {
@@ -402,7 +411,7 @@ export default function FinanceTab() {
   }, [handledResumeNonce, searchParams.resumeNonce, searchParams.resumeParentAction]);
 
   useEffect(() => {
-    if (!requestedMemberId || financeQuery.isLoading) return;
+    if (!requestedMemberId || financeBaseQuery.isLoading) return;
     if (requestedMemberId === 'all') {
       if (selectedMemberId !== 'all') {
         setSelectedMemberId('all');
@@ -415,7 +424,7 @@ export default function FinanceTab() {
     if (selectedMemberId !== requestedMemberId) {
       setSelectedMemberId(requestedMemberId);
     }
-  }, [financeQuery.isLoading, membersWithFinance, requestedMemberId, selectedMemberId]);
+  }, [financeBaseQuery.isLoading, membersWithFinance, requestedMemberId, selectedMemberId]);
 
   useEffect(() => {
     if (!resumePendingAction) return;
@@ -1138,9 +1147,9 @@ export default function FinanceTab() {
             </Text>
           </View>
 
-          {financeQuery.error ? (
-            <Text style={styles.errorText}>{financeQuery.error.message || 'Failed to load finance data'}</Text>
-          ) : financeQuery.isLoading ? (
+          {financeError ? (
+            <Text style={styles.errorText}>{financeError.message || 'Failed to load finance data'}</Text>
+          ) : financeLoading ? (
             <Text style={styles.emptyText}>Loading balances and transactions...</Text>
           ) : transactionRows.length === 0 ? (
             <Text style={styles.emptyText}>No transactions found for the selected scope.</Text>

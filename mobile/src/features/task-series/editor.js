@@ -13,6 +13,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { id, tx } from '@instantdb/react-native';
 import { useAppSession } from '../../providers/AppProviders';
+import { useParentActionGate } from '../../hooks/useParentActionGate';
 import { useAppTheme } from '../../theme/ThemeProvider';
 import { radii, shadows, spacing, withAlpha } from '../../theme/tokens';
 import { ParentAccessNotice, SubscreenScaffold } from '../../components/SubscreenScaffold';
@@ -459,6 +460,7 @@ export function TaskSeriesEditorScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { width } = useWindowDimensions();
+  const { requireParentAction } = useParentActionGate();
   const { db, isAuthenticated, instantReady, principalType } = useAppSession();
   const [previewAttachment, setPreviewAttachment] = useState(null);
   const [name, setName] = useState('');
@@ -555,7 +557,17 @@ export function TaskSeriesEditorScreen() {
   if (principalType !== 'parent') {
     return (
       <SubscreenScaffold title="Series Editor" subtitle="Parent mode is required for task-series editing." accent={colors.accentMore}>
-        <ParentAccessNotice body="Log in as a parent to create and edit task series." onContinue={() => router.push('/lock')} />
+        <ParentAccessNotice
+          body="Log in as a parent to create and edit task series."
+          onContinue={() =>
+            requireParentAction({
+              actionId: screenSeriesId ? `task-series:edit:${screenSeriesId}` : 'task-series:new',
+              actionLabel: 'Task Series Editor',
+              payload: { href: screenSeriesId ? `/more/task-series/${screenSeriesId}` : '/more/task-series/new' },
+              returnPath: screenSeriesId ? `/more/task-series/${screenSeriesId}` : '/more/task-series/new',
+            })
+          }
+        />
       </SubscreenScaffold>
     );
   }

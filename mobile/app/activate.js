@@ -66,7 +66,7 @@ export default function ActivateScreen() {
       await completeActivation(result.deviceSessionToken);
       // Re-bootstrap to fetch server config and initialize InstantDB
       // before navigating. This remounts AppProviders with real providers.
-      await rebootstrap();
+      await rebootstrap({ resetDb: true });
     } catch (e) {
       setError(e?.message || 'Activation failed');
     } finally {

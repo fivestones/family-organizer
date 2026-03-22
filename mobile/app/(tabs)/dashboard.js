@@ -13,8 +13,9 @@ import {
   localDateToUTC,
 } from '@family-organizer/shared-core';
 import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
-import { usePresignedUrl } from '../../src/hooks/usePresignedUrl';
+import { usePhotoUri } from '../../src/hooks/usePhotoUri';
 import { getPhotoKey } from '../../src/lib/photo-urls';
+import { findUnreadMembershipsForMember } from '../../src/lib/message-memberships';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { getTasksForDate } from '../../../lib/task-scheduler';
@@ -79,6 +80,19 @@ function buildDateStrip(selectedDate) {
     const offset = index - Math.floor(DAY_RANGE / 2);
     return new Date(selectedDate.getTime() + offset * 86400000);
   });
+}
+
+function buildDashboardCalendarWhere(date) {
+  const baseYear = date.getFullYear();
+  const baseMonth = date.getMonth() + 1;
+  const nextMonthDate = new Date(baseYear, date.getMonth() + 1, 1);
+  const nextYear = nextMonthDate.getFullYear();
+  const nextMonth = nextMonthDate.getMonth() + 1;
+  const conditions = [{ year: baseYear, month: baseMonth }];
+  if (nextYear !== baseYear || nextMonth !== baseMonth) {
+    conditions.push({ year: nextYear, month: nextMonth });
+  }
+  return conditions;
 }
 
 function normalizeBalances(envelope) {
@@ -185,9 +199,24 @@ export default function DashboardTab() {
   const [selectedDate, setSelectedDate] = useState(() => localDateToUTC(new Date()));
   const [viewedMemberId, setViewedMemberId] = useState('');
   const [pendingCompletionKeys, setPendingCompletionKeys] = useState(() => new Set());
+  const [taskSeriesQueryEnabled, setTaskSeriesQueryEnabled] = useState(false);
   const currentUserIdRef = useRef('');
+  const dashboardCalendarWhere = useMemo(() => buildDashboardCalendarWhere(selectedDate), [selectedDate]);
 
-  const dashboardQuery = db.useQuery(
+  useEffect(() => {
+    if (!isAuthenticated || !instantReady) {
+      setTaskSeriesQueryEnabled(false);
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setTaskSeriesQueryEnabled(true);
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, instantReady]);
+
+  const householdQuery = db.useQuery(
     isAuthenticated && instantReady
       ? {
           familyMembers: {
@@ -195,6 +224,13 @@ export default function DashboardTab() {
             allowanceEnvelopes: {},
           },
           unitDefinitions: {},
+        }
+      : null
+  );
+
+  const choresQuery = db.useQuery(
+    isAuthenticated && instantReady
+      ? {
           chores: {
             assignees: {},
             assignments: {
@@ -203,6 +239,19 @@ export default function DashboardTab() {
             completions: {
               completedBy: {},
               markedBy: {},
+            },
+          },
+        }
+      : null
+  );
+
+  const taskSeriesQuery = db.useQuery(
+    isAuthenticated && instantReady && taskSeriesQueryEnabled
+      ? {
+          chores: {
+            assignees: {},
+            assignments: {
+              familyMember: {},
             },
             taskSeries: {
               tasks: {
@@ -217,19 +266,52 @@ export default function DashboardTab() {
               scheduledActivity: {},
             },
           },
+        }
+      : null
+  );
+
+  const calendarSummaryQuery = db.useQuery(
+    isAuthenticated && instantReady
+      ? {
           calendarItems: {
             pertainsTo: {},
-          },
-          messageThreads: {
-            members: {},
+            $: {
+              where:
+                dashboardCalendarWhere.length <= 1
+                  ? dashboardCalendarWhere[0] || {}
+                  : { or: dashboardCalendarWhere },
+            },
           },
         }
       : null
   );
 
-  const members = useMemo(() => dashboardQuery.data?.familyMembers || familyMembers || [], [dashboardQuery.data?.familyMembers, familyMembers]);
-  const unitDefinitions = useMemo(() => dashboardQuery.data?.unitDefinitions || [], [dashboardQuery.data?.unitDefinitions]);
-  const chores = useMemo(() => dashboardQuery.data?.chores || [], [dashboardQuery.data?.chores]);
+  const messageSummaryQuery = db.useQuery(
+    isAuthenticated && instantReady
+      ? {
+          messageThreadMembers: {},
+          messageThreads: {},
+        }
+      : null
+  );
+
+  const taskSeriesByChoreId = useMemo(
+    () =>
+      new Map(
+        (taskSeriesQuery.data?.chores || []).map((chore) => [chore.id, chore.taskSeries || []])
+      ),
+    [taskSeriesQuery.data?.chores]
+  );
+  const members = useMemo(() => householdQuery.data?.familyMembers || familyMembers || [], [householdQuery.data?.familyMembers, familyMembers]);
+  const unitDefinitions = useMemo(() => householdQuery.data?.unitDefinitions || [], [householdQuery.data?.unitDefinitions]);
+  const chores = useMemo(
+    () =>
+      (choresQuery.data?.chores || []).map((chore) => ({
+        ...chore,
+        taskSeries: taskSeriesByChoreId.get(chore.id) || [],
+      })),
+    [choresQuery.data?.chores, taskSeriesByChoreId]
+  );
   const unitMap = useMemo(() => buildUnitMap(unitDefinitions), [unitDefinitions]);
   const selectedDateKey = useMemo(() => formatDateKeyUTC(selectedDate), [selectedDate]);
   const dateStrip = useMemo(() => buildDateStrip(selectedDate), [selectedDate]);
@@ -262,7 +344,7 @@ export default function DashboardTab() {
   );
 
   const bgPhotoKey = getPhotoKey(viewedMember?.photoUrls, '1200');
-  const bgPhotoUri = usePresignedUrl(bgPhotoKey);
+  const bgPhotoUri = usePhotoUri(bgPhotoKey);
 
   const membersWithBalances = useMemo(() => {
     return members.map((member) => {
@@ -390,7 +472,7 @@ export default function DashboardTab() {
 
   const calendarEvents = useMemo(() => {
     if (!viewedMember?.id) return [];
-    const items = dashboardQuery.data?.calendarItems || [];
+    const items = calendarSummaryQuery.data?.calendarItems || [];
     const today = selectedDate;
 
     return items
@@ -432,16 +514,22 @@ export default function DashboardTab() {
       .filter(Boolean)
       .sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime())
       .slice(0, 6);
-  }, [dashboardQuery.data?.calendarItems, viewedMember?.id, selectedDate]);
+  }, [calendarSummaryQuery.data?.calendarItems, viewedMember?.id, selectedDate]);
 
   const unreadThreads = useMemo(() => {
-    if (!viewedMember?.id || !dashboardQuery.data?.messageThreads) return [];
-    const threads = dashboardQuery.data.messageThreads;
+    if (!viewedMember?.id || !messageSummaryQuery.data?.messageThreads) return [];
+    const threads = messageSummaryQuery.data.messageThreads;
+    const unreadMemberships = findUnreadMembershipsForMember(
+      messageSummaryQuery.data?.messageThreadMembers || [],
+      viewedMember.id
+    );
+    if (unreadMemberships.length === 0) return [];
+    const membershipsByThreadId = new Map(unreadMemberships.map((membership) => [membership.threadId, membership]));
     const result = [];
 
     for (const thread of threads) {
       if (!thread.latestMessageAt) continue;
-      const membership = (thread.members || []).find((member) => member.familyMemberId === viewedMember.id);
+      const membership = membershipsByThreadId.get(thread.id);
       if (!membership || membership.isArchived) continue;
 
       const lastRead = membership.lastReadAt || '';
@@ -460,7 +548,9 @@ export default function DashboardTab() {
     }
 
     return result.sort((left, right) => right.latestMessageAt.localeCompare(left.latestMessageAt));
-  }, [dashboardQuery.data?.messageThreads, viewedMember?.id]);
+  }, [messageSummaryQuery.data?.messageThreadMembers, messageSummaryQuery.data?.messageThreads, viewedMember?.id]);
+  const choresLoading = choresQuery.isLoading && choreRows.length === 0;
+  const taskSeriesLoading = taskSeriesQueryEnabled && taskSeriesQuery.isLoading && taskSeriesCards.length === 0;
 
   const activeTaskCount = useMemo(
     () => taskSeriesCards.reduce((sum, card) => sum + card.incompleteCount, 0),
@@ -984,7 +1074,7 @@ export default function DashboardTab() {
                     <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
                   </Pressable>
                   <ScrollView style={styles.quadrantScroll} showsVerticalScrollIndicator={false}>
-                    {dashboardQuery.isLoading ? (
+                    {choresLoading ? (
                       <Text style={styles.qEmptyText}>Loading...</Text>
                     ) : incompleteChores.length === 0 && completedChores.length === 0 ? (
                       <Text style={styles.qEmptyText}>No chores today</Text>
@@ -1076,7 +1166,7 @@ export default function DashboardTab() {
                     <Ionicons name="chevron-forward" size={14} color={colors.inkMuted} style={styles.quadrantChevron} />
                   </Pressable>
                   <ScrollView style={styles.quadrantScroll} showsVerticalScrollIndicator={false}>
-                    {dashboardQuery.isLoading ? (
+                    {taskSeriesLoading ? (
                       <Text style={styles.qEmptyText}>Loading...</Text>
                     ) : taskSeriesCards.length === 0 ? (
                       <Text style={styles.qEmptyText}>No tasks today</Text>

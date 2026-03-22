@@ -42,6 +42,7 @@ import {
   uploadPendingAttachments,
 } from '../../src/lib/attachments';
 import { getThreadDisplayName, getThreadMembersSummary, getThreadPreviewText, getThreadTypeLabel, isParentOverseeingThread } from '../../../lib/message-thread-display';
+import { shouldBootstrapMessageRepair } from '../../src/lib/message-bootstrap';
 
 function formatMessageTime(value) {
   if (!value) return '';
@@ -96,7 +97,7 @@ export default function MessagesTab() {
   const { colors, themeName } = useAppTheme();
   const isDark = themeName === 'dark';
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
-  const { currentUser, isAuthenticated, instantReady } = useAppSession();
+  const { currentUser, isAuthenticated, instantReady, isOnline } = useAppSession();
   const [selectedThreadId, setSelectedThreadId] = useState(null);
   const [threadSearch, setThreadSearch] = useState('');
   const [messageSearch, setMessageSearch] = useState('');
@@ -116,6 +117,7 @@ export default function MessagesTab() {
   const [optimisticThreadsById, setOptimisticThreadsById] = useState({});
   const [relativeNowMs, setRelativeNowMs] = useState(() => getMonotonicNowMs());
   const [serverNowAnchor, setServerNowAnchor] = useState(null);
+  const [hasAttemptedBootstrap, setHasAttemptedBootstrap] = useState(false);
 
   const membershipsQuery = db.useQuery(
     isAuthenticated && instantReady
@@ -319,11 +321,24 @@ export default function MessagesTab() {
   const referenceNowMs = useMemo(() => getMessageServerNowMs(serverNowAnchor, relativeNowMs), [relativeNowMs, serverNowAnchor]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (
+      !isAuthenticated ||
+      !shouldBootstrapMessageRepair({
+        isOnline,
+        isLoadingThreads: visibleThreadsQuery.isLoading,
+        threads: visibleThreads,
+        currentUserRole: currentUser?.role,
+        hasAttemptedBootstrap,
+      })
+    ) {
+      return;
+    }
+
+    setHasAttemptedBootstrap(true);
     void bootstrapMobileMessages().catch((error) => {
       console.error('Unable to bootstrap mobile messages', error);
     });
-  }, [isAuthenticated]);
+  }, [currentUser?.role, hasAttemptedBootstrap, isAuthenticated, isOnline, visibleThreads, visibleThreadsQuery.isLoading]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {

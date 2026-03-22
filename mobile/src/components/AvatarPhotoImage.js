@@ -1,7 +1,6 @@
 import React from 'react';
 import { Image as ExpoImage } from 'expo-image';
-import { useCachedFileUri } from '../hooks/useCachedFileUri';
-import { prefetchCachedFileUris } from '../lib/file-cache';
+import { usePhotoUri } from '../hooks/usePhotoUri';
 import { getPhotoKey, getPhotoKeys } from '../lib/photo-urls';
 
 function getContentFit(resizeMode) {
@@ -19,14 +18,7 @@ export function AvatarPhotoImage({
   resizeMode = 'cover',
 }) {
   const fileKey = getPhotoKey(photoUrls, preferredSize);
-  const uri = useCachedFileUri(fileKey);
-
-  React.useEffect(() => {
-    const variantKeys = getPhotoKeys(photoUrls);
-    if (variantKeys.length === 0) return;
-
-    void prefetchCachedFileUris(variantKeys);
-  }, [photoUrls]);
+  const uri = usePhotoUri(fileKey, getPhotoKeys(photoUrls));
 
   if (!uri) return fallback;
 
