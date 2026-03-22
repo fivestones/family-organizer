@@ -30,6 +30,10 @@ export interface SharedChoreLike {
   startDate: string | Date;
   rrule?: string | null;
   exdates?: string[] | null;
+  sortOrder?: number | null;
+  timeBucket?: string | null;
+  timingMode?: string | null;
+  timingConfig?: unknown;
   weight?: number | null;
   rewardType?: 'fixed' | 'weight' | string | null;
   rotationType?: 'none' | 'daily' | 'weekly' | 'monthly' | string | null;

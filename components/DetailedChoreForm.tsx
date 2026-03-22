@@ -24,6 +24,15 @@ import { toUTCDate } from '@/lib/chore-utils';
 import type { ChorePauseState, ChoreSchedulePatch } from '@/lib/chore-schedule';
 import { getChorePauseStatus } from '@/lib/chore-schedule';
 import { getDefaultRecurrenceUiState, normalizeRrule, parseRecurrenceUiStateFromRrule, serializeRecurrenceToRrule, type RecurrenceUiState } from '@/lib/recurrence';
+import {
+    getRoutineMarkerOptions,
+    getTimeBucketOptions,
+    wouldCreateChoreTimingCycle,
+    type SharedScheduleSettings,
+} from '@family-organizer/shared-core';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { HelpCircle } from 'lucide-react';
 // here gemini wants to initialize the db for fetching units, but I'm not sure if we should do this. Should we instead be fetching the units elsewhere and sending them to DetailedChoreForm as a prop? I'm not sure.
 // Interface for the data structure passed to onSave
 // Ensure it includes the new 'weight' field
@@ -43,6 +52,10 @@ interface ChoreSaveData {
     rewardType?: 'fixed' | 'weight' | null;
     rewardAmount?: number | null;
     rewardCurrency?: string | null;
+    sortOrder?: number | null;
+    timeBucket?: string | null;
+    timingMode?: string | null;
+    timingConfig?: any | null;
 }
 
 // +++ Define props interface +++
@@ -55,6 +68,39 @@ interface DetailedChoreFormProps {
     db: any; // InstantDB instance passed down
     unitDefinitions: any[]; // Pass definitions
     currencyOptions: { value: string; label: string }[]; // Pass computed options
+    availableChoreAnchors?: any[];
+    scheduleSettings?: SharedScheduleSettings | null;
+}
+
+function TimingHelpPopover({ title, lines }: { title: string; lines: string[] }) {
+    return (
+        <Popover>
+            <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                            <button
+                                type="button"
+                                className="inline-flex h-5 w-5 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                                aria-label={`Explain ${title}`}
+                            >
+                                <HelpCircle className="h-4 w-4" />
+                            </button>
+                        </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>{title}</TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+            <PopoverContent align="start" className="w-80 space-y-2">
+                <div className="font-medium text-slate-900">{title}</div>
+                <div className="space-y-2 text-sm text-slate-600">
+                    {lines.map((line, index) => (
+                        <p key={index}>{line}</p>
+                    ))}
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
 }
 
 function DetailedChoreForm({
@@ -67,6 +113,8 @@ function DetailedChoreForm({
     db,
     unitDefinitions,
     currencyOptions,
+    availableChoreAnchors = [],
+    scheduleSettings = null,
 }: DetailedChoreFormProps) {
     const [title, setTitle] = useState('');
     const [assignees, setAssignees] = useState<string[]>([]);
@@ -81,15 +129,48 @@ function DetailedChoreForm({
     const [rewardType, setRewardType] = useState<'fixed' | 'weight'>('weight'); // Default to weight-based
     const [rewardAmount, setRewardAmount] = useState<string>('');
     const [rewardCurrency, setRewardCurrency] = useState<string>('');
+    const [timeBucket, setTimeBucket] = useState<string>('');
+    const [timingMode, setTimingMode] = useState<
+        'anytime' | 'named_window' | 'before_time' | 'after_time' | 'between_times' | 'before_marker' | 'after_marker' | 'before_chore' | 'after_chore'
+    >('anytime');
+    const [triggerTime, setTriggerTime] = useState<string>('');
+    const [windowStartTime, setWindowStartTime] = useState<string>('');
+    const [windowEndTime, setWindowEndTime] = useState<string>('');
+    const [anchorRoutineKey, setAnchorRoutineKey] = useState<string>('breakfast');
+    const [anchorChoreId, setAnchorChoreId] = useState<string>('');
+    const [anchorFallbackTime, setAnchorFallbackTime] = useState<string>('');
     const [recurrenceUi, setRecurrenceUi] = useState<RecurrenceUiState>(() => ({
         ...getDefaultRecurrenceUiState(
             initialDate instanceof Date && !Number.isNaN(initialDate.getTime()) ? initialDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
         ),
         mode: 'daily',
     }));
+    const timeBucketOptions = React.useMemo(() => getTimeBucketOptions(scheduleSettings), [scheduleSettings]);
+    const routineMarkerOptions = React.useMemo(() => getRoutineMarkerOptions(scheduleSettings), [scheduleSettings]);
+    const availableAnchorChores = availableChoreAnchors
+        .filter((chore) => chore?.id && chore.id !== initialChore?.id)
+        .sort((left, right) => String(left?.title || '').localeCompare(String(right?.title || ''), undefined, { sensitivity: 'base' }));
 
     useEffect(() => {
         if (initialChore) {
+            const timingConfig = initialChore.timingConfig && typeof initialChore.timingConfig === 'object' ? initialChore.timingConfig : {};
+            const anchorConfig = timingConfig?.anchor && typeof timingConfig.anchor === 'object' ? timingConfig.anchor : {};
+            const rawTimingMode = initialChore.timingMode || timingConfig.mode || (initialChore.timeBucket || timingConfig.timeBucket ? 'day_part' : 'anytime');
+            const initialTimingMode =
+                rawTimingMode === 'day_part'
+                    ? 'named_window'
+                    : rawTimingMode === 'clock_window'
+                    ? 'between_times'
+                    : rawTimingMode === 'routine_anchor'
+                    ? anchorConfig?.relation === 'after'
+                        ? 'after_marker'
+                        : 'before_marker'
+                    : rawTimingMode === 'chore_anchor'
+                    ? anchorConfig?.relation === 'after'
+                        ? 'after_chore'
+                        : 'before_chore'
+                    : rawTimingMode;
+
             setTitle(initialChore.title);
             setDescription(initialChore.description || '');
             setStartDate(toUTCDate(new Date(initialChore.startDate)));
@@ -99,6 +180,14 @@ function DetailedChoreForm({
             setRewardType(initialChore.rewardType === 'fixed' ? 'fixed' : 'weight');
             setRewardAmount(initialChore.rewardAmount !== null && initialChore.rewardAmount !== undefined ? String(initialChore.rewardAmount) : '');
             setRewardCurrency(initialChore.rewardCurrency || '');
+            setTimeBucket(timingConfig?.namedWindowKey || initialChore.timeBucket || timingConfig.timeBucket || timeBucketOptions[0]?.value || '');
+            setTimingMode(initialTimingMode as any);
+            setTriggerTime(timingConfig?.time || '');
+            setWindowStartTime(timingConfig?.window?.startTime || '');
+            setWindowEndTime(timingConfig?.window?.endTime || '');
+            setAnchorRoutineKey(anchorConfig?.routineKey || 'breakfast');
+            setAnchorChoreId(anchorConfig?.sourceChoreId || '');
+            setAnchorFallbackTime(anchorConfig?.fallbackTime || anchorConfig?.fallbackStartTime || anchorConfig?.fallbackEndTime || '');
             const startDateValue = toUTCDate(new Date(initialChore.startDate)).toISOString().slice(0, 10);
             setRecurrenceUi(
                 initialChore.rrule
@@ -149,12 +238,20 @@ function DetailedChoreForm({
             setRewardType('weight');
             setRewardAmount('');
             setRewardCurrency('');
+            setTimeBucket(timeBucketOptions[0]?.value || '');
+            setTimingMode('anytime');
+            setTriggerTime('');
+            setWindowStartTime('');
+            setWindowEndTime('');
+            setAnchorRoutineKey('breakfast');
+            setAnchorChoreId('');
+            setAnchorFallbackTime('');
             setAssignees([]);
             setUseRotation(false);
             setRotationType('none');
             setRotationOrder([]);
         }
-    }, [initialChore, initialDate]);
+    }, [initialChore, initialDate, timeBucketOptions]);
 
     useEffect(() => {
         // +++ Condition added: Only apply rotation logic if NOT Up for Grabs +++
@@ -250,6 +347,94 @@ function DetailedChoreForm({
             finalWeight = null;
         }
 
+        if (timingMode === 'between_times' && windowStartTime && windowEndTime && windowStartTime >= windowEndTime) {
+            alert('The end time must be later than the start time.');
+            return;
+        }
+
+        if ((timingMode === 'before_time' || timingMode === 'after_time') && !triggerTime) {
+            alert('Choose the time this chore should be relative to.');
+            return;
+        }
+
+        if ((timingMode === 'before_marker' || timingMode === 'after_marker') && !anchorRoutineKey) {
+            alert('Choose a routine marker for this chore timing.');
+            return;
+        }
+
+        if (timingMode === 'between_times' && (!windowStartTime || !windowEndTime)) {
+            alert('Choose both a start and end time for this chore.');
+            return;
+        }
+
+        if (timingMode === 'named_window' && !timeBucket) {
+            alert('Choose a named window for this chore.');
+            return;
+        }
+
+        if (timingMode === 'before_chore' || timingMode === 'after_chore') {
+            if (!anchorChoreId) {
+                alert('Choose another chore to anchor this chore to.');
+                return;
+            }
+            if (!anchorFallbackTime) {
+                alert('Choose a fallback time for chore anchors.');
+                return;
+            }
+            if (initialChore?.id && wouldCreateChoreTimingCycle(initialChore.id, anchorChoreId, availableChoreAnchors as any)) {
+                alert('That chore anchor would create a cycle. Choose a different source chore.');
+                return;
+            }
+        }
+
+        let finalTimeBucket: string | null = null;
+        let finalTimingMode: ChoreSaveData['timingMode'] = timingMode;
+        let finalTimingConfig: ChoreSaveData['timingConfig'] = null;
+
+        if (timingMode === 'named_window') {
+            finalTimeBucket = timeBucket || null;
+            finalTimingConfig = {
+                mode: 'named_window',
+                namedWindowKey: finalTimeBucket,
+            };
+        } else if (timingMode === 'before_time' || timingMode === 'after_time') {
+            finalTimingConfig = {
+                mode: timingMode,
+                time: triggerTime || null,
+            };
+        } else if (timingMode === 'between_times') {
+            finalTimingConfig = {
+                mode: 'between_times',
+                window: {
+                    startTime: windowStartTime || null,
+                    endTime: windowEndTime || null,
+                },
+            };
+        } else if (timingMode === 'before_marker' || timingMode === 'after_marker') {
+            finalTimingConfig = {
+                mode: timingMode,
+                anchor: {
+                    sourceType: 'routine',
+                    routineKey: anchorRoutineKey,
+                    fallbackTime: anchorFallbackTime || null,
+                },
+            };
+        } else if (timingMode === 'before_chore' || timingMode === 'after_chore') {
+            finalTimingConfig = {
+                mode: timingMode,
+                anchor: {
+                    sourceType: 'chore',
+                    sourceChoreId: anchorChoreId,
+                    fallbackTime: anchorFallbackTime || null,
+                },
+            };
+        } else {
+            finalTimingMode = 'anytime';
+            finalTimingConfig = {
+                mode: 'anytime',
+            };
+        }
+
         const saveData: ChoreSaveData = {
             title,
             assignees: assignees.map((id) => ({ id })),
@@ -273,6 +458,10 @@ function DetailedChoreForm({
             rewardType: isUpForGrabs ? rewardType : null, // Only set rewardType if up for grabs
             rewardAmount: finalRewardAmount,
             rewardCurrency: finalRewardCurrency,
+            sortOrder: initialChore?.sortOrder ?? null,
+            timeBucket: finalTimeBucket,
+            timingMode: finalTimingMode,
+            timingConfig: finalTimingConfig,
         };
 
         // Ensure assignees are always included, even if rotation is off
@@ -321,6 +510,48 @@ function DetailedChoreForm({
         rewardType: isUpForGrabs ? rewardType : null,
         rewardAmount: isUpForGrabs && rewardType === 'fixed' ? parseFloat(rewardAmount) || 0 : null,
         rewardCurrency: isUpForGrabs && rewardType === 'fixed' ? rewardCurrency : null,
+        timeBucket: timingMode === 'named_window' ? timeBucket || null : null,
+        timingMode: timingMode,
+        timingConfig:
+            timingMode === 'named_window'
+                ? {
+                      mode: 'named_window',
+                      namedWindowKey: timeBucket || null,
+                  }
+                : timingMode === 'before_time' || timingMode === 'after_time'
+                ? {
+                      mode: timingMode,
+                      time: triggerTime || null,
+                  }
+                : timingMode === 'between_times'
+                ? {
+                      mode: 'between_times',
+                      window: {
+                          startTime: windowStartTime || null,
+                          endTime: windowEndTime || null,
+                      },
+                  }
+                : timingMode === 'before_marker' || timingMode === 'after_marker'
+                ? {
+                      mode: timingMode,
+                      anchor: {
+                          sourceType: 'routine',
+                          routineKey: anchorRoutineKey || null,
+                          fallbackTime: anchorFallbackTime || null,
+                      },
+                  }
+                : timingMode === 'before_chore' || timingMode === 'after_chore'
+                ? {
+                      mode: timingMode,
+                      anchor: {
+                          sourceType: 'chore',
+                          sourceChoreId: anchorChoreId || null,
+                          fallbackTime: anchorFallbackTime || null,
+                      },
+                  }
+                : {
+                      mode: 'anytime',
+                  },
         weight: !isUpForGrabs || rewardType === 'weight' ? parseFloat(weight) || 0 : 0, // Use weight if not up for grabs OR if type is weight
         // Add any other fields needed by ChoreCalendarView, ensure they match expected types
         completions: initialChore?.completions || [], // Pass existing completions if editing
@@ -333,6 +564,27 @@ function DetailedChoreForm({
     const startDateValue = startDate instanceof Date && !Number.isNaN(startDate.getTime()) ? startDate.toISOString().slice(0, 10) : '';
     const activePauseStatus = initialChore ? getChorePauseStatus(initialChore) : { kind: 'none' as const, pauseState: null };
     const recurrenceEditingDisabled = activePauseStatus.kind === 'scheduled' || activePauseStatus.kind === 'paused' || activePauseStatus.kind === 'ended';
+    const familyDayStartsAt = scheduleSettings?.dayBoundaryTime || '03:00';
+    const routineAnchorHelpLines = timingMode === 'before_marker'
+        ? [
+              `This chore runs from the family-day start at ${familyDayStartsAt} until the marker happens.`,
+              'Fallback time is the backup anchor if the marker is never marked that day.',
+              'Example: “Before Breakfast” means 3:00 AM until Breakfast, or until the fallback time if Breakfast is not marked.',
+          ]
+        : [
+              `This chore starts when the marker happens and runs until the next family-day cutoff at ${familyDayStartsAt}.`,
+              'Fallback time is the backup anchor if the marker is never marked that day.',
+              'Example: “After Dinner” means Dinner until 3:00 AM, or from the fallback time if Dinner is not marked.',
+          ];
+    const choreAnchorHelpLines = timingMode === 'before_chore'
+        ? [
+              `This chore runs from the family-day start at ${familyDayStartsAt} until the linked chore is completed.`,
+              'Fallback time is required so the chore still has a usable backup anchor if the linked chore never gets completed.',
+          ]
+        : [
+              `This chore runs from the linked chore completion until the next family-day cutoff at ${familyDayStartsAt}.`,
+              'Fallback time is required so the chore still has a usable backup anchor if the linked chore never gets completed.',
+          ];
 
     return (
         <div className="space-y-4 w-full max-w-md mx-auto">
@@ -494,6 +746,180 @@ function DetailedChoreForm({
                     }}
                 />
             ) : null}
+
+            <div className="space-y-4 border-t pt-3">
+                <div className="space-y-2">
+                    <Label className="font-semibold">When does this happen?</Label>
+                    <RadioGroup value={timingMode} onValueChange={(value: any) => setTimingMode(value)}>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="anytime" id="timing-anytime" />
+                            <Label htmlFor="timing-anytime">Anytime</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="named_window" id="timing-named-window" />
+                            <Label htmlFor="timing-named-window">Named window</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="before_time" id="timing-before-time" />
+                            <Label htmlFor="timing-before-time">Before a time</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="after_time" id="timing-after-time" />
+                            <Label htmlFor="timing-after-time">After a time</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="between_times" id="timing-between-times" />
+                            <Label htmlFor="timing-between-times">Between two times</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="before_marker" id="timing-before-marker" />
+                            <Label htmlFor="timing-before-marker">Before a routine marker</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="after_marker" id="timing-after-marker" />
+                            <Label htmlFor="timing-after-marker">After a routine marker</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="before_chore" id="timing-before-chore" />
+                            <Label htmlFor="timing-before-chore">Before another chore</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="after_chore" id="timing-after-chore" />
+                            <Label htmlFor="timing-after-chore">After another chore</Label>
+                        </div>
+                    </RadioGroup>
+                </div>
+
+                {timingMode === 'named_window' ? (
+                    <div className="space-y-2">
+                        <Label htmlFor="timeBucket">Named Window</Label>
+                        <select
+                            id="timeBucket"
+                            value={timeBucket}
+                            onChange={(event) => setTimeBucket(event.target.value)}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                            <option value="">Choose a named window…</option>
+                            {timeBucketOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-muted-foreground">
+                            This uses one of the reusable labeled ranges from Household Scheduling settings.
+                        </p>
+                    </div>
+                ) : null}
+
+                {(timingMode === 'before_time' || timingMode === 'after_time') ? (
+                    <div className="space-y-2">
+                        <Label htmlFor="triggerTime">Anchor Time</Label>
+                        <Input id="triggerTime" type="time" value={triggerTime} onChange={(event) => setTriggerTime(event.target.value)} />
+                        <p className="text-xs text-muted-foreground">
+                            `{timingMode === 'before_time' ? 'Before' : 'After'}` uses the family-day boundary at {familyDayStartsAt} as the other edge of the window.
+                        </p>
+                    </div>
+                ) : null}
+
+                {timingMode === 'between_times' ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                            <Label htmlFor="windowStartTime">Window Start</Label>
+                            <Input id="windowStartTime" type="time" value={windowStartTime} onChange={(event) => setWindowStartTime(event.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="windowEndTime">Window End</Label>
+                            <Input id="windowEndTime" type="time" value={windowEndTime} onChange={(event) => setWindowEndTime(event.target.value)} />
+                        </div>
+                    </div>
+                ) : null}
+
+                {(timingMode === 'before_marker' || timingMode === 'after_marker') ? (
+                    <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                        <div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white/80 p-3">
+                            <div>
+                                <div className="font-medium text-slate-900">Marker fallback anchor</div>
+                                <p className="mt-1 text-xs text-slate-600">
+                                    This chore uses one marker moment. If the marker is not marked, the fallback time becomes the backup anchor.
+                                </p>
+                            </div>
+                            <TimingHelpPopover title="How fallback times work" lines={routineAnchorHelpLines} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="anchorRoutineKey">Routine Marker</Label>
+                            <select
+                                id="anchorRoutineKey"
+                                value={anchorRoutineKey}
+                                onChange={(event) => setAnchorRoutineKey(event.target.value)}
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            >
+                                {routineMarkerOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                        {option.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="anchorFallbackTime">Fallback Time (Optional)</Label>
+                            <Input
+                                id="anchorFallbackTime"
+                                type="time"
+                                value={anchorFallbackTime}
+                                onChange={(event) => setAnchorFallbackTime(event.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                If the marker is never marked, this time becomes the backup anchor. Otherwise the marker&apos;s own default time is used.
+                            </p>
+                        </div>
+                    </div>
+                ) : null}
+
+                {(timingMode === 'before_chore' || timingMode === 'after_chore') ? (
+                    <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                        <div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white/80 p-3">
+                            <div>
+                                <div className="font-medium text-slate-900">Chore fallback anchor</div>
+                                <p className="mt-1 text-xs text-slate-600">
+                                    The linked chore gives the real anchor when it is completed. The fallback time is required so this chore still resolves if that never happens.
+                                </p>
+                            </div>
+                            <TimingHelpPopover title="How chore-anchor fallback works" lines={choreAnchorHelpLines} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="anchorChoreId">Anchor Chore</Label>
+                            <select
+                                id="anchorChoreId"
+                                value={anchorChoreId}
+                                onChange={(event) => setAnchorChoreId(event.target.value)}
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            >
+                                <option value="">Choose a chore…</option>
+                                {availableAnchorChores.map((chore) => (
+                                    <option key={chore.id} value={chore.id}>
+                                        {chore.title || 'Untitled chore'}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="choreAnchorFallbackTime">Fallback Time</Label>
+                            <Input
+                                id="choreAnchorFallbackTime"
+                                type="time"
+                                value={anchorFallbackTime}
+                                onChange={(event) => setAnchorFallbackTime(event.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                This backup anchor is used if the linked chore is never completed that day.
+                            </p>
+                        </div>
+                    </div>
+                ) : null}
+            </div>
 
             {/* Family Members Selection */}
             <div className="space-y-2">

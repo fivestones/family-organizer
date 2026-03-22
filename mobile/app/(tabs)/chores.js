@@ -5,12 +5,17 @@ import { id, tx } from '@instantdb/react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import {
+  HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
+  SHARED_ROUTINE_MARKER_PRESETS,
   calculateDailyXP,
   formatDateKeyUTC,
+  getFamilyDayDateUTC,
   getAssignedMembersForChoreOnDate,
   getCompletedChoreCompletionsForDate,
   getMemberCompletionForDate,
   localDateToUTC,
+  parseSharedScheduleSettings,
+  sortChoresForDisplay,
 } from '@family-organizer/shared-core';
 import { radii, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
@@ -90,7 +95,7 @@ export default function ChoresTab() {
     principalType,
     lock,
   } = useAppSession();
-  const [selectedDate, setSelectedDate] = useState(() => localDateToUTC(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => getFamilyDayDateUTC(new Date()));
   const [selectedMemberId, setSelectedMemberId] = useState('all');
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [pendingCompletionKeys, setPendingCompletionKeys] = useState(() => new Set());
@@ -124,11 +129,27 @@ export default function ChoresTab() {
               markedBy: {},
             },
           },
+          routineMarkerStatuses: {},
+          settings: {
+            $: {
+              where: {
+                name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
+              },
+            },
+          },
         }
       : null
   );
 
   const chores = useMemo(() => choresQuery.data?.chores || [], [choresQuery.data?.chores]);
+  const routineMarkerStatuses = useMemo(
+    () => choresQuery.data?.routineMarkerStatuses || [],
+    [choresQuery.data?.routineMarkerStatuses]
+  );
+  const scheduleSettings = useMemo(
+    () => parseSharedScheduleSettings(choresQuery.data?.settings?.[0]?.value || null),
+    [choresQuery.data?.settings]
+  );
 
   const familyMemberNameById = useMemo(
     () =>
@@ -157,7 +178,7 @@ export default function ChoresTab() {
   );
 
   const visibleChores = useMemo(() => {
-    return chores
+    const visibleRows = chores
       .map((chore) => {
         const assignedMembers = getAssignedMembersForChoreOnDate(chore, selectedDate);
         if (assignedMembers.length === 0) return null;
@@ -187,9 +208,32 @@ export default function ChoresTab() {
           upForGrabsCompletedById: completedById,
         };
       })
-      .filter(Boolean)
-      .sort((a, b) => (a.chore?.title || '').localeCompare(b.chore?.title || ''));
-  }, [chores, selectedDate, selectedMemberId]);
+      .filter(Boolean);
+
+    const sortedRows = sortChoresForDisplay(
+      visibleRows.map((row) => row.chore),
+      {
+        date: selectedDate,
+        routineMarkerStatuses,
+        chores,
+        scheduleSettings,
+      }
+    );
+
+    const timingById = new Map(sortedRows.map((entry) => [entry.chore.id, entry.timing]));
+
+    return visibleRows
+      .slice()
+      .sort((left, right) => {
+        const leftIndex = sortedRows.findIndex((entry) => entry.chore.id === left.chore.id);
+        const rightIndex = sortedRows.findIndex((entry) => entry.chore.id === right.chore.id);
+        return leftIndex - rightIndex;
+      })
+      .map((row) => ({
+        ...row,
+        timing: timingById.get(row.chore.id) || null,
+      }));
+  }, [chores, routineMarkerStatuses, selectedDate, selectedMemberId]);
 
   const selectedMemberName =
     selectedMemberId === 'all'
@@ -207,6 +251,77 @@ export default function ChoresTab() {
           { current: 0, possible: 0 }
         )
       : dailyXpByMember[selectedMemberId] || { current: 0, possible: 0 };
+
+  const todayDateKey = formatDateKeyUTC(getFamilyDayDateUTC(new Date(), scheduleSettings));
+  const canShowRoutineMarkers = principalType === 'parent';
+  const canEditRoutineMarkers = canShowRoutineMarkers && selectedDateKey === todayDateKey;
+  const routineMarkerStatusByKey = useMemo(() => {
+    const next = new Map();
+    (routineMarkerStatuses || []).forEach((status) => {
+      if (String(status?.date || '') !== selectedDateKey) return;
+      if (status?.markerKey) {
+        next.set(status.markerKey, status);
+      }
+    });
+    return next;
+  }, [routineMarkerStatuses, selectedDateKey]);
+
+  async function markRoutineMarkerHappened(markerKey) {
+    if (!canEditRoutineMarkers) return;
+
+    const recordKey = `${selectedDateKey}:${markerKey}`;
+    const existing = (routineMarkerStatuses || []).find((status) => String(status?.key || '') === recordKey);
+    const timestamp = new Date().toISOString();
+
+    try {
+      if (existing?.id) {
+        await db.transact([
+          tx.routineMarkerStatuses[existing.id].update({
+            startedAt: timestamp,
+            completedAt: timestamp,
+            startedById: currentUser?.id || null,
+            completedById: currentUser?.id || null,
+          }),
+        ]);
+      } else {
+        const statusId = id();
+        await db.transact([
+          tx.routineMarkerStatuses[statusId].update({
+            key: recordKey,
+            markerKey,
+            date: selectedDateKey,
+            startedAt: timestamp,
+            completedAt: timestamp,
+            startedById: currentUser?.id || null,
+            completedById: currentUser?.id || null,
+          }),
+        ]);
+      }
+    } catch (error) {
+      Alert.alert('Unable to update marker', error?.message || 'Please try again.');
+    }
+  }
+
+  async function clearRoutineMarkerStatus(markerKey) {
+    if (!canEditRoutineMarkers) return;
+
+    const recordKey = `${selectedDateKey}:${markerKey}`;
+    const existing = (routineMarkerStatuses || []).find((status) => String(status?.key || '') === recordKey);
+    if (!existing?.id) return;
+
+    try {
+      await db.transact([
+        tx.routineMarkerStatuses[existing.id].update({
+          startedAt: null,
+          completedAt: null,
+          startedById: null,
+          completedById: null,
+        }),
+      ]);
+    } catch (error) {
+      Alert.alert('Unable to reset marker', error?.message || 'Please try again.');
+    }
+  }
 
   const defaultViewSetting = selectedMemberId !== 'all';
   const showChoreDescriptions = currentUser?.viewShowChoreDescriptions ?? defaultViewSetting;
@@ -713,58 +828,123 @@ export default function ChoresTab() {
               </View>
             </View>
 
+            {canShowRoutineMarkers ? (
+            <View style={styles.routinePanel}>
+              <View style={styles.routinePanelHeader}>
+                <Text style={styles.routinePanelTitle}>Routine markers</Text>
+                <Text style={styles.routinePanelMeta}>
+                  {selectedDateKey === todayDateKey ? 'Today' : 'Selected day'}
+                </Text>
+              </View>
+              <View style={styles.routineGrid}>
+                {(scheduleSettings?.routineMarkers || SHARED_ROUTINE_MARKER_PRESETS).map((marker) => {
+                  const status = routineMarkerStatusByKey.get(marker.key);
+                  const completedLabel = status?.completedAt
+                    ? new Date(status.completedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                    : status?.startedAt
+                    ? new Date(status.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                    : 'Not marked';
+
+                  return (
+                    <View key={marker.key} style={styles.routineCard}>
+                      <View style={styles.routineCardHeader}>
+                        <Text style={styles.routineCardTitle}>{marker.label}</Text>
+                        <Text style={styles.routineCardMeta}>{marker.defaultTime || '--:--'}</Text>
+                      </View>
+                      <Text style={styles.routineCardDetail}>Happened: {completedLabel}</Text>
+                      <View style={styles.routineCardActions}>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => markRoutineMarkerHappened(marker.key)}
+                          disabled={!canEditRoutineMarkers}
+                          style={[styles.routineActionButton, !canEditRoutineMarkers && styles.routineActionButtonDisabled]}
+                        >
+                          <Text style={styles.routineActionButtonText}>Mark happened</Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => clearRoutineMarkerStatus(marker.key)}
+                          disabled={!canEditRoutineMarkers}
+                          style={[styles.routineGhostButton, !canEditRoutineMarkers && styles.routineActionButtonDisabled]}
+                        >
+                          <Text style={styles.routineGhostButtonText}>Reset</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+            ) : null}
+
             {choresQuery.error ? (
               <Text style={styles.errorText}>{choresQuery.error.message || 'Failed to load chores'}</Text>
             ) : visibleChores.length === 0 ? (
               <Text style={styles.emptyText}>No chores are due for this date/filter.</Text>
             ) : (
               <View style={styles.cards}>
-                {visibleChores.map(({ chore, toggleMembers, completionsOnDate, upForGrabsCompletedById }) => {
+                {visibleChores.map(({ chore, toggleMembers, completionsOnDate, upForGrabsCompletedById, timing }, index) => {
+                  const previousTiming = index > 0 ? visibleChores[index - 1]?.timing : null;
+                  const showSectionHeader = !previousTiming || previousTiming?.sectionKey !== timing?.sectionKey;
                   const upForGrabsCompletedByName =
                     upForGrabsCompletedById ? familyMemberNameById[upForGrabsCompletedById] || 'another member' : null;
 
                   return (
-                    <View key={chore.id} style={styles.choreCard}>
-                      <View style={styles.choreHeaderRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.choreTitle}>{chore.title || 'Untitled chore'}</Text>
-                          {!!chore.description && showChoreDescriptions ? (
-                            <Text style={styles.choreDescription}>{chore.description}</Text>
-                          ) : null}
+                    <React.Fragment key={chore.id}>
+                      {showSectionHeader ? (
+                        <View style={[styles.sectionChip, timing?.isActiveNow && styles.sectionChipActive]}>
+                          <Text style={[styles.sectionChipText, timing?.isActiveNow && styles.sectionChipTextActive]}>
+                            {timing?.sectionLabel || 'Anytime'}
+                            {timing?.isActiveNow ? ' • Now' : ''}
+                          </Text>
                         </View>
-                        <View style={styles.tagRow}>
-                          {chore.isUpForGrabs ? (
-                            <View style={[styles.tag, styles.tagWarm]}>
-                              <Text style={[styles.tagText, styles.tagWarmText]}>Up for grabs</Text>
-                            </View>
-                          ) : null}
-                          {chore.rewardType !== 'fixed' && Number.isFinite(Number(chore.weight)) ? (
-                            <View style={[styles.tag, styles.tagXp]}>
-                              <Text style={[styles.tagText, styles.tagXpText]}>
-                                XP {Number(chore.weight) > 0 ? '+' : ''}
-                                {Number(chore.weight || 0)}
-                              </Text>
-                            </View>
-                          ) : null}
-                          {chore.rewardType === 'fixed' ? (
-                            <View style={[styles.tag, styles.tagNeutral]}>
-                              <Text style={[styles.tagText, styles.tagNeutralText]}>Fixed reward</Text>
-                            </View>
-                          ) : null}
-                          {chore.isJoint ? (
-                            <View style={[styles.tag, styles.tagNeutral]}>
-                              <Text style={[styles.tagText, styles.tagNeutralText]}>Joint</Text>
-                            </View>
-                          ) : null}
-                        </View>
-                      </View>
-
-                      {chore.isUpForGrabs && upForGrabsCompletedByName ? (
-                        <Text style={styles.helperText}>Completed today by {upForGrabsCompletedByName}</Text>
                       ) : null}
+                      <View style={styles.choreCard}>
+                        <View style={styles.choreHeaderRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.choreTitle}>{chore.title || 'Untitled chore'}</Text>
+                            {!!chore.description && showChoreDescriptions ? (
+                              <Text style={styles.choreDescription}>{chore.description}</Text>
+                            ) : null}
+                          </View>
+                          <View style={styles.tagRow}>
+                            {timing?.label ? (
+                              <View style={[styles.tag, styles.tagSky]}>
+                                <Text style={[styles.tagText, styles.tagSkyText]}>{timing.label}</Text>
+                              </View>
+                            ) : null}
+                            {chore.isUpForGrabs ? (
+                              <View style={[styles.tag, styles.tagWarm]}>
+                                <Text style={[styles.tagText, styles.tagWarmText]}>Up for grabs</Text>
+                              </View>
+                            ) : null}
+                            {chore.rewardType !== 'fixed' && Number.isFinite(Number(chore.weight)) ? (
+                              <View style={[styles.tag, styles.tagXp]}>
+                                <Text style={[styles.tagText, styles.tagXpText]}>
+                                  XP {Number(chore.weight) > 0 ? '+' : ''}
+                                  {Number(chore.weight || 0)}
+                                </Text>
+                              </View>
+                            ) : null}
+                            {chore.rewardType === 'fixed' ? (
+                              <View style={[styles.tag, styles.tagNeutral]}>
+                                <Text style={[styles.tagText, styles.tagNeutralText]}>Fixed reward</Text>
+                              </View>
+                            ) : null}
+                            {chore.isJoint ? (
+                              <View style={[styles.tag, styles.tagNeutral]}>
+                                <Text style={[styles.tagText, styles.tagNeutralText]}>Joint</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
 
-                      <View style={styles.toggleList}>
-                        {toggleMembers.map((member) => {
+                        {chore.isUpForGrabs && upForGrabsCompletedByName ? (
+                          <Text style={styles.helperText}>Completed today by {upForGrabsCompletedByName}</Text>
+                        ) : null}
+
+                        <View style={styles.toggleList}>
+                          {toggleMembers.map((member) => {
                           const completion = getMemberCompletionForDate(chore, member.id, selectedDate);
                           const isDone = !!completion?.completed;
                           const isBusy = pendingCompletionKeys.has(completionKey(chore.id, member.id, selectedDateKey));
@@ -774,8 +954,8 @@ export default function ChoresTab() {
                             upForGrabsCompletedById !== member.id &&
                             !isDone;
 
-                          return (
-                            <View key={`${chore.id}:${member.id}`} style={styles.toggleRow}>
+                            return (
+                              <View key={`${chore.id}:${member.id}`} style={styles.toggleRow}>
                               <View style={{ flex: 1 }}>
                                 <Text style={styles.toggleName}>
                                   {member.name || familyMemberNameById[member.id] || 'Member'}
@@ -820,17 +1000,18 @@ export default function ChoresTab() {
                                   {isBusy ? '…' : isDone ? 'Done' : 'Mark'}
                                 </Text>
                               </Pressable>
-                            </View>
-                          );
-                        })}
-                      </View>
+                              </View>
+                            );
+                          })}
+                        </View>
 
-                      {completionsOnDate.length > 0 ? (
-                        <Text style={styles.completionSummary}>
-                          {completionsOnDate.length} completion{completionsOnDate.length === 1 ? '' : 's'} recorded today
-                        </Text>
-                      ) : null}
-                    </View>
+                        {completionsOnDate.length > 0 ? (
+                          <Text style={styles.completionSummary}>
+                            {completionsOnDate.length} completion{completionsOnDate.length === 1 ? '' : 's'} recorded today
+                          </Text>
+                        ) : null}
+                      </View>
+                    </React.Fragment>
                   );
                 })}
               </View>
@@ -1197,6 +1378,114 @@ const createStyles = (colors, isDark) =>
   emptyText: { color: colors.inkMuted },
   errorText: { color: colors.danger, fontWeight: '600' },
   cards: { gap: spacing.md },
+  routinePanel: {
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    backgroundColor: isDark ? colors.surfaceMuted : colors.panelElevated,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  routinePanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  routinePanelTitle: {
+    color: colors.ink,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  routinePanelMeta: {
+    color: colors.inkMuted,
+    fontSize: 12,
+  },
+  routineGrid: {
+    gap: spacing.sm,
+  },
+  routineCard: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.sm,
+    backgroundColor: isDark ? colors.panel : colors.surfaceMuted,
+    padding: spacing.sm,
+    gap: 4,
+  },
+  routineCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  routineCardTitle: {
+    color: colors.ink,
+    fontWeight: '700',
+  },
+  routineCardMeta: {
+    color: colors.inkMuted,
+    fontSize: 11,
+    textTransform: 'uppercase',
+  },
+  routineCardDetail: {
+    color: colors.inkMuted,
+    fontSize: 12,
+  },
+  routineCardActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  routineActionButton: {
+    borderWidth: 1,
+    borderColor: withAlpha(colors.accentChores, 0.24),
+    borderRadius: radii.pill,
+    backgroundColor: withAlpha(colors.accentChores, 0.08),
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  routineActionButtonDisabled: {
+    opacity: 0.5,
+  },
+  routineActionButtonText: {
+    color: colors.accentChores,
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  routineGhostButton: {
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: isDark ? colors.surfaceMuted : colors.panel,
+  },
+  routineGhostButtonText: {
+    color: colors.inkMuted,
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  sectionChip: {
+    alignSelf: 'flex-start',
+    borderRadius: radii.pill,
+    backgroundColor: isDark ? colors.surfaceMuted : colors.panelElevated,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: spacing.xs,
+  },
+  sectionChipActive: {
+    backgroundColor: withAlpha(colors.success, 0.14),
+  },
+  sectionChipText: {
+    color: colors.inkMuted,
+    fontWeight: '800',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  sectionChipTextActive: {
+    color: colors.success,
+  },
   choreCard: {
     borderWidth: 1,
     borderColor: colors.line,
@@ -1222,6 +1511,8 @@ const createStyles = (colors, isDark) =>
   tagText: { fontSize: 11, fontWeight: '700' },
   tagWarm: { backgroundColor: withAlpha(colors.warning, 0.12), borderColor: withAlpha(colors.warning, 0.24) },
   tagWarmText: { color: colors.warning },
+  tagSky: { backgroundColor: withAlpha(colors.accentChores, 0.1), borderColor: withAlpha(colors.accentChores, 0.22) },
+  tagSkyText: { color: colors.accentChores },
   tagXp: { backgroundColor: withAlpha(colors.accentCalendar, 0.1), borderColor: withAlpha(colors.accentCalendar, 0.24) },
   tagXpText: { color: colors.accentCalendar },
   tagNeutral: { backgroundColor: isDark ? colors.panel : colors.panelElevated, borderColor: colors.line },

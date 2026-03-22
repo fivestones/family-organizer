@@ -116,6 +116,10 @@ const formatDateKeyLabel = (value: string | null | undefined) => {
     });
 };
 
+const getResponseThreadLabel = (feedbackReplies: unknown[] | null | undefined) => {
+    return feedbackReplies && feedbackReplies.length > 0 ? 'Latest reviewed response' : 'Latest response';
+};
+
 const getTaskLineage = (task: Task, allTasks: Task[]) => {
     const lineage: Task[] = [];
     let parentId = getParentId(task);
@@ -594,7 +598,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                 submission={thread.submission}
                 feedbackReplies={thread.feedbackReplies}
                 className={className}
-                label="Latest response"
+                label={getResponseThreadLabel(thread.feedbackReplies)}
                 tone="indigo"
             />
         );
@@ -832,7 +836,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                 submission={latestResponseThread.submission}
                                 feedbackReplies={latestResponseThread.feedbackReplies}
                                 className="mt-3"
-                                label="Latest response"
+                                label={getResponseThreadLabel(latestResponseThread.feedbackReplies)}
                                 tone="indigo"
                             />
                         ) : null}

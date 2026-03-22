@@ -20,6 +20,7 @@ import { getTaskBucketCounts, getTaskLastActiveState, isActionableTask, isTaskDo
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import ChoreDetailDialog from './ChoreDetailDialog';
+import { sortChoresForDisplay } from '@family-organizer/shared-core';
 
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({
@@ -43,6 +44,14 @@ function ChoreList({
     pageMode = 'chores',
     focusedChoreId = null,
     gradeTypes = [],
+    routineMarkerStatuses = [],
+    selectedDateKey,
+    todayDateKey,
+    onRoutineMarkerStart,
+    onRoutineMarkerComplete,
+    onRoutineMarkerClear,
+    allChores = chores,
+    scheduleSettings = null,
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
     const [detailChoreId, setDetailChoreId] = useState<string | null>(null);
@@ -161,7 +170,30 @@ function ChoreList({
         }
     });
 
-    const formattedSelectedDate = safeSelectedDate.toISOString().slice(0, 10); // Use safeSelectedDate
+    const formattedSelectedDate = selectedDateKey || safeSelectedDate.toISOString().slice(0, 10); // Use safeSelectedDate
+    const markerStatusesByKey = React.useMemo(() => {
+        const map = new Map<string, any>();
+        (routineMarkerStatuses || []).forEach((status: any) => {
+            if (String(status?.date || '') !== formattedSelectedDate) return;
+            if (status?.markerKey) {
+                map.set(status.markerKey, status);
+            }
+        });
+        return map;
+    }, [formattedSelectedDate, routineMarkerStatuses]);
+    const canEditRoutineMarkers = Boolean(canEditChores && formattedSelectedDate === todayDateKey);
+    const canViewRoutineMarkers = Boolean(canEditChores);
+    const routineMarkerPresets = scheduleSettings?.routineMarkers || [];
+    const timedFilteredChores = React.useMemo(
+        () =>
+            sortChoresForDisplay<any>(filteredChores as any, {
+                date: safeSelectedDate,
+                routineMarkerStatuses,
+                chores: allChores || chores,
+                scheduleSettings,
+            }) as Array<{ chore: any; timing: any }>,
+        [allChores, chores, filteredChores, routineMarkerStatuses, safeSelectedDate, scheduleSettings]
+    );
 
     const buildTasksHref = (choreId: string) => {
         const params = new URLSearchParams();
@@ -490,7 +522,61 @@ function ChoreList({
             {/* grow min-h-0 on ScrollArea: This makes the ScrollArea itself the expanding element within its direct parent (<div className="flex flex-col gap-6 grow min-h-0">). It will take up the space not used by the allowance balance section. The ScrollArea component (assuming it's from Shadcn UI or similar) internally handles overflow-y: auto;, so when its content exceeds the calculated height it receives from grow, a scrollbar will appear within the ScrollArea. */}
             {/* Added p-3 padding to ul to prevent top avatar animation from being clipped by scroll area boundary */}
             <ul className="p-3">
-                {filteredChores.map((chore) => {
+                {pageMode === 'chores' && canViewRoutineMarkers ? (
+                    <li className="mb-4 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                        <div className="flex flex-col gap-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Routine Markers</div>
+                                    <div className="text-sm text-slate-600">Parents can mark shared household moments that unlock relative chore timing.</div>
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                    {formattedSelectedDate === todayDateKey ? 'Today' : 'Viewing a past or future date'}
+                                </div>
+                            </div>
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                {routineMarkerPresets.map((marker: any) => {
+                                    const status = markerStatusesByKey.get(marker.key);
+                                    const startedLabel = status?.startedAt
+                                        ? new Date(status.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                                        : 'Not started';
+                                    const completedLabel = status?.completedAt
+                                        ? new Date(status.completedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                                        : 'Not done';
+
+                                    return (
+                                        <div key={marker.key} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="font-medium text-slate-900">{marker.label}</div>
+                                                <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{marker.defaultTime || '--:--'}</div>
+                                            </div>
+                                            <div className="mt-2 space-y-1 text-xs text-slate-600">
+                                                <div>Happened: {completedLabel !== 'Not done' ? completedLabel : startedLabel}</div>
+                                            </div>
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    disabled={!canEditRoutineMarkers}
+                                                    onClick={() => onRoutineMarkerComplete?.(marker.key)}
+                                                >
+                                                    Mark happened
+                                                </Button>
+                                                <Button type="button" size="sm" variant="ghost" disabled={!canEditRoutineMarkers} onClick={() => onRoutineMarkerClear?.(marker.key)}>
+                                                    Reset
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </li>
+                ) : null}
+                {timedFilteredChores.map(({ chore, timing }, choreIndex) => {
+                    const previousTiming = choreIndex > 0 ? timedFilteredChores[choreIndex - 1]?.timing : null;
+                    const showSectionHeader = !previousTiming || previousTiming.sectionKey !== timing.sectionKey;
                     // Determine assigned members for THIS specific date
                     const assignedMembers = getAssignedMembersForChoreOnDate(chore, safeSelectedDate);
 
@@ -642,6 +728,14 @@ function ChoreList({
                                 {/* +++ ADDED: "with..." Text +++ */}
                                 {withOthersText && <span className="text-xs text-muted-foreground whitespace-nowrap">{withOthersText}</span>}
 
+                                {pageMode === 'chores' ? (
+                                    <span
+                                        title={timing.summary}
+                                        className="text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 border border-sky-200"
+                                    >
+                                        {timing.label}
+                                    </span>
+                                ) : null}
                                 <span className="text-xs text-muted-foreground whitespace-nowrap">XP: {chore.weight ?? 0}</span>
                                 {/* +++ ADDED: Up for Grabs Label +++ */}
                                 {chore.isUpForGrabs && (
@@ -931,14 +1025,30 @@ function ChoreList({
                     }
 
                     return (
-                        <li
-                            key={chore.id}
-                            id={`chore-${chore.id}`}
-                            className={cn(
-                                'mb-2 flex flex-col rounded bg-gray-50 p-2',
-                                focusedChoreId === chore.id && 'ring-2 ring-sky-300 ring-offset-2 ring-offset-background'
-                            )}
-                        >
+                        <React.Fragment key={chore.id}>
+                            {showSectionHeader ? (
+                                <li className="mb-2 mt-5 first:mt-0">
+                                    <div
+                                        className={cn(
+                                            'flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]',
+                                            timing.sectionKey === 'now'
+                                                ? 'bg-emerald-100 text-emerald-800'
+                                                : timing.sectionKey === 'upcoming'
+                                                ? 'bg-sky-100 text-sky-800'
+                                                : 'bg-slate-200 text-slate-700'
+                                        )}
+                                    >
+                                        <span>{timing.sectionLabel}</span>
+                                    </div>
+                                </li>
+                            ) : null}
+                            <li
+                                id={`chore-${chore.id}`}
+                                className={cn(
+                                    'mb-2 flex flex-col rounded bg-gray-50 p-2',
+                                    focusedChoreId === chore.id && 'ring-2 ring-sky-300 ring-offset-2 ring-offset-background'
+                                )}
+                            >
                             {/* --- DESKTOP VIEW (Hidden on Mobile) --- */}
                             <div className="hidden md:flex items-center">
                                 <div className="flex space-x-2 mr-4">{renderAvatars()}</div>
@@ -975,7 +1085,8 @@ function ChoreList({
 
                             {/* --- Task Series (Shared across views, just rendered below) --- */}
                             {taskSeriesContent}
-                        </li>
+                            </li>
+                        </React.Fragment>
                     );
                 })}
             </ul>
@@ -998,6 +1109,8 @@ function ChoreList({
                             db={db}
                             unitDefinitions={unitDefinitions}
                             currencyOptions={currencyOptions}
+                            availableChoreAnchors={allChores}
+                            scheduleSettings={scheduleSettings}
                         />
                     )}
                 </DialogContent>

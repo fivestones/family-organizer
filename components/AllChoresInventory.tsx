@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import DetailedChoreForm from '@/components/DetailedChoreForm';
 import ChoreDetailDialog from '@/components/ChoreDetailDialog';
+import SortableInventoryCard from '@/components/SortableInventoryCard';
 import {
     choreMatchesCatalogFilter,
     formatCatalogDateLabel,
@@ -14,6 +16,11 @@ import {
     type ChoreCatalogFilter,
     type ChoreCatalogSort,
 } from '@/lib/chore-catalog';
+import { tx } from '@instantdb/react';
+import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
+import { reorderWithEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/util/reorder-with-edge';
+import { getChoreTimingSummary, resolveChoreTimingForDate, type SharedScheduleSettings } from '@family-organizer/shared-core';
 
 type ChoreRecord = {
     id: string;
@@ -31,6 +38,10 @@ type ChoreRecord = {
     rewardType?: string | null;
     rewardAmount?: number | null;
     rewardCurrency?: string | null;
+    sortOrder?: number | null;
+    timeBucket?: string | null;
+    timingMode?: string | null;
+    timingConfig?: any;
     assignees?: Array<{ id: string; name?: string | null }> | null;
     assignments?: any[] | null;
     completions?: any[] | null;
@@ -40,8 +51,10 @@ type ChoreRecord = {
 type InventoryEntry = {
     chore: ChoreRecord;
     state: ReturnType<typeof getChoreCatalogState>;
+    timing: ReturnType<typeof resolveChoreTimingForDate<any>>;
     title: string;
     recurrenceText: string;
+    timingText: string;
     assigneeText: string;
     hasTasks: boolean;
 };
@@ -56,6 +69,8 @@ interface AllChoresInventoryProps {
     unitDefinitions: any[];
     currencyOptions: Array<{ value: string; label: string }>;
     canEditChores: boolean;
+    allChores?: ChoreRecord[];
+    scheduleSettings?: SharedScheduleSettings | null;
 }
 
 const FILTERS: Array<{ value: ChoreCatalogFilter; label: string }> = [
@@ -182,24 +197,101 @@ export default function AllChoresInventory({
     unitDefinitions,
     currencyOptions,
     canEditChores,
+    allChores = [],
+    scheduleSettings = null,
 }: AllChoresInventoryProps) {
+    const searchParams = useSearchParams();
+    const initialCatalogFilter = (searchParams?.get('catalog') as ChoreCatalogFilter) || 'active';
+    const initialStatusFilter = (searchParams?.get('status') as 'all' | 'late' | 'now' | 'upcoming' | null) || 'all';
+    const initialScheduleFilter = searchParams?.get('schedule') || 'all';
     const { toast } = useToast();
-    const [filter, setFilter] = useState<ChoreCatalogFilter>('active');
+    const [filter, setFilter] = useState<ChoreCatalogFilter>(initialCatalogFilter);
     const [sort, setSort] = useState<ChoreCatalogSort>('smart');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'late' | 'now' | 'upcoming'>(initialStatusFilter);
+    const [scheduleFilterKey, setScheduleFilterKey] = useState<string>(initialScheduleFilter);
+    const [arrangeMode, setArrangeMode] = useState(false);
     const [detailChoreId, setDetailChoreId] = useState<string | null>(null);
     const [editingChore, setEditingChore] = useState<ChoreRecord | null>(null);
+    const [orderedEntries, setOrderedEntries] = useState<InventoryEntry[]>([]);
 
     const inventory = useMemo(() => {
         return (chores || []).map((chore) => ({
             chore,
             state: getChoreCatalogState(chore, referenceDate),
+            timing: resolveChoreTimingForDate<any>(chore as any, { date: referenceDate, chores: chores as any, scheduleSettings }),
             title: String(chore.title || 'Untitled chore'),
             recurrenceText: getChoreRecurrenceSummary(chore),
+            timingText: getChoreTimingSummary(chore as any, scheduleSettings),
             assigneeText:
                 (chore.assignees || []).map((assignee) => assignee.name || 'Unknown member').join(', ') || 'No assignees',
             hasTasks: Boolean(chore.taskSeries && chore.taskSeries.length > 0),
         }));
-    }, [chores, referenceDate]);
+    }, [chores, referenceDate, scheduleSettings]);
+
+    const manualInventory = useMemo(() => {
+        return [...inventory].sort((left, right) => {
+            const leftSort = Number.isFinite(Number(left.chore.sortOrder)) ? Number(left.chore.sortOrder) : Number.MAX_SAFE_INTEGER;
+            const rightSort = Number.isFinite(Number(right.chore.sortOrder)) ? Number(right.chore.sortOrder) : Number.MAX_SAFE_INTEGER;
+            if (leftSort !== rightSort) return leftSort - rightSort;
+            return left.title.localeCompare(right.title, undefined, { sensitivity: 'base' });
+        });
+    }, [inventory]);
+
+    useEffect(() => {
+        setOrderedEntries(manualInventory);
+    }, [manualInventory]);
+
+    useEffect(() => {
+        if (!arrangeMode || !canEditChores) return;
+
+        const cleanup = monitorForElements({
+            onDrop: async ({ source, location }) => {
+                if (!location.current.dropTargets.length) return;
+
+                const target = location.current.dropTargets[0];
+                const sourceIndex = source.data.index as number | undefined;
+                const targetIndex = target.data.index as number | undefined;
+                const closestEdgeOfTarget = extractClosestEdge(target.data);
+
+                if (sourceIndex == null || targetIndex == null || closestEdgeOfTarget == null) return;
+                if (sourceIndex === targetIndex && closestEdgeOfTarget === 'top') return;
+
+                const reorderedList = reorderWithEdge({
+                    list: orderedEntries,
+                    startIndex: sourceIndex,
+                    indexOfTarget: targetIndex,
+                    closestEdgeOfTarget,
+                    axis: 'vertical',
+                });
+
+                setOrderedEntries(reorderedList);
+
+                try {
+                    await db.transact(
+                        reorderedList.map((entry, index) =>
+                            tx.chores[entry.chore.id].update({
+                                sortOrder: index,
+                            })
+                        )
+                    );
+                    toast({
+                        title: 'Order saved',
+                        description: 'Chore order has been updated.',
+                    });
+                } catch (error: any) {
+                    console.error('Failed to save chore order:', error);
+                    toast({
+                        title: 'Error saving order',
+                        description: error?.message || 'Could not save the new chore order.',
+                        variant: 'destructive',
+                    });
+                    setOrderedEntries(manualInventory);
+                }
+            },
+        });
+
+        return cleanup;
+    }, [arrangeMode, canEditChores, db, manualInventory, orderedEntries, toast]);
 
     const filterCounts = useMemo(() => {
         const counts = new Map<ChoreCatalogFilter, number>(FILTERS.map((item) => [item.value, 0]));
@@ -214,9 +306,60 @@ export default function AllChoresInventory({
     }, [inventory]);
 
     const filteredEntries = useMemo(() => {
-        const entries = inventory.filter((entry) => choreMatchesCatalogFilter(entry.state, filter));
-        return [...entries].sort((left, right) => compareEntries(left, right, sort, filter));
-    }, [filter, inventory, sort]);
+        const rowOne = inventory.filter((entry) => choreMatchesCatalogFilter(entry.state, filter));
+        const rowTwo = statusFilter === 'all' ? rowOne : rowOne.filter((entry) => entry.timing.status === statusFilter);
+        const rowThree = scheduleFilterKey === 'all' ? rowTwo : rowTwo.filter((entry) => entry.timing.ruleKey === scheduleFilterKey);
+        return [...rowThree].sort((left, right) => compareEntries(left, right, sort, filter));
+    }, [filter, inventory, scheduleFilterKey, sort, statusFilter]);
+
+    const statusCounts = useMemo(() => {
+        const counts = new Map<'late' | 'now' | 'upcoming', number>([
+            ['late', 0],
+            ['now', 0],
+            ['upcoming', 0],
+        ]);
+        inventory
+            .filter((entry) => choreMatchesCatalogFilter(entry.state, filter))
+            .forEach((entry) => {
+                counts.set(entry.timing.status, (counts.get(entry.timing.status) || 0) + 1);
+            });
+        return counts;
+    }, [filter, inventory]);
+
+    const scheduleCounts = useMemo(() => {
+        const counts = new Map<string, { label: string; count: number }>();
+        inventory
+            .filter((entry) => choreMatchesCatalogFilter(entry.state, filter))
+            .filter((entry) => statusFilter === 'all' || entry.timing.status === statusFilter)
+            .forEach((entry) => {
+                const current = counts.get(entry.timing.ruleKey);
+                if (current) {
+                    current.count += 1;
+                } else {
+                    counts.set(entry.timing.ruleKey, { label: entry.timing.label, count: 1 });
+                }
+            });
+        return Array.from(counts.entries())
+            .map(([value, meta]) => ({ value, ...meta }))
+            .sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }));
+    }, [filter, inventory, statusFilter]);
+
+    useEffect(() => {
+        if (!arrangeMode) return;
+        setFilter('all');
+    }, [arrangeMode]);
+
+    useEffect(() => {
+        if (statusFilter !== 'all' && (statusCounts.get(statusFilter) || 0) === 0) {
+            setStatusFilter('all');
+        }
+    }, [statusCounts, statusFilter]);
+
+    useEffect(() => {
+        if (scheduleFilterKey !== 'all' && !scheduleCounts.some((entry) => entry.value === scheduleFilterKey)) {
+            setScheduleFilterKey('all');
+        }
+    }, [scheduleCounts, scheduleFilterKey]);
 
     const oneTimeSections = useMemo(() => {
         if (filter !== 'one_time') return null;
@@ -281,6 +424,7 @@ export default function AllChoresInventory({
                     </div>
                     <div className="grid gap-1 text-sm text-slate-600 sm:grid-cols-2">
                         <div>{entry.recurrenceText}</div>
+                        <div title={entry.timing.summary}>{entry.timingText}</div>
                         <div>{buildNextRelevantLabel(entry)}</div>
                         <div>{entry.assigneeText}</div>
                         <div>First scheduled {formatCatalogDateLabel(entry.chore.startDate)}</div>
@@ -291,13 +435,43 @@ export default function AllChoresInventory({
         </button>
     );
 
+    const renderSortableEntry = (entry: InventoryEntry, index: number) => (
+        <SortableInventoryCard
+            key={entry.chore.id}
+            itemId={entry.chore.id}
+            index={index}
+            canDrag={canEditChores}
+            dragLabel={`Reorder ${entry.title}`}
+            onOpen={() => setDetailChoreId(entry.chore.id)}
+        >
+            <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm transition hover:border-sky-300 hover:shadow-md">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0 flex-1 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-base font-semibold text-slate-950">{entry.title}</span>
+                            <Badge className="bg-slate-100 text-slate-700">Manual order {index + 1}</Badge>
+                            {entry.chore.timeBucket ? <Badge className="bg-sky-100 text-sky-800">{entry.timingText}</Badge> : null}
+                        </div>
+                        <div className="grid gap-1 text-sm text-slate-600 sm:grid-cols-2">
+                            <div>{entry.recurrenceText}</div>
+                            <div>{entry.timingText}</div>
+                            <div>{entry.assigneeText}</div>
+                            <div>{buildNextRelevantLabel(entry)}</div>
+                        </div>
+                    </div>
+                    <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Drag or open</div>
+                </div>
+            </div>
+        </SortableInventoryCard>
+    );
+
     return (
         <div className="space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 shadow-sm">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div className="space-y-2">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Filters</div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="space-y-2">
+                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Filters</div>
+                            <div className="flex flex-wrap gap-2">
                             {FILTERS.map((item) => (
                                 <button
                                     key={item.value}
@@ -313,26 +487,92 @@ export default function AllChoresInventory({
                                 </button>
                             ))}
                         </div>
+                        {statusCounts.get('late') || statusCounts.get('now') || statusCounts.get('upcoming') ? (
+                            <div className="flex flex-wrap gap-2">
+                                {([
+                                    { value: 'late', label: 'Late' },
+                                    { value: 'now', label: 'Now' },
+                                    { value: 'upcoming', label: 'Upcoming' },
+                                ] as const)
+                                    .filter((item) => (statusCounts.get(item.value) || 0) > 0)
+                                    .map((item) => (
+                                        <button
+                                            key={item.value}
+                                            type="button"
+                                            onClick={() => setStatusFilter(statusFilter === item.value ? 'all' : item.value)}
+                                            className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                                                statusFilter === item.value
+                                                    ? 'border-emerald-500 bg-emerald-100 text-emerald-800'
+                                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                                            }`}
+                                        >
+                                            {item.label} ({statusCounts.get(item.value) || 0})
+                                        </button>
+                                    ))}
+                            </div>
+                        ) : null}
+                        {scheduleCounts.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                                {scheduleCounts.map((item) => (
+                                    <button
+                                        key={item.value}
+                                        type="button"
+                                        onClick={() => setScheduleFilterKey(scheduleFilterKey === item.value ? 'all' : item.value)}
+                                        className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                                            scheduleFilterKey === item.value
+                                                ? 'border-sky-500 bg-sky-100 text-sky-800'
+                                                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                                        }`}
+                                        title={inventory.find((entry) => entry.timing.ruleKey === item.value)?.timing.summary || item.label}
+                                    >
+                                        {item.label} ({item.count})
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
 
-                    <label className="flex items-center gap-3 text-sm text-slate-600">
-                        <span className="font-medium text-slate-700">Sort</span>
-                        <select
-                            value={sort}
-                            onChange={(event) => setSort(event.target.value as ChoreCatalogSort)}
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-                        >
-                            {SORT_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                    {option.label}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                    <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-3 text-sm text-slate-600">
+                            <span className="font-medium text-slate-700">Sort</span>
+                            <select
+                                value={sort}
+                                onChange={(event) => setSort(event.target.value as ChoreCatalogSort)}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                                disabled={arrangeMode}
+                            >
+                                {SORT_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                        {option.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        {canEditChores ? (
+                            <button
+                                type="button"
+                                onClick={() => setArrangeMode((current) => !current)}
+                                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                                    arrangeMode
+                                        ? 'border-sky-500 bg-sky-100 text-sky-800'
+                                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-slate-950'
+                                }`}
+                            >
+                                {arrangeMode ? 'Done arranging' : 'Arrange'}
+                            </button>
+                        ) : null}
+                    </div>
                 </div>
             </div>
 
-            {filter === 'one_time' && oneTimeSections ? (
+            {arrangeMode ? (
+                <div className="space-y-3">
+                    <div className="rounded-2xl border border-sky-200 bg-sky-50/80 p-4 text-sm text-sky-900">
+                        Drag chores into the order you want. This manual order is shared across the day view and mobile chores list.
+                    </div>
+                    {orderedEntries.map((entry, index) => renderSortableEntry(entry, index))}
+                </div>
+            ) : filter === 'one_time' && oneTimeSections ? (
                 <div className="space-y-6">
                     {(['past', 'today', 'future'] as const).map((section) => {
                         const entries = oneTimeSections[section];
@@ -384,6 +624,8 @@ export default function AllChoresInventory({
                             db={db}
                             unitDefinitions={unitDefinitions}
                             currencyOptions={currencyOptions}
+                            availableChoreAnchors={allChores}
+                            scheduleSettings={scheduleSettings}
                         />
                     ) : null}
                 </DialogContent>

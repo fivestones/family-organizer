@@ -355,6 +355,7 @@ const rules = {
     messageThreads: MESSAGE_THREADS_READ_ONLY,
     presence: FAMILY_MUTABLE,
     pushDevices: PUSH_DEVICES_READ_ONLY,
+    routineMarkerStatuses: PARENT_MUTABLE,
     gradeTypes: PARENT_MUTABLE,
     settings: PARENT_MUTABLE,
     taskAttachments: FAMILY_MUTABLE,

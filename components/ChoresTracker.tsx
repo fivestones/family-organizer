@@ -43,6 +43,16 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils'; // Import cn for class merging
 import Link from 'next/link';
+import {
+    HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
+    getFamilyDayDateUTC,
+    getNextChoreSortOrder,
+    localDateToUTC,
+    parseSharedScheduleSettings,
+    sortChoresForDisplay,
+    type SharedScheduleSettings,
+    type SharedRoutineMarkerStatusLike,
+} from '@family-organizer/shared-core';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -104,6 +114,10 @@ interface Chore {
     rewardType?: 'fixed' | 'weight';
     rewardAmount?: number;
     rewardCurrency?: string;
+    sortOrder?: number | null;
+    timeBucket?: string | null;
+    timingMode?: string | null;
+    timingConfig?: any | null;
     taskSeries?: { id: string; name: string; startDate?: string; tasks?: any[] }[];
 }
 
@@ -115,6 +129,11 @@ interface ChoreCompletion {
     chore?: { id: string }; // Link to chore
     completedBy?: { id: string }; // Link to member
     // Add other fields from schema if needed
+}
+
+interface RoutineMarkerStatus extends SharedRoutineMarkerStatusLike {
+    id: string;
+    key: string;
 }
 
 // --- REMOVED: Local Schema definition and local db initialization ---
@@ -150,8 +169,7 @@ function ChoresTracker({
                 return parsed;
             }
         }
-        const now = new Date();
-        return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+        return getFamilyDayDateUTC(new Date());
     });
     // +++ MOBILE STATE +++
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -254,6 +272,14 @@ function ChoresTracker({
             // +++ NEW: Fetch markedBy +++
             markedBy: {},
         },
+        routineMarkerStatuses: {},
+        settings: {
+            $: {
+                where: {
+                    name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
+                },
+            },
+        },
     });
 
     // --- Derived Data ---
@@ -266,6 +292,11 @@ function ChoresTracker({
     const allEnvelopes: Envelope[] = useMemo(() => (data?.allowanceEnvelopes as any) || [], [data?.allowanceEnvelopes]); // Get all envelopes from data
     // +++ Get top-level completions for the check +++
     const allChoreCompletions: ChoreCompletion[] = useMemo(() => (data?.choreCompletions as any) || [], [data?.choreCompletions]);
+    const routineMarkerStatuses: RoutineMarkerStatus[] = useMemo(() => (data?.routineMarkerStatuses as any) || [], [data?.routineMarkerStatuses]);
+    const scheduleSettings: SharedScheduleSettings = useMemo(
+        () => parseSharedScheduleSettings((data?.settings as any[])?.[0]?.value || null),
+        [data?.settings]
+    );
 
     // --- Compute Balances (existing logic) ---
     const membersBalances = useMemo(() => {
@@ -331,8 +362,92 @@ function ChoresTracker({
         ];
     }, [unitDefinitions, allMonetaryCurrenciesInUse]);
 
-    if (isLoading) return <div>Loading...</div>;
-    if (error) return <div>Error: {error.message}</div>;
+    const selectedDateKey = selectedDate.toISOString().slice(0, 10);
+    const todayDateKey = getFamilyDayDateUTC(new Date(), scheduleSettings).toISOString().slice(0, 10);
+
+    const markRoutineMarkerHappened = async (markerKey: string) => {
+        if (!isParentMode) {
+            toast({
+                title: 'Access Denied',
+                description: 'Only parents can update routine markers.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        const recordKey = `${selectedDateKey}:${markerKey}`;
+        const existing = routineMarkerStatuses.find((status) => String(status.key || '') === recordKey);
+        const timestamp = new Date().toISOString();
+
+        try {
+            if (existing?.id) {
+                await db.transact([
+                    tx.routineMarkerStatuses[existing.id].update({
+                        startedAt: timestamp,
+                        completedAt: timestamp,
+                        startedById: currentUser?.id || null,
+                        completedById: currentUser?.id || null,
+                    }),
+                ]);
+            } else {
+                const statusId = id();
+                await db.transact([
+                    tx.routineMarkerStatuses[statusId].update({
+                        key: recordKey,
+                        markerKey,
+                        date: selectedDateKey,
+                        startedAt: timestamp,
+                        completedAt: timestamp,
+                        startedById: currentUser?.id || null,
+                        completedById: currentUser?.id || null,
+                    }),
+                ]);
+            }
+
+            toast({
+                title: 'Marker updated',
+                description: `${markerKey[0]?.toUpperCase() || ''}${markerKey.slice(1)} was marked.`,
+            });
+        } catch (error: any) {
+            console.error('Error updating routine marker status:', error);
+            toast({
+                title: 'Error',
+                description: error?.message || 'Failed to update routine marker status.',
+                variant: 'destructive',
+            });
+        }
+    };
+
+    const clearRoutineMarkerStatus = async (markerKey: string) => {
+        if (!isParentMode) return;
+
+        const recordKey = `${selectedDateKey}:${markerKey}`;
+        const existing = routineMarkerStatuses.find((status) => String(status.key || '') === recordKey);
+        if (!existing?.id) return;
+
+        try {
+            await db.transact([
+                tx.routineMarkerStatuses[existing.id].update({
+                    startedAt: null,
+                    completedAt: null,
+                    startedById: null,
+                    completedById: null,
+                }),
+            ]);
+
+            toast({
+                title: 'Marker cleared',
+                description: `${markerKey[0]?.toUpperCase() || ''}${markerKey.slice(1)} was reset for ${selectedDateKey}.`,
+            });
+        } catch (error: any) {
+            console.error('Error clearing routine marker status:', error);
+            toast({
+                title: 'Error',
+                description: error?.message || 'Failed to clear routine marker status.',
+                variant: 'destructive',
+            });
+        }
+    };
 
     const addChore = (choreData: Partial<Chore>) => {
         const choreId = id();
@@ -351,12 +466,16 @@ function ChoresTracker({
                 exdates: choreData.exdates ?? [],
                 pauseState: choreData.pauseState ?? null,
                 rotationType: choreData.rotationType || 'none',
+                sortOrder: choreData.sortOrder ?? getNextChoreSortOrder(chores as any),
                 weight: choreData.weight ?? null, // Save weight, null if undefined
                 isUpForGrabs: choreData.isUpForGrabs ?? false,
                 isJoint: choreData.isJoint ?? false,
                 rewardType: choreData.rewardType ?? null,
                 rewardAmount: choreData.rewardAmount ?? null,
                 rewardCurrency: choreData.rewardCurrency ?? null,
+                timeBucket: choreData.timeBucket ?? null,
+                timingMode: choreData.timingMode ?? null,
+                timingConfig: choreData.timingConfig ?? null,
             }),
         ];
 
@@ -549,6 +668,8 @@ function ChoresTracker({
     const updateChore = async (choreId: any, updatedChoreData: any) => {
         try {
             const transactions = [];
+            const existingChore = chores.find((c) => c.id === choreId); // Use memoized data
+            if (!existingChore) throw new Error('Original chore data not found for update.');
 
             // 1. Update basic chore info
             transactions.push(
@@ -560,19 +681,20 @@ function ChoresTracker({
                     exdates: updatedChoreData.exdates ?? [],
                     pauseState: updatedChoreData.pauseState ?? null,
                     rotationType: updatedChoreData.rotationType,
+                    sortOrder: updatedChoreData.sortOrder ?? existingChore.sortOrder ?? null,
                     weight: updatedChoreData.weight ?? null,
                     isUpForGrabs: updatedChoreData.isUpForGrabs ?? false,
                     isJoint: updatedChoreData.isJoint ?? false,
                     rewardType: updatedChoreData.rewardType ?? null,
                     rewardAmount: updatedChoreData.rewardAmount ?? null,
                     rewardCurrency: updatedChoreData.rewardCurrency ?? null,
+                    timeBucket: updatedChoreData.timeBucket ?? null,
+                    timingMode: updatedChoreData.timingMode ?? null,
+                    timingConfig: updatedChoreData.timingConfig ?? null,
                 })
             );
 
             // 2. Handle Assignees & Assignments (more robustly)
-            const existingChore = chores.find((c) => c.id === choreId); // Use memoized data
-            if (!existingChore) throw new Error('Original chore data not found for update.');
-
             // Get IDs of currently selected assignees from the form data
             const newAssigneeIds = new Set(updatedChoreData.assignees.map((a: any) => a.id));
             // Get IDs of existing linked assignees
@@ -742,37 +864,46 @@ function ChoresTracker({
         setSelectedDate(toUTCDate(date));
     };
 
-    const filteredChores = chores.filter((chore) => {
-        // Ensure chore is valid before processing
-        if (!chore || !chore.id || !chore.startDate) {
-            console.warn('Skipping invalid chore object:', chore);
-            return false;
-        }
-        if (pageMode === 'tasks' && (!chore.taskSeries || chore.taskSeries.length === 0)) {
-            return false;
-        }
+    const filteredChores = useMemo(() => {
+        const visible = chores.filter((chore) => {
+            // Ensure chore is valid before processing
+            if (!chore || !chore.id || !chore.startDate) {
+                console.warn('Skipping invalid chore object:', chore);
+                return false;
+            }
+            if (pageMode === 'tasks' && (!chore.taskSeries || chore.taskSeries.length === 0)) {
+                return false;
+            }
 
-        // In tasks mode, also include chores with active pull-forwards for the selected member
-        if (pageMode === 'tasks' && chore.taskSeries) {
-            const hasActivePullForward = chore.taskSeries.some((series: any) => {
-                if (!series || (series.pullForwardCount || 0) <= 0) return false;
-                const ownerId = Array.isArray(series.familyMember)
-                    ? series.familyMember[0]?.id
-                    : series.familyMember?.id;
-                return selectedMember === 'All' || ownerId === selectedMember;
-            });
-            if (hasActivePullForward) return true;
-        }
+            // In tasks mode, also include chores with active pull-forwards for the selected member
+            if (pageMode === 'tasks' && chore.taskSeries) {
+                const hasActivePullForward = chore.taskSeries.some((series: any) => {
+                    if (!series || (series.pullForwardCount || 0) <= 0) return false;
+                    const ownerId = Array.isArray(series.familyMember)
+                        ? series.familyMember[0]?.id
+                        : series.familyMember?.id;
+                    return selectedMember === 'All' || ownerId === selectedMember;
+                });
+                if (hasActivePullForward) return true;
+            }
 
-        const assignedMembers = getAssignedMembersForChoreOnDate(chore, selectedDate);
-        if (selectedMember === 'All') {
-            // Show if anyone is assigned on this date
-            return assignedMembers.length > 0;
-        } else {
-            // Show if the selected member is assigned on this date
-            return assignedMembers.some((assignee) => assignee.id === selectedMember);
-        }
-    });
+            const assignedMembers = getAssignedMembersForChoreOnDate(chore, selectedDate);
+            if (selectedMember === 'All') {
+                // Show if anyone is assigned on this date
+                return assignedMembers.length > 0;
+            } else {
+                // Show if the selected member is assigned on this date
+                return assignedMembers.some((assignee) => assignee.id === selectedMember);
+            }
+        });
+
+        return sortChoresForDisplay(visible as any, {
+            date: selectedDate,
+            routineMarkerStatuses,
+            chores: chores as any,
+            scheduleSettings,
+        }).map((entry) => entry.chore as Chore);
+    }, [chores, pageMode, routineMarkerStatuses, scheduleSettings, selectedDate, selectedMember]);
 
     // +++ Logic for Add Button +++
     const isParent = isParentMode;
@@ -823,6 +954,9 @@ function ChoresTracker({
         if (!loggedInMember) return;
         db.transact(tx.familyMembers[loggedInMember.id].update({ [setting]: value }));
     };
+
+    if (isLoading) return <div>Loading...</div>;
+    if (error) return <div>Error: {error.message}</div>;
 
     return (
         <div className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col md:flex-row md:px-4">
@@ -981,6 +1115,8 @@ function ChoresTracker({
                                             db={db} // Pass db instance
                                             unitDefinitions={unitDefinitions} // Pass definitions
                                             currencyOptions={currencyOptions} // Pass computed options
+                                            availableChoreAnchors={chores as any}
+                                            scheduleSettings={scheduleSettings}
                                         />
                                     </DialogContent>
                                 </Dialog>
@@ -1108,6 +1244,8 @@ function ChoresTracker({
                         unitDefinitions={unitDefinitions}
                         currencyOptions={currencyOptions}
                         canEditChores={isParent}
+                        allChores={chores as any}
+                        scheduleSettings={scheduleSettings}
                     />
                 ) : viewMode === 'list' ? (
                     <div className="flex flex-col gap-4 grow min-h-0">
@@ -1139,6 +1277,14 @@ function ChoresTracker({
                                 pageMode={pageMode}
                                 focusedChoreId={focusedChoreId}
                                 gradeTypes={gradeTypes}
+                                routineMarkerStatuses={routineMarkerStatuses}
+                                selectedDateKey={selectedDateKey}
+                                todayDateKey={todayDateKey}
+                                onRoutineMarkerStart={(markerKey: string) => markRoutineMarkerHappened(markerKey)}
+                                onRoutineMarkerComplete={(markerKey: string) => markRoutineMarkerHappened(markerKey)}
+                                onRoutineMarkerClear={clearRoutineMarkerStatus}
+                                allChores={chores}
+                                scheduleSettings={scheduleSettings}
                             />
                             {/* Optional: Add back allowance balance display if needed */}
                             {/* {selectedMember !== 'All' && ( ... allowance display ... )} */}

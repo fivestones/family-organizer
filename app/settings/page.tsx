@@ -5,6 +5,7 @@ import AppleCalendarSyncSettings from '@/components/AppleCalendarSyncSettings';
 import CurrencySettings from '@/components/CurrencySettings';
 import DashboardSettingsPanel from '@/components/DashboardSettingsPanel';
 import GradeTypeSettings from '@/components/GradeTypeSettings';
+import HouseholdSchedulingSettings from '@/components/HouseholdSchedulingSettings';
 import FamilyMembersList from '@/components/FamilyMembersList';
 import { ParentGate } from '@/components/auth/ParentGate';
 import { db } from '@/lib/db';
@@ -36,6 +37,10 @@ export default function SettingsPage() {
                 </div>
 
                 <CurrencySettings db={db} />
+
+                <div className="mt-8">
+                    <HouseholdSchedulingSettings db={db} />
+                </div>
 
                 <div className="mt-8">
                     <GradeTypeSettings />

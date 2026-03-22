@@ -70,6 +70,19 @@ vi.mock('@/components/ui/radio-group', async () => {
     };
 });
 
+vi.mock('@/components/ui/popover', () => ({
+    Popover: ({ children }: any) => <div>{children}</div>,
+    PopoverTrigger: ({ asChild, children }: any) => (asChild ? children : <button type="button">{children}</button>),
+    PopoverContent: ({ children }: any) => <div>{children}</div>,
+}));
+
+vi.mock('@/components/ui/tooltip', () => ({
+    TooltipProvider: ({ children }: any) => <>{children}</>,
+    Tooltip: ({ children }: any) => <>{children}</>,
+    TooltipTrigger: ({ asChild, children }: any) => (asChild ? children : <button type="button">{children}</button>),
+    TooltipContent: ({ children }: any) => <div>{children}</div>,
+}));
+
 import DetailedChoreForm from '@/components/DetailedChoreForm';
 
 type FamilyMember = { id: string; name: string };
@@ -177,5 +190,37 @@ describe('DetailedChoreForm', () => {
             [0, 'm2'],
             [1, 'm1'],
         ]);
+    });
+
+    it('saves before-marker timing with a single fallback time', async () => {
+        const { onSave } = renderForm({
+            availableChoreAnchors: [
+                { id: 'other-chore', title: 'Wash dishes' },
+            ] as any,
+        });
+        const user = userEvent.setup();
+
+        await user.type(screen.getByLabelText('Title *'), 'Set the Table');
+        await user.click(screen.getByRole('button', { name: 'Ava' }));
+        await user.click(screen.getByLabelText(/before a routine marker/i));
+        await user.selectOptions(screen.getByRole('combobox', { name: /routine marker/i }), 'breakfast');
+        await user.type(screen.getByLabelText(/^Fallback Time/), '11:00');
+
+        await user.click(screen.getByRole('button', { name: /save chore/i }));
+
+        expect(onSave).toHaveBeenCalledWith(
+            expect.objectContaining({
+                timingMode: 'before_marker',
+                timeBucket: null,
+                timingConfig: expect.objectContaining({
+                    mode: 'before_marker',
+                    anchor: expect.objectContaining({
+                        sourceType: 'routine',
+                        routineKey: 'breakfast',
+                        fallbackTime: '11:00',
+                    }),
+                }),
+            })
+        );
     });
 });

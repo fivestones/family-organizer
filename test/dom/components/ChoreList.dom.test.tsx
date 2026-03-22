@@ -211,6 +211,21 @@ describe('ChoreList', () => {
         expect(screen.getAllByText('Visible description').length).toBeGreaterThan(0);
     });
 
+    it('hides routine marker controls for non-parent viewers', () => {
+        renderChoreList({
+            canEditChores: false,
+            currentUser: { id: 'kid-a', role: 'child' },
+            scheduleSettings: {
+                dayBoundaryTime: '03:00',
+                timeBuckets: [],
+                routineMarkers: [{ key: 'breakfast', label: 'Breakfast', defaultTime: '08:00' }],
+            },
+        });
+
+        expect(screen.queryByText(/routine markers/i)).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /start/i })).not.toBeInTheDocument();
+    });
+
     it('opens the detail modal from the chore title and blocks edit/delete actions for non-parent users', async () => {
         const user = userEvent.setup();
         const { props } = renderChoreList({
