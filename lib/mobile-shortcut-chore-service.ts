@@ -11,6 +11,7 @@ import { getFamilyMemberById, getInstantAdminDb, listFamilyMemberRoster } from '
 
 export type ShortcutFamilyMember = {
     id: string;
+    label: string;
     name: string;
     role: string;
     photoUrls?: Record<string, string> | null;
@@ -18,12 +19,37 @@ export type ShortcutFamilyMember = {
 
 export async function listMobileShortcutFamilyMembers(): Promise<ShortcutFamilyMember[]> {
     const roster = await listFamilyMemberRoster();
-    return roster.map((member) => ({
-        id: member.id,
-        name: member.name,
-        role: member.role || 'child',
-        photoUrls: member.photoUrls || null,
-    }));
+    const nameCounts = new Map<string, number>();
+    const nameRoleCounts = new Map<string, number>();
+
+    for (const member of roster) {
+        const name = String(member.name || 'Unknown');
+        const role = String(member.role || 'child');
+        nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+        nameRoleCounts.set(`${name}:::${role}`, (nameRoleCounts.get(`${name}:::${role}`) || 0) + 1);
+    }
+
+    return roster.map((member) => {
+        const name = String(member.name || 'Unknown');
+        const role = String(member.role || 'child');
+        const id = String(member.id || '');
+        const nameCount = nameCounts.get(name) || 0;
+        const nameRoleCount = nameRoleCounts.get(`${name}:::${role}`) || 0;
+        const label =
+            nameCount <= 1
+                ? name
+                : nameRoleCount <= 1
+                ? `${name} (${role})`
+                : `${name} (${role} • ${id.slice(-4)})`;
+
+        return {
+            id: member.id,
+            label,
+            name,
+            role,
+            photoUrls: member.photoUrls || null,
+        };
+    });
 }
 
 export async function createTodayAnytimeShortcutChore(input: {

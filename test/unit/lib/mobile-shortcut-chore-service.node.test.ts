@@ -137,10 +137,25 @@ describe('mobile shortcut chore service', () => {
         await expect(listMobileShortcutFamilyMembers()).resolves.toEqual([
             {
                 id: 'fm-1',
+                label: 'Judah',
                 name: 'Judah',
                 role: 'child',
                 photoUrls: { '64': 'https://example.com/judah-64.png' },
             },
+        ]);
+    });
+
+    it('generates stable labels for duplicate names', async () => {
+        shortcutChoreServiceMocks.setRoster([
+            { id: 'abcd1111', name: 'Alex', role: 'child' },
+            { id: 'abcd2222', name: 'Alex', role: 'parent' },
+            { id: 'wxyz3333', name: 'Alex', role: 'parent' },
+        ]);
+
+        await expect(listMobileShortcutFamilyMembers()).resolves.toEqual([
+            { id: 'abcd1111', label: 'Alex (child)', name: 'Alex', role: 'child', photoUrls: null },
+            { id: 'abcd2222', label: 'Alex (parent • 2222)', name: 'Alex', role: 'parent', photoUrls: null },
+            { id: 'wxyz3333', label: 'Alex (parent • 3333)', name: 'Alex', role: 'parent', photoUrls: null },
         ]);
     });
 

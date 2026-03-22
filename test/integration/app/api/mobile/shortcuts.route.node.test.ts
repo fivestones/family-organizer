@@ -29,7 +29,7 @@ describe('mobile shortcut roster + chore routes', () => {
             token: 'fost_test_token',
         });
         shortcutRouteMocks.listMobileShortcutFamilyMembers.mockResolvedValue([
-            { id: 'fm-1', name: 'Judah', role: 'child', photoUrls: null },
+            { id: 'fm-1', label: 'Judah', name: 'Judah', role: 'child', photoUrls: null },
         ]);
         shortcutRouteMocks.createTodayAnytimeShortcutChore.mockResolvedValue({
             choreId: 'chore-1',
@@ -61,7 +61,7 @@ describe('mobile shortcut roster + chore routes', () => {
 
         expect(response.status).toBe(200);
         expect(await response.json()).toEqual({
-            familyMembers: [{ id: 'fm-1', name: 'Judah', role: 'child', photoUrls: null }],
+            familyMembers: [{ id: 'fm-1', label: 'Judah', name: 'Judah', role: 'child', photoUrls: null }],
         });
         expect(shortcutRouteMocks.authorizeMobileShortcutToken).toHaveBeenCalledWith({
             token: 'fost_test_token',
