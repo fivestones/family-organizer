@@ -89,6 +89,8 @@ export default function TabsLayout() {
               ? colors.accentDashboard
               : route.name === 'chores'
               ? colors.accentChores
+              : route.name === 'tasks'
+              ? colors.accentTasks
               : route.name === 'calendar'
               ? colors.accentCalendar
               : route.name === 'messages'
@@ -139,6 +141,7 @@ export default function TabsLayout() {
             let iconName = 'ellipse-outline';
             if (route.name === 'dashboard') iconName = focused ? 'sparkles' : 'sparkles-outline';
             else if (route.name === 'chores') iconName = focused ? 'checkmark-circle' : 'checkmark-circle-outline';
+            else if (route.name === 'tasks') iconName = focused ? 'list' : 'list-outline';
             else if (route.name === 'calendar') iconName = focused ? 'calendar' : 'calendar-outline';
             else if (route.name === 'messages') iconName = focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline';
             else if (route.name === 'finance') iconName = focused ? 'wallet' : 'wallet-outline';
@@ -183,6 +186,7 @@ export default function TabsLayout() {
       >
         <Tabs.Screen name="dashboard" options={{ title: 'Today', tabBarButtonTestID: 'tab-dashboard' }} />
         <Tabs.Screen name="chores" options={{ title: 'Chores', tabBarButtonTestID: 'tab-chores' }} />
+        <Tabs.Screen name="tasks" options={{ title: 'Tasks', tabBarButtonTestID: 'tab-tasks' }} />
         <Tabs.Screen
           name="calendar"
           options={{
