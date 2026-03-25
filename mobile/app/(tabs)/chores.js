@@ -87,7 +87,6 @@ export default function ChoresTab() {
     familyMembers,
     isAuthenticated,
     instantReady,
-    principalType,
   } = useAppSession();
   const currentUserIdRef = useRef('');
   const [selectedDate, setSelectedDate] = useState(() => getFamilyDayDateUTC(new Date()));
@@ -141,6 +140,7 @@ export default function ChoresTab() {
               completedBy: {},
               markedBy: {},
             },
+            taskSeries: {},
           },
           routineMarkerStatuses: {},
           settings: {
@@ -396,23 +396,6 @@ export default function ChoresTab() {
     );
   }
 
-  function openTaskSeriesOverview() {
-    const memberId = viewedMember?.id;
-    if (!memberId) {
-      Alert.alert('Login required', 'Choose a family member before opening task series.');
-      return;
-    }
-
-    router.push({
-      pathname: '/task-series/my',
-      params: { memberId },
-    });
-  }
-
-  function openTaskSeriesManager() {
-    router.push('/more/task-series');
-  }
-
   return (
     <>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -485,38 +468,6 @@ export default function ChoresTab() {
           <View style={styles.contentShell}>
             <View style={styles.contentGlow} />
             <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-              <View style={styles.panel}>
-                <View style={styles.panelHeaderRow}>
-                  <Text style={styles.panelTitle}>Task Series</Text>
-                  <Text style={styles.metaText}>{viewedMemberName}</Text>
-                </View>
-                <Text style={styles.metaText}>
-                  Open the native task-series view for responses, review threads, pull-forward, and the full mobile task detail flow.
-                </Text>
-                <View style={[styles.panelHeaderActions, { marginTop: spacing.sm }]}>
-                  <Pressable
-                    testID="chores-open-task-series-button"
-                    accessibilityRole="button"
-                    accessibilityLabel="Open task series"
-                    onPress={openTaskSeriesOverview}
-                    style={styles.markAllButton}
-                  >
-                    <Text style={styles.markAllButtonText}>Open Task Series</Text>
-                  </Pressable>
-                  {principalType === 'parent' ? (
-                    <Pressable
-                      testID="chores-open-task-series-manager-button"
-                      accessibilityRole="button"
-                      accessibilityLabel="Open task series manager"
-                      onPress={openTaskSeriesManager}
-                      style={styles.markAllButton}
-                    >
-                      <Text style={styles.markAllButtonText}>Manager</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
-
               <View style={styles.panel}>
                 <View style={styles.panelHeaderRow}>
                   <Text style={styles.panelTitle}>Due Chores</Text>
@@ -606,6 +557,29 @@ export default function ChoresTab() {
 
                             {chore.isUpForGrabs && upForGrabsCompletedByName ? (
                               <Text style={styles.helperText}>Completed today by {upForGrabsCompletedByName}</Text>
+                            ) : null}
+
+                            {chore.taskSeries?.length > 0 ? (
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`View tasks for ${chore.title}`}
+                                onPress={() =>
+                                  router.push({
+                                    pathname: '/(tabs)/tasks',
+                                    params: {
+                                      scrollToSeriesId: chore.taskSeries[0].id,
+                                      memberId: viewedMember?.id || '',
+                                    },
+                                  })
+                                }
+                                style={styles.taskSeriesChip}
+                              >
+                                <Ionicons name="list-outline" size={14} color={colors.accentTasks} />
+                                <Text style={styles.taskSeriesChipText}>
+                                  {chore.taskSeries.length === 1 ? 'View Tasks' : `${chore.taskSeries.length} Task Series`}
+                                </Text>
+                                <Ionicons name="chevron-forward" size={12} color={colors.accentTasks} />
+                              </Pressable>
                             ) : null}
 
                             <View style={styles.toggleList}>
@@ -1527,6 +1501,23 @@ const createStyles = (colors, isDark) =>
   tagNeutral: { backgroundColor: isDark ? colors.panel : colors.panelElevated, borderColor: colors.line },
   tagNeutralText: { color: colors.inkMuted },
   helperText: { color: colors.inkMuted, fontSize: 12 },
+  taskSeriesChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: withAlpha(colors.accentTasks, 0.24),
+    backgroundColor: withAlpha(colors.accentTasks, 0.08),
+  },
+  taskSeriesChipText: {
+    color: colors.accentTasks,
+    fontSize: 12,
+    fontWeight: '800',
+  },
   toggleList: { gap: spacing.sm },
   toggleRow: {
     flexDirection: 'row',

@@ -864,7 +864,7 @@ export default function DashboardTab() {
   function openTaskSeriesOverview() {
     if (!viewedMember?.id) return;
     router.push({
-      pathname: '/task-series/my',
+      pathname: '/(tabs)/tasks',
       params: { memberId: viewedMember.id },
     });
   }
@@ -1214,8 +1214,8 @@ export default function DashboardTab() {
                                     key={row.task.id || `task-${card.id}-${rowIndex}`}
                                     accessibilityRole="button"
                                     onPress={() => router.push({
-                                      pathname: '/task-series/series',
-                                      params: { seriesId: card.series.id, choreId: card.chore?.id || '', date: selectedDateKey, memberId: viewedMember?.id || '' },
+                                      pathname: '/(tabs)/tasks',
+                                      params: { scrollToSeriesId: card.series.id, scrollToTaskId: row.task.id || '', memberId: viewedMember?.id || '' },
                                     })}
                                     style={[styles.qRow, rowIndex > 0 && styles.qRowBorder, row.isSubtask && styles.qSubtaskIndent]}
                                   >
