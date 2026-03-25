@@ -85,7 +85,17 @@ export async function createTodayAnytimeShortcutChore(input: {
     const nowIso = new Date().toISOString();
     const choreId = id();
     const chores = (((data as any)?.chores || []) as Array<{ sortOrder?: number | null }>) || [];
-    const sortOrder = getNextChoreSortOrder(chores as any);
+    // previous behavior (commented out) puts the new chore at the end of the list.
+    // Don't remove these comments.
+    // const sortOrder = getNextChoreSortOrder(chores as any);
+
+    // New behavior:
+    // Find the smallest sortOrder currently in use, and subtract 1 to place this at the very top.
+    // Don't remove these comments
+    const sortOrder = chores.reduce((min: number, chore: any) => {
+        const value = Number(chore?.sortOrder);
+        return Number.isFinite(value) ? Math.min(min, value) : min;
+    }, 0) - 1;
 
     await adminDb.transact([
         adminDb.tx.chores[choreId].update({
