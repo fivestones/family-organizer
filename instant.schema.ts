@@ -1,13 +1,21 @@
-// instant.schema.ts
 // Docs: https://www.instantdb.com/docs/modeling-data
 
 import { i } from '@instantdb/react';
 
 const _schema = i.schema({
+    // We inferred 17 attributes!
+    // Take a look at this schema, and if everything looks good,
+    // run `push schema` again to enforce the types.
     entities: {
         $files: i.entity({
             path: i.string().unique().indexed(),
             url: i.string(),
+        }),
+        $streams: i.entity({
+            abortReason: i.string().optional(),
+            clientId: i.string().unique().indexed(),
+            done: i.boolean().optional(),
+            size: i.number().optional(),
         }),
         $users: i.entity({
             email: i.string().unique().indexed().optional(),
@@ -18,7 +26,7 @@ const _schema = i.schema({
         }),
         allowanceEnvelopes: i.entity({
             amount: i.any().optional(),
-            balances: i.any().indexed(),
+            balances: i.json().indexed(),
             currency: i.any().optional(),
             description: i.string().optional(),
             goalAmount: i.number().optional(),
@@ -50,7 +58,7 @@ const _schema = i.schema({
         calendarItems: i.entity({
             alarms: i.json().optional(),
             attendees: i.json().optional(),
-            conferenceData: i.json().optional(),
+            conferenceData: i.any().optional(),
             createdAt: i.string().indexed().optional(),
             dayOfMonth: i.number().indexed(),
             description: i.string().optional(),
@@ -62,13 +70,13 @@ const _schema = i.schema({
             lastModified: i.string().indexed().optional(),
             location: i.string().optional(),
             month: i.number().indexed(),
-            organizer: i.json().optional(),
+            organizer: i.any().optional(),
             priority: i.number().indexed().optional(),
+            rdates: i.json().optional(),
             recurrenceId: i.string().indexed().optional(),
             recurrenceIdRange: i.string().optional(),
             recurrenceLines: i.json().optional(),
             recurringEventId: i.string().indexed().optional(),
-            rdates: i.json().optional(),
             rrule: i.string().indexed().optional(),
             sequence: i.number().indexed().optional(),
             sourceAccountKey: i.string().indexed().optional(),
@@ -77,11 +85,11 @@ const _schema = i.schema({
             sourceExternalId: i.string().unique().indexed().optional(),
             sourceImportedAt: i.string().indexed().optional(),
             sourceLastSeenAt: i.string().indexed().optional(),
+            sourceRawHash: i.string().indexed().optional(),
             sourceReadOnly: i.boolean().indexed().optional(),
             sourceRemoteCtag: i.string().indexed().optional(),
             sourceRemoteEtag: i.string().indexed().optional(),
             sourceRemoteUrl: i.string().optional(),
-            sourceRawHash: i.string().indexed().optional(),
             sourceSyncStatus: i.string().indexed().optional(),
             sourceType: i.string().indexed().optional(),
             startDate: i.string(),
@@ -97,15 +105,6 @@ const _schema = i.schema({
             visibility: i.string().indexed().optional(),
             xProps: i.json().optional(),
             year: i.number().indexed(),
-        }),
-        calendarTags: i.entity({
-            createdAt: i.string().indexed().optional(),
-            name: i.string(),
-            normalizedName: i.string().unique().indexed(),
-            updatedAt: i.string().indexed().optional(),
-        }),
-        choreAssignments: i.entity({
-            order: i.number(),
         }),
         calendarSyncAccounts: i.entity({
             accountLabel: i.string(),
@@ -153,7 +152,7 @@ const _schema = i.schema({
         calendarSyncRuns: i.entity({
             accountId: i.string().indexed(),
             calendarsProcessed: i.number().optional(),
-            details: i.json().optional(),
+            details: i.any().optional(),
             durationMs: i.number().optional(),
             errorCode: i.string().optional(),
             errorMessage: i.string().optional(),
@@ -168,6 +167,15 @@ const _schema = i.schema({
             startedAt: i.string().indexed(),
             status: i.string().indexed(),
             trigger: i.string().indexed(),
+        }),
+        calendarTags: i.entity({
+            createdAt: i.string().indexed().optional(),
+            name: i.string(),
+            normalizedName: i.string().unique().indexed(),
+            updatedAt: i.string().indexed().optional(),
+        }),
+        choreAssignments: i.entity({
+            order: i.number(),
         }),
         choreCompletions: i.entity({
             allowanceAwarded: i.boolean().indexed(),
@@ -188,10 +196,10 @@ const _schema = i.schema({
             dueTimes: i.any().optional(),
             exdates: i.json().optional(),
             imageUrl: i.any().optional(),
-            isUpForGrabs: i.boolean().optional(),
             isJoint: i.boolean().optional(),
-            pauseState: i.json().optional(),
+            isUpForGrabs: i.boolean().optional(),
             pastCompletionLimit: i.any().optional(),
+            pauseState: i.json().optional(),
             rewardAmount: i.number().optional(),
             rewardCurrency: i.string().optional(),
             rewardType: i.string().optional(),
@@ -205,11 +213,50 @@ const _schema = i.schema({
             title: i.string(),
             weight: i.number().optional(),
         }),
+        dashboardConfigs: i.entity({
+            disabledWidgets: i.any().optional(),
+            updatedAt: i.number().indexed().optional(),
+            widgetOrder: i.any().optional(),
+            widgetSettings: i.any().optional(),
+        }),
+        deviceSessions: i.entity({
+            appVersion: i.string().optional(),
+            createdAt: i.number().indexed().optional(),
+            deviceId: i.string().unique().indexed(),
+            deviceName: i.string().optional(),
+            expiresAt: i.number().indexed().optional(),
+            lastActiveAt: i.string(),
+            lastSeenAt: i.number().indexed().optional(),
+            platform: i.string().indexed().optional(),
+            revokedAt: i.number().indexed().optional(),
+            userId: i.string(),
+        }),
         exchangeRates: i.entity({
             baseCurrency: i.string().indexed(),
             lastFetchedTimestamp: i.date().indexed(),
             rate: i.number(),
             targetCurrency: i.string().indexed(),
+        }),
+        familyDashboardLayouts: i.entity({
+            breakpointKey: i.string().unique().indexed(),
+            createdAt: i.string().indexed(),
+            isDefault: i.boolean(),
+            label: i.string(),
+            maxWidth: i.number().indexed(),
+            minWidth: i.number().indexed(),
+            order: i.number().indexed(),
+            updatedAt: i.string().indexed(),
+        }),
+        familyDashboardWidgets: i.entity({
+            config: i.any().optional(),
+            createdAt: i.string().indexed(),
+            h: i.number(),
+            updatedAt: i.string().indexed(),
+            w: i.number(),
+            widgetType: i.string().indexed(),
+            x: i.number(),
+            y: i.number(),
+            z: i.number().indexed(),
         }),
         familyMembers: i.entity({
             allowanceAmount: i.number().optional(),
@@ -229,8 +276,8 @@ const _schema = i.schema({
             name: i.string(),
             order: i.number().indexed(),
             photoUrls: i.json().optional(),
-            role: i.string().optional(), // 'parent' or 'child'
             pinHash: i.string().optional(),
+            role: i.string().optional(),
             viewShowChoreDescriptions: i.boolean().optional(),
             viewShowTaskDetails: i.boolean().optional(),
         }),
@@ -282,6 +329,13 @@ const _schema = i.schema({
             taskId: i.string().indexed().optional(),
             taskSeriesId: i.string().indexed().optional(),
         }),
+        messageAcknowledgements: i.entity({
+            ackKey: i.string().unique().indexed(),
+            createdAt: i.string().indexed(),
+            familyMemberId: i.string().indexed(),
+            kind: i.string().indexed(),
+            messageId: i.string().indexed(),
+        }),
         messageAttachments: i.entity({
             blurhash: i.string().optional(),
             createdAt: i.string().indexed(),
@@ -299,22 +353,29 @@ const _schema = i.schema({
             waveformPeaks: i.json().optional(),
             width: i.number().optional(),
         }),
-        messageThreads: i.entity({
+        messageReactions: i.entity({
             createdAt: i.string().indexed(),
-            createdByFamilyMemberId: i.string().indexed().optional(),
-            isClosed: i.boolean().indexed().optional(),
-            latestMessageAt: i.string().indexed().optional(),
-            latestMessageAuthorId: i.string().indexed().optional(),
-            latestMessagePreview: i.string().optional(),
-            linkedDomain: i.string().indexed().optional(),
-            linkedEntityId: i.string().indexed().optional(),
-            searchText: i.string().indexed().optional(),
-            threadKey: i.string().unique().indexed(),
-            threadType: i.string().indexed(),
-            titleNormalized: i.string().indexed().optional(),
-            title: i.string(),
+            emoji: i.string().indexed(),
+            familyMemberId: i.string().indexed(),
+            messageId: i.string().indexed(),
+            reactionKey: i.string().unique().indexed(),
+        }),
+        messages: i.entity({
+            authorFamilyMemberId: i.string().indexed().optional(),
+            body: i.string().indexed(),
+            clientNonce: i.string().indexed().optional(),
+            createdAt: i.string().indexed(),
+            deletedAt: i.string().indexed().optional(),
+            editableUntil: i.string().indexed().optional(),
+            editedAt: i.string().indexed().optional(),
+            importance: i.string().indexed().optional(),
+            isSystem: i.boolean().indexed().optional(),
+            metadata: i.any().optional(),
+            removedByFamilyMemberId: i.string().indexed().optional(),
+            removedReason: i.string().optional(),
+            replyToMessageId: i.string().indexed().optional(),
+            threadId: i.string().indexed(),
             updatedAt: i.string().indexed(),
-            visibility: i.string().indexed(),
         }),
         messageThreadMembers: i.entity({
             familyMemberId: i.string().indexed(),
@@ -330,36 +391,22 @@ const _schema = i.schema({
             sortTimestamp: i.string().indexed(),
             threadId: i.string().indexed(),
         }),
-        messages: i.entity({
-            authorFamilyMemberId: i.string().indexed().optional(),
-            body: i.string().indexed(),
-            clientNonce: i.string().indexed().optional(),
+        messageThreads: i.entity({
             createdAt: i.string().indexed(),
-            deletedAt: i.string().indexed().optional(),
-            editableUntil: i.string().indexed().optional(),
-            editedAt: i.string().indexed().optional(),
-            importance: i.string().indexed().optional(),
-            isSystem: i.boolean().indexed().optional(),
-            metadata: i.json().optional(),
-            removedByFamilyMemberId: i.string().indexed().optional(),
-            removedReason: i.string().optional(),
-            replyToMessageId: i.string().indexed().optional(),
-            threadId: i.string().indexed(),
+            createdByFamilyMemberId: i.string().indexed().optional(),
+            isClosed: i.boolean().indexed().optional(),
+            latestMessageAt: i.string().indexed().optional(),
+            latestMessageAuthorId: i.string().indexed().optional(),
+            latestMessagePreview: i.string().optional(),
+            linkedDomain: i.string().indexed().optional(),
+            linkedEntityId: i.string().indexed().optional(),
+            searchText: i.string().indexed().optional(),
+            threadKey: i.string().unique().indexed(),
+            threadType: i.string().indexed(),
+            title: i.string(),
+            titleNormalized: i.string().indexed().optional(),
             updatedAt: i.string().indexed(),
-        }),
-        messageReactions: i.entity({
-            createdAt: i.string().indexed(),
-            emoji: i.string().indexed(),
-            familyMemberId: i.string().indexed(),
-            messageId: i.string().indexed(),
-            reactionKey: i.string().unique().indexed(),
-        }),
-        messageAcknowledgements: i.entity({
-            ackKey: i.string().unique().indexed(),
-            createdAt: i.string().indexed(),
-            familyMemberId: i.string().indexed(),
-            kind: i.string().indexed(),
-            messageId: i.string().indexed(),
+            visibility: i.string().indexed(),
         }),
         pushDevices: i.entity({
             familyMemberId: i.string().indexed(),
@@ -377,6 +424,10 @@ const _schema = i.schema({
             startedAt: i.string().optional(),
             startedById: i.string().optional(),
         }),
+        settings: i.entity({
+            name: i.string(),
+            value: i.string(),
+        }),
         shortcutTokens: i.entity({
             capability: i.string().indexed(),
             createdAt: i.string().indexed(),
@@ -387,10 +438,6 @@ const _schema = i.schema({
             parentFamilyMemberId: i.string().indexed(),
             revokedAt: i.string().indexed().optional(),
             tokenHash: i.string().unique().indexed(),
-        }),
-        settings: i.entity({
-            name: i.string(),
-            value: i.string(),
         }),
         taskAttachments: i.entity({
             blurhash: i.string().optional(),
@@ -406,8 +453,66 @@ const _schema = i.schema({
             type: i.string(),
             updatedAt: i.date(),
             url: i.string(),
-            waveformPeaks: i.json().optional(),
+            waveformPeaks: i.any().optional(),
             width: i.number().optional(),
+        }),
+        taskResponseFields: i.entity({
+            createdAt: i.number().indexed(),
+            description: i.string().optional(),
+            label: i.string(),
+            order: i.number(),
+            required: i.boolean(),
+            type: i.string().indexed(),
+            updatedAt: i.number().indexed(),
+            weight: i.number(),
+        }),
+        taskResponseFieldValues: i.entity({
+            createdAt: i.number().indexed(),
+            fileName: i.string().optional(),
+            fileSizeBytes: i.number().optional(),
+            fileType: i.string().optional(),
+            fileUrl: i.string().optional(),
+            richTextContent: i.string().optional(),
+            thumbnailUrl: i.string().optional(),
+            updatedAt: i.number().indexed(),
+        }),
+        tasks: i.entity({
+            childTasksComplete: i.boolean().optional(),
+            completedAt: i.date().optional(),
+            completedOnDate: i.string().indexed().optional(),
+            createdAt: i.date().optional(),
+            deferredUntilDate: i.string().indexed().optional(),
+            indentationLevel: i.number().optional(),
+            isCompleted: i.boolean().indexed().optional(),
+            isDayBreak: i.boolean(),
+            isNotedIndefinitely: i.boolean().indexed().optional(),
+            lastActiveState: i.string().optional(),
+            notedUntilDate: i.string().indexed().optional(),
+            notes: i.string().optional(),
+            order: i.number(),
+            overrideWorkAhead: i.boolean().optional(),
+            specificTime: i.string().optional(),
+            text: i.string(),
+            updatedAt: i.date().optional(),
+            weight: i.number().optional(),
+            workflowState: i.string().indexed().optional(),
+        }),
+        taskSeries: i.entity({
+            baselineDayBreakCount: i.number().optional(),
+            breakDelayUnit: i.string().optional(),
+            breakDelayValue: i.number().optional(),
+            breakStartDate: i.date().optional(),
+            breakType: i.string().optional(),
+            createdAt: i.date().optional(),
+            dependsOnSeriesId: i.string().indexed().optional(),
+            description: i.string().optional(),
+            name: i.string(),
+            plannedEndDate: i.date().optional(),
+            pullForwardCount: i.number().optional(),
+            startDate: i.date().optional(),
+            targetEndDate: i.date().optional(),
+            updatedAt: i.date().optional(),
+            workAheadAllowed: i.boolean().optional(),
         }),
         taskUpdateAttachments: i.entity({
             blurhash: i.string().optional(),
@@ -423,7 +528,7 @@ const _schema = i.schema({
             type: i.string(),
             updatedAt: i.string().indexed(),
             url: i.string(),
-            waveformPeaks: i.json().optional(),
+            waveformPeaks: i.any().optional(),
             width: i.number().optional(),
         }),
         taskUpdates: i.entity({
@@ -432,70 +537,12 @@ const _schema = i.schema({
             gradeDisplayValue: i.string().optional(),
             gradeIsProvisional: i.boolean().optional(),
             gradeNumericValue: i.number().optional(),
-            isDraft: i.boolean().optional().indexed(),
+            isDraft: i.boolean().indexed().optional(),
             note: i.string().optional(),
             restoreTiming: i.string().optional(),
             scheduledForDate: i.string().indexed(),
             toState: i.string().indexed(),
             updatedAt: i.number().indexed(),
-        }),
-        tasks: i.entity({
-            createdAt: i.date().optional(),
-            indentationLevel: i.number().optional(),
-            isDayBreak: i.boolean(),
-            isCompleted: i.boolean().optional().indexed(),
-            completedAt: i.date().optional(),
-            completedOnDate: i.string().optional().indexed(),
-            childTasksComplete: i.boolean().optional(),
-            deferredUntilDate: i.string().optional().indexed(),
-            lastActiveState: i.string().optional(),
-            notes: i.string().optional(),
-            order: i.number(),
-            overrideWorkAhead: i.boolean().optional(),
-            specificTime: i.string().optional(),
-            text: i.string(),
-            updatedAt: i.date().optional(),
-            weight: i.number().optional(),
-            workflowState: i.string().optional().indexed(),
-            notedUntilDate: i.string().optional().indexed(),
-            isNotedIndefinitely: i.boolean().optional().indexed(),
-        }),
-        taskResponseFieldValues: i.entity({
-            createdAt: i.number().indexed(),
-            fileName: i.string().optional(),
-            fileSizeBytes: i.number().optional(),
-            fileType: i.string().optional(),
-            fileUrl: i.string().optional(),
-            richTextContent: i.string().optional(),
-            thumbnailUrl: i.string().optional(),
-            updatedAt: i.number().indexed(),
-        }),
-        taskResponseFields: i.entity({
-            createdAt: i.number().indexed(),
-            description: i.string().optional(),
-            label: i.string(),
-            order: i.number(),
-            required: i.boolean(),
-            type: i.string().indexed(),
-            updatedAt: i.number().indexed(),
-            weight: i.number(),
-        }),
-        taskSeries: i.entity({
-            baselineDayBreakCount: i.number().optional(),
-            breakDelayUnit: i.string().optional(),
-            breakDelayValue: i.number().optional(),
-            breakStartDate: i.date().optional(),
-            breakType: i.string().optional(),
-            createdAt: i.date().optional(),
-            description: i.string().optional(),
-            dependsOnSeriesId: i.string().optional().indexed(),
-            name: i.string(),
-            plannedEndDate: i.date().optional(),
-            pullForwardCount: i.number().optional(),
-            startDate: i.date().optional(),
-            targetEndDate: i.date().optional(),
-            updatedAt: i.date().optional(),
-            workAheadAllowed: i.boolean().optional(),
         }),
         timeOfDayDefinitions: i.entity({
             endTime: i.string(),
@@ -516,39 +563,21 @@ const _schema = i.schema({
             symbolPlacement: i.string(),
             symbolSpacing: i.boolean().optional(),
         }),
-        // Add this to your schema entities
-        dashboardConfigs: i.entity({
-            disabledWidgets: i.json().optional(),
-            updatedAt: i.number().indexed().optional(),
-            widgetOrder: i.json().optional(),
-            widgetSettings: i.json().optional(),
-        }),
-        deviceSessions: i.entity({
-            appVersion: i.string().optional(),
-            createdAt: i.number().indexed().optional(),
-            deviceId: i.string().unique().indexed(), // The unique ID of the browser
-            deviceName: i.string().optional(),
-            expiresAt: i.number().indexed().optional(),
-            lastSeenAt: i.number().indexed().optional(),
-            userId: i.string(), // The ID of the family member logged in
-            lastActiveAt: i.string(), // For auto-logout logic
-            platform: i.string().indexed().optional(),
-            revokedAt: i.number().indexed().optional(),
-        }),
-    },
-    rooms: {
-        messageThreads: {
-            presence: i.entity({
-                activeThread: i.boolean().optional(),
-                avatarUrl: i.string().optional(),
-                composer: i.boolean().optional(),
-                familyMemberId: i.string(),
-                name: i.string(),
-            }),
-            topics: {},
-        },
     },
     links: {
+        $streams$files: {
+            forward: {
+                on: '$streams',
+                has: 'many',
+                label: '$files',
+            },
+            reverse: {
+                on: '$files',
+                has: 'one',
+                label: '$stream',
+                onDelete: 'cascade',
+            },
+        },
         $usersLinkedPrimaryUser: {
             forward: {
                 on: '$users',
@@ -610,16 +639,28 @@ const _schema = i.schema({
                 label: 'outgoingTransfers',
             },
         },
-        dashboardConfigFamilyMember: {
+        calendarItemsPertainsTo: {
             forward: {
-                on: 'dashboardConfigs',
-                has: 'one',
-                label: 'familyMember',
+                on: 'calendarItems',
+                has: 'many',
+                label: 'pertainsTo',
             },
             reverse: {
                 on: 'familyMembers',
-                has: 'one',
-                label: 'dashboardConfig',
+                has: 'many',
+                label: 'calendarItems',
+            },
+        },
+        calendarItemsTags: {
+            forward: {
+                on: 'calendarItems',
+                has: 'many',
+                label: 'tags',
+            },
+            reverse: {
+                on: 'calendarTags',
+                has: 'many',
+                label: 'calendarItems',
             },
         },
         choreAssignmentsFamilyMember: {
@@ -670,28 +711,77 @@ const _schema = i.schema({
                 label: 'chore',
             },
         },
-        calendarItemsPertainsToFamilyMembers: {
+        dashboardConfigsFamilyMember: {
             forward: {
-                on: 'calendarItems',
-                has: 'many',
-                label: 'pertainsTo',
+                on: 'dashboardConfigs',
+                has: 'one',
+                label: 'familyMember',
             },
             reverse: {
                 on: 'familyMembers',
-                has: 'many',
-                label: 'calendarItems',
+                has: 'one',
+                label: 'dashboardConfig',
             },
         },
-        calendarItemsTags: {
+        familyDashboardWidgetsLayout: {
             forward: {
-                on: 'calendarItems',
-                has: 'many',
-                label: 'tags',
+                on: 'familyDashboardWidgets',
+                has: 'one',
+                label: 'layout',
+                onDelete: 'cascade',
             },
             reverse: {
-                on: 'calendarTags',
+                on: 'familyDashboardLayouts',
                 has: 'many',
-                label: 'calendarItems',
+                label: 'widgets',
+            },
+        },
+        familyMembersActedHistoryEvents: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'actedHistoryEvents',
+            },
+            reverse: {
+                on: 'historyEvents',
+                has: 'one',
+                label: 'actor',
+            },
+        },
+        familyMembersActedTaskUpdates: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'actedTaskUpdates',
+            },
+            reverse: {
+                on: 'taskUpdates',
+                has: 'one',
+                label: 'actor',
+            },
+        },
+        familyMembersAffectedHistoryEvents: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'affectedHistoryEvents',
+            },
+            reverse: {
+                on: 'historyEvents',
+                has: 'many',
+                label: 'affectedFamilyMembers',
+            },
+        },
+        familyMembersAffectedTaskUpdates: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'affectedTaskUpdates',
+            },
+            reverse: {
+                on: 'taskUpdates',
+                has: 'one',
+                label: 'affectedPerson',
             },
         },
         familyMembersAllowancePeriods: {
@@ -718,42 +808,6 @@ const _schema = i.schema({
                 label: 'assignees',
             },
         },
-        familyMembersCompletedChores: {
-            forward: {
-                on: 'familyMembers',
-                has: 'many',
-                label: 'completedChores',
-            },
-            reverse: {
-                on: 'choreCompletions',
-                has: 'one',
-                label: 'completedBy',
-            },
-        },
-        familyMembersActedHistoryEvents: {
-            forward: {
-                on: 'familyMembers',
-                has: 'many',
-                label: 'actedHistoryEvents',
-            },
-            reverse: {
-                on: 'historyEvents',
-                has: 'one',
-                label: 'actor',
-            },
-        },
-        familyMembersAffectedHistoryEvents: {
-            forward: {
-                on: 'familyMembers',
-                has: 'many',
-                label: 'affectedHistoryEvents',
-            },
-            reverse: {
-                on: 'historyEvents',
-                has: 'many',
-                label: 'affectedFamilyMembers',
-            },
-        },
         familyMembersAuthoredMessages: {
             forward: {
                 on: 'familyMembers',
@@ -764,6 +818,18 @@ const _schema = i.schema({
                 on: 'messages',
                 has: 'one',
                 label: 'author',
+            },
+        },
+        familyMembersCompletedChores: {
+            forward: {
+                on: 'familyMembers',
+                has: 'many',
+                label: 'completedChores',
+            },
+            reverse: {
+                on: 'choreCompletions',
+                has: 'one',
+                label: 'completedBy',
             },
         },
         familyMembersMessageAcknowledgements: {
@@ -814,30 +880,6 @@ const _schema = i.schema({
                 label: 'familyMember',
             },
         },
-        familyMembersActedTaskUpdates: {
-            forward: {
-                on: 'familyMembers',
-                has: 'many',
-                label: 'actedTaskUpdates',
-            },
-            reverse: {
-                on: 'taskUpdates',
-                has: 'one',
-                label: 'actor',
-            },
-        },
-        familyMembersAffectedTaskUpdates: {
-            forward: {
-                on: 'familyMembers',
-                has: 'many',
-                label: 'affectedTaskUpdates',
-            },
-            reverse: {
-                on: 'taskUpdates',
-                has: 'one',
-                label: 'affectedPerson',
-            },
-        },
         historyEventsAttachments: {
             forward: {
                 on: 'historyEvents',
@@ -862,28 +904,16 @@ const _schema = i.schema({
                 label: 'historyEvent',
             },
         },
-        messageThreadsMessages: {
+        messagesAcknowledgements: {
             forward: {
-                on: 'messageThreads',
-                has: 'many',
-                label: 'messages',
-            },
-            reverse: {
                 on: 'messages',
-                has: 'one',
-                label: 'thread',
-            },
-        },
-        messageThreadsMembers: {
-            forward: {
-                on: 'messageThreads',
                 has: 'many',
-                label: 'members',
+                label: 'acknowledgements',
             },
             reverse: {
-                on: 'messageThreadMembers',
+                on: 'messageAcknowledgements',
                 has: 'one',
-                label: 'thread',
+                label: 'message',
             },
         },
         messagesAttachments: {
@@ -894,18 +924,6 @@ const _schema = i.schema({
             },
             reverse: {
                 on: 'messageAttachments',
-                has: 'one',
-                label: 'message',
-            },
-        },
-        messagesAcknowledgements: {
-            forward: {
-                on: 'messages',
-                has: 'many',
-                label: 'acknowledgements',
-            },
-            reverse: {
-                on: 'messageAcknowledgements',
                 has: 'one',
                 label: 'message',
             },
@@ -922,7 +940,7 @@ const _schema = i.schema({
                 label: 'message',
             },
         },
-        messagesReplyToMessage: {
+        messagesReplyTo: {
             forward: {
                 on: 'messages',
                 has: 'one',
@@ -934,89 +952,40 @@ const _schema = i.schema({
                 label: 'replies',
             },
         },
-        tasksAttachments: {
+        messageThreadsMembers: {
             forward: {
-                on: 'tasks',
+                on: 'messageThreads',
                 has: 'many',
-                label: 'attachments',
+                label: 'members',
             },
             reverse: {
-                on: 'taskAttachments',
+                on: 'messageThreadMembers',
+                has: 'one',
+                label: 'thread',
+            },
+        },
+        messageThreadsMessages: {
+            forward: {
+                on: 'messageThreads',
+                has: 'many',
+                label: 'messages',
+            },
+            reverse: {
+                on: 'messages',
+                has: 'one',
+                label: 'thread',
+            },
+        },
+        taskResponseFieldsTask: {
+            forward: {
+                on: 'taskResponseFields',
                 has: 'one',
                 label: 'task',
             },
-        },
-        taskUpdatesAttachments: {
-            forward: {
-                on: 'taskUpdates',
-                has: 'many',
-                label: 'attachments',
-            },
-            reverse: {
-                on: 'taskUpdateAttachments',
-                has: 'one',
-                label: 'update',
-                onDelete: 'cascade',
-            },
-        },
-        taskUpdatesTask: {
-            forward: {
-                on: 'taskUpdates',
-                has: 'one',
-                label: 'task',
-            },
             reverse: {
                 on: 'tasks',
                 has: 'many',
-                label: 'updates',
-            },
-        },
-        taskUpdatesReplyTo: {
-            forward: {
-                on: 'taskUpdates',
-                has: 'one',
-                label: 'replyTo',
-            },
-            reverse: {
-                on: 'taskUpdates',
-                has: 'many',
-                label: 'replies',
-            },
-        },
-        taskUpdatesGradeType: {
-            forward: {
-                on: 'taskUpdates',
-                has: 'one',
-                label: 'gradeType',
-            },
-            reverse: {
-                on: 'gradeTypes',
-                has: 'many',
-                label: 'taskUpdates',
-            },
-        },
-        tasksParentTask: {
-            forward: {
-                on: 'tasks',
-                has: 'one',
-                label: 'parentTask',
-            },
-            reverse: {
-                on: 'tasks',
-                has: 'many',
-                label: 'subTasks',
-            },
-        },
-        tasksPrerequisites: {
-            forward: {
-                on: 'tasks',
-                has: 'many',
-                label: 'prerequisites',
-            },
-            reverse: {
-                on: 'tasks',
-                has: 'many',
-                label: 'subsequentTasks',
+                label: 'responseFields',
             },
         },
         taskResponseFieldValuesField: {
@@ -1044,16 +1013,40 @@ const _schema = i.schema({
                 label: 'responseFieldValues',
             },
         },
-        taskResponseFieldsTask: {
+        tasksAttachments: {
             forward: {
-                on: 'taskResponseFields',
+                on: 'tasks',
+                has: 'many',
+                label: 'attachments',
+            },
+            reverse: {
+                on: 'taskAttachments',
                 has: 'one',
                 label: 'task',
+            },
+        },
+        tasksParentTask: {
+            forward: {
+                on: 'tasks',
+                has: 'one',
+                label: 'parentTask',
             },
             reverse: {
                 on: 'tasks',
                 has: 'many',
-                label: 'responseFields',
+                label: 'subTasks',
+            },
+        },
+        tasksPrerequisites: {
+            forward: {
+                on: 'tasks',
+                has: 'many',
+                label: 'prerequisites',
+            },
+            reverse: {
+                on: 'tasks',
+                has: 'many',
+                label: 'subsequentTasks',
             },
         },
         taskSeriesFamilyMember: {
@@ -1092,10 +1085,71 @@ const _schema = i.schema({
                 label: 'taskSeries',
             },
         },
+        taskUpdatesAttachments: {
+            forward: {
+                on: 'taskUpdates',
+                has: 'many',
+                label: 'attachments',
+            },
+            reverse: {
+                on: 'taskUpdateAttachments',
+                has: 'one',
+                label: 'update',
+                onDelete: 'cascade',
+            },
+        },
+        taskUpdatesGradeType: {
+            forward: {
+                on: 'taskUpdates',
+                has: 'one',
+                label: 'gradeType',
+            },
+            reverse: {
+                on: 'gradeTypes',
+                has: 'many',
+                label: 'taskUpdates',
+            },
+        },
+        taskUpdatesReplyTo: {
+            forward: {
+                on: 'taskUpdates',
+                has: 'one',
+                label: 'replyTo',
+            },
+            reverse: {
+                on: 'taskUpdates',
+                has: 'many',
+                label: 'replies',
+            },
+        },
+        taskUpdatesTask: {
+            forward: {
+                on: 'taskUpdates',
+                has: 'one',
+                label: 'task',
+            },
+            reverse: {
+                on: 'tasks',
+                has: 'many',
+                label: 'updates',
+            },
+        },
+    },
+    rooms: {
+        messageThreads: {
+            presence: i.entity({
+                activeThread: i.boolean().optional(),
+                avatarUrl: i.string().optional(),
+                composer: i.boolean().optional(),
+                familyMemberId: i.string(),
+                name: i.string(),
+            }),
+            topics: {},
+        },
     },
 });
 
-// This helps Typescript display nicer intellisense
+// This helps TypeScript display nicer intellisense
 type _AppSchema = typeof _schema;
 interface AppSchema extends _AppSchema {}
 const schema: AppSchema = _schema;

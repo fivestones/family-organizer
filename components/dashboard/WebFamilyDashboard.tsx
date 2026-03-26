@@ -31,6 +31,7 @@ import {
     type EnvelopeLike,
 } from '@/lib/dashboard-utils';
 import PersonalDashboard from '@/components/dashboard/PersonalDashboard';
+import FreeformDashboard from '@/components/freeform-dashboard/FreeformDashboard';
 import { useDashboardViewMode } from '@/lib/dashboard-view-mode';
 
 const OVERDUE_LOOKBACK_DAYS = 7;
@@ -124,12 +125,25 @@ type MemberSnapshot = {
 
 export default function WebFamilyDashboard() {
     const [viewMode] = useDashboardViewMode();
+    const [editMode, setEditMode] = useState(false);
+
+    // Listen for edit mode toggle events from the header button
+    useEffect(() => {
+        const handler = () => setEditMode((prev) => !prev);
+        window.addEventListener('freeform-dashboard:toggle-edit', handler);
+        return () => window.removeEventListener('freeform-dashboard:toggle-edit', handler);
+    }, []);
+
+    // Reset edit mode when switching away from family view
+    useEffect(() => {
+        if (viewMode !== 'family') setEditMode(false);
+    }, [viewMode]);
 
     if (viewMode === 'personal') {
         return <PersonalDashboard />;
     }
 
-    return <FamilyOverviewDashboard />;
+    return <FreeformDashboard editMode={editMode} />;
 }
 
 function FamilyOverviewDashboard() {
