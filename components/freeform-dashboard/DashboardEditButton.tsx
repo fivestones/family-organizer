@@ -34,11 +34,8 @@ export default function DashboardEditButton() {
     }, [viewMode, pathname]);
 
     const handleToggle = useCallback(() => {
-        setEditMode((prev) => {
-            const next = !prev;
-            window.dispatchEvent(new CustomEvent(FREEFORM_EDIT_TOGGLE_EVENT));
-            return next;
-        });
+        setEditMode((prev) => !prev);
+        window.dispatchEvent(new CustomEvent(FREEFORM_EDIT_TOGGLE_EVENT));
     }, []);
 
     // Only show on dashboard route, in family view, when parent
