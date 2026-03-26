@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppProviders } from '../src/providers/AppProviders';
 import { recordDiagnostic } from '../src/lib/diagnostics';
 import { ThemeProvider, useAppTheme } from '../src/theme/ThemeProvider';
@@ -164,12 +165,14 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <ServerUrlGate>
-        <AppProviders>
-          <RootNavigator />
-        </AppProviders>
-      </ServerUrlGate>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <ServerUrlGate>
+          <AppProviders>
+            <RootNavigator />
+          </AppProviders>
+        </ServerUrlGate>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
