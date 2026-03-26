@@ -84,8 +84,8 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         }
 
         // XP
-        const xp = (calculateDailyXP as any)(chores, [member], todayUtc);
-        const memberXp = xp.find((x: any) => x.memberId === member.id);
+        const xpMap = (calculateDailyXP as any)(chores, [member], todayUtc) as Record<string, { current: number; possible: number }>;
+        const memberXp = xpMap[member.id];
 
         // Calendar preview
         const weekEnd = addUtcDays(todayUtc, 7);
@@ -103,7 +103,7 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
             tasksRemaining,
             nextChoreTitle,
             nextTaskTitle,
-            xpCurrent: memberXp?.earned ?? 0,
+            xpCurrent: memberXp?.current ?? 0,
             xpPossible: memberXp?.possible ?? 0,
             nextCalendarItem: memberCalendar[0] ?? null,
             balanceLabel,
