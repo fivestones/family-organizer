@@ -677,28 +677,117 @@ export function resolveChoreTimingForDate<TChore extends SharedChoreLike>(
 }
 
 /**
- * Compute a representative minute-of-day for sorting chores chronologically.
- * - "before" modes use endOffset (the deadline) as the sort position
- * - "after" modes and named windows use startOffset (when the window opens)
- * - "anytime" sorts after all time-specific chores
+ * Return true if the resolved timing has a known time offset we can use for
+ * sorting (i.e. the anchor time was resolved from a completion, fallback, or
+ * time-based mode).
  */
-function getTimingSortMinute(timing: ResolvedSharedChoreTiming): number {
+function hasKnownTimeOffset(timing: ResolvedSharedChoreTiming): boolean {
+  if (timing.mode === 'anytime') return false;
+  if (timing.mode === 'before_time' || timing.mode === 'before_marker' || timing.mode === 'before_chore') {
+    return timing.endOffset != null;
+  }
+  return timing.startOffset != null;
+}
+
+/**
+ * Get the raw sort minute from a timing's resolved offsets, or null if unknown.
+ */
+function getRawTimingSortMinute(timing: ResolvedSharedChoreTiming): number | null {
   if (timing.mode === 'anytime') return 9999;
   if (timing.mode === 'before_time' || timing.mode === 'before_marker' || timing.mode === 'before_chore') {
-    return timing.endOffset ?? timing.anchorMinute ?? 0;
+    return timing.endOffset ?? timing.anchorMinute ?? null;
   }
-  return timing.startOffset ?? timing.anchorMinute ?? 0;
+  return timing.startOffset ?? timing.anchorMinute ?? null;
+}
+
+/**
+ * Walk the chore-anchor chain to find a time reference from the source chore.
+ * Returns the source chore's time window boundaries, or null if no time-based
+ * anchor is found anywhere in the chain.
+ */
+function resolveAnchorChainWindow(
+  chore: SharedChoreLike,
+  allChores: SharedChoreLike[],
+  context: SharedChoreTimingContext,
+  visited: Set<string>
+): { startOffset: number; endOffset: number } | null {
+  const anchor = getAnchorConfig(chore);
+  const sourceId = stringValue(anchor?.sourceChoreId || '');
+  if (!sourceId || visited.has(sourceId)) return null;
+  visited.add(sourceId);
+
+  const sourceChore = allChores.find((c) => String(c.id) === sourceId);
+  if (!sourceChore) return null;
+
+  const sourceMode = getCanonicalTimingMode(sourceChore);
+
+  // If the source chore has a time-based mode, resolve its window directly.
+  if (sourceMode !== 'anytime' && sourceMode !== 'before_chore' && sourceMode !== 'after_chore') {
+    const resolved = buildResolvedWindow(sourceChore, context);
+    if (resolved.startOffset != null && resolved.endOffset != null) {
+      return { startOffset: resolved.startOffset, endOffset: resolved.endOffset };
+    }
+  }
+
+  // If the source chore is itself chore-anchored, walk up the chain.
+  if (sourceMode === 'before_chore' || sourceMode === 'after_chore') {
+    return resolveAnchorChainWindow(sourceChore, allChores, context, visited);
+  }
+
+  return null;
+}
+
+/**
+ * Compute sort minutes for all chores, handling chore-anchor chains.
+ *
+ * For chores anchored to another chore where the anchor time is unknown
+ * (no completion, no fallback), we walk the chain to find a time-based window
+ * and place the chore just before or just after that window. If no time
+ * reference is found:
+ * - before_chore → 0 (start of day)
+ * - after_chore → 1440 (end of day, but before anytime at 9999)
+ */
+function computeSortMinutes<TChore extends SharedChoreLike>(
+  items: Array<{ chore: TChore; timing: ResolvedSharedChoreTiming }>,
+  context: SharedChoreTimingContext<TChore>
+): Map<string, number> {
+  const minuteMap = new Map<string, number>();
+  const allChores = (context.chores || items.map((i) => i.chore)) as SharedChoreLike[];
+
+  for (const { chore, timing } of items) {
+    const raw = getRawTimingSortMinute(timing);
+    if (raw != null) {
+      minuteMap.set(String(chore.id), raw);
+      continue;
+    }
+
+    // Chore-anchored with unknown time — walk the chain.
+    const isBefore = timing.mode === 'before_chore';
+    const visited = new Set<string>([String(chore.id)]);
+    const sourceWindow = resolveAnchorChainWindow(chore, allChores, context, visited);
+
+    if (sourceWindow) {
+      // Place just before the source window's start, or just after its end.
+      minuteMap.set(String(chore.id), isBefore ? sourceWindow.startOffset : sourceWindow.endOffset);
+    } else {
+      // No time reference found anywhere in the chain.
+      minuteMap.set(String(chore.id), isBefore ? 0 : 1440);
+    }
+  }
+
+  return minuteMap;
 }
 
 function compareResolvedTimings<TChore extends SharedChoreLike>(
   left: { chore: TChore; timing: ResolvedSharedChoreTiming },
-  right: { chore: TChore; timing: ResolvedSharedChoreTiming }
+  right: { chore: TChore; timing: ResolvedSharedChoreTiming },
+  sortMinutes: Map<string, number>
 ): number {
   if (left.timing.sectionOrder !== right.timing.sectionOrder) {
     return left.timing.sectionOrder - right.timing.sectionOrder;
   }
-  const leftMinute = getTimingSortMinute(left.timing);
-  const rightMinute = getTimingSortMinute(right.timing);
+  const leftMinute = sortMinutes.get(String(left.chore.id)) ?? 0;
+  const rightMinute = sortMinutes.get(String(right.chore.id)) ?? 0;
   if (leftMinute !== rightMinute) return leftMinute - rightMinute;
   const leftSort = Number.isFinite(Number(left.chore.sortOrder)) ? Number(left.chore.sortOrder) : Number.MAX_SAFE_INTEGER;
   const rightSort = Number.isFinite(Number(right.chore.sortOrder)) ? Number(right.chore.sortOrder) : Number.MAX_SAFE_INTEGER;
@@ -710,12 +799,12 @@ export function sortChoresForDisplay<TChore extends SharedChoreLike>(
   chores: TChore[],
   context: SharedChoreTimingContext<TChore>
 ): Array<{ chore: TChore; timing: ResolvedSharedChoreTiming }> {
-  return [...(chores || [])]
-    .map((chore) => ({
-      chore,
-      timing: resolveChoreTimingForDate(chore, context),
-    }))
-    .sort(compareResolvedTimings);
+  const items = [...(chores || [])].map((chore) => ({
+    chore,
+    timing: resolveChoreTimingForDate(chore, context),
+  }));
+  const sortMinutes = computeSortMinutes(items, context);
+  return items.sort((a, b) => compareResolvedTimings(a, b, sortMinutes));
 }
 
 export function groupChoresForDisplay<TChore extends SharedChoreLike>(
