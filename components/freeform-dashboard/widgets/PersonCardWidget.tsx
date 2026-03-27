@@ -11,6 +11,9 @@ import {
     getAssignedMembersForChoreOnDate,
     getCompletedChoreCompletionsForDate,
     getMemberCompletionForDate,
+    HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
+    parseSharedScheduleSettings,
+    sortChoresForDisplay,
 } from '@family-organizer/shared-core';
 import { getPhotoUrl, toInitials, buildCalendarPreviews, addUtcDays, buildMemberBalanceLabel } from '@/lib/dashboard-utils';
 import type { DashboardFamilyMember } from '@/lib/dashboard-utils';
@@ -37,6 +40,10 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         },
         calendarItems: { pertainsTo: {} },
         messageThreads: {},
+        routineMarkerStatuses: {},
+        settings: {
+            $: { where: { name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME } },
+        },
     });
 
     const member = useMemo(
@@ -49,15 +56,15 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
 
         const chores = (data.chores ?? []) as any[];
         const calendarItems = (data.calendarItems ?? []) as any[];
-        const threads = (data.messageThreads ?? []) as any[];
         const unitDefs = (data.unitDefinitions ?? []) as any[];
         const todayKey = formatDateKeyUTC(todayUtc);
+        const routineMarkerStatuses = (data.routineMarkerStatuses ?? []) as any[];
+        const scheduleSettings = parseSharedScheduleSettings(((data.settings ?? []) as any[])?.[0]?.value ?? null);
 
+        // Filter to chores assigned to this member today
+        const memberChores: any[] = [];
         let choresRemaining = 0;
         let choresTotalToday = 0;
-        let tasksRemaining = 0;
-        let nextChoreTitle: string | null = null;
-        let nextTaskTitle: string | null = null;
 
         for (const chore of chores) {
             if (!chore.rrule || !chore.startDate) continue;
@@ -66,6 +73,7 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
             if (!isAssigned) continue;
 
             choresTotalToday++;
+            memberChores.push(chore);
             const completion = getMemberCompletionForDate(
                 chore.completions ?? [],
                 todayKey,
@@ -73,18 +81,43 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
             );
             if (!completion?.completed) {
                 choresRemaining++;
-                if (!nextChoreTitle) nextChoreTitle = chore.title || 'Untitled';
+            }
+        }
 
-                // Check for task series
-                if (!nextTaskTitle && chore.taskSeries?.length) {
-                    const series = chore.taskSeries[0];
-                    const tasks = (series?.tasks ?? []).filter((t: { isDayBreak?: boolean; isCompleted?: boolean }) => !t.isDayBreak && !t.isCompleted);
-                    if (tasks.length > 0 && tasks[0]) {
-                        nextTaskTitle = (tasks[0] as { text?: string }).text || 'Task';
-                        tasksRemaining = tasks.length;
-                    }
+        // Sort using the same logic as the chores page
+        const sorted = sortChoresForDisplay<any>(memberChores, {
+            date: todayUtc,
+            routineMarkerStatuses,
+            chores,
+            scheduleSettings,
+        });
+
+        // Find first incomplete chore in sorted order
+        let nextChoreTitle: string | null = null;
+        let nextTaskTitle: string | null = null;
+        let tasksRemaining = 0;
+
+        for (const { chore } of sorted) {
+            const completion = getMemberCompletionForDate(
+                chore.completions ?? [],
+                todayKey,
+                member.id
+            );
+            if (completion?.completed) continue;
+
+            if (!nextChoreTitle) nextChoreTitle = chore.title || 'Untitled';
+
+            // Check for task series
+            if (!nextTaskTitle && chore.taskSeries?.length) {
+                const series = chore.taskSeries[0];
+                const tasks = (series?.tasks ?? []).filter((t: { isDayBreak?: boolean; isCompleted?: boolean }) => !t.isDayBreak && !t.isCompleted);
+                if (tasks.length > 0 && tasks[0]) {
+                    nextTaskTitle = (tasks[0] as { text?: string }).text || 'Task';
+                    tasksRemaining = tasks.length;
                 }
             }
+
+            if (nextChoreTitle && nextTaskTitle) break;
         }
 
         // XP
@@ -97,9 +130,6 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         // Finance
         const balanceLabel = buildMemberBalanceLabel(member as DashboardFamilyMember, unitDefs);
 
-        // Unread messages (simplified)
-        const unreadCount = 0; // Would need thread membership data for accurate count
-
         return {
             choresRemaining,
             choresTotalToday,
@@ -110,7 +140,6 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
             xpPossible: memberXp?.possible ?? 0,
             nextCalendarItem: memberCalendar[0] ?? null,
             balanceLabel,
-            unreadCount,
         };
     }, [member, data, todayUtc]);
 
