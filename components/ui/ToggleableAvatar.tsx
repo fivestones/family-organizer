@@ -234,11 +234,25 @@ const ToggleableAvatar = ({
     photoUrls,
     isComplete,
     onToggle,
+    onMarkNotDone,
     isDisabled = false,
+    isNotDone = false,
     completerName = '',
     choreTitle = '',
     isNegative = false, // +++ NEW PROP +++
     taskSeriesProgress = null as number | null, // 0-1 ratio, null = no task series
+}: {
+    name: string;
+    photoUrls?: any;
+    isComplete: boolean;
+    onToggle: (pressed: boolean) => void;
+    onMarkNotDone?: () => void;
+    isDisabled?: boolean;
+    isNotDone?: boolean;
+    completerName?: string;
+    choreTitle?: string;
+    isNegative?: boolean;
+    taskSeriesProgress?: number | null;
 }) => {
     const { toast } = useToast();
     // State now holds the array of sparkle data instead of just a boolean
@@ -252,6 +266,10 @@ const ToggleableAvatar = ({
     // We use this ref to track if the completion was triggered by a user click.
     // This prevents sparkles from showing when navigating to a day where the task is already complete.
     const wasToggledRef = useRef(false);
+
+    // Long-press detection for "not done" marking
+    const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const longPressTriggeredRef = useRef(false);
 
     const initials = name
         .split(' ')
@@ -334,7 +352,46 @@ const ToggleableAvatar = ({
         }
     }, [isComplete, isDisabled, isNegative]);
 
+    const handlePointerDown = (e: React.PointerEvent) => {
+        if (isDisabled || !onMarkNotDone) return;
+        longPressTriggeredRef.current = false;
+        longPressTimerRef.current = setTimeout(() => {
+            longPressTriggeredRef.current = true;
+            onMarkNotDone();
+        }, 600);
+    };
+
+    const handlePointerUp = () => {
+        if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+        }
+    };
+
+    const handlePointerCancel = () => {
+        if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+        }
+    };
+
+    const handleContextMenu = (e: React.MouseEvent) => {
+        if (isDisabled || !onMarkNotDone) return;
+        e.preventDefault();
+        // Clear long-press timer since context menu fires instead on some platforms
+        if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+        }
+        onMarkNotDone();
+    };
+
     const handleToggle = (pressed: boolean) => {
+        // If this click was actually the end of a long-press, ignore it
+        if (longPressTriggeredRef.current) {
+            longPressTriggeredRef.current = false;
+            return;
+        }
         if (isDisabled) {
             // +++ Show toast if disabled +++
             toast({
@@ -353,7 +410,10 @@ const ToggleableAvatar = ({
     let borderClass = 'border-amber-500 bg-transparent'; // Default Idle
     let activeClass = 'border-green-500 bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)] scale-110'; // Default Active
 
-    if (isDisabled) {
+    if (isNotDone) {
+        borderClass = 'border-gray-400 bg-gray-400'; // Not Done = gray ring with gray fill
+        activeClass = borderClass; // Same styling whether "pressed" or not
+    } else if (isDisabled) {
         borderClass = 'border-gray-400 bg-transparent';
         activeClass = 'border-gray-400 bg-transparent'; // Shouldn't be active if disabled usually, but handled below
     } else if (isNegative) {
@@ -401,9 +461,13 @@ const ToggleableAvatar = ({
 
             <Toggle
                 ref={buttonRef} // +++ Attach Ref here +++
-                pressed={isComplete && !isDisabled} // Visually unpress if disabled, even if technically complete by user
+                pressed={isComplete && !isDisabled && !isNotDone} // Visually unpress if disabled or notDone
                 // +++ Use the new handler +++
                 onPressedChange={handleToggle}
+                onPointerDown={handlePointerDown}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerCancel}
+                onContextMenu={handleContextMenu}
                 // +++ Apply disabled styles conditionally +++
                 className={cn(
                     'p-0 data-[state=on]:bg-transparent data-[state=off]:bg-transparent group relative', // Added 'group' and 'relative'
@@ -474,7 +538,7 @@ const ToggleableAvatar = ({
                             />
                         </svg>
                     )}
-                    <Avatar className="h-11 w-11 relative z-20">
+                    <Avatar className={cn("h-11 w-11 relative z-20", isNotDone && "grayscale")}>
                         {photoUrl64 ? <AvatarImage src={photoUrl64} alt={name} /> : <AvatarFallback>{initials}</AvatarFallback>}
                     </Avatar>
                 </div>

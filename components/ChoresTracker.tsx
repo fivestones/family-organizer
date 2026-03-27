@@ -108,6 +108,7 @@ interface Chore {
         completedBy: { id: string }; // Assuming link structure
         allowanceAwarded?: boolean;
         dateCompleted?: string;
+        notDone?: boolean;
     }[];
     isUpForGrabs?: boolean;
     isJoint?: boolean;
@@ -126,6 +127,7 @@ interface ChoreCompletion {
     id: string;
     completed: boolean;
     dateDue: string;
+    notDone?: boolean;
     chore?: { id: string }; // Link to chore
     completedBy?: { id: string }; // Link to member
     // Add other fields from schema if needed
@@ -600,6 +602,7 @@ function ChoresTracker({
                 db.transact([
                     tx.choreCompletions[existingCompletion.id].update({
                         completed: !existingCompletion.completed,
+                        notDone: false, // Clear notDone when toggling done status
                         dateCompleted: !existingCompletion.completed
                             ? nowIso // Use ISO string
                             : null,
@@ -662,6 +665,110 @@ function ChoresTracker({
                 description: `Failed to update chore status: ${err.message}`,
                 variant: 'destructive',
             });
+        }
+    };
+
+    // Toggle "not done" status on a chore completion for a given family member
+    const toggleChoreNotDone = async (choreId: string, familyMemberId: string, executorId?: string) => {
+        const chore = chores.find((c) => c.id === choreId);
+        const formattedDate = selectedDate.toISOString().slice(0, 10);
+
+        if (!chore) {
+            console.error('Chore not found:', choreId);
+            toast({ title: 'Error', description: 'Could not find the chore.', variant: 'destructive' });
+            return;
+        }
+
+        const currentCompletions = chore.completions || [];
+        const existingCompletion = currentCompletions.find(
+            (completion) => completion.completedBy?.id === familyMemberId && completion.dateDue === formattedDate
+        );
+
+        try {
+            if (existingCompletion) {
+                // Toggle: if already notDone, revert to pending; if pending/done, mark notDone
+                const isCurrentlyNotDone = existingCompletion.notDone === true;
+                const nowIso = new Date().toISOString();
+                const historyEvent = buildHistoryEventTransactions({
+                    tx,
+                    createId: id,
+                    occurredAt: nowIso,
+                    domain: 'chores',
+                    actionType: isCurrentlyNotDone ? 'chore_marked_undone' : 'chore_marked_not_done',
+                    summary: isCurrentlyNotDone
+                        ? `Reverted "${chore.title}" to pending`
+                        : `Marked "${chore.title}" as not done`,
+                    source: 'manual',
+                    actorFamilyMemberId: executorId || familyMemberId,
+                    affectedFamilyMemberIds: [familyMemberId],
+                    choreId,
+                    scheduledForDate: formattedDate,
+                    metadata: {
+                        choreTitle: chore.title,
+                        notDone: !isCurrentlyNotDone,
+                        dateDue: formattedDate,
+                    },
+                });
+                db.transact([
+                    tx.choreCompletions[existingCompletion.id].update({
+                        completed: false,
+                        notDone: isCurrentlyNotDone ? false : true,
+                        dateCompleted: null,
+                    }),
+                    ...historyEvent.transactions,
+                ]);
+                toast({
+                    title: isCurrentlyNotDone ? 'Reverted to Pending' : 'Marked Not Done',
+                    description: isCurrentlyNotDone
+                        ? `${chore.title} is back to pending.`
+                        : `${chore.title} marked as not done.`,
+                });
+            } else {
+                // Create new completion record with notDone = true
+                const newCompletionId = id();
+                const nowIso = new Date().toISOString();
+                const transactions: any[] = [
+                    tx.choreCompletions[newCompletionId].update({
+                        dateDue: formattedDate,
+                        dateCompleted: null,
+                        completed: false,
+                        notDone: true,
+                        allowanceAwarded: false,
+                    }),
+                    tx.chores[choreId].link({ completions: newCompletionId }),
+                    tx.familyMembers[familyMemberId].link({ completedChores: newCompletionId }),
+                ];
+
+                if (executorId) {
+                    transactions.push(tx.familyMembers[executorId].link({ markedCompletions: newCompletionId }));
+                }
+
+                const historyEvent = buildHistoryEventTransactions({
+                    tx,
+                    createId: id,
+                    occurredAt: nowIso,
+                    domain: 'chores',
+                    actionType: 'chore_marked_not_done',
+                    summary: `Marked "${chore.title}" as not done`,
+                    source: 'manual',
+                    actorFamilyMemberId: executorId || familyMemberId,
+                    affectedFamilyMemberIds: [familyMemberId],
+                    choreId,
+                    scheduledForDate: formattedDate,
+                    metadata: {
+                        choreTitle: chore.title,
+                        notDone: true,
+                        dateDue: formattedDate,
+                    },
+                });
+                transactions.push(...historyEvent.transactions);
+
+                db.transact(transactions);
+                toast({ title: 'Marked Not Done', description: `${chore.title} marked as not done.` });
+            }
+        } catch (err: any) {
+            console.error('Error toggling not-done status:', err);
+            toast({ title: 'Error', description: `Failed to update chore status: ${err.message}`, variant: 'destructive' });
         }
     };
 
@@ -1261,6 +1368,7 @@ function ChoresTracker({
                                 selectedMember={selectedMember}
                                 selectedDate={selectedDate} // Pass selectedDate
                                 toggleChoreDone={toggleChoreDone}
+                                toggleChoreNotDone={toggleChoreNotDone}
                                 updateChore={updateChore}
                                 updateChoreSchedule={updateChoreSchedule}
                                 deleteChore={deleteChore}

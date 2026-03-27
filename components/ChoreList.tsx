@@ -29,6 +29,7 @@ function ChoreList({
     selectedMember,
     selectedDate,
     toggleChoreDone,
+    toggleChoreNotDone,
     updateChore,
     updateChoreSchedule,
     deleteChore,
@@ -687,12 +688,15 @@ function ChoreList({
 
                                     const taskSeriesProgress = getTaskSeriesProgress(visibleTasks, allTasks);
 
+                                    const isNotDone = completion?.notDone === true;
+
                                     return (
                                         <ToggleableAvatar
                                             key={assignee.id}
                                             name={assignee.name}
                                             photoUrls={familyMember?.photoUrls}
                                             isComplete={completion?.completed || false}
+                                            isNotDone={isNotDone}
                                             taskSeriesProgress={taskSeriesProgress}
                                             // Pass down disabled state and completer info
                                             isDisabled={isDisabled}
@@ -705,6 +709,13 @@ function ChoreList({
                                                     // Use new handler to check for incomplete tasks, passing allTasks for header detection
                                                     handleAvatarClick(chore, assignee.id, visibleTasks, allTasks);
                                                 }
+                                            }}
+                                            onMarkNotDone={() => {
+                                                if (!currentUser) {
+                                                    toast({ title: 'Login Required', description: 'Please log in first.', variant: 'destructive' });
+                                                    return;
+                                                }
+                                                toggleChoreNotDone(chore.id, assignee.id, currentUser.id);
                                             }}
                                         />
                                     );

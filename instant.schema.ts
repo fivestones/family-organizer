@@ -182,6 +182,7 @@ const _schema = i.schema({
             completed: i.boolean(),
             dateCompleted: i.string().optional(),
             dateDue: i.string(),
+            notDone: i.boolean().optional(),
         }),
         chores: i.entity({
             advanceCompletionLimit: i.any().optional(),
