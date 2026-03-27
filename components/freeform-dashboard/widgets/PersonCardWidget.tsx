@@ -7,7 +7,6 @@ import { registerFreeformWidget } from '@/lib/freeform-dashboard/freeform-widget
 import type { FreeformWidgetProps } from '@/lib/freeform-dashboard/types';
 import {
     calculateDailyXP,
-    formatDateKeyUTC,
     getAssignedMembersForChoreOnDate,
     getCompletedChoreCompletionsForDate,
     getMemberCompletionForDate,
@@ -57,7 +56,6 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         const chores = (data.chores ?? []) as any[];
         const calendarItems = (data.calendarItems ?? []) as any[];
         const unitDefs = (data.unitDefinitions ?? []) as any[];
-        const todayKey = formatDateKeyUTC(todayUtc);
         const routineMarkerStatuses = (data.routineMarkerStatuses ?? []) as any[];
         const scheduleSettings = parseSharedScheduleSettings(((data.settings ?? []) as any[])?.[0]?.value ?? null);
 
@@ -73,13 +71,9 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
             if (!isAssigned) continue;
 
             choresTotalToday++;
-            const completion = getMemberCompletionForDate(
-                chore.completions ?? [],
-                todayKey,
-                member.id
-            );
-            // Skip chores with any completion record (done or explicitly marked "not done")
-            if (completion) continue;
+            const completion = getMemberCompletionForDate(chore, member.id, todayUtc) as any;
+            // Skip chores that are done or explicitly marked "not done"
+            if (completion?.completed || completion?.notDone) continue;
             choresRemaining++;
             memberChores.push(chore);
         }
