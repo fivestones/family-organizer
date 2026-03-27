@@ -53,6 +53,52 @@ describe('shared-core chore timing helpers', () => {
         expect(sorted.map((entry) => entry.chore.id)).toEqual(['morning-a', 'morning-b', 'evening']);
     });
 
+    it('sorts chores chronologically: timed windows before anytime, before-marker by deadline', () => {
+        const chores: SharedChoreLike[] = [
+            makeChore({
+                id: 'anytime-chore',
+                title: 'Make your bed',
+                timingMode: 'anytime',
+                timingConfig: { mode: 'anytime' },
+            }),
+            makeChore({
+                id: 'before-bedtime',
+                title: 'Brush teeth before bed',
+                timingMode: 'before_marker',
+                timingConfig: {
+                    mode: 'before_marker',
+                    anchor: { sourceType: 'routine', routineKey: 'bedtime', fallbackTime: '20:30' },
+                },
+            }),
+            makeChore({
+                id: 'morning-chore',
+                title: 'Brush teeth in the morning',
+                timeBucket: 'morning',
+                timingMode: 'named_window',
+                timingConfig: { mode: 'named_window', namedWindowKey: 'morning' },
+            }),
+            makeChore({
+                id: 'before-breakfast',
+                title: 'Set the table',
+                timingMode: 'before_marker',
+                timingConfig: {
+                    mode: 'before_marker',
+                    anchor: { sourceType: 'routine', routineKey: 'breakfast', fallbackTime: '08:00' },
+                },
+            }),
+        ];
+
+        const sorted = sortChoresForDisplay(chores, { date: new Date('2026-03-22T00:00:00Z'), chores });
+
+        // Expected: morning (start 420) → before-breakfast (deadline 480) → before-bedtime (deadline 1230) → anytime (9999)
+        expect(sorted.map((entry) => entry.chore.id)).toEqual([
+            'morning-chore',
+            'before-breakfast',
+            'before-bedtime',
+            'anytime-chore',
+        ]);
+    });
+
     it('resolves routine-anchor timing from marker status rows', () => {
         const routineStatuses: SharedRoutineMarkerStatusLike[] = [
             {

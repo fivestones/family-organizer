@@ -676,6 +676,20 @@ export function resolveChoreTimingForDate<TChore extends SharedChoreLike>(
   };
 }
 
+/**
+ * Compute a representative minute-of-day for sorting chores chronologically.
+ * - "before" modes use endOffset (the deadline) as the sort position
+ * - "after" modes and named windows use startOffset (when the window opens)
+ * - "anytime" sorts after all time-specific chores
+ */
+function getTimingSortMinute(timing: ResolvedSharedChoreTiming): number {
+  if (timing.mode === 'anytime') return 9999;
+  if (timing.mode === 'before_time' || timing.mode === 'before_marker' || timing.mode === 'before_chore') {
+    return timing.endOffset ?? timing.anchorMinute ?? 0;
+  }
+  return timing.startOffset ?? timing.anchorMinute ?? 0;
+}
+
 function compareResolvedTimings<TChore extends SharedChoreLike>(
   left: { chore: TChore; timing: ResolvedSharedChoreTiming },
   right: { chore: TChore; timing: ResolvedSharedChoreTiming }
@@ -683,6 +697,9 @@ function compareResolvedTimings<TChore extends SharedChoreLike>(
   if (left.timing.sectionOrder !== right.timing.sectionOrder) {
     return left.timing.sectionOrder - right.timing.sectionOrder;
   }
+  const leftMinute = getTimingSortMinute(left.timing);
+  const rightMinute = getTimingSortMinute(right.timing);
+  if (leftMinute !== rightMinute) return leftMinute - rightMinute;
   const leftSort = Number.isFinite(Number(left.chore.sortOrder)) ? Number(left.chore.sortOrder) : Number.MAX_SAFE_INTEGER;
   const rightSort = Number.isFinite(Number(right.chore.sortOrder)) ? Number(right.chore.sortOrder) : Number.MAX_SAFE_INTEGER;
   if (leftSort !== rightSort) return leftSort - rightSort;
