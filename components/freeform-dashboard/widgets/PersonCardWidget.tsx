@@ -18,6 +18,7 @@ import { getPhotoUrl, toInitials, buildCalendarPreviews, addUtcDays, buildMember
 import type { DashboardFamilyMember } from '@/lib/dashboard-utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import CalendarEventDetailDialog from '@/components/CalendarEventDetailDialog';
+import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
 
 function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetProps) {
     const memberId = config.memberId as string | undefined;
@@ -140,34 +141,36 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         setDetailOpen(true);
     }, []);
 
+    const { s, sv } = useWidgetScale();
+
     if (!member) {
         return (
-            <div className="flex h-full items-center justify-center p-2 text-xs text-slate-400">
+            <div className="flex h-full items-center justify-center text-slate-400" style={{ padding: s(8), fontSize: sv(12) }}>
                 {memberId ? 'Member not found' : 'No member configured'}
             </div>
         );
     }
 
-    const isNarrow = width < 200;
-    const isShort = height < 260;
+    const avatarSize = s(32);
+    const isShort = height < s(260);
 
     return (
-        <div className="flex h-full flex-col p-3">
+        <div className="flex h-full flex-col" style={{ padding: s(12) }}>
             {/* Avatar + Name */}
-            <div className="mb-2 flex items-center gap-2">
-                <Avatar className={isNarrow ? 'h-7 w-7' : 'h-8 w-8'}>
+            <div className="flex items-center" style={{ marginBottom: s(8), gap: s(8) }}>
+                <Avatar style={{ width: avatarSize, height: avatarSize }}>
                     <AvatarImage src={getPhotoUrl(member)} />
-                    <AvatarFallback className="text-xs">{toInitials(member.name)}</AvatarFallback>
+                    <AvatarFallback style={{ fontSize: sv(12) }}>{toInitials(member.name)}</AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-slate-900">{member.name}</div>
+                    <div className="truncate font-semibold text-slate-900" style={{ fontSize: sv(14) }}>{member.name}</div>
                 </div>
             </div>
 
             {/* Quick stats row */}
             {stats && (
                 <>
-                    <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                    <div className="flex flex-wrap text-slate-500" style={{ marginBottom: s(8), gap: `${s(4)}px ${s(12)}px`, fontSize: sv(10) }}>
                         <span title="XP">
                             ⚡ {stats.xpCurrent}/{stats.xpPossible}
                         </span>
@@ -184,11 +187,11 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
 
                     {/* Next chore */}
                     {stats.nextChoreTitle && !isShort && (
-                        <div className="mb-1.5 rounded-lg bg-slate-50 px-2 py-1.5">
-                            <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Next</div>
-                            <div className="truncate text-xs text-slate-700">{stats.nextChoreTitle}</div>
+                        <div className="rounded-lg bg-slate-50" style={{ marginBottom: s(6), padding: `${s(6)}px ${s(8)}px` }}>
+                            <div className="font-medium uppercase tracking-wider text-slate-400" style={{ fontSize: sv(10) }}>Next</div>
+                            <div className="truncate text-slate-700" style={{ fontSize: sv(12) }}>{stats.nextChoreTitle}</div>
                             {stats.nextTaskTitle && (
-                                <div className="mt-0.5 truncate text-[10px] text-slate-500">→ {stats.nextTaskTitle}</div>
+                                <div className="truncate text-slate-500" style={{ marginTop: s(2), fontSize: sv(10) }}>→ {stats.nextTaskTitle}</div>
                             )}
                         </div>
                     )}
@@ -196,12 +199,13 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
                     {/* Next calendar item */}
                     {stats.nextCalendarItem && !isShort && (
                         <div
-                            className="mt-auto cursor-pointer rounded-lg bg-blue-50 px-2 py-1.5 transition-colors hover:bg-blue-100"
+                            className="mt-auto cursor-pointer rounded-lg bg-blue-50 transition-colors hover:bg-blue-100"
+                            style={{ padding: `${s(6)}px ${s(8)}px` }}
                             onDoubleClick={() => handleCalendarDoubleClick(stats.nextCalendarItem!.id)}
                         >
-                            <div className="truncate text-xs font-medium text-blue-700">{stats.nextCalendarItem.title}</div>
-                            <div className="text-[10px] text-blue-500">{stats.nextCalendarItem.relativeLabel}</div>
-                            <div className="text-[10px] text-blue-400">{stats.nextCalendarItem.dateLabel}</div>
+                            <div className="truncate font-medium text-blue-700" style={{ fontSize: sv(12) }}>{stats.nextCalendarItem.title}</div>
+                            <div className="text-blue-500" style={{ fontSize: sv(10) }}>{stats.nextCalendarItem.relativeLabel}</div>
+                            <div className="text-blue-400" style={{ fontSize: sv(10) }}>{stats.nextCalendarItem.dateLabel}</div>
                         </div>
                     )}
                 </>

@@ -17,6 +17,7 @@ import { toInitials } from '@/lib/dashboard-utils';
 import { getPhotoUrl } from '@/lib/photo-urls';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { buildMemberColorMap } from '@/lib/family-member-colors';
+import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
 
 interface ChoreRow {
     choreId: string;
@@ -28,42 +29,45 @@ interface ChoreRow {
 
 /* ── SVG helpers ─────────────────────────────────────────────── */
 
-const RING_SIZE = 30;
-const RING_STROKE = 2.5;
-const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-
-const NODE_SIZE = 22;
-const NODE_STROKE = 2;
-const LINE_WIDTH = 1.5;
-
-function XpRing({ color, percent }: { color: string; percent: number }) {
-    const dashoffset = RING_CIRCUMFERENCE * (1 - percent);
+function XpRing({
+    color,
+    percent,
+    size,
+    stroke,
+}: {
+    color: string;
+    percent: number;
+    size: number;
+    stroke: number;
+}) {
+    const radius = (size - stroke) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const dashoffset = circumference * (1 - percent);
     return (
         <svg
-            width={RING_SIZE}
-            height={RING_SIZE}
+            width={size}
+            height={size}
             className="absolute inset-0"
             style={{ transform: 'rotate(90deg)' }}
         >
             <circle
-                cx={RING_SIZE / 2}
-                cy={RING_SIZE / 2}
-                r={RING_RADIUS}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
                 fill="none"
                 stroke={color}
                 strokeOpacity={0.15}
-                strokeWidth={RING_STROKE}
+                strokeWidth={stroke}
             />
             {percent > 0 && (
                 <circle
-                    cx={RING_SIZE / 2}
-                    cy={RING_SIZE / 2}
-                    r={RING_RADIUS}
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={radius}
                     fill="none"
                     stroke={color}
-                    strokeWidth={RING_STROKE}
-                    strokeDasharray={RING_CIRCUMFERENCE}
+                    strokeWidth={stroke}
+                    strokeDasharray={circumference}
                     strokeDashoffset={dashoffset}
                     strokeLinecap="round"
                 />
@@ -181,22 +185,36 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
         return last;
     }, [choreRows]);
 
-    /* ── Layout measurements ──────────────────────────────────── */
-    const RING_MARGIN_TOP = 4;
-    const headerHeight = 44;
-    const rowHeight = 36;
-    const maxRows = Math.max(1, Math.floor((height - headerHeight) / rowHeight));
+    const { s, sv } = useWidgetScale();
+
+    /* ── Scaled layout measurements ───────────────────────────── */
+    const RING_MARGIN_TOP = s(4);
+    const ringSize = s(30);
+    const ringStroke = s(2.5);
+    const nodeSize = s(22);
+    const nodeStroke = s(2);
+    const lineWidth = s(1.5);
+    const headerAvatarSize = s(24);
+    const cellAvatarSize = s(20);
+    const cellIconSize = s(20);
+    const cellSvgSize = s(12);
+    const cellSmallAvatarSize = s(16);
+
+    const headerHeight = s(44);
+    const rowHeight = s(36);
+    const padding = s(12);
+    const maxRows = Math.max(1, Math.floor((height - headerHeight - padding * 2) / rowHeight));
     const visibleRows = choreRows.slice(0, maxRows);
     const hiddenCount = choreRows.length - visibleRows.length;
 
-    const labelWidth = Math.min(160, Math.max(80, width * 0.3));
+    const labelWidth = Math.min(s(160), Math.max(s(80), width * 0.3));
     const memberColWidth =
         members.length > 0
-            ? Math.min(40, (width - labelWidth - 16) / members.length)
-            : 40;
+            ? Math.min(s(40), (width - labelWidth - s(16)) / members.length)
+            : s(40);
 
     return (
-        <div className="flex h-full flex-col p-3">
+        <div className="flex h-full flex-col" style={{ padding }}>
             {/* Single relative container for header + rows so lines can span continuously */}
             <div className="relative flex flex-col">
                 {/* ── Continuous vertical lines (one per member, behind everything) ── */}
@@ -206,7 +224,7 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                     const clampedLast = Math.min(lastRow, visibleRows.length - 1);
                     const color = colorMap[m.id] || '#94A3B8';
 
-                    const lineTop = RING_MARGIN_TOP + RING_SIZE;
+                    const lineTop = RING_MARGIN_TOP + ringSize;
                     const lineBottom =
                         headerHeight + clampedLast * rowHeight + rowHeight / 2;
                     const lineX =
@@ -217,10 +235,10 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                             key={`line-${m.id}`}
                             className="absolute"
                             style={{
-                                left: lineX - LINE_WIDTH / 2,
+                                left: lineX - lineWidth / 2,
                                 top: lineTop,
                                 height: lineBottom - lineTop,
-                                width: LINE_WIDTH,
+                                width: lineWidth,
                                 backgroundColor: color,
                             }}
                         />
@@ -228,10 +246,10 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                 })}
 
                 {/* ── Header row ───────────────────────────────────── */}
-                <div className="relative z-10 flex items-end" style={{ height: headerHeight }}>
+                <div className="flex items-end" style={{ height: headerHeight }}>
                     <div
-                        className="shrink-0 pb-1 text-xs font-semibold text-slate-500"
-                        style={{ width: labelWidth }}
+                        className="shrink-0 pb-1 font-semibold text-slate-500"
+                        style={{ width: labelWidth, fontSize: sv(12) }}
                     >
                         Today&apos;s Chores
                     </div>
@@ -251,20 +269,20 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                     style={{ width: memberColWidth, height: headerHeight }}
                                 >
                                     <div
-                                        className="relative flex items-center justify-center"
+                                        className="relative z-10 flex items-center justify-center"
                                         style={{
-                                            width: RING_SIZE,
-                                            height: RING_SIZE,
+                                            width: ringSize,
+                                            height: ringSize,
                                             marginTop: RING_MARGIN_TOP,
                                         }}
                                     >
-                                        <XpRing color={color} percent={percent} />
-                                        <Avatar className="h-6 w-6">
+                                        <XpRing color={color} percent={percent} size={ringSize} stroke={ringStroke} />
+                                        <Avatar style={{ width: headerAvatarSize, height: headerAvatarSize }}>
                                             <AvatarImage
-                                                src={getPhotoUrl(m.photoUrls, '64')}
+                                                src={getPhotoUrl(m.photoUrls, '320')}
                                                 alt={m.name}
                                             />
-                                            <AvatarFallback className="text-[9px]">
+                                            <AvatarFallback style={{ fontSize: sv(9) }}>
                                                 {toInitials(m.name)}
                                             </AvatarFallback>
                                         </Avatar>
@@ -279,12 +297,12 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                 {visibleRows.map((row, rowIndex) => (
                     <div
                         key={row.choreId}
-                        className="relative z-10 flex items-center border-t border-slate-100"
+                        className="flex items-center border-t border-slate-100"
                         style={{ height: rowHeight }}
                     >
                         <div
-                            className="shrink-0 truncate text-xs text-slate-700"
-                            style={{ width: labelWidth }}
+                            className="shrink-0 truncate text-slate-700"
+                            style={{ width: labelWidth, fontSize: sv(12) }}
                             title={row.title}
                         >
                             {row.title}
@@ -312,31 +330,32 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                         {isAssigned ? (
                                             isCompleted ? (
                                                 <div
-                                                    className="flex items-center justify-center rounded-full"
+                                                    className="relative z-10 flex items-center justify-center rounded-full"
                                                     style={{
-                                                        width: NODE_SIZE,
-                                                        height: NODE_SIZE,
-                                                        border: `${NODE_STROKE}px solid ${color}`,
+                                                        width: nodeSize,
+                                                        height: nodeSize,
+                                                        border: `${nodeStroke}px solid ${color}`,
                                                         backgroundColor: 'white',
                                                     }}
                                                 >
-                                                    <Avatar className="h-4 w-4">
+                                                    <Avatar style={{ width: cellSmallAvatarSize, height: cellSmallAvatarSize }}>
                                                         <AvatarImage
-                                                            src={getPhotoUrl(
-                                                                m.photoUrls,
-                                                                '64',
-                                                            )}
+                                                            src={getPhotoUrl(m.photoUrls, '320')}
                                                             alt={m.name}
                                                         />
-                                                        <AvatarFallback className="text-[7px]">
+                                                        <AvatarFallback style={{ fontSize: sv(7) }}>
                                                             {toInitials(m.name)}
                                                         </AvatarFallback>
                                                     </Avatar>
                                                 </div>
                                             ) : isNotDone ? (
-                                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100">
+                                                <div
+                                                    className="relative z-10 flex items-center justify-center rounded-full bg-slate-100"
+                                                    style={{ width: cellIconSize, height: cellIconSize }}
+                                                >
                                                     <svg
-                                                        className="h-3 w-3 text-slate-400"
+                                                        style={{ width: cellSvgSize, height: cellSvgSize }}
+                                                        className="text-slate-400"
                                                         viewBox="0 0 12 12"
                                                         fill="none"
                                                     >
@@ -349,16 +368,13 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                                     </svg>
                                                 </div>
                                             ) : (
-                                                <div className="rounded-full bg-white">
-                                                    <Avatar className="h-5 w-5 opacity-50">
+                                                <div className="relative z-10 rounded-full bg-white">
+                                                    <Avatar className="opacity-50" style={{ width: cellAvatarSize, height: cellAvatarSize }}>
                                                         <AvatarImage
-                                                            src={getPhotoUrl(
-                                                                m.photoUrls,
-                                                                '64',
-                                                            )}
+                                                            src={getPhotoUrl(m.photoUrls, '320')}
                                                             alt={m.name}
                                                         />
-                                                        <AvatarFallback className="text-[8px]">
+                                                        <AvatarFallback style={{ fontSize: sv(8) }}>
                                                             {toInitials(m.name)}
                                                         </AvatarFallback>
                                                     </Avatar>
@@ -378,13 +394,13 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
             </div>
 
             {hiddenCount > 0 && (
-                <div className="mt-1 text-[10px] text-slate-400">
+                <div style={{ marginTop: s(4), fontSize: sv(10) }} className="text-slate-400">
                     +{hiddenCount} more
                 </div>
             )}
 
             {choreRows.length === 0 && (
-                <div className="flex flex-1 items-center justify-center text-xs text-slate-400">
+                <div className="flex flex-1 items-center justify-center text-slate-400" style={{ fontSize: sv(12) }}>
                     No chores today
                 </div>
             )}
@@ -397,8 +413,7 @@ registerFreeformWidget({
         type: 'chore-matrix',
         label: 'Chore Matrix',
         icon: Grid3X3,
-        description:
-            "Grid of today's chores with family member completion status",
+        description: 'Grid of today\'s chores with family member completion status',
         minWidth: 300,
         minHeight: 200,
         defaultWidth: 600,

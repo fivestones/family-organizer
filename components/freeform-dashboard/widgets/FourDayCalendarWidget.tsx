@@ -5,8 +5,10 @@ import { CalendarDays } from 'lucide-react';
 import { registerFreeformWidget } from '@/lib/freeform-dashboard/freeform-widget-registry';
 import type { FreeformWidgetProps } from '@/lib/freeform-dashboard/types';
 import Calendar from '@/components/Calendar';
+import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
 
 function FourDayCalendarWidget({ config, width, height }: FreeformWidgetProps) {
+    const { scale } = useWidgetScale();
     const dayCount = typeof config.dayCount === 'number' ? config.dayCount : 4;
     const showChores = typeof config.showChores === 'boolean' ? config.showChores : false;
     const memberIds = Array.isArray(config.memberIds) ? (config.memberIds as string[]) : undefined;
@@ -21,8 +23,8 @@ function FourDayCalendarWidget({ config, width, height }: FreeformWidgetProps) {
                 viewMode="day"
                 dayVisibleDays={dayCount}
                 dayRowCount={1}
-                dayHourHeight={48}
-                dayFontScale={0.7}
+                dayHourHeight={Math.round(48 * scale)}
+                dayFontScale={0.7 * scale}
                 dayBufferDays={7}
                 showChores={showChores}
                 commandBusEnabled={false}

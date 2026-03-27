@@ -11,6 +11,7 @@ import {
     getCompletedChoreCompletionsForDate,
 } from '@family-organizer/shared-core';
 import { addUtcDays } from '@/lib/dashboard-utils';
+import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
 
 function PulseStatsBarWidget({ width, height, todayUtc }: FreeformWidgetProps) {
     const { data } = db.useQuery({
@@ -69,16 +70,16 @@ function PulseStatsBarWidget({ width, height, todayUtc }: FreeformWidgetProps) {
         };
     }, [data, todayUtc]);
 
-    const isCompact = height < 60;
+    const { s, sv } = useWidgetScale();
 
     return (
-        <div className={`flex h-full items-center gap-4 px-4 ${isCompact ? 'text-xs' : 'text-sm'} text-slate-600`}>
+        <div className="flex h-full items-center text-slate-600" style={{ gap: s(16), paddingLeft: s(16), paddingRight: s(16), fontSize: sv(14) }}>
             <span className="font-medium text-slate-900">
                 {stats.completedChores}/{stats.totalChores} chores done
             </span>
             <span className="text-slate-300">·</span>
             <span>{stats.eventsToday} events today</span>
-            {width > 500 && (
+            {width > s(500) && (
                 <>
                     <span className="text-slate-300">·</span>
                     <span>{stats.unreadThreads > 0 ? `${stats.unreadThreads} unread` : 'No unread messages'}</span>
