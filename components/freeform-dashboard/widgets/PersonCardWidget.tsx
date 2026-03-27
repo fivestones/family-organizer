@@ -73,15 +73,15 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
             if (!isAssigned) continue;
 
             choresTotalToday++;
-            memberChores.push(chore);
             const completion = getMemberCompletionForDate(
                 chore.completions ?? [],
                 todayKey,
                 member.id
             );
-            if (!completion?.completed) {
-                choresRemaining++;
-            }
+            // Skip chores with any completion record (done or explicitly marked "not done")
+            if (completion) continue;
+            choresRemaining++;
+            memberChores.push(chore);
         }
 
         // Sort using the same logic as the chores page
@@ -98,13 +98,6 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         let tasksRemaining = 0;
 
         for (const { chore } of sorted) {
-            const completion = getMemberCompletionForDate(
-                chore.completions ?? [],
-                todayKey,
-                member.id
-            );
-            if (completion?.completed) continue;
-
             if (!nextChoreTitle) nextChoreTitle = chore.title || 'Untitled';
 
             // Check for task series
