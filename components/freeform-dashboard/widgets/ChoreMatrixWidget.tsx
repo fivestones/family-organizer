@@ -182,6 +182,7 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
     }, [choreRows]);
 
     /* ── Layout measurements ──────────────────────────────────── */
+    const RING_MARGIN_TOP = 4;
     const headerHeight = 44;
     const rowHeight = 36;
     const maxRows = Math.max(1, Math.floor((height - headerHeight) / rowHeight));
@@ -196,178 +197,185 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
 
     return (
         <div className="flex h-full flex-col p-3">
-            {/* ── Header row ───────────────────────────────────── */}
-            <div className="mb-1 flex items-end" style={{ height: headerHeight }}>
-                <div
-                    className="shrink-0 pb-1 text-xs font-semibold text-slate-500"
-                    style={{ width: labelWidth }}
-                >
-                    Today&apos;s Chores
-                </div>
-                <div className="flex flex-1 items-stretch">
-                    {members.map((m) => {
-                        const color = colorMap[m.id] || '#94A3B8';
-                        const xp = xpMap[m.id] || { current: 0, possible: 0 };
-                        const percent =
-                            xp.possible > 0
-                                ? Math.max(0, Math.min(1, xp.current / xp.possible))
-                                : 0;
-                        const hasChores = memberLastRowIndex[m.id] !== undefined;
+            {/* Single relative container for header + rows so lines can span continuously */}
+            <div className="relative flex flex-col">
+                {/* ── Continuous vertical lines (one per member, behind everything) ── */}
+                {members.map((m, colIdx) => {
+                    const lastRow = memberLastRowIndex[m.id];
+                    if (lastRow === undefined) return null;
+                    const clampedLast = Math.min(lastRow, visibleRows.length - 1);
+                    const color = colorMap[m.id] || '#94A3B8';
 
-                        return (
-                            <div
-                                key={m.id}
-                                className="relative flex flex-col items-center"
-                                style={{ width: memberColWidth, height: headerHeight }}
-                            >
-                                {/* Ring + avatar (centered) */}
-                                <div
-                                    className="relative z-10 flex items-center justify-center"
-                                    style={{ width: RING_SIZE, height: RING_SIZE, marginTop: 4 }}
-                                >
-                                    <XpRing color={color} percent={percent} />
-                                    <Avatar className="h-6 w-6">
-                                        <AvatarImage
-                                            src={getPhotoUrl(m.photoUrls, '64')}
-                                            alt={m.name}
-                                        />
-                                        <AvatarFallback className="text-[9px]">
-                                            {toInitials(m.name)}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                </div>
+                    const lineTop = RING_MARGIN_TOP + RING_SIZE;
+                    const lineBottom =
+                        headerHeight + clampedLast * rowHeight + rowHeight / 2;
+                    const lineX =
+                        labelWidth + colIdx * memberColWidth + memberColWidth / 2;
 
-                                {/* Vertical line: ring bottom → past header bottom (overlaps into first row) */}
-                                {hasChores && (
-                                    <div
-                                        className="absolute left-1/2 -translate-x-1/2"
-                                        style={{
-                                            top: RING_SIZE + 4,
-                                            bottom: -2,
-                                            width: LINE_WIDTH,
-                                            backgroundColor: color,
-                                        }}
-                                    />
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
+                    return (
+                        <div
+                            key={`line-${m.id}`}
+                            className="absolute"
+                            style={{
+                                left: lineX - LINE_WIDTH / 2,
+                                top: lineTop,
+                                height: lineBottom - lineTop,
+                                width: LINE_WIDTH,
+                                backgroundColor: color,
+                            }}
+                        />
+                    );
+                })}
 
-            {/* ── Chore rows ───────────────────────────────────── */}
-            {visibleRows.map((row, rowIndex) => (
-                <div
-                    key={row.choreId}
-                    className="flex items-center border-t border-slate-100"
-                    style={{ height: rowHeight }}
-                >
+                {/* ── Header row ───────────────────────────────────── */}
+                <div className="relative z-10 flex items-end" style={{ height: headerHeight }}>
                     <div
-                        className="shrink-0 truncate text-xs text-slate-700"
+                        className="shrink-0 pb-1 text-xs font-semibold text-slate-500"
                         style={{ width: labelWidth }}
-                        title={row.title}
                     >
-                        {row.title}
+                        Today&apos;s Chores
                     </div>
-
-                    <div className="flex flex-1 items-center">
+                    <div className="flex flex-1 items-stretch">
                         {members.map((m) => {
                             const color = colorMap[m.id] || '#94A3B8';
-                            const isAssigned = row.assignedMemberIds.has(m.id);
-                            const isCompleted = row.completedMemberIds.has(m.id);
-                            const isNotDone = row.notDoneMemberIds.has(m.id);
-                            const lastRow = memberLastRowIndex[m.id];
-                            const showLine =
-                                lastRow !== undefined && rowIndex <= lastRow;
-                            const isLast = rowIndex === lastRow;
+                            const xp = xpMap[m.id] || { current: 0, possible: 0 };
+                            const percent =
+                                xp.possible > 0
+                                    ? Math.max(0, Math.min(1, xp.current / xp.possible))
+                                    : 0;
 
                             return (
                                 <div
                                     key={m.id}
-                                    className="relative flex items-center justify-center"
-                                    style={{
-                                        width: memberColWidth,
-                                        height: rowHeight,
-                                    }}
+                                    className="flex flex-col items-center"
+                                    style={{ width: memberColWidth, height: headerHeight }}
                                 >
-                                    {/* Vertical line segment — extends 1px past cell edges to bridge row borders */}
-                                    {showLine && (
-                                        <div
-                                            className="absolute left-1/2 -translate-x-1/2"
-                                            style={{
-                                                top: -1,
-                                                bottom: isLast ? '50%' : -1,
-                                                width: LINE_WIDTH,
-                                                backgroundColor: color,
-                                            }}
-                                        />
-                                    )}
-
-                                    {/* Node / content */}
-                                    {isAssigned ? (
-                                        isCompleted ? (
-                                            <div
-                                                className="relative z-10 flex items-center justify-center rounded-full"
-                                                style={{
-                                                    width: NODE_SIZE,
-                                                    height: NODE_SIZE,
-                                                    border: `${NODE_STROKE}px solid ${color}`,
-                                                    backgroundColor: 'white',
-                                                }}
-                                            >
-                                                <Avatar className="h-4 w-4">
-                                                    <AvatarImage
-                                                        src={getPhotoUrl(
-                                                            m.photoUrls,
-                                                            '64',
-                                                        )}
-                                                        alt={m.name}
-                                                    />
-                                                    <AvatarFallback className="text-[7px]">
-                                                        {toInitials(m.name)}
-                                                    </AvatarFallback>
-                                                </Avatar>
-                                            </div>
-                                        ) : isNotDone ? (
-                                            <div className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100">
-                                                <svg
-                                                    className="h-3 w-3 text-slate-400"
-                                                    viewBox="0 0 12 12"
-                                                    fill="none"
-                                                >
-                                                    <path
-                                                        d="M3 3L9 9M9 3L3 9"
-                                                        stroke="currentColor"
-                                                        strokeWidth="2"
-                                                        strokeLinecap="round"
-                                                    />
-                                                </svg>
-                                            </div>
-                                        ) : (
-                                            <div className="relative z-10 rounded-full bg-white">
-                                                <Avatar className="h-5 w-5 opacity-50">
-                                                    <AvatarImage
-                                                        src={getPhotoUrl(
-                                                            m.photoUrls,
-                                                            '64',
-                                                        )}
-                                                        alt={m.name}
-                                                    />
-                                                    <AvatarFallback className="text-[8px]">
-                                                        {toInitials(m.name)}
-                                                    </AvatarFallback>
-                                                </Avatar>
-                                            </div>
-                                        )
-                                    ) : !showLine ? (
-                                        <span className="text-slate-200">&middot;</span>
-                                    ) : null}
+                                    <div
+                                        className="relative flex items-center justify-center"
+                                        style={{
+                                            width: RING_SIZE,
+                                            height: RING_SIZE,
+                                            marginTop: RING_MARGIN_TOP,
+                                        }}
+                                    >
+                                        <XpRing color={color} percent={percent} />
+                                        <Avatar className="h-6 w-6">
+                                            <AvatarImage
+                                                src={getPhotoUrl(m.photoUrls, '64')}
+                                                alt={m.name}
+                                            />
+                                            <AvatarFallback className="text-[9px]">
+                                                {toInitials(m.name)}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                    </div>
                                 </div>
                             );
                         })}
                     </div>
                 </div>
-            ))}
+
+                {/* ── Chore rows ───────────────────────────────────── */}
+                {visibleRows.map((row, rowIndex) => (
+                    <div
+                        key={row.choreId}
+                        className="relative z-10 flex items-center border-t border-slate-100"
+                        style={{ height: rowHeight }}
+                    >
+                        <div
+                            className="shrink-0 truncate text-xs text-slate-700"
+                            style={{ width: labelWidth }}
+                            title={row.title}
+                        >
+                            {row.title}
+                        </div>
+
+                        <div className="flex flex-1 items-center">
+                            {members.map((m) => {
+                                const color = colorMap[m.id] || '#94A3B8';
+                                const isAssigned = row.assignedMemberIds.has(m.id);
+                                const isCompleted = row.completedMemberIds.has(m.id);
+                                const isNotDone = row.notDoneMemberIds.has(m.id);
+                                const lastRow = memberLastRowIndex[m.id];
+                                const showLine =
+                                    lastRow !== undefined && rowIndex <= lastRow;
+
+                                return (
+                                    <div
+                                        key={m.id}
+                                        className="flex items-center justify-center"
+                                        style={{
+                                            width: memberColWidth,
+                                            height: rowHeight,
+                                        }}
+                                    >
+                                        {isAssigned ? (
+                                            isCompleted ? (
+                                                <div
+                                                    className="flex items-center justify-center rounded-full"
+                                                    style={{
+                                                        width: NODE_SIZE,
+                                                        height: NODE_SIZE,
+                                                        border: `${NODE_STROKE}px solid ${color}`,
+                                                        backgroundColor: 'white',
+                                                    }}
+                                                >
+                                                    <Avatar className="h-4 w-4">
+                                                        <AvatarImage
+                                                            src={getPhotoUrl(
+                                                                m.photoUrls,
+                                                                '64',
+                                                            )}
+                                                            alt={m.name}
+                                                        />
+                                                        <AvatarFallback className="text-[7px]">
+                                                            {toInitials(m.name)}
+                                                        </AvatarFallback>
+                                                    </Avatar>
+                                                </div>
+                                            ) : isNotDone ? (
+                                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100">
+                                                    <svg
+                                                        className="h-3 w-3 text-slate-400"
+                                                        viewBox="0 0 12 12"
+                                                        fill="none"
+                                                    >
+                                                        <path
+                                                            d="M3 3L9 9M9 3L3 9"
+                                                            stroke="currentColor"
+                                                            strokeWidth="2"
+                                                            strokeLinecap="round"
+                                                        />
+                                                    </svg>
+                                                </div>
+                                            ) : (
+                                                <div className="rounded-full bg-white">
+                                                    <Avatar className="h-5 w-5 opacity-50">
+                                                        <AvatarImage
+                                                            src={getPhotoUrl(
+                                                                m.photoUrls,
+                                                                '64',
+                                                            )}
+                                                            alt={m.name}
+                                                        />
+                                                        <AvatarFallback className="text-[8px]">
+                                                            {toInitials(m.name)}
+                                                        </AvatarFallback>
+                                                    </Avatar>
+                                                </div>
+                                            )
+                                        ) : !showLine ? (
+                                            <span className="text-slate-200">
+                                                &middot;
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
+            </div>
 
             {hiddenCount > 0 && (
                 <div className="mt-1 text-[10px] text-slate-400">
