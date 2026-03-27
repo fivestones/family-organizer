@@ -237,14 +237,15 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                     </Avatar>
                                 </div>
 
-                                {/* Vertical line: ring bottom → header bottom */}
+                                {/* Vertical line: ring bottom → past header bottom (overlaps into first row) */}
                                 {hasChores && (
                                     <div
-                                        className="flex-1"
+                                        className="absolute left-1/2 -translate-x-1/2"
                                         style={{
+                                            top: RING_SIZE + 4,
+                                            bottom: -2,
                                             width: LINE_WIDTH,
                                             backgroundColor: color,
-                                            opacity: 0.35,
                                         }}
                                     />
                                 )}
@@ -298,7 +299,6 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                                 bottom: isLast ? '50%' : 0,
                                                 width: LINE_WIDTH,
                                                 backgroundColor: color,
-                                                opacity: 0.35,
                                             }}
                                         />
                                     )}
