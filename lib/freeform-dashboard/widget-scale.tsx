@@ -12,11 +12,11 @@ import React, { createContext, useContext, useMemo } from 'react';
  */
 
 interface WidgetScaleContextValue {
-    /** The computed scale factor (1 = reference size). */
+    /** The computed scale factor (1 = reference size, excludes contentScale). */
     scale: number;
     /** Convenience: returns `value * scale` rounded to nearest integer. */
     s: (px: number) => number;
-    /** Returns a CSS value string: `calc(${px}px * var(--widget-scale))`. */
+    /** Returns a CSS value string e.g. `"14.4px"`. */
     sv: (px: number) => string;
 }
 
@@ -41,28 +41,22 @@ interface WidgetScaleProviderProps {
 }
 
 /**
- * Computes the scale factor from the widget's actual vs reference dimensions.
+ * Computes the base scale factor from the widget's actual vs reference
+ * dimensions (excludes contentScale — that is applied via CSS transform
+ * so all distances scale uniformly).
  *
- * Algorithm: geometric mean of width-ratio and height-ratio, biased toward
- * the smaller axis to avoid overflow. Clamped to [0.4, 3.0].
- *
- * If a `contentScale` override is provided it multiplies the auto-computed
- * factor (still clamped).
+ * Clamped to [0.4, 3.0].
  */
 function computeScale(
     width: number,
     height: number,
     refWidth: number,
     refHeight: number,
-    contentScale?: number
 ): number {
     const wRatio = width / refWidth;
     const hRatio = height / refHeight;
     // Use the smaller ratio so content doesn't overflow
-    let auto = Math.min(wRatio, hRatio);
-    if (contentScale !== undefined && contentScale > 0) {
-        auto *= contentScale;
-    }
+    const auto = Math.min(wRatio, hRatio);
     return Math.max(0.4, Math.min(3.0, auto));
 }
 
@@ -75,8 +69,8 @@ export function WidgetScaleProvider({
     children,
 }: WidgetScaleProviderProps) {
     const scale = useMemo(
-        () => computeScale(width, height, refWidth, refHeight, contentScale),
-        [width, height, refWidth, refHeight, contentScale]
+        () => computeScale(width, height, refWidth, refHeight),
+        [width, height, refWidth, refHeight]
     );
 
     const value = useMemo<WidgetScaleContextValue>(
@@ -88,13 +82,39 @@ export function WidgetScaleProvider({
         [scale]
     );
 
+    // contentScale is applied via CSS transform so that all distances
+    // (element sizes AND gaps) scale uniformly instead of only scaling
+    // individual measurements while the container stays fixed.
+    const cs = contentScale !== undefined && contentScale > 0 ? contentScale : 1;
+    const useTransform = cs !== 1;
+
     return (
         <WidgetScaleContext.Provider value={value}>
             <div
                 className="h-full w-full"
-                style={{ '--widget-scale': scale } as React.CSSProperties}
+                style={{
+                    '--widget-scale': scale,
+                    ...(useTransform
+                        ? {
+                              overflow: 'hidden',
+                          }
+                        : {}),
+                } as React.CSSProperties}
             >
-                {children}
+                {useTransform ? (
+                    <div
+                        style={{
+                            transform: `scale(${cs})`,
+                            transformOrigin: 'top left',
+                            width: `${100 / cs}%`,
+                            height: `${100 / cs}%`,
+                        }}
+                    >
+                        {children}
+                    </div>
+                ) : (
+                    children
+                )}
             </div>
         </WidgetScaleContext.Provider>
     );
