@@ -691,13 +691,41 @@ function hasKnownTimeOffset(timing: ResolvedSharedChoreTiming): boolean {
 
 /**
  * Get the raw sort minute from a timing's resolved offsets, or null if unknown.
+ * For anytime chores, returns null so that `computeSortMinutes` can place them
+ * at the next window boundary relative to `now`.
  */
 function getRawTimingSortMinute(timing: ResolvedSharedChoreTiming): number | null {
-  if (timing.mode === 'anytime') return 9999;
+  if (timing.mode === 'anytime') return null;
   if (timing.mode === 'before_time' || timing.mode === 'before_marker' || timing.mode === 'before_chore') {
     return timing.endOffset ?? timing.anchorMinute ?? null;
   }
   return timing.startOffset ?? timing.anchorMinute ?? null;
+}
+
+/**
+ * Find the first named-window boundary (start or end) at or after `nowOffset`.
+ * Returns the boundary minute, or 1440 if no boundary is found after now
+ * (i.e. all windows have ended for the day).
+ */
+function getNextWindowBoundaryMinute(
+  nowOffset: number,
+  scheduleSettings?: SharedScheduleSettings | null
+): number {
+  const effective = getEffectiveSettings(scheduleSettings);
+  const dayBoundaryMinute = getDayBoundaryMinute(effective);
+  const boundaries = new Set<number>();
+  for (const bucket of effective.timeBuckets) {
+    const start = toFamilyDayOffset(bucket.startMinute, dayBoundaryMinute);
+    const end = toFamilyDayOffset(bucket.endMinute, dayBoundaryMinute);
+    if (start != null) boundaries.add(start);
+    if (end != null) boundaries.add(end);
+  }
+  const sorted = [...boundaries].sort((a, b) => a - b);
+  for (const b of sorted) {
+    if (b >= nowOffset) return b;
+  }
+  // Past all window boundaries — place at end of day.
+  return 1440;
 }
 
 /**
@@ -738,14 +766,18 @@ function resolveAnchorChainWindow(
 }
 
 /**
- * Compute sort minutes for all chores, handling chore-anchor chains.
+ * Compute sort minutes for all chores, handling chore-anchor chains and
+ * anytime positioning.
  *
  * For chores anchored to another chore where the anchor time is unknown
  * (no completion, no fallback), we walk the chain to find a time-based window
  * and place the chore just before or just after that window. If no time
  * reference is found:
  * - before_chore → 0 (start of day)
- * - after_chore → 1440 (end of day, but before anytime at 9999)
+ * - after_chore → 1440 (end of day)
+ *
+ * Anytime chores sort at the next named-window boundary after `now`, so they
+ * appear in the first available gap rather than always at the end of the day.
  */
 function computeSortMinutes<TChore extends SharedChoreLike>(
   items: Array<{ chore: TChore; timing: ResolvedSharedChoreTiming }>,
@@ -753,11 +785,22 @@ function computeSortMinutes<TChore extends SharedChoreLike>(
 ): Map<string, number> {
   const minuteMap = new Map<string, number>();
   const allChores = (context.chores || items.map((i) => i.chore)) as SharedChoreLike[];
+  const effective = getEffectiveSettings(context.scheduleSettings);
+  const dayBoundaryMinute = getDayBoundaryMinute(effective);
+  const now = context.now || new Date();
+  const nowOffset = toFamilyDayOffset(now.getHours() * 60 + now.getMinutes(), dayBoundaryMinute) ?? 0;
 
   for (const { chore, timing } of items) {
     const raw = getRawTimingSortMinute(timing);
     if (raw != null) {
       minuteMap.set(String(chore.id), raw);
+      continue;
+    }
+
+    if (timing.mode === 'anytime') {
+      // Sort at the next window boundary so anytime chores appear in the
+      // current gap between timed windows rather than always last.
+      minuteMap.set(String(chore.id), getNextWindowBoundaryMinute(nowOffset, context.scheduleSettings));
       continue;
     }
 

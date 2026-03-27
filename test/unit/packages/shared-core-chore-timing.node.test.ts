@@ -88,9 +88,14 @@ describe('shared-core chore timing helpers', () => {
             }),
         ];
 
-        const sorted = sortChoresForDisplay(chores, { date: new Date('2026-03-22T00:00:00Z'), chores });
+        // now = 8:30pm so anytime sorts at next window boundary (~1080 offset) after before-bedtime (~1050)
+        const sorted = sortChoresForDisplay(chores, {
+            date: new Date('2026-03-22T00:00:00Z'),
+            now: new Date('2026-03-22T20:30:00Z'),
+            chores,
+        });
 
-        // Expected: morning (start 420) → before-breakfast (deadline 480) → before-bedtime (deadline 1230) → anytime (9999)
+        // Expected: morning (offset 240) → before-breakfast (offset 300) → before-bedtime (offset 1050) → anytime (next boundary 1080)
         expect(sorted.map((entry) => entry.chore.id)).toEqual([
             'morning-chore',
             'before-breakfast',
@@ -169,6 +174,49 @@ describe('shared-core chore timing helpers', () => {
         });
 
         expect(sections.some((section) => section.label === 'Upcoming')).toBe(true);
+    });
+
+    it('anytime chores sort at the next window boundary after now', () => {
+        const chores: SharedChoreLike[] = [
+            makeChore({
+                id: 'anytime-chore',
+                title: 'Anytime chore',
+                timingMode: 'anytime',
+                timingConfig: { mode: 'anytime' },
+            }),
+            makeChore({
+                id: 'morning-chore',
+                title: 'Morning chore',
+                timingMode: 'named_window',
+                timingConfig: { mode: 'named_window', namedWindowKey: 'morning' },
+            }),
+            makeChore({
+                id: 'evening-chore',
+                title: 'Evening chore',
+                timingMode: 'named_window',
+                timingConfig: { mode: 'named_window', namedWindowKey: 'evening' },
+            }),
+        ];
+
+        // At 10am (in the morning window), anytime sorts at end-of-morning boundary
+        const sortedMorning = sortChoresForDisplay(chores, {
+            date: new Date('2026-03-22T00:00:00Z'),
+            now: new Date('2026-03-22T10:00:00Z'),
+            chores,
+        });
+        const idsMorning = sortedMorning.map((e) => e.chore.id);
+        // Anytime should sort between morning and evening (at morning-end boundary)
+        expect(idsMorning.indexOf('morning-chore')).toBeLessThan(idsMorning.indexOf('anytime-chore'));
+        expect(idsMorning.indexOf('anytime-chore')).toBeLessThan(idsMorning.indexOf('evening-chore'));
+
+        // At 9pm (after evening), anytime sorts at end-of-day boundary — after evening
+        const sortedNight = sortChoresForDisplay(chores, {
+            date: new Date('2026-03-22T00:00:00Z'),
+            now: new Date('2026-03-22T21:00:00Z'),
+            chores,
+        });
+        const idsNight = sortedNight.map((e) => e.chore.id);
+        expect(idsNight.indexOf('evening-chore')).toBeLessThan(idsNight.indexOf('anytime-chore'));
     });
 
     it('before_chore with no fallback sorts just before the source chore window', () => {
@@ -291,12 +339,14 @@ describe('shared-core chore timing helpers', () => {
             makeChore({
                 id: 'anytime-source',
                 title: 'Anytime source',
+                startDate: '2026-03-20',
                 timingMode: 'anytime',
                 timingConfig: { mode: 'anytime' },
             }),
             makeChore({
                 id: 'before-anytime',
                 title: 'Before anytime',
+                startDate: '2026-03-20',
                 timingMode: 'before_chore',
                 timingConfig: {
                     mode: 'before_chore',
@@ -304,34 +354,39 @@ describe('shared-core chore timing helpers', () => {
                 },
             }),
             makeChore({
-                id: 'morning-chore',
-                title: 'Morning chore',
+                id: 'evening-chore',
+                title: 'Evening chore',
+                startDate: '2026-03-20',
                 timingMode: 'named_window',
-                timingConfig: { mode: 'named_window', namedWindowKey: 'morning' },
+                timingConfig: { mode: 'named_window', namedWindowKey: 'evening' },
             }),
         ];
 
-        const sorted = sortChoresForDisplay(chores, { date: new Date('2026-03-22T00:00:00Z'), chores });
+        // Use a past date so all chores are in the same 'late' section
+        const sorted = sortChoresForDisplay(chores, {
+            date: new Date('2026-03-20T12:00:00Z'),
+            now: new Date('2026-03-22T12:00:00Z'),
+            chores,
+        });
 
-        // before-anytime has no time reference → sorts at 0 (before morning)
-        expect(sorted.map((entry) => entry.chore.id)).toEqual([
-            'before-anytime',
-            'morning-chore',
-            'anytime-source',
-        ]);
+        // before-anytime has no time reference → sorts at 0 (first in the list)
+        const ids = sorted.map((entry) => entry.chore.id);
+        expect(ids[0]).toBe('before-anytime');
     });
 
-    it('after_chore with no chain time reference sorts at end of day before anytime', () => {
+    it('after_chore with no chain time reference sorts at end of day', () => {
         const chores: SharedChoreLike[] = [
             makeChore({
                 id: 'anytime-source',
                 title: 'Anytime source',
+                startDate: '2026-03-20',
                 timingMode: 'anytime',
                 timingConfig: { mode: 'anytime' },
             }),
             makeChore({
                 id: 'after-anytime',
                 title: 'After anytime',
+                startDate: '2026-03-20',
                 timingMode: 'after_chore',
                 timingConfig: {
                     mode: 'after_chore',
@@ -341,19 +396,23 @@ describe('shared-core chore timing helpers', () => {
             makeChore({
                 id: 'morning-chore',
                 title: 'Morning chore',
+                startDate: '2026-03-20',
                 timingMode: 'named_window',
                 timingConfig: { mode: 'named_window', namedWindowKey: 'morning' },
             }),
         ];
 
-        const sorted = sortChoresForDisplay(chores, { date: new Date('2026-03-22T00:00:00Z'), chores });
+        // Use a past date so all chores are in the same 'late' section
+        const sorted = sortChoresForDisplay(chores, {
+            date: new Date('2026-03-20T12:00:00Z'),
+            now: new Date('2026-03-22T12:00:00Z'),
+            chores,
+        });
 
-        // after-anytime → 1440 (end of day), morning → ~420, anytime → 9999
-        expect(sorted.map((entry) => entry.chore.id)).toEqual([
-            'morning-chore',
-            'after-anytime',
-            'anytime-source',
-        ]);
+        // after-anytime → 1440 (end of day), should be last
+        const ids = sorted.map((entry) => entry.chore.id);
+        expect(ids[ids.length - 1]).toBe('after-anytime');
+        expect(ids.indexOf('morning-chore')).toBeLessThan(ids.indexOf('after-anytime'));
     });
 
     it('detects chore-anchor cycles before saving', () => {
