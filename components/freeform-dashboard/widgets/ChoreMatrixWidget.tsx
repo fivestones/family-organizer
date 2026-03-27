@@ -35,7 +35,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 const NODE_SIZE = 22;
 const NODE_STROKE = 2;
-const LINE_WIDTH = 2;
+const LINE_WIDTH = 1.5;
 
 function XpRing({ color, percent }: { color: string; percent: number }) {
     const dashoffset = RING_CIRCUMFERENCE * (1 - percent);
@@ -290,13 +290,13 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                         height: rowHeight,
                                     }}
                                 >
-                                    {/* Vertical line segment */}
+                                    {/* Vertical line segment — extends 1px past cell edges to bridge row borders */}
                                     {showLine && (
                                         <div
                                             className="absolute left-1/2 -translate-x-1/2"
                                             style={{
-                                                top: 0,
-                                                bottom: isLast ? '50%' : 0,
+                                                top: -1,
+                                                bottom: isLast ? '50%' : -1,
                                                 width: LINE_WIDTH,
                                                 backgroundColor: color,
                                             }}
