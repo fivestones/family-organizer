@@ -739,7 +739,7 @@ function ChoreList({
                                 {/* +++ ADDED: "with..." Text +++ */}
                                 {withOthersText && <span className="text-xs text-muted-foreground whitespace-nowrap">{withOthersText}</span>}
 
-                                {pageMode === 'chores' ? (
+                                {pageMode === 'chores' && timing.mode !== 'anytime' ? (
                                     <span
                                         title={timing.summary}
                                         className="text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 border border-sky-200"

@@ -524,7 +524,7 @@ export default function ChoresTab() {
                                 ) : null}
                               </View>
                               <View style={styles.tagRow}>
-                                {timing?.label ? (
+                                {timing?.label && timing?.mode !== 'anytime' ? (
                                   <View style={[styles.tag, styles.tagSky]}>
                                     <Text style={[styles.tagText, styles.tagSkyText]}>{timing.label}</Text>
                                   </View>
