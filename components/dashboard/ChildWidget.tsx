@@ -18,6 +18,8 @@ export interface ChildWidgetTaskItem {
 export interface ChildWidgetCalendarItem {
     id: string;
     dateLabel: string;
+    relativeLabel?: string;
+    calendarDateLabel?: string;
     title: string;
 }
 
@@ -105,8 +107,10 @@ export default function ChildWidget({ data }: ChildWidgetProps) {
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {data.calendar.slice(0, 2).map((item) => (
                     <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                        <p className="text-lg text-slate-500">{item.dateLabel}</p>
                         <p className="truncate text-2xl font-medium text-slate-800">{item.title}</p>
+                        {item.relativeLabel && <p className="text-lg text-slate-500">{item.relativeLabel}</p>}
+                        {item.calendarDateLabel && <p className="text-lg text-slate-400">{item.calendarDateLabel}</p>}
+                        {!item.relativeLabel && <p className="text-lg text-slate-500">{item.dateLabel}</p>}
                     </div>
                 ))}
             </div>

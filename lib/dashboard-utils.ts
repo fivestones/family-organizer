@@ -41,6 +41,8 @@ export type CalendarPreview = {
     endsAt: Date;
     isAllDay: boolean;
     timeLabel: string;
+    relativeLabel: string;
+    dateLabel: string;
     isFamilyWide: boolean;
 };
 
@@ -156,20 +158,63 @@ export function getPhotoUrl(member: DashboardFamilyMember): string | undefined {
     return member.photoUrls?.['320'] || member.photoUrls?.['1200'] || member.photoUrls?.['64'] || undefined;
 }
 
+export function buildRelativeTimeLabel(startsAt: Date, isAllDay: boolean): { relativeLabel: string; dateLabel: string } {
+    const now = new Date();
+    const diffMs = startsAt.getTime() - now.getTime();
+    const diffMinutes = Math.round(diffMs / 60000);
+
+    const dateLabel = startsAt.toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+    });
+
+    const timeStr = isAllDay
+        ? ''
+        : startsAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+    const isToday = startsAt.toDateString() === now.toDateString();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const isTomorrow = startsAt.toDateString() === tomorrow.toDateString();
+
+    if (isToday) {
+        if (isAllDay) return { relativeLabel: 'today \u00b7 all day', dateLabel };
+        if (diffMinutes > 0 && diffMinutes <= 60) {
+            return { relativeLabel: `in ${diffMinutes} minute${diffMinutes !== 1 ? 's' : ''}, at ${timeStr}`, dateLabel };
+        }
+        return { relativeLabel: `today at ${timeStr}`, dateLabel };
+    }
+
+    if (isTomorrow) {
+        if (isAllDay) return { relativeLabel: 'tomorrow \u00b7 all day', dateLabel };
+        return { relativeLabel: `tomorrow at ${timeStr}`, dateLabel };
+    }
+
+    const weekday = startsAt.toLocaleDateString(undefined, { weekday: 'long' });
+    if (isAllDay) return { relativeLabel: `${weekday} \u00b7 all day`, dateLabel };
+    return { relativeLabel: `${weekday} at ${timeStr}`, dateLabel };
+}
+
 export function buildCalendarPreviews(
     calendarItems: DashboardCalendarItem[],
     todayUtc: Date,
     memberId?: string | null,
-    maxItems = 8
+    maxItems = 8,
+    excludeFamilyWide = false
 ): CalendarPreview[] {
     return calendarItems
         .map((item) => {
             const { startsAt, endsAt, label } = buildCalendarLabel(item);
             const memberIds = (item.pertainsTo || []).map((m) => m.id).filter(Boolean);
             const isFamilyWide = memberIds.length === 0;
-            const pertainsToMember = !memberId || isFamilyWide || memberIds.includes(memberId);
 
+            if (excludeFamilyWide && isFamilyWide) return null;
+
+            const pertainsToMember = !memberId || isFamilyWide || memberIds.includes(memberId);
             if (!pertainsToMember) return null;
+
+            const { relativeLabel, dateLabel } = buildRelativeTimeLabel(startsAt, item.isAllDay);
 
             return {
                 id: item.id,
@@ -179,6 +224,8 @@ export function buildCalendarPreviews(
                 endsAt,
                 isAllDay: item.isAllDay,
                 timeLabel: label,
+                relativeLabel,
+                dateLabel,
                 isFamilyWide,
             } satisfies CalendarPreview;
         })

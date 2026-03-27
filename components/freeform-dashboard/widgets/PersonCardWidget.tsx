@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { User } from 'lucide-react';
 import { db } from '@/lib/db';
 import { registerFreeformWidget } from '@/lib/freeform-dashboard/freeform-widget-registry';
@@ -15,9 +15,13 @@ import {
 import { getPhotoUrl, toInitials, buildCalendarPreviews, addUtcDays, buildMemberBalanceLabel } from '@/lib/dashboard-utils';
 import type { DashboardFamilyMember } from '@/lib/dashboard-utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import CalendarEventDetailDialog from '@/components/CalendarEventDetailDialog';
 
 function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetProps) {
     const memberId = config.memberId as string | undefined;
+
+    const [detailOpen, setDetailOpen] = useState(false);
+    const [detailEventId, setDetailEventId] = useState<string | null>(null);
 
     const { data } = db.useQuery({
         familyMembers: {
@@ -87,9 +91,8 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         const xpMap = (calculateDailyXP as any)(chores, [member], todayUtc) as Record<string, { current: number; possible: number }>;
         const memberXp = xpMap[member.id];
 
-        // Calendar preview
-        const weekEnd = addUtcDays(todayUtc, 7);
-        const memberCalendar = buildCalendarPreviews(calendarItems, todayUtc, member.id, 1);
+        // Calendar preview — exclude family-wide events
+        const memberCalendar = buildCalendarPreviews(calendarItems, todayUtc, member.id, 1, true);
 
         // Finance
         const balanceLabel = buildMemberBalanceLabel(member as DashboardFamilyMember, unitDefs);
@@ -110,6 +113,16 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
             unreadCount,
         };
     }, [member, data, todayUtc]);
+
+    const detailEvent = useMemo(() => {
+        if (!detailEventId || !data?.calendarItems) return null;
+        return ((data.calendarItems ?? []) as any[]).find((item) => item.id === detailEventId) ?? null;
+    }, [detailEventId, data?.calendarItems]);
+
+    const handleCalendarDoubleClick = useCallback((eventId: string) => {
+        setDetailEventId(eventId);
+        setDetailOpen(true);
+    }, []);
 
     if (!member) {
         return (
@@ -166,13 +179,24 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
 
                     {/* Next calendar item */}
                     {stats.nextCalendarItem && !isShort && (
-                        <div className="mt-auto rounded-lg bg-blue-50 px-2 py-1.5">
-                            <div className="truncate text-xs text-blue-700">{stats.nextCalendarItem.title}</div>
-                            <div className="text-[10px] text-blue-500">{stats.nextCalendarItem.timeLabel}</div>
+                        <div
+                            className="mt-auto cursor-pointer rounded-lg bg-blue-50 px-2 py-1.5 transition-colors hover:bg-blue-100"
+                            onDoubleClick={() => handleCalendarDoubleClick(stats.nextCalendarItem!.id)}
+                        >
+                            <div className="truncate text-xs font-medium text-blue-700">{stats.nextCalendarItem.title}</div>
+                            <div className="text-[10px] text-blue-500">{stats.nextCalendarItem.relativeLabel}</div>
+                            <div className="text-[10px] text-blue-400">{stats.nextCalendarItem.dateLabel}</div>
                         </div>
                     )}
                 </>
             )}
+
+            <CalendarEventDetailDialog
+                event={detailEvent}
+                open={detailOpen}
+                onOpenChange={setDetailOpen}
+                onEdit={() => setDetailOpen(false)}
+            />
         </div>
     );
 }
