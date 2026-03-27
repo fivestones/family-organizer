@@ -8,9 +8,12 @@ import type { FreeformWidgetProps } from '@/lib/freeform-dashboard/types';
 import {
     formatDateKeyUTC,
     getAssignedMembersForChoreOnDate,
-    getCompletedChoreCompletionsForDate,
+    sortChoresForDisplay,
+    parseSharedScheduleSettings,
+    HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
 } from '@family-organizer/shared-core';
-import { getPhotoUrl, toInitials } from '@/lib/dashboard-utils';
+import { toInitials } from '@/lib/dashboard-utils';
+import { getPhotoUrl } from '@/lib/photo-urls';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 interface ChoreRow {
@@ -18,7 +21,7 @@ interface ChoreRow {
     title: string;
     assignedMemberIds: Set<string>;
     completedMemberIds: Set<string>;
-    isOverdue: boolean;
+    notDoneMemberIds: Set<string>;
 }
 
 function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
@@ -31,46 +34,84 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
             assignments: { familyMember: {} },
             completions: { completedBy: {} },
         },
+        routineMarkerStatuses: {},
+        settings: {
+            $: {
+                where: {
+                    name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
+                },
+            },
+        },
     });
 
     const members = (data?.familyMembers ?? []) as any[];
     const todayKey = formatDateKeyUTC(todayUtc);
+    const routineMarkerStatuses = useMemo(() => (data?.routineMarkerStatuses as any[]) || [], [data?.routineMarkerStatuses]);
+    const scheduleSettings = useMemo(
+        () => parseSharedScheduleSettings((data?.settings as any[])?.[0]?.value || null),
+        [data?.settings]
+    );
 
     const choreRows: ChoreRow[] = useMemo(() => {
-        const chores = (data?.chores ?? []) as any[];
-        const rows: ChoreRow[] = [];
+        const allChores = (data?.chores ?? []) as any[];
 
-        for (const chore of chores) {
-            if (!chore.rrule || !chore.startDate) continue;
-
+        // Filter to chores that occur today with at least one assignee
+        const todayChores = allChores.filter((chore) => {
+            if (!chore.rrule || !chore.startDate) return false;
             const assigned = getAssignedMembersForChoreOnDate(
                 chore as Parameters<typeof getAssignedMembersForChoreOnDate>[0],
                 todayUtc
             );
-            if (assigned.length === 0) continue;
+            return assigned.length > 0;
+        });
 
-            const completions = (getCompletedChoreCompletionsForDate as any)(
-                chore.completions ?? [],
-                todayKey
+        // Sort using the same logic as the chores page
+        const sorted = sortChoresForDisplay<any>(todayChores as any, {
+            date: todayUtc,
+            routineMarkerStatuses,
+            chores: allChores,
+            scheduleSettings,
+        });
+
+        const rows: ChoreRow[] = [];
+
+        for (const { chore } of sorted) {
+            const assigned = getAssignedMembersForChoreOnDate(
+                chore as Parameters<typeof getAssignedMembersForChoreOnDate>[0],
+                todayUtc
             );
 
             const completedMemberIds = new Set<string>();
-            for (const c of completions) {
+            const notDoneMemberIds = new Set<string>();
+            for (const c of (chore.completions ?? []) as any[]) {
+                if (c.dateDue !== todayKey) continue;
                 const completedBy = Array.isArray(c.completedBy) ? c.completedBy[0] : c.completedBy;
-                if (completedBy?.id) completedMemberIds.add(completedBy.id);
+                if (!completedBy?.id) continue;
+                if (c.completed) {
+                    completedMemberIds.add(completedBy.id);
+                } else if (c.notDone) {
+                    notDoneMemberIds.add(completedBy.id);
+                }
             }
+
+            // Only show the row if at least one assigned member is still pending
+            const assignedIds = assigned.map((a) => a.id);
+            const hasPending = assignedIds.some(
+                (id) => !completedMemberIds.has(id) && !notDoneMemberIds.has(id)
+            );
+            if (!hasPending) continue;
 
             rows.push({
                 choreId: chore.id,
                 title: chore.title || 'Untitled',
-                assignedMemberIds: new Set(assigned.map((a) => a.id)),
+                assignedMemberIds: new Set(assignedIds),
                 completedMemberIds,
-                isOverdue: assigned.length > 0 && completedMemberIds.size < assigned.length && false, // today can't be overdue
+                notDoneMemberIds,
             });
         }
 
         return rows;
-    }, [data, todayUtc, todayKey]);
+    }, [data, todayUtc, todayKey, routineMarkerStatuses, scheduleSettings]);
 
     // How many rows can fit
     const headerHeight = 36;
@@ -94,7 +135,7 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                     {members.map((m) => (
                         <div key={m.id} className="flex items-center justify-center" style={{ width: memberColWidth }}>
                             <Avatar className="h-6 w-6">
-                                <AvatarImage src={getPhotoUrl(m as Parameters<typeof getPhotoUrl>[0])} />
+                                <AvatarImage src={getPhotoUrl(m.photoUrls, '64')} alt={m.name} />
                                 <AvatarFallback className="text-[9px]">{toInitials(m.name)}</AvatarFallback>
                             </Avatar>
                         </div>
@@ -106,7 +147,7 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
             {visibleRows.map((row) => (
                 <div
                     key={row.choreId}
-                    className={`flex items-center border-t border-slate-100 ${row.isOverdue ? 'bg-amber-50' : ''}`}
+                    className="flex items-center border-t border-slate-100"
                     style={{ height: rowHeight }}
                 >
                     <div
@@ -120,6 +161,7 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                         {members.map((m) => {
                             const isAssigned = row.assignedMemberIds.has(m.id);
                             const isCompleted = row.completedMemberIds.has(m.id);
+                            const isNotDone = row.notDoneMemberIds.has(m.id);
 
                             return (
                                 <div
@@ -134,9 +176,15 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                                     <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                                 </svg>
                                             </div>
+                                        ) : isNotDone ? (
+                                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100">
+                                                <svg className="h-3 w-3 text-slate-400" viewBox="0 0 12 12" fill="none">
+                                                    <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                                                </svg>
+                                            </div>
                                         ) : (
                                             <Avatar className="h-5 w-5 opacity-60">
-                                                <AvatarImage src={getPhotoUrl(m as Parameters<typeof getPhotoUrl>[0])} />
+                                                <AvatarImage src={getPhotoUrl(m.photoUrls, '64')} alt={m.name} />
                                                 <AvatarFallback className="text-[8px]">{toInitials(m.name)}</AvatarFallback>
                                             </Avatar>
                                         )
