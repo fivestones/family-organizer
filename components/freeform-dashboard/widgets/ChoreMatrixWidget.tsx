@@ -15,6 +15,7 @@ import {
 import { toInitials } from '@/lib/dashboard-utils';
 import { getPhotoUrl } from '@/lib/photo-urls';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
 
 interface ChoreRow {
     choreId: string;
@@ -113,30 +114,39 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
         return rows;
     }, [data, todayUtc, todayKey, routineMarkerStatuses, scheduleSettings]);
 
-    // How many rows can fit
-    const headerHeight = 36;
-    const rowHeight = 36;
-    const maxRows = Math.max(1, Math.floor((height - headerHeight) / rowHeight));
+    const { s, sv } = useWidgetScale();
+
+    // How many rows can fit — all sizes scale with widget scale
+    const headerHeight = s(36);
+    const rowHeight = s(36);
+    const padding = s(12);
+    const maxRows = Math.max(1, Math.floor((height - headerHeight - padding * 2) / rowHeight));
     const visibleRows = choreRows.slice(0, maxRows);
     const hiddenCount = choreRows.length - visibleRows.length;
 
     // Column width for member avatars
-    const labelWidth = Math.min(160, Math.max(80, width * 0.3));
-    const memberColWidth = members.length > 0 ? Math.min(40, (width - labelWidth - 16) / members.length) : 40;
+    const labelWidth = Math.min(s(160), Math.max(s(80), width * 0.3));
+    const memberColWidth = members.length > 0 ? Math.min(s(40), (width - labelWidth - s(16)) / members.length) : s(40);
+
+    // Scaled avatar/icon sizes
+    const headerAvatarSize = s(24);
+    const cellIconSize = s(20);
+    const cellSvgSize = s(12);
+    const cellAvatarSize = s(20);
 
     return (
-        <div className="flex h-full flex-col p-3">
+        <div className="flex h-full flex-col" style={{ padding }}>
             {/* Header row with member avatars */}
-            <div className="mb-1 flex items-center" style={{ height: headerHeight }}>
-                <div className="shrink-0 text-xs font-semibold text-slate-500" style={{ width: labelWidth }}>
+            <div className="flex items-center" style={{ height: headerHeight, marginBottom: s(4) }}>
+                <div className="shrink-0 font-semibold text-slate-500" style={{ width: labelWidth, fontSize: sv(12) }}>
                     Today&apos;s Chores
                 </div>
                 <div className="flex flex-1 items-center">
                     {members.map((m) => (
                         <div key={m.id} className="flex items-center justify-center" style={{ width: memberColWidth }}>
-                            <Avatar className="h-6 w-6">
-                                <AvatarImage src={getPhotoUrl(m.photoUrls, '64')} alt={m.name} />
-                                <AvatarFallback className="text-[9px]">{toInitials(m.name)}</AvatarFallback>
+                            <Avatar style={{ width: headerAvatarSize, height: headerAvatarSize }}>
+                                <AvatarImage src={getPhotoUrl(m.photoUrls, '320')} alt={m.name} />
+                                <AvatarFallback style={{ fontSize: sv(9) }}>{toInitials(m.name)}</AvatarFallback>
                             </Avatar>
                         </div>
                     ))}
@@ -151,8 +161,8 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                     style={{ height: rowHeight }}
                 >
                     <div
-                        className="shrink-0 truncate text-xs text-slate-700"
-                        style={{ width: labelWidth }}
+                        className="shrink-0 truncate text-slate-700"
+                        style={{ width: labelWidth, fontSize: sv(12) }}
                         title={row.title}
                     >
                         {row.title}
@@ -171,21 +181,27 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                 >
                                     {isAssigned ? (
                                         isCompleted ? (
-                                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100">
-                                                <svg className="h-3 w-3 text-emerald-600" viewBox="0 0 12 12" fill="none">
+                                            <div
+                                                className="flex items-center justify-center rounded-full bg-emerald-100"
+                                                style={{ width: cellIconSize, height: cellIconSize }}
+                                            >
+                                                <svg style={{ width: cellSvgSize, height: cellSvgSize }} className="text-emerald-600" viewBox="0 0 12 12" fill="none">
                                                     <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                                 </svg>
                                             </div>
                                         ) : isNotDone ? (
-                                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100">
-                                                <svg className="h-3 w-3 text-slate-400" viewBox="0 0 12 12" fill="none">
+                                            <div
+                                                className="flex items-center justify-center rounded-full bg-slate-100"
+                                                style={{ width: cellIconSize, height: cellIconSize }}
+                                            >
+                                                <svg style={{ width: cellSvgSize, height: cellSvgSize }} className="text-slate-400" viewBox="0 0 12 12" fill="none">
                                                     <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                                                 </svg>
                                             </div>
                                         ) : (
-                                            <Avatar className="h-5 w-5 opacity-60">
-                                                <AvatarImage src={getPhotoUrl(m.photoUrls, '64')} alt={m.name} />
-                                                <AvatarFallback className="text-[8px]">{toInitials(m.name)}</AvatarFallback>
+                                            <Avatar className="opacity-60" style={{ width: cellAvatarSize, height: cellAvatarSize }}>
+                                                <AvatarImage src={getPhotoUrl(m.photoUrls, '320')} alt={m.name} />
+                                                <AvatarFallback style={{ fontSize: sv(8) }}>{toInitials(m.name)}</AvatarFallback>
                                             </Avatar>
                                         )
                                     ) : (
@@ -199,11 +215,11 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
             ))}
 
             {hiddenCount > 0 && (
-                <div className="mt-1 text-[10px] text-slate-400">+{hiddenCount} more</div>
+                <div style={{ marginTop: s(4), fontSize: sv(10) }} className="text-slate-400">+{hiddenCount} more</div>
             )}
 
             {choreRows.length === 0 && (
-                <div className="flex flex-1 items-center justify-center text-xs text-slate-400">
+                <div className="flex flex-1 items-center justify-center text-slate-400" style={{ fontSize: sv(12) }}>
                     No chores today
                 </div>
             )}

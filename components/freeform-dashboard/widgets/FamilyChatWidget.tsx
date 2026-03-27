@@ -8,11 +8,10 @@ import type { FreeformWidgetProps } from '@/lib/freeform-dashboard/types';
 import { formatTimeAgo, getPhotoUrl, toInitials } from '@/lib/dashboard-utils';
 import type { DashboardFamilyMember } from '@/lib/dashboard-utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-
-const MESSAGE_HEIGHT = 52;
-const HEADER_HEIGHT = 32;
+import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
 
 function FamilyChatWidget({ width, height, todayUtc }: FreeformWidgetProps) {
+    const { s, sv } = useWidgetScale();
     const { data } = db.useQuery({
         messageThreads: {
             messages: {
@@ -23,7 +22,10 @@ function FamilyChatWidget({ width, height, todayUtc }: FreeformWidgetProps) {
         familyMembers: {},
     });
 
-    const maxMessages = Math.max(1, Math.floor((height - HEADER_HEIGHT) / MESSAGE_HEIGHT));
+    const MESSAGE_HEIGHT = s(52);
+    const HEADER_HEIGHT = s(32);
+    const padding = s(12);
+    const maxMessages = Math.max(1, Math.floor((height - HEADER_HEIGHT - padding * 2) / MESSAGE_HEIGHT));
 
     const messages = useMemo(() => {
         if (!data?.messageThreads) return [];
@@ -56,31 +58,33 @@ function FamilyChatWidget({ width, height, todayUtc }: FreeformWidgetProps) {
             .reverse(); // Show oldest first (chronological)
     }, [data, maxMessages]);
 
+    const avatarSize = s(24);
+
     return (
-        <div className="flex h-full flex-col p-3">
-            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                <MessageCircle size={12} />
+        <div className="flex h-full flex-col" style={{ padding }}>
+            <div className="flex items-center font-semibold uppercase tracking-wider text-slate-400" style={{ marginBottom: s(8), gap: s(6), fontSize: sv(12) }}>
+                <MessageCircle size={s(12)} />
                 Family Chat
             </div>
 
             {messages.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center text-xs text-slate-400">
+                <div className="flex flex-1 items-center justify-center text-slate-400" style={{ fontSize: sv(12) }}>
                     No messages yet
                 </div>
             ) : (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col" style={{ gap: s(4) }}>
                     {messages.map((msg) => (
-                        <div key={msg.id} className="flex items-start gap-2 py-1" style={{ minHeight: MESSAGE_HEIGHT - 8 }}>
-                            <Avatar className="mt-0.5 h-6 w-6 shrink-0">
+                        <div key={msg.id} className="flex items-start" style={{ gap: s(8), paddingTop: s(4), paddingBottom: s(4), minHeight: MESSAGE_HEIGHT - s(8) }}>
+                            <Avatar className="shrink-0" style={{ width: avatarSize, height: avatarSize, marginTop: s(2) }}>
                                 <AvatarImage src={msg.authorPhotoUrl} />
-                                <AvatarFallback className="text-[9px]">{msg.authorInitials}</AvatarFallback>
+                                <AvatarFallback style={{ fontSize: sv(9) }}>{msg.authorInitials}</AvatarFallback>
                             </Avatar>
                             <div className="min-w-0 flex-1">
-                                <div className="flex items-baseline gap-1.5">
-                                    <span className="text-xs font-medium text-slate-700">{msg.authorName}</span>
-                                    <span className="text-[10px] text-slate-400">{formatTimeAgo(msg.createdAt)}</span>
+                                <div className="flex items-baseline" style={{ gap: s(6) }}>
+                                    <span className="font-medium text-slate-700" style={{ fontSize: sv(12) }}>{msg.authorName}</span>
+                                    <span className="text-slate-400" style={{ fontSize: sv(10) }}>{formatTimeAgo(msg.createdAt)}</span>
                                 </div>
-                                <div className="line-clamp-2 text-xs leading-relaxed text-slate-600">{msg.body}</div>
+                                <div className="line-clamp-2 leading-relaxed text-slate-600" style={{ fontSize: sv(12) }}>{msg.body}</div>
                             </div>
                         </div>
                     ))}

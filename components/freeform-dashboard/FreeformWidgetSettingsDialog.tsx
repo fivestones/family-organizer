@@ -22,7 +22,16 @@ export default function FreeformWidgetSettingsDialog({
 }: FreeformWidgetSettingsDialogProps) {
     const [draft, setDraft] = useState<Record<string, unknown>>(() => ({ ...(widget.config ?? {}) }));
 
-    const fields = meta.configFields ?? [];
+    // Inject a "Content Scale" range field so every widget gets it
+    const CONTENT_SCALE_FIELD: ConfigField = {
+        key: 'contentScale',
+        label: 'Content Scale',
+        type: 'range',
+        min: 50,
+        max: 200,
+        step: 10,
+    };
+    const fields: ConfigField[] = [...(meta.configFields ?? []), CONTENT_SCALE_FIELD];
 
     const handleSave = () => {
         onSave(widget.id, draft);
@@ -122,6 +131,39 @@ export default function FreeformWidgetSettingsDialog({
                         </div>
                     </div>
                 );
+
+            case 'range': {
+                const rangeVal = typeof value === 'number' ? value : (field.key === 'contentScale' ? 100 : (field.min ?? 0));
+                const displayLabel = field.formatValue
+                    ? field.formatValue(rangeVal)
+                    : field.key === 'contentScale'
+                        ? `${rangeVal}%`
+                        : String(rangeVal);
+                return (
+                    <label key={field.key} className="flex flex-col gap-2 py-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-slate-700">{field.label}</span>
+                            <span className="text-sm tabular-nums text-slate-500">{displayLabel}</span>
+                        </div>
+                        <input
+                            type="range"
+                            className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600"
+                            min={field.min ?? 50}
+                            max={field.max ?? 200}
+                            step={field.step ?? 10}
+                            value={rangeVal}
+                            onChange={(e) => {
+                                const num = parseInt(e.target.value, 10);
+                                setDraft((prev) => ({ ...prev, [field.key]: num }));
+                            }}
+                        />
+                        <div className="flex justify-between text-[10px] text-slate-400">
+                            <span>{field.min ?? 50}%</span>
+                            <span>{field.max ?? 200}%</span>
+                        </div>
+                    </label>
+                );
+            }
 
             case 'family-members':
                 return (

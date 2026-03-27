@@ -18,6 +18,7 @@ import FreeformWidgetWrapper from './FreeformWidgetWrapper';
 import FreeformEditModeControls from './FreeformEditModeControls';
 import FreeformWidgetCatalog from './FreeformWidgetCatalog';
 import FreeformWidgetSettingsDialog from './FreeformWidgetSettingsDialog';
+import { WidgetScaleProvider } from '@/lib/freeform-dashboard/widget-scale';
 
 // Import all widget registrations
 import './widgets';
@@ -190,10 +191,8 @@ export default function FreeformDashboard({ editMode }: FreeformDashboardProps) 
         (widgetId: string) => {
             const widget = widgets.find((w) => w.id === widgetId);
             if (!widget) return;
-            const meta = getFreeformWidgetMeta(widget.widgetType);
-            if (meta?.configFields && meta.configFields.length > 0) {
-                setSettingsWidgetId(widgetId);
-            }
+            // Always allow settings (contentScale is injected for all widgets)
+            setSettingsWidgetId(widgetId);
         },
         [widgets]
     );
@@ -369,12 +368,24 @@ export default function FreeformDashboard({ editMode }: FreeformDashboardProps) 
                             shiftHeld={shiftHeld}
                         >
                             {WidgetComponent ? (
-                                <WidgetComponent
-                                    config={(widget.config as Record<string, unknown>) ?? {}}
+                                <WidgetScaleProvider
                                     width={displayRect.w}
                                     height={displayRect.h}
-                                    todayUtc={todayUtc}
-                                />
+                                    refWidth={meta?.defaultWidth ?? 300}
+                                    refHeight={meta?.defaultHeight ?? 200}
+                                    contentScale={
+                                        typeof (widget.config as Record<string, unknown>)?.contentScale === 'number'
+                                            ? ((widget.config as Record<string, unknown>).contentScale as number) / 100
+                                            : undefined
+                                    }
+                                >
+                                    <WidgetComponent
+                                        config={(widget.config as Record<string, unknown>) ?? {}}
+                                        width={displayRect.w}
+                                        height={displayRect.h}
+                                        todayUtc={todayUtc}
+                                    />
+                                </WidgetScaleProvider>
                             ) : (
                                 <div className="flex h-full items-center justify-center text-xs text-slate-400">
                                     Unknown widget: {widget.widgetType}

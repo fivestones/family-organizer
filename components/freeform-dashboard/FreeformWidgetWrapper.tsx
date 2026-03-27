@@ -111,8 +111,8 @@ export default function FreeformWidgetWrapper({
                         {meta?.label ?? widget.widgetType}
                     </div>
 
-                    {/* Settings button (only when widget has config fields) */}
-                    {meta?.configFields && meta.configFields.length > 0 && onDoubleClick && (
+                    {/* Settings button (always shown — contentScale is available for all widgets) */}
+                    {onDoubleClick && (
                         <button
                             className="absolute -right-2 top-5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-600 text-white shadow-sm hover:bg-slate-700"
                             onClick={(e) => {
