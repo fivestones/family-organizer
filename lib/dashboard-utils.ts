@@ -155,7 +155,9 @@ export function buildCalendarLabel(item: DashboardCalendarItem): { startsAt: Dat
 }
 
 export function getPhotoUrl(member: DashboardFamilyMember): string | undefined {
-    return member.photoUrls?.['320'] || member.photoUrls?.['1200'] || member.photoUrls?.['64'] || undefined;
+    const key = member.photoUrls?.['320'] || member.photoUrls?.['1200'] || member.photoUrls?.['64'] || undefined;
+    if (!key) return undefined;
+    return `/files/${encodeURIComponent(key)}`;
 }
 
 export function buildRelativeTimeLabel(startsAt: Date, isAllDay: boolean): { relativeLabel: string; dateLabel: string } {
