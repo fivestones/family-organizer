@@ -24,8 +24,9 @@ export default function FreeformWidgetCatalog({
     const [configStep, setConfigStep] = useState(false);
 
     const handleSelectWidget = (reg: FreeformWidgetRegistration) => {
-        // If widget needs config (e.g., person-card needs memberId), show config step
-        if (reg.meta.configFields && reg.meta.configFields.length > 0) {
+        // If widget requires a family-member selection at creation, show config step
+        const hasMemberField = reg.meta.configFields?.some((f) => f.type === 'family-member' && f.required);
+        if (hasMemberField) {
             setSelectedWidget(reg);
             setConfigStep(true);
         } else {

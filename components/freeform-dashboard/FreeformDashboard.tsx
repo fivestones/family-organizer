@@ -17,6 +17,7 @@ import FreeformCanvas from './FreeformCanvas';
 import FreeformWidgetWrapper from './FreeformWidgetWrapper';
 import FreeformEditModeControls from './FreeformEditModeControls';
 import FreeformWidgetCatalog from './FreeformWidgetCatalog';
+import FreeformWidgetSettingsDialog from './FreeformWidgetSettingsDialog';
 
 // Import all widget registrations
 import './widgets';
@@ -31,6 +32,7 @@ export default function FreeformDashboard({ editMode }: FreeformDashboardProps) 
         useFamilyDashboardLayout();
     const { activeBreakpoint, viewportWidth } = useActiveBreakpoint(layouts);
     const [showCatalog, setShowCatalog] = useState(false);
+    const [settingsWidgetId, setSettingsWidgetId] = useState<string | null>(null);
     const hasInitializedRef = useRef(false);
 
     // Query family members for default layout generation + person card config
@@ -181,6 +183,27 @@ export default function FreeformDashboard({ editMode }: FreeformDashboardProps) 
             }
         },
         [editMode, bringToFront, widgets]
+    );
+
+    // Double-click to open widget settings
+    const handleWidgetDoubleClick = useCallback(
+        (widgetId: string) => {
+            const widget = widgets.find((w) => w.id === widgetId);
+            if (!widget) return;
+            const meta = getFreeformWidgetMeta(widget.widgetType);
+            if (meta?.configFields && meta.configFields.length > 0) {
+                setSettingsWidgetId(widgetId);
+            }
+        },
+        [widgets]
+    );
+
+    // Save widget settings
+    const handleSaveWidgetSettings = useCallback(
+        (widgetId: string, config: Record<string, unknown>) => {
+            updateWidget(widgetId, { config });
+        },
+        [updateWidget]
     );
 
     // Add widget from catalog
@@ -340,6 +363,7 @@ export default function FreeformDashboard({ editMode }: FreeformDashboardProps) 
                             onDragStart={onDragPointerDown}
                             onResizeStart={onResizePointerDown}
                             onClick={handleWidgetClick}
+                            onDoubleClick={handleWidgetDoubleClick}
                             onDelete={removeWidget}
                             hasAlignedEdges={hasAlignedEdges}
                             shiftHeld={shiftHeld}
@@ -386,6 +410,22 @@ export default function FreeformDashboard({ editMode }: FreeformDashboardProps) 
                     onClose={() => setShowCatalog(false)}
                 />
             )}
+
+            {/* Widget settings dialog */}
+            {settingsWidgetId && (() => {
+                const settingsWidget = widgets.find((w) => w.id === settingsWidgetId);
+                const settingsMeta = settingsWidget ? getFreeformWidgetMeta(settingsWidget.widgetType) : undefined;
+                if (!settingsWidget || !settingsMeta) return null;
+                return (
+                    <FreeformWidgetSettingsDialog
+                        widget={settingsWidget}
+                        meta={settingsMeta}
+                        familyMembers={familyMembers}
+                        onSave={handleSaveWidgetSettings}
+                        onClose={() => setSettingsWidgetId(null)}
+                    />
+                );
+            })()}
         </>
     );
 }

@@ -49,8 +49,12 @@ export interface BreakpointDef {
 export interface ConfigField {
     key: string;
     label: string;
-    type: 'family-member' | 'number' | 'string';
+    type: 'family-member' | 'family-members' | 'number' | 'string' | 'boolean';
     required?: boolean;
+    /** For number fields: minimum value */
+    min?: number;
+    /** For number fields: maximum value */
+    max?: number;
 }
 
 export interface FreeformWidgetMeta {

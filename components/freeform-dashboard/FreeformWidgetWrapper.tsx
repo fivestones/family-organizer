@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useState } from 'react';
-import { X } from 'lucide-react';
+import { Settings2, X } from 'lucide-react';
 import type { DashboardWidgetRecord, FreeformWidgetMeta, ResizeHandle, WidgetRect } from '@/lib/freeform-dashboard/types';
 
 interface FreeformWidgetWrapperProps {
@@ -13,6 +13,7 @@ interface FreeformWidgetWrapperProps {
     onDragStart?: (e: React.PointerEvent, widgetId: string, rect: WidgetRect) => void;
     onResizeStart?: (e: React.PointerEvent, widgetId: string, handle: ResizeHandle, rect: WidgetRect) => void;
     onClick?: (widgetId: string) => void;
+    onDoubleClick?: (widgetId: string) => void;
     onDelete?: (widgetId: string) => void;
     hasAlignedEdges?: boolean;
     shiftHeld?: boolean;
@@ -40,6 +41,7 @@ export default function FreeformWidgetWrapper({
     onDragStart,
     onResizeStart,
     onClick,
+    onDoubleClick,
     onDelete,
     hasAlignedEdges,
     shiftHeld,
@@ -71,6 +73,12 @@ export default function FreeformWidgetWrapper({
         }
     }, [editMode, onClick, widget.id]);
 
+    const handleDoubleClick = useCallback(() => {
+        if (editMode && onDoubleClick) {
+            onDoubleClick(widget.id);
+        }
+    }, [editMode, onDoubleClick, widget.id]);
+
     return (
         <div
             className={`absolute ${editMode ? 'border border-dashed border-slate-400/60' : ''}`}
@@ -82,6 +90,7 @@ export default function FreeformWidgetWrapper({
                 zIndex: widget.z,
             }}
             onClick={handleClick}
+            onDoubleClick={handleDoubleClick}
         >
             {/* Widget content with overflow hidden for truncation */}
             <div className="h-full w-full overflow-hidden rounded-xl bg-white shadow-sm">
@@ -101,6 +110,20 @@ export default function FreeformWidgetWrapper({
                     <div className="pointer-events-none absolute left-1 top-1 rounded bg-slate-900/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
                         {meta?.label ?? widget.widgetType}
                     </div>
+
+                    {/* Settings button (only when widget has config fields) */}
+                    {meta?.configFields && meta.configFields.length > 0 && onDoubleClick && (
+                        <button
+                            className="absolute -right-2 top-5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-600 text-white shadow-sm hover:bg-slate-700"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onDoubleClick(widget.id);
+                            }}
+                            title="Widget settings"
+                        >
+                            <Settings2 size={11} />
+                        </button>
+                    )}
 
                     {/* Delete button */}
                     <button
