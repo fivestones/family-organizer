@@ -20,6 +20,7 @@ import FreeformWidgetCatalog from './FreeformWidgetCatalog';
 import FreeformWidgetSettingsDialog from './FreeformWidgetSettingsDialog';
 import { WidgetScaleProvider } from '@/lib/freeform-dashboard/widget-scale';
 import { useDashboardTheme } from '@/lib/freeform-dashboard/useDashboardTheme';
+import { useActiveDashboardTheme } from '@/lib/freeform-dashboard/DashboardThemeContext';
 
 // Import all widget registrations
 import './widgets';
@@ -31,8 +32,15 @@ interface FreeformDashboardProps {
 export default function FreeformDashboard({ editMode }: FreeformDashboardProps) {
     const { isParentMode } = useParentMode();
     const { theme } = useDashboardTheme();
+    const { setActiveTheme } = useActiveDashboardTheme();
     const { layouts, isLoading, addWidget, updateWidget, updateWidgets, removeWidget, bringToFront, createLayout } =
         useFamilyDashboardLayout();
+
+    // Broadcast the dashboard theme to the layout shell (navbar, body bg)
+    useEffect(() => {
+        setActiveTheme(theme);
+        return () => setActiveTheme(null);
+    }, [theme, setActiveTheme]);
     const { activeBreakpoint, viewportWidth } = useActiveBreakpoint(layouts);
     const [showCatalog, setShowCatalog] = useState(false);
     const [settingsWidgetId, setSettingsWidgetId] = useState<string | null>(null);
@@ -333,7 +341,7 @@ export default function FreeformDashboard({ editMode }: FreeformDashboardProps) 
     const themeClass = `fd-${theme}`;
 
     return (
-        <div className={`${themeClass} rounded-xl`} style={{ backgroundColor: 'var(--fd-canvas)' }}>
+        <div className={`${themeClass} min-h-full`} style={{ backgroundColor: 'var(--fd-canvas)' }}>
             <FreeformCanvas
                 widgets={widgets}
                 editMode={editMode}

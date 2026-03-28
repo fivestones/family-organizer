@@ -140,6 +140,15 @@
   --fd-amber-text: #ffbe5c;
 }
 
+/* Theme-aware nav buttons inside themed header */
+.fd-dark button,
+.fd-dark a {
+  color: var(--fd-ink);
+}
+.fd-dark button:hover {
+  background-color: var(--fd-panel-elevated);
+}
+
 /* Prose overrides inside dark dashboard */
 .fd-dark .prose {
   --tw-prose-body: var(--fd-ink);

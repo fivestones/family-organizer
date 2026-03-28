@@ -18,6 +18,8 @@ import DashboardEditButton from '@/components/freeform-dashboard/DashboardEditBu
 import NavbarDate from '@/components/NavbarDate';
 import { MainNav } from '@/components/MainNav';
 import CalendarHeaderControls from '@/components/CalendarHeaderControls';
+import { DashboardThemeProvider } from '@/lib/freeform-dashboard/DashboardThemeContext';
+import { ThemedHeader, ThemedMain } from '@/components/ThemedAppShell';
 // Import local Inter font
 const inter = localFont({
     src: '../public/fonts/Inter_18pt-Regular.ttf',
@@ -128,8 +130,9 @@ export default function RootLayout({
             <body className={`${inter.className} min-h-screen flex flex-col bg-background text-foreground overscroll-none`}>
                 <InstantFamilySessionProvider>
                     <AuthProvider>
+                      <DashboardThemeProvider>
                         {/* +++ Global Header +++ */}
-                        <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b bg-card px-4 py-3 sm:px-6">
+                        <ThemedHeader>
                             <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-6">
                                 <Link
                                     href="/"
@@ -147,17 +150,18 @@ export default function RootLayout({
                                 <NavbarDate />
                                 <UserMenu />
                             </div>
-                        </header>
+                        </ThemedHeader>
 
                         {/* +++ Main Content +++ */}
-                        <main className="flex-1 min-h-0 relative">
+                        <ThemedMain>
                             <FamilyAppGate>{children}</FamilyAppGate>
-                        </main>
+                        </ThemedMain>
 
                         <Toaster />
                         <DebugTimeWidget />
                         <MessageNotificationBridge />
                         <PwaServiceWorkerRegistration />
+                      </DashboardThemeProvider>
                     </AuthProvider>
                 </InstantFamilySessionProvider>
             </body>
