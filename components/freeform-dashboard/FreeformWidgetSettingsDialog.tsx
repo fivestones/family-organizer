@@ -296,6 +296,31 @@ export default function FreeformWidgetSettingsDialog({
                     </div>
                 );
 
+            case 'select':
+                return (
+                    <div key={field.key} className="py-2">
+                        <span className="mb-2 block text-sm font-medium text-slate-700">{field.label}</span>
+                        <div className="flex gap-1.5">
+                            {(field.options ?? []).map((opt) => {
+                                const selected = value === opt.value;
+                                return (
+                                    <button
+                                        key={opt.value}
+                                        className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                                            selected
+                                                ? 'border-blue-400 bg-blue-50 text-blue-700'
+                                                : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50'
+                                        }`}
+                                        onClick={() => setDraft((prev) => ({ ...prev, [field.key]: opt.value }))}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+
             default:
                 return null;
         }

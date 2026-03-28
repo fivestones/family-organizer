@@ -49,7 +49,7 @@ export interface BreakpointDef {
 export interface ConfigField {
     key: string;
     label: string;
-    type: 'family-member' | 'family-members' | 'number' | 'string' | 'boolean' | 'range' | 'content-category';
+    type: 'family-member' | 'family-members' | 'number' | 'string' | 'boolean' | 'range' | 'content-category' | 'select';
     required?: boolean;
     /** For number/range fields: minimum value */
     min?: number;
@@ -59,6 +59,8 @@ export interface ConfigField {
     step?: number;
     /** For range fields: format the display label (e.g. percentage) */
     formatValue?: (v: number) => string;
+    /** For select fields: list of options */
+    options?: { value: string; label: string }[];
 }
 
 export interface FreeformWidgetMeta {

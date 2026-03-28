@@ -19,9 +19,15 @@ import type { DashboardFamilyMember } from '@/lib/dashboard-utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import CalendarEventDetailDialog from '@/components/CalendarEventDetailDialog';
 import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
+import { buildMemberColorMap, hexToRgbaString } from '@/lib/family-member-colors';
+
+type ColorAccentStyle = 'border' | 'glow' | 'combo';
+const ACCENT_STYLES: ColorAccentStyle[] = ['border', 'glow', 'combo'];
+const ACCENT_LABELS: Record<ColorAccentStyle, string> = { border: 'Border', glow: 'Glow', combo: 'Both' };
 
 function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetProps) {
     const memberId = config.memberId as string | undefined;
+    const accentStyle = (config.colorAccent as ColorAccentStyle | undefined) ?? 'combo';
 
     const [detailOpen, setDetailOpen] = useState(false);
     const [detailEventId, setDetailEventId] = useState<string | null>(null);
@@ -46,10 +52,15 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         },
     });
 
+    const members = (data?.familyMembers ?? []) as any[];
+
     const member = useMemo(
-        () => ((data?.familyMembers ?? []) as any[]).find((m) => m.id === memberId),
-        [data?.familyMembers, memberId]
+        () => members.find((m: any) => m.id === memberId),
+        [members, memberId]
     );
+
+    const colorMap = useMemo(() => buildMemberColorMap(members), [members]);
+    const memberColor = memberId ? colorMap[memberId] ?? null : null;
 
     const stats = useMemo(() => {
         if (!member || !data) return null;
@@ -154,10 +165,43 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
     const avatarSize = s(32);
     const isShort = height < 260;
 
+    const showBorder = accentStyle === 'border' || accentStyle === 'combo';
+    const showGlow = accentStyle === 'glow' || accentStyle === 'combo';
+
     return (
-        <div className="flex h-full flex-col" style={{ padding: s(12) }}>
+        <div
+            className="relative flex h-full flex-col overflow-hidden"
+            style={{
+                padding: s(12),
+                paddingLeft: showBorder && memberColor ? s(12) + s(3) : s(12),
+            }}
+        >
+            {/* Left border accent */}
+            {showBorder && memberColor && (
+                <div
+                    className="absolute left-0 top-0 bottom-0"
+                    style={{
+                        width: s(3),
+                        background: `linear-gradient(to bottom, ${memberColor}, ${hexToRgbaString(memberColor, 0.4)})`,
+                        borderRadius: `${s(6)}px 0 0 ${s(6)}px`,
+                    }}
+                />
+            )}
+
+            {/* Top gradient glow */}
+            {showGlow && memberColor && (
+                <div
+                    className="pointer-events-none absolute inset-x-0 top-0"
+                    style={{
+                        height: s(60),
+                        background: `linear-gradient(to bottom, ${hexToRgbaString(memberColor, 0.15)}, transparent)`,
+                        borderRadius: `${s(6)}px ${s(6)}px 0 0`,
+                    }}
+                />
+            )}
+
             {/* Avatar + Name */}
-            <div className="flex items-center" style={{ marginBottom: s(8), gap: s(8) }}>
+            <div className="relative flex items-center" style={{ marginBottom: s(8), gap: s(8) }}>
                 <Avatar style={{ width: avatarSize, height: avatarSize }}>
                     <AvatarImage src={getPhotoUrl(member)} />
                     <AvatarFallback style={{ fontSize: sv(12) }}>{toInitials(member.name)}</AvatarFallback>
@@ -232,7 +276,14 @@ registerFreeformWidget({
         defaultWidth: 180,
         defaultHeight: 220,
         allowMultiple: true,
-        configFields: [{ key: 'memberId', label: 'Family Member', type: 'family-member', required: true }],
+        configFields: [
+            { key: 'memberId', label: 'Family Member', type: 'family-member', required: true },
+            { key: 'colorAccent', label: 'Color Accent', type: 'select', options: [
+                { value: 'border', label: 'Border' },
+                { value: 'glow', label: 'Glow' },
+                { value: 'combo', label: 'Both' },
+            ], required: false },
+        ],
     },
     component: PersonCardWidget,
 });
