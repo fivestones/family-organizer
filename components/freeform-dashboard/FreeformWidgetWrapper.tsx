@@ -94,11 +94,10 @@ export default function FreeformWidgetWrapper({
         >
             {/* Widget content with overflow hidden for truncation */}
             <div
-                className="h-full w-full overflow-hidden rounded-xl"
+                className="h-full w-full overflow-hidden rounded-lg"
                 style={{
                     backgroundColor: 'var(--fd-panel)',
-                    boxShadow: '0 1px 3px var(--fd-shadow)',
-                    border: '1px solid var(--fd-panel-border)',
+                    border: '2px solid var(--fd-canvas)',
                 }}
             >
                 {children}
