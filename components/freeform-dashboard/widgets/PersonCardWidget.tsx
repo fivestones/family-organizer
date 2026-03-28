@@ -152,7 +152,7 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
     }
 
     const avatarSize = s(32);
-    const isShort = height < s(260);
+    const isShort = height < 260;
 
     return (
         <div className="flex h-full flex-col" style={{ padding: s(12) }}>
