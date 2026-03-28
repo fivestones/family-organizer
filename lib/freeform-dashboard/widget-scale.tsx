@@ -3,16 +3,16 @@
 import React, { createContext, useContext, useMemo } from 'react';
 
 /**
- * Widget scale context — provides a fluid scale factor that widgets use
+ * Widget scale context — provides a scale factor that widgets use
  * to size avatars, text, spacing, and SVG elements proportionally.
  *
- * The scale factor is derived from the widget's actual dimensions relative
- * to its "reference" (default) size, optionally overridden by a user-defined
- * `contentScale` config value.
+ * The scale factor is derived solely from the user-defined `contentScale`
+ * config value. Widget resize does NOT affect content scale — the two
+ * are independently controllable.
  */
 
 interface WidgetScaleContextValue {
-    /** The computed scale factor (1 = reference size, excludes contentScale). */
+    /** The computed scale factor (1 = default size). */
     scale: number;
     /** Convenience: returns `value * scale` rounded to nearest integer. */
     s: (px: number) => number;
@@ -40,26 +40,6 @@ interface WidgetScaleProviderProps {
     children: React.ReactNode;
 }
 
-/**
- * Computes the base scale factor from the widget's actual vs reference
- * dimensions (excludes contentScale — that is applied via CSS transform
- * so all distances scale uniformly).
- *
- * Clamped to [0.4, 3.0].
- */
-function computeScale(
-    width: number,
-    height: number,
-    refWidth: number,
-    refHeight: number,
-): number {
-    const wRatio = width / refWidth;
-    const hRatio = height / refHeight;
-    // Use the smaller ratio so content doesn't overflow
-    const auto = Math.min(wRatio, hRatio);
-    return Math.max(0.4, Math.min(3.0, auto));
-}
-
 export function WidgetScaleProvider({
     width,
     height,
@@ -68,53 +48,27 @@ export function WidgetScaleProvider({
     contentScale,
     children,
 }: WidgetScaleProviderProps) {
-    const scale = useMemo(
-        () => computeScale(width, height, refWidth, refHeight),
-        [width, height, refWidth, refHeight]
-    );
+    // Content scale is now purely user-controlled (no automatic sizing from dimensions)
+    const cs = contentScale !== undefined && contentScale > 0 ? contentScale : 1;
 
     const value = useMemo<WidgetScaleContextValue>(
         () => ({
-            scale,
-            s: (px: number) => Math.round(px * scale),
-            sv: (px: number) => `${px * scale}px`,
+            scale: cs,
+            s: (px: number) => Math.round(px * cs),
+            sv: (px: number) => `${px * cs}px`,
         }),
-        [scale]
+        [cs]
     );
-
-    // contentScale is applied via CSS transform so that all distances
-    // (element sizes AND gaps) scale uniformly instead of only scaling
-    // individual measurements while the container stays fixed.
-    const cs = contentScale !== undefined && contentScale > 0 ? contentScale : 1;
-    const useTransform = cs !== 1;
 
     return (
         <WidgetScaleContext.Provider value={value}>
             <div
-                className="h-full w-full"
+                className="h-full w-full overflow-hidden"
                 style={{
-                    '--widget-scale': scale,
-                    ...(useTransform
-                        ? {
-                              overflow: 'hidden',
-                          }
-                        : {}),
+                    '--widget-scale': cs,
                 } as React.CSSProperties}
             >
-                {useTransform ? (
-                    <div
-                        style={{
-                            transform: `scale(${cs})`,
-                            transformOrigin: 'top left',
-                            width: `${100 / cs}%`,
-                            height: `${100 / cs}%`,
-                        }}
-                    >
-                        {children}
-                    </div>
-                ) : (
-                    children
-                )}
+                {children}
             </div>
         </WidgetScaleContext.Provider>
     );
@@ -123,7 +77,7 @@ export function WidgetScaleProvider({
 /**
  * Returns the current widget scale factor and helpers.
  *
- * - `scale` — raw multiplier (1 = reference size)
+ * - `scale` — raw multiplier (1 = default size)
  * - `s(px)` — scale a pixel value, returns rounded integer
  * - `sv(px)` — scale a pixel value, returns CSS string e.g. `"14.4px"`
  */

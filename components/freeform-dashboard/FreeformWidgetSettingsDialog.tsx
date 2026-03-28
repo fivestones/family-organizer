@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { X } from 'lucide-react';
 import type { ConfigField, DashboardWidgetRecord, FreeformWidgetMeta } from '@/lib/freeform-dashboard/types';
 import { getPhotoUrl } from '@/lib/photo-urls';
@@ -22,6 +22,48 @@ export default function FreeformWidgetSettingsDialog({
 }: FreeformWidgetSettingsDialogProps) {
     const [draft, setDraft] = useState<Record<string, unknown>>(() => ({ ...(widget.config ?? {}) }));
 
+    // ── Dragging state ──────────────────────────────────────────────
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const dragStartRef = useRef<{ mouseX: number; mouseY: number; offsetX: number; offsetY: number } | null>(null);
+
+    const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
+        // Only drag from header area
+        e.preventDefault();
+        setIsDragging(true);
+        dragStartRef.current = {
+            mouseX: e.clientX,
+            mouseY: e.clientY,
+            offsetX: dragOffset.x,
+            offsetY: dragOffset.y,
+        };
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    }, [dragOffset]);
+
+    const handleDragPointerMove = useCallback((e: React.PointerEvent) => {
+        if (!isDragging || !dragStartRef.current) return;
+        setDragOffset({
+            x: dragStartRef.current.offsetX + (e.clientX - dragStartRef.current.mouseX),
+            y: dragStartRef.current.offsetY + (e.clientY - dragStartRef.current.mouseY),
+        });
+    }, [isDragging]);
+
+    const handleDragPointerUp = useCallback(() => {
+        setIsDragging(false);
+        dragStartRef.current = null;
+    }, []);
+
+    // ── Real-time save: push draft to parent whenever it changes ────
+    const isFirstRender = useRef(true);
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+        onSave(widget.id, draft);
+    }, [draft, onSave, widget.id]);
+
     // Inject a "Content Scale" range field so every widget gets it
     const CONTENT_SCALE_FIELD: ConfigField = {
         key: 'contentScale',
@@ -29,14 +71,9 @@ export default function FreeformWidgetSettingsDialog({
         type: 'range',
         min: 50,
         max: 200,
-        step: 10,
+        step: 1,
     };
     const fields: ConfigField[] = [...(meta.configFields ?? []), CONTENT_SCALE_FIELD];
-
-    const handleSave = () => {
-        onSave(widget.id, draft);
-        onClose();
-    };
 
     const renderField = (field: ConfigField) => {
         const value = draft[field.key];
@@ -150,16 +187,16 @@ export default function FreeformWidgetSettingsDialog({
                             className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600"
                             min={field.min ?? 50}
                             max={field.max ?? 200}
-                            step={field.step ?? 10}
+                            step={field.step ?? 1}
                             value={rangeVal}
                             onChange={(e) => {
-                                const num = parseInt(e.target.value, 10);
+                                const num = parseFloat(e.target.value);
                                 setDraft((prev) => ({ ...prev, [field.key]: num }));
                             }}
                         />
                         <div className="flex justify-between text-[10px] text-slate-400">
-                            <span>{field.min ?? 50}%</span>
-                            <span>{field.max ?? 200}%</span>
+                            <span>{field.min ?? 50}{field.key === 'contentScale' ? '%' : ''}</span>
+                            <span>{field.max ?? 200}{field.key === 'contentScale' ? '%' : ''}</span>
                         </div>
                     </label>
                 );
@@ -224,22 +261,33 @@ export default function FreeformWidgetSettingsDialog({
     };
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" onClick={onClose}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center" onClick={onClose}>
             <div
+                ref={dialogRef}
                 className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+                style={{
+                    transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+                }}
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-slate-900">{meta.label} Settings</h2>
+                {/* Draggable header */}
+                <div
+                    className={`mb-4 flex items-center justify-between ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                    onPointerDown={handleDragPointerDown}
+                    onPointerMove={handleDragPointerMove}
+                    onPointerUp={handleDragPointerUp}
+                >
+                    <h2 className="select-none text-lg font-semibold text-slate-900">{meta.label} Settings</h2>
                     <button
                         className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                         onClick={onClose}
+                        onPointerDown={(e) => e.stopPropagation()}
                     >
                         <X size={20} />
                     </button>
                 </div>
 
-                <div className="divide-y divide-slate-100">
+                <div className="max-h-[60vh] divide-y divide-slate-100 overflow-y-auto">
                     {fields.map(renderField)}
                 </div>
 
@@ -247,18 +295,12 @@ export default function FreeformWidgetSettingsDialog({
                     <p className="py-4 text-center text-sm text-slate-400">No configurable settings for this widget.</p>
                 )}
 
-                <div className="mt-6 flex justify-end gap-2">
-                    <button
-                        className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-                        onClick={onClose}
-                    >
-                        Cancel
-                    </button>
+                <div className="mt-6 flex justify-end">
                     <button
                         className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                        onClick={handleSave}
+                        onClick={onClose}
                     >
-                        Save
+                        Done
                     </button>
                 </div>
             </div>

@@ -78,7 +78,7 @@ function XpRing({
 
 /* ── Main widget ─────────────────────────────────────────────── */
 
-function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
+function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetProps) {
     const { data } = db.useQuery({
         familyMembers: {
             $: { order: { order: 'asc' } },
@@ -207,7 +207,8 @@ function ChoreMatrixWidget({ width, height, todayUtc }: FreeformWidgetProps) {
     const visibleRows = choreRows.slice(0, maxRows);
     const hiddenCount = choreRows.length - visibleRows.length;
 
-    const labelWidth = Math.min(s(160), Math.max(s(80), width * 0.3));
+    const labelWidthPercent = typeof config?.labelWidthPercent === 'number' ? config.labelWidthPercent : 30;
+    const labelWidth = Math.max(s(40), width * (labelWidthPercent / 100));
     const memberColWidth =
         members.length > 0
             ? Math.min(s(40), (width - labelWidth - s(16)) / members.length)
@@ -419,6 +420,17 @@ registerFreeformWidget({
         defaultWidth: 600,
         defaultHeight: 350,
         allowMultiple: false,
+        configFields: [
+            {
+                key: 'labelWidthPercent',
+                label: 'Chore Name Column Width',
+                type: 'range',
+                min: 15,
+                max: 60,
+                step: 1,
+                formatValue: (v: number) => `${v}%`,
+            },
+        ],
     },
     component: ChoreMatrixWidget,
 });
