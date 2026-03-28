@@ -187,11 +187,11 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
 
                     {/* Next chore */}
                     {stats.nextChoreTitle && !isShort && (
-                        <div className="rounded-lg bg-slate-50" style={{ marginBottom: s(6), padding: `${s(6)}px ${s(8)}px` }}>
+                        <div className="rounded-lg bg-slate-50" style={{ marginBottom: s(6), padding: `${s(4)}px ${s(4)}px` }}>
                             <div className="font-medium uppercase tracking-wider text-slate-400" style={{ fontSize: sv(10) }}>Next</div>
-                            <div className="truncate text-slate-700" style={{ fontSize: sv(12) }}>{stats.nextChoreTitle}</div>
+                            <div className="text-slate-700" style={{ fontSize: sv(12), lineHeight: 1.3 }}>{stats.nextChoreTitle}</div>
                             {stats.nextTaskTitle && (
-                                <div className="truncate text-slate-500" style={{ marginTop: s(2), fontSize: sv(10) }}>→ {stats.nextTaskTitle}</div>
+                                <div className="text-slate-500" style={{ marginTop: s(2), fontSize: sv(10), lineHeight: 1.3 }}>→ {stats.nextTaskTitle}</div>
                             )}
                         </div>
                     )}
@@ -199,7 +199,7 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
                     {/* Next calendar item */}
                     {stats.nextCalendarItem && !isShort && (
                         <div
-                            className="mt-auto cursor-pointer rounded-lg bg-blue-50 transition-colors hover:bg-blue-100"
+                            className="cursor-pointer rounded-lg bg-blue-50 transition-colors hover:bg-blue-100"
                             style={{ padding: `${s(6)}px ${s(8)}px` }}
                             onDoubleClick={() => handleCalendarDoubleClick(stats.nextCalendarItem!.id)}
                         >
