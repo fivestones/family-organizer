@@ -341,7 +341,7 @@ export default function FreeformDashboard({ editMode }: FreeformDashboardProps) 
     const themeClass = `fd-${theme}`;
 
     return (
-        <div className={`${themeClass} h-full ${editMode ? 'overflow-auto' : 'overflow-hidden'}`} style={{ backgroundColor: 'var(--fd-canvas)' }}>
+        <div className={`${themeClass} min-h-full`} style={{ backgroundColor: 'var(--fd-canvas)' }}>
             <FreeformCanvas
                 widgets={widgets}
                 editMode={editMode}

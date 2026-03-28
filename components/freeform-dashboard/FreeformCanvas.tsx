@@ -21,14 +21,16 @@ export default function FreeformCanvas({
     onPointerUp,
 }: FreeformCanvasProps) {
     const minHeight = useMemo(() => {
-        if (widgets.length === 0) return 600;
-        return Math.max(600, ...widgets.map((w) => w.y + w.h)) + 24;
-    }, [widgets]);
+        if (widgets.length === 0) return editMode ? 600 : 0;
+        const contentBottom = Math.max(...widgets.map((w) => w.y + w.h));
+        // In edit mode, add padding so users can drag below the last widget
+        return editMode ? Math.max(600, contentBottom + 24) : contentBottom;
+    }, [widgets, editMode]);
 
     return (
         <div
-            className="relative isolate h-full w-full"
-            style={{ minHeight: editMode ? minHeight : undefined }}
+            className="relative isolate w-full"
+            style={{ minHeight }}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
         >
