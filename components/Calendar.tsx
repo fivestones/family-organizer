@@ -50,6 +50,8 @@ import { RecurrenceScopeDialog, type RecurrenceEditScope, type RecurrenceSeriesS
 import { useOptionalAuth } from '@/components/AuthProvider';
 import { buildCalendarHistoryMetadata, buildCalendarHistorySnapshot } from '@/lib/calendar-history';
 import { db } from '@/lib/db';
+import { useDashboardTheme } from '@/lib/freeform-dashboard/useDashboardTheme';
+import { useActiveDashboardTheme } from '@/lib/freeform-dashboard/DashboardThemeContext';
 import { getAssignedMembersForChoreOnDate, type Chore } from '@/lib/chore-utils';
 import { cn } from '@/lib/utils';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
@@ -1035,6 +1037,16 @@ const Calendar = ({
     // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
     // and displayMonthNumber = false, to display the month number as well as the name.
     const currentUser = useOptionalAuth()?.currentUser || null;
+    const { theme: dashboardTheme } = useDashboardTheme();
+    const { setActiveTheme } = useActiveDashboardTheme();
+
+    // Broadcast theme to layout shell (navbar) while calendar is mounted
+    useEffect(() => {
+        setActiveTheme(dashboardTheme);
+        return () => setActiveTheme(null);
+    }, [dashboardTheme, setActiveTheme]);
+
+    const themeClass = `fd-${dashboardTheme}`;
     const isMiniInfinite = variant === 'miniInfinite';
     const commandsEnabled = commandBusEnabled ?? !isMiniInfinite;
     const effectiveCurrentDate = useMemo(
@@ -5859,7 +5871,7 @@ const Calendar = ({
     let shouldDisplayNepaliYear = true;
 
     return (
-        <div className={cn(isMiniInfinite && styles.miniCalendarShell, className)} style={style}>
+        <div className={cn(themeClass, isMiniInfinite && styles.miniCalendarShell, className)} style={style}>
             <RecurrenceScopeDialog
                 open={recurrenceScopeDialogOpen}
                 action={recurrenceScopeDialogAction}

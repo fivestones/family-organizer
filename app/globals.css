@@ -156,6 +156,34 @@
   color: var(--fd-ink);
 }
 
+/* Calendar Tailwind overrides in dark theme */
+.fd-dark .bg-white,
+.fd-dark .bg-white\/95 {
+  background-color: var(--fd-panel) !important;
+}
+.fd-dark .border-slate-200,
+.fd-dark .border-slate-200\/80 {
+  border-color: var(--fd-line) !important;
+}
+.fd-dark .bg-slate-50 {
+  background-color: var(--fd-panel-elevated) !important;
+}
+.fd-dark .text-slate-900 {
+  color: var(--fd-ink) !important;
+}
+.fd-dark .text-slate-600 {
+  color: var(--fd-ink-muted) !important;
+}
+.fd-dark .text-slate-500 {
+  color: var(--fd-ink-faint) !important;
+}
+.fd-dark .hover\:border-slate-300:hover {
+  border-color: var(--fd-line) !important;
+}
+.fd-dark .hover\:bg-slate-50:hover {
+  background-color: var(--fd-panel-elevated) !important;
+}
+
 /* Prose overrides inside dark dashboard */
 .fd-dark .prose {
   --tw-prose-body: var(--fd-ink);
