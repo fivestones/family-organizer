@@ -148,6 +148,13 @@
 .fd-dark button:hover {
   background-color: var(--fd-panel-elevated);
 }
+/* Override shadcn active-link highlight in dark dashboard header */
+.fd-dark .bg-accent {
+  background-color: var(--fd-panel-elevated);
+}
+.fd-dark .text-accent-foreground {
+  color: var(--fd-ink);
+}
 
 /* Prose overrides inside dark dashboard */
 .fd-dark .prose {

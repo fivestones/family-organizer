@@ -44,13 +44,15 @@ export function ThemedMain({ children }: { children: React.ReactNode }) {
     const { activeTheme } = useActiveDashboardTheme();
     const themeClass = activeTheme ? `fd-${activeTheme}` : '';
 
-    // Sync the <body> background to the canvas color so no white shows
-    // through rounded corners, overscroll bounce, etc.
+    // Sync both <html> and <body> background to the canvas color so no white
+    // shows through anywhere (rounded corners, overscroll bounce, etc.).
     useEffect(() => {
         if (!activeTheme) return;
 
+        const html = document.documentElement;
         const body = document.body;
-        const prev = body.style.backgroundColor;
+        const prevHtml = html.style.backgroundColor;
+        const prevBody = body.style.backgroundColor;
 
         // Read the resolved --fd-canvas value from a temporary element
         const probe = document.createElement('div');
@@ -61,11 +63,21 @@ export function ThemedMain({ children }: { children: React.ReactNode }) {
         body.removeChild(probe);
 
         if (canvasColor) {
+            html.style.backgroundColor = canvasColor;
             body.style.backgroundColor = canvasColor;
         }
 
+        // Lock body to viewport height to prevent 1-2px scroll on dashboard
+        const prevBodyHeight = body.style.height;
+        const prevBodyOverflow = body.style.overflow;
+        body.style.height = '100vh';
+        body.style.overflow = 'hidden';
+
         return () => {
-            body.style.backgroundColor = prev;
+            html.style.backgroundColor = prevHtml;
+            body.style.backgroundColor = prevBody;
+            body.style.height = prevBodyHeight;
+            body.style.overflow = prevBodyOverflow;
         };
     }, [activeTheme]);
 
