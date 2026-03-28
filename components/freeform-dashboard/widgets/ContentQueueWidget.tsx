@@ -162,7 +162,7 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
             <div className="flex-1 overflow-y-auto min-h-0">
                 {liveItem.richTextContent && (
                     <div
-                        className="prose prose-sm max-w-none text-slate-700 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
+                        className="prose prose-sm max-w-none text-slate-700 [&_p]:my-0 [&_p:empty]:before:content-['\a0']"
                         style={{ fontSize: sv(13) }}
                         dangerouslySetInnerHTML={{
                             __html: liveItem.richTextContent,
