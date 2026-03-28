@@ -2,13 +2,25 @@
 
 import React, { useEffect } from 'react';
 import { useActiveDashboardTheme } from '@/lib/freeform-dashboard/DashboardThemeContext';
+import { DASHBOARD_THEMES } from '@/lib/freeform-dashboard/dashboard-theme';
+
+/** Resolve the canvas hex color for a given theme id */
+function getCanvasColor(themeId: string): string {
+    const def = DASHBOARD_THEMES.find((t) => t.id === themeId);
+    // previewColors[0] is the canvas color
+    return def?.previewColors[0] ?? '#f1f3f8';
+}
+
+/** Resolve the panel hex color for a given theme id */
+function getPanelColor(themeId: string): string {
+    const def = DASHBOARD_THEMES.find((t) => t.id === themeId);
+    // previewColors[1] is the panel color
+    return def?.previewColors[1] ?? '#ffffff';
+}
 
 /**
- * Wraps the header + main content and applies dashboard theme CSS variables
- * to the header when the freeform dashboard is active.
- *
- * The dark dashboard theme tints the navbar to match, while non-dashboard
- * pages keep the default light appearance.
+ * Wraps the header and applies dashboard theme CSS variables
+ * when the freeform dashboard is active.
  */
 export function ThemedHeader({ children }: { children: React.ReactNode }) {
     const { activeTheme } = useActiveDashboardTheme();
@@ -37,53 +49,54 @@ export function ThemedHeader({ children }: { children: React.ReactNode }) {
  * Wraps <main> and applies the canvas background color when the dashboard
  * theme is active, so no white gap appears below the widgets.
  *
- * Also patches the <body> background while the dashboard is mounted so that
- * no white bleeds through anywhere (e.g. around rounded corners or overscroll).
+ * Also patches <html> and <body> backgrounds while the dashboard is mounted
+ * so that no white bleeds through OS-level window rounded corners or
+ * overscroll bounce areas.
  */
 export function ThemedMain({ children }: { children: React.ReactNode }) {
     const { activeTheme } = useActiveDashboardTheme();
     const themeClass = activeTheme ? `fd-${activeTheme}` : '';
 
-    // Sync both <html> and <body> background to the canvas color so no white
-    // shows through anywhere (rounded corners, overscroll bounce, etc.).
+    // Sync <html> and <body> background + lock body to viewport so the
+    // dashboard never scrolls and no white bleeds through window corners.
     useEffect(() => {
         if (!activeTheme) return;
 
         const html = document.documentElement;
         const body = document.body;
-        const prevHtml = html.style.backgroundColor;
-        const prevBody = body.style.backgroundColor;
 
-        // Read the resolved --fd-canvas value from a temporary element
-        const probe = document.createElement('div');
-        probe.className = `fd-${activeTheme}`;
-        probe.style.display = 'none';
-        body.appendChild(probe);
-        const canvasColor = getComputedStyle(probe).getPropertyValue('--fd-canvas').trim();
-        body.removeChild(probe);
+        // Snapshot previous values for clean teardown
+        const prev = {
+            htmlBg: html.style.backgroundColor,
+            bodyBg: body.style.backgroundColor,
+            bodyHeight: body.style.height,
+            bodyOverflow: body.style.overflow,
+        };
 
-        if (canvasColor) {
-            html.style.backgroundColor = canvasColor;
-            body.style.backgroundColor = canvasColor;
-        }
+        // Use the panel color (header bg) for html so OS window rounded
+        // corners show the header color, not white
+        const panelColor = getPanelColor(activeTheme);
+        html.style.backgroundColor = panelColor;
 
-        // Lock body to viewport height to prevent 1-2px scroll on dashboard
-        const prevBodyHeight = body.style.height;
-        const prevBodyOverflow = body.style.overflow;
-        body.style.height = '100vh';
+        const canvasColor = getCanvasColor(activeTheme);
+        body.style.backgroundColor = canvasColor;
+
+        // Lock body to exact viewport height — prevents the 1-2px scroll
+        // caused by min-h-screen + borders/padding accumulating beyond 100vh
+        body.style.height = '100dvh';
         body.style.overflow = 'hidden';
 
         return () => {
-            html.style.backgroundColor = prevHtml;
-            body.style.backgroundColor = prevBody;
-            body.style.height = prevBodyHeight;
-            body.style.overflow = prevBodyOverflow;
+            html.style.backgroundColor = prev.htmlBg;
+            body.style.backgroundColor = prev.bodyBg;
+            body.style.height = prev.bodyHeight;
+            body.style.overflow = prev.bodyOverflow;
         };
     }, [activeTheme]);
 
     return (
         <main
-            className={`flex-1 min-h-0 relative ${themeClass}`}
+            className={`flex-1 min-h-0 relative overflow-hidden ${themeClass}`}
             style={
                 activeTheme
                     ? { backgroundColor: 'var(--fd-canvas)' }
