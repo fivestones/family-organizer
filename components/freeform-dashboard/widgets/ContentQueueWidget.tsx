@@ -1,17 +1,20 @@
 'use client';
 
-import React, { useMemo } from 'react';
-import { BookOpen, ExternalLink, Play } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { BookOpen, ExternalLink, Pencil, Play } from 'lucide-react';
 import { db } from '@/lib/db';
 import { registerFreeformWidget } from '@/lib/freeform-dashboard/freeform-widget-registry';
 import type { FreeformWidgetProps } from '@/lib/freeform-dashboard/types';
 import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
-import { checkAndAdvanceCategory, getQueuedItems } from '@/lib/content-queue';
+import { ContentItemForm } from '@/components/content/ContentItemForm';
+import { checkAndAdvanceCategory, getQueuedItems, getNextSortOrder } from '@/lib/content-queue';
 
 function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetProps) {
     const { s, sv } = useWidgetScale();
     const categorySlug = (config.categorySlug as string) || '';
+    const [editingItem, setEditingItem] = useState<any>(null);
+    const [itemFormOpen, setItemFormOpen] = useState(false);
 
     const { data } = db.useQuery({
         contentCategories: {
@@ -135,16 +138,31 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
             </div>
 
             <div
-                className="font-semibold text-slate-900"
-                style={{ fontSize: sv(16), marginBottom: s(8) }}
+                className="flex items-start justify-between gap-2"
+                style={{ marginBottom: s(8) }}
             >
-                {liveItem.title}
+                <div
+                    className="font-semibold text-slate-900"
+                    style={{ fontSize: sv(16) }}
+                >
+                    {liveItem.title}
+                </div>
+                <button
+                    className="flex-shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                    onClick={() => {
+                        setEditingItem(liveItem);
+                        setItemFormOpen(true);
+                    }}
+                    title="Edit item"
+                >
+                    <Pencil style={{ width: sv(13), height: sv(13) }} />
+                </button>
             </div>
 
             <div className="flex-1 overflow-y-auto min-h-0">
                 {liveItem.richTextContent && (
                     <div
-                        className="prose prose-sm max-w-none text-slate-700"
+                        className="prose prose-sm max-w-none text-slate-700 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
                         style={{ fontSize: sv(13) }}
                         dangerouslySetInnerHTML={{
                             __html: liveItem.richTextContent,
@@ -187,6 +205,20 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
                     Until{' '}
                     {new Date(liveItem.liveUntil).toLocaleDateString()}
                 </div>
+            )}
+
+            {category && (
+                <ContentItemForm
+                    key={editingItem?.id ?? 'new'}
+                    open={itemFormOpen}
+                    onOpenChange={(open) => {
+                        setItemFormOpen(open);
+                        if (!open) setEditingItem(null);
+                    }}
+                    categoryId={category.id}
+                    existingItem={editingItem}
+                    nextSortOrder={getNextSortOrder(items)}
+                />
             )}
         </div>
     );

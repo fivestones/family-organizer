@@ -327,6 +327,19 @@ export function ContentCategoryManager() {
                                                 variant="ghost"
                                                 size="sm"
                                                 onClick={() =>
+                                                    openEditItem(
+                                                        cat.id,
+                                                        liveItem,
+                                                    )
+                                                }
+                                                title="Edit item"
+                                            >
+                                                <Pencil className="h-3.5 w-3.5" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() =>
                                                     archiveItem(liveItem.id)
                                                 }
                                                 title="Archive now"
@@ -349,7 +362,7 @@ export function ContentCategoryManager() {
                                     </div>
                                     {liveItem.richTextContent && (
                                         <div
-                                            className="prose prose-sm max-w-none text-slate-700"
+                                            className="prose prose-sm max-w-none text-slate-700 [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
                                             dangerouslySetInnerHTML={{
                                                 __html: liveItem.richTextContent,
                                             }}
@@ -486,6 +499,19 @@ export function ContentCategoryManager() {
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
+                                                        className="h-6 w-6 p-0"
+                                                        onClick={() =>
+                                                            openEditItem(
+                                                                cat.id,
+                                                                item,
+                                                            )
+                                                        }
+                                                    >
+                                                        <Pencil className="h-3 w-3" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
                                                         className="h-6 text-xs"
                                                         onClick={() =>
                                                             requeueItem(
@@ -606,6 +632,7 @@ export function ContentCategoryManager() {
             {/* Content item form dialog */}
             {selectedCategoryId && (
                 <ContentItemForm
+                    key={editingItem?.id ?? 'new'}
                     open={itemFormOpen}
                     onOpenChange={setItemFormOpen}
                     categoryId={selectedCategoryId}
