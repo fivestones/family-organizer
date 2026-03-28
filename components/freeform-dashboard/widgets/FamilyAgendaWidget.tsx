@@ -36,12 +36,12 @@ function FamilyAgendaWidget({ width, height, todayUtc }: FreeformWidgetProps) {
 
     return (
         <div className="flex h-full flex-col" style={{ padding }}>
-            <div className="font-semibold uppercase tracking-wider text-slate-400" style={{ marginBottom: s(8), fontSize: sv(12) }}>
+            <div className="font-semibold uppercase tracking-wider" style={{ marginBottom: s(8), fontSize: sv(12), color: 'var(--fd-ink-faint)' }}>
                 Upcoming
             </div>
 
             {previews.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center text-slate-400" style={{ fontSize: sv(12) }}>
+                <div className="flex flex-1 items-center justify-center" style={{ fontSize: sv(12), color: 'var(--fd-ink-faint)' }}>
                     No upcoming events
                 </div>
             ) : (
@@ -49,7 +49,7 @@ function FamilyAgendaWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                     {previews.map((item) => (
                         <div
                             key={item.id}
-                            className="flex items-start rounded-lg hover:bg-slate-50"
+                            className="flex items-start rounded-lg transition-colors hover:bg-[var(--fd-surface-muted)]"
                             style={{ gap: s(8), padding: `${s(6)}px ${s(8)}px`, minHeight: ITEM_HEIGHT - s(4) }}
                         >
                             <div
@@ -59,8 +59,8 @@ function FamilyAgendaWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                 style={{ width: dotSize, height: dotSize, marginTop: s(6) }}
                             />
                             <div className="min-w-0 flex-1">
-                                <div className="truncate font-medium text-slate-800" style={{ fontSize: sv(12) }}>{item.title}</div>
-                                <div className="text-slate-500" style={{ fontSize: sv(10) }}>{item.timeLabel}</div>
+                                <div className="truncate font-medium" style={{ fontSize: sv(12), color: 'var(--fd-ink)' }}>{item.title}</div>
+                                <div style={{ fontSize: sv(10), color: 'var(--fd-ink-muted)' }}>{item.timeLabel}</div>
                             </div>
                         </div>
                     ))}

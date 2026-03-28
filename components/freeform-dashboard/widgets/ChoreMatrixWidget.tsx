@@ -249,8 +249,8 @@ function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetPr
                 {/* ── Header row ───────────────────────────────────── */}
                 <div className="flex items-end" style={{ height: headerHeight }}>
                     <div
-                        className="shrink-0 pb-1 font-semibold text-slate-500"
-                        style={{ width: labelWidth, fontSize: sv(12) }}
+                        className="shrink-0 pb-1 font-semibold"
+                        style={{ width: labelWidth, fontSize: sv(12), color: 'var(--fd-ink-muted)' }}
                     >
                         Today&apos;s Chores
                     </div>
@@ -298,12 +298,12 @@ function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetPr
                 {visibleRows.map((row, rowIndex) => (
                     <div
                         key={row.choreId}
-                        className="flex items-center border-t border-slate-100"
-                        style={{ height: rowHeight }}
+                        className="flex items-center"
+                        style={{ height: rowHeight, borderTop: '1px solid var(--fd-line-subtle)' }}
                     >
                         <div
-                            className="shrink-0 truncate text-slate-700"
-                            style={{ width: labelWidth, fontSize: sv(12) }}
+                            className="shrink-0 truncate"
+                            style={{ width: labelWidth, fontSize: sv(12), color: 'var(--fd-ink)' }}
                             title={row.title}
                         >
                             {row.title}
@@ -336,7 +336,7 @@ function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetPr
                                                         width: nodeSize,
                                                         height: nodeSize,
                                                         border: `${nodeStroke}px solid ${color}`,
-                                                        backgroundColor: 'white',
+                                                        backgroundColor: 'var(--fd-panel)',
                                                     }}
                                                 >
                                                     <Avatar style={{ width: cellSmallAvatarSize, height: cellSmallAvatarSize }}>
@@ -351,12 +351,11 @@ function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetPr
                                                 </div>
                                             ) : isNotDone ? (
                                                 <div
-                                                    className="relative z-10 flex items-center justify-center rounded-full bg-slate-100"
-                                                    style={{ width: cellIconSize, height: cellIconSize }}
+                                                    className="relative z-10 flex items-center justify-center rounded-full"
+                                                    style={{ width: cellIconSize, height: cellIconSize, backgroundColor: 'var(--fd-surface-muted)' }}
                                                 >
                                                     <svg
-                                                        style={{ width: cellSvgSize, height: cellSvgSize }}
-                                                        className="text-slate-400"
+                                                        style={{ width: cellSvgSize, height: cellSvgSize, color: 'var(--fd-ink-faint)' }}
                                                         viewBox="0 0 12 12"
                                                         fill="none"
                                                     >
@@ -369,7 +368,7 @@ function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetPr
                                                     </svg>
                                                 </div>
                                             ) : (
-                                                <div className="relative z-10 rounded-full bg-white">
+                                                <div className="relative z-10 rounded-full" style={{ backgroundColor: 'var(--fd-panel)' }}>
                                                     <Avatar className="opacity-50" style={{ width: cellAvatarSize, height: cellAvatarSize }}>
                                                         <AvatarImage
                                                             src={getPhotoUrl(m.photoUrls, '320')}
@@ -382,7 +381,7 @@ function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetPr
                                                 </div>
                                             )
                                         ) : !showLine ? (
-                                            <span className="text-slate-200">
+                                            <span style={{ color: 'var(--fd-line)' }}>
                                                 &middot;
                                             </span>
                                         ) : null}
@@ -395,13 +394,13 @@ function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetPr
             </div>
 
             {hiddenCount > 0 && (
-                <div style={{ marginTop: s(4), fontSize: sv(10) }} className="text-slate-400">
+                <div style={{ marginTop: s(4), fontSize: sv(10), color: 'var(--fd-ink-faint)' }}>
                     +{hiddenCount} more
                 </div>
             )}
 
             {choreRows.length === 0 && (
-                <div className="flex flex-1 items-center justify-center text-slate-400" style={{ fontSize: sv(12) }}>
+                <div className="flex flex-1 items-center justify-center" style={{ fontSize: sv(12), color: 'var(--fd-ink-faint)' }}>
                     No chores today
                 </div>
             )}

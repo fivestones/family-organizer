@@ -145,7 +145,7 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
 
     if (!member) {
         return (
-            <div className="flex h-full items-center justify-center text-slate-400" style={{ padding: s(8), fontSize: sv(12) }}>
+            <div className="flex h-full items-center justify-center" style={{ padding: s(8), fontSize: sv(12), color: 'var(--fd-ink-faint)' }}>
                 {memberId ? 'Member not found' : 'No member configured'}
             </div>
         );
@@ -163,14 +163,14 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
                     <AvatarFallback style={{ fontSize: sv(12) }}>{toInitials(member.name)}</AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
-                    <div className="truncate font-semibold text-slate-900" style={{ fontSize: sv(14) }}>{member.name}</div>
+                    <div className="truncate font-semibold" style={{ fontSize: sv(14), color: 'var(--fd-ink)' }}>{member.name}</div>
                 </div>
             </div>
 
             {/* Quick stats row */}
             {stats && (
                 <>
-                    <div className="flex flex-wrap text-slate-500" style={{ marginBottom: s(8), gap: `${s(4)}px ${s(12)}px`, fontSize: sv(10) }}>
+                    <div className="flex flex-wrap" style={{ marginBottom: s(8), gap: `${s(4)}px ${s(12)}px`, fontSize: sv(10), color: 'var(--fd-ink-muted)' }}>
                         <span title="XP">
                             ⚡ {stats.xpCurrent}/{stats.xpPossible}
                         </span>
@@ -187,11 +187,11 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
 
                     {/* Next chore */}
                     {stats.nextChoreTitle && !isShort && (
-                        <div className="rounded-lg bg-slate-50" style={{ marginBottom: s(6), padding: `${s(4)}px ${s(4)}px` }}>
-                            <div className="font-medium uppercase tracking-wider text-slate-400" style={{ fontSize: sv(10) }}>Next</div>
-                            <div className="text-slate-700" style={{ fontSize: sv(12), lineHeight: 1.3 }}>{stats.nextChoreTitle}</div>
+                        <div className="rounded-lg" style={{ marginBottom: s(6), padding: `${s(4)}px ${s(4)}px`, backgroundColor: 'var(--fd-surface-muted)' }}>
+                            <div className="font-medium uppercase tracking-wider" style={{ fontSize: sv(10), color: 'var(--fd-ink-faint)' }}>Next</div>
+                            <div style={{ fontSize: sv(12), lineHeight: 1.3, color: 'var(--fd-ink)' }}>{stats.nextChoreTitle}</div>
                             {stats.nextTaskTitle && (
-                                <div className="text-slate-500" style={{ marginTop: s(2), fontSize: sv(10), lineHeight: 1.3 }}>→ {stats.nextTaskTitle}</div>
+                                <div style={{ marginTop: s(2), fontSize: sv(10), lineHeight: 1.3, color: 'var(--fd-ink-muted)' }}>→ {stats.nextTaskTitle}</div>
                             )}
                         </div>
                     )}
@@ -199,13 +199,13 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
                     {/* Next calendar item */}
                     {stats.nextCalendarItem && !isShort && (
                         <div
-                            className="cursor-pointer rounded-lg bg-blue-50 transition-colors hover:bg-blue-100"
-                            style={{ padding: `${s(6)}px ${s(8)}px` }}
+                            className="cursor-pointer rounded-lg transition-colors"
+                            style={{ padding: `${s(6)}px ${s(8)}px`, backgroundColor: 'var(--fd-surface-accent)' }}
                             onDoubleClick={() => handleCalendarDoubleClick(stats.nextCalendarItem!.id)}
                         >
-                            <div className="truncate font-medium text-blue-700" style={{ fontSize: sv(12) }}>{stats.nextCalendarItem.title}</div>
-                            <div className="text-blue-500" style={{ fontSize: sv(10) }}>{stats.nextCalendarItem.relativeLabel}</div>
-                            <div className="text-blue-400" style={{ fontSize: sv(10) }}>{stats.nextCalendarItem.dateLabel}</div>
+                            <div className="truncate font-medium" style={{ fontSize: sv(12), color: 'var(--fd-accent-text)' }}>{stats.nextCalendarItem.title}</div>
+                            <div style={{ fontSize: sv(10), color: 'var(--fd-accent)' }}>{stats.nextCalendarItem.relativeLabel}</div>
+                            <div style={{ fontSize: sv(10), color: 'var(--fd-accent-muted)' }}>{stats.nextCalendarItem.dateLabel}</div>
                         </div>
                     )}
                 </>

@@ -93,7 +93,14 @@ export default function FreeformWidgetWrapper({
             onDoubleClick={handleDoubleClick}
         >
             {/* Widget content with overflow hidden for truncation */}
-            <div className="h-full w-full overflow-hidden rounded-xl bg-white shadow-sm">
+            <div
+                className="h-full w-full overflow-hidden rounded-xl"
+                style={{
+                    backgroundColor: 'var(--fd-panel)',
+                    boxShadow: '0 1px 3px var(--fd-shadow)',
+                    border: '1px solid var(--fd-panel-border)',
+                }}
+            >
                 {children}
             </div>
 

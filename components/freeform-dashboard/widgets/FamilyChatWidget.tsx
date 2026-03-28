@@ -62,13 +62,13 @@ function FamilyChatWidget({ width, height, todayUtc }: FreeformWidgetProps) {
 
     return (
         <div className="flex h-full flex-col" style={{ padding }}>
-            <div className="flex items-center font-semibold uppercase tracking-wider text-slate-400" style={{ marginBottom: s(8), gap: s(6), fontSize: sv(12) }}>
+            <div className="flex items-center font-semibold uppercase tracking-wider" style={{ marginBottom: s(8), gap: s(6), fontSize: sv(12), color: 'var(--fd-ink-faint)' }}>
                 <MessageCircle size={s(12)} />
                 Family Chat
             </div>
 
             {messages.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center text-slate-400" style={{ fontSize: sv(12) }}>
+                <div className="flex flex-1 items-center justify-center" style={{ fontSize: sv(12), color: 'var(--fd-ink-faint)' }}>
                     No messages yet
                 </div>
             ) : (
@@ -81,10 +81,10 @@ function FamilyChatWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                             </Avatar>
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-baseline" style={{ gap: s(6) }}>
-                                    <span className="font-medium text-slate-700" style={{ fontSize: sv(12) }}>{msg.authorName}</span>
-                                    <span className="text-slate-400" style={{ fontSize: sv(10) }}>{formatTimeAgo(msg.createdAt)}</span>
+                                    <span className="font-medium" style={{ fontSize: sv(12), color: 'var(--fd-ink)' }}>{msg.authorName}</span>
+                                    <span style={{ fontSize: sv(10), color: 'var(--fd-ink-faint)' }}>{formatTimeAgo(msg.createdAt)}</span>
                                 </div>
-                                <div className="line-clamp-2 leading-relaxed text-slate-600" style={{ fontSize: sv(12) }}>{msg.body}</div>
+                                <div className="line-clamp-2 leading-relaxed" style={{ fontSize: sv(12), color: 'var(--fd-ink-muted)' }}>{msg.body}</div>
                             </div>
                         </div>
                     ))}

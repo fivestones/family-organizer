@@ -71,8 +71,8 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
     if (!categorySlug) {
         return (
             <div
-                className="flex h-full items-center justify-center text-slate-400"
-                style={{ fontSize: sv(13), padding: s(16) }}
+                className="flex h-full items-center justify-center"
+                style={{ fontSize: sv(13), padding: s(16), color: 'var(--fd-ink-faint)' }}
             >
                 Configure a category in widget settings
             </div>
@@ -82,8 +82,8 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
     if (!category) {
         return (
             <div
-                className="flex h-full items-center justify-center text-slate-400"
-                style={{ fontSize: sv(13), padding: s(16) }}
+                className="flex h-full items-center justify-center"
+                style={{ fontSize: sv(13), padding: s(16), color: 'var(--fd-ink-faint)' }}
             >
                 Category &ldquo;{categorySlug}&rdquo; not found
             </div>
@@ -94,14 +94,14 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
         return (
             <div className="flex h-full flex-col" style={{ padding: s(16) }}>
                 <div
-                    className="font-semibold uppercase tracking-wider text-slate-400"
-                    style={{ fontSize: sv(11), marginBottom: s(8) }}
+                    className="font-semibold uppercase tracking-wider"
+                    style={{ fontSize: sv(11), marginBottom: s(8), color: 'var(--fd-ink-faint)' }}
                 >
                     {category.name}
                 </div>
                 <div
-                    className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400"
-                    style={{ fontSize: sv(13) }}
+                    className="flex flex-1 flex-col items-center justify-center gap-3"
+                    style={{ fontSize: sv(13), color: 'var(--fd-ink-faint)' }}
                 >
                     {queuedItems.length > 0 ? (
                         <>
@@ -109,8 +109,8 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
                                 {queuedItems.length} item{queuedItems.length !== 1 ? 's' : ''} queued
                             </span>
                             <button
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700 transition-colors"
-                                style={{ fontSize: sv(12) }}
+                                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition-colors"
+                                style={{ backgroundColor: 'var(--fd-accent)', color: 'var(--fd-on-accent)', fontSize: sv(12) }}
                                 onClick={makeLive}
                             >
                                 <Play style={{ width: sv(12), height: sv(12) }} />
@@ -131,8 +131,8 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
             style={{ padding: s(16) }}
         >
             <div
-                className="font-semibold uppercase tracking-wider text-slate-400"
-                style={{ fontSize: sv(11), marginBottom: s(8) }}
+                className="font-semibold uppercase tracking-wider"
+                style={{ fontSize: sv(11), marginBottom: s(8), color: 'var(--fd-ink-faint)' }}
             >
                 {category.name}
             </div>
@@ -142,13 +142,14 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
                 style={{ marginBottom: s(8) }}
             >
                 <div
-                    className="font-semibold text-slate-900"
-                    style={{ fontSize: sv(16) }}
+                    className="font-semibold"
+                    style={{ fontSize: sv(16), color: 'var(--fd-ink)' }}
                 >
                     {liveItem.title}
                 </div>
                 <button
-                    className="flex-shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                    className="flex-shrink-0 rounded p-1 transition-colors hover:bg-[var(--fd-surface-muted)]"
+                    style={{ color: 'var(--fd-ink-faint)' }}
                     onClick={() => {
                         setEditingItem(liveItem);
                         setItemFormOpen(true);
@@ -162,8 +163,8 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
             <div className="flex-1 overflow-y-auto min-h-0">
                 {liveItem.richTextContent && (
                     <div
-                        className="prose prose-sm max-w-none text-slate-700 [&_p]:my-0 [&_p:empty]:before:content-['\a0']"
-                        style={{ fontSize: sv(13) }}
+                        className="prose prose-sm max-w-none [&_p]:my-0 [&_p:empty]:before:content-['\a0']"
+                        style={{ fontSize: sv(13), color: 'var(--fd-ink)' }}
                         dangerouslySetInnerHTML={{
                             __html: liveItem.richTextContent,
                         }}
@@ -184,12 +185,8 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
                         href={liveItem.linkUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center text-blue-600 hover:underline"
-                        style={{
-                            gap: s(4),
-                            marginTop: s(8),
-                            fontSize: sv(12),
-                        }}
+                        className="inline-flex items-center hover:underline"
+                        style={{ gap: s(4), marginTop: s(8), fontSize: sv(12), color: 'var(--fd-accent)' }}
                     >
                         <ExternalLink style={{ width: sv(12), height: sv(12) }} />
                         Open link
@@ -199,8 +196,8 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
 
             {liveItem.liveUntil && (
                 <div
-                    className="text-slate-400 pt-1 border-t border-slate-100"
-                    style={{ fontSize: sv(10), marginTop: s(8) }}
+                    className="pt-1"
+                    style={{ fontSize: sv(10), marginTop: s(8), color: 'var(--fd-ink-faint)', borderTop: '1px solid var(--fd-line-subtle)' }}
                 >
                     Until{' '}
                     {new Date(liveItem.liveUntil).toLocaleDateString()}

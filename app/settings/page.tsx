@@ -4,6 +4,7 @@ import React, { useMemo } from 'react';
 import AppleCalendarSyncSettings from '@/components/AppleCalendarSyncSettings';
 import CurrencySettings from '@/components/CurrencySettings';
 import DashboardSettingsPanel from '@/components/DashboardSettingsPanel';
+import DashboardThemeSelector from '@/components/freeform-dashboard/DashboardThemeSelector';
 import GradeTypeSettings from '@/components/GradeTypeSettings';
 import HouseholdSchedulingSettings from '@/components/HouseholdSchedulingSettings';
 import FamilyMembersList from '@/components/FamilyMembersList';
@@ -34,6 +35,10 @@ export default function SettingsPage() {
 
                 <div className="mb-8">
                     <DashboardSettingsPanel familyMembers={familyMembers} />
+                </div>
+
+                <div className="mb-8">
+                    <DashboardThemeSelector />
                 </div>
 
                 <CurrencySettings db={db} />

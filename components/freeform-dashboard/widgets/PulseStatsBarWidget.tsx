@@ -73,15 +73,15 @@ function PulseStatsBarWidget({ width, height, todayUtc }: FreeformWidgetProps) {
     const { s, sv } = useWidgetScale();
 
     return (
-        <div className="flex h-full items-center text-slate-600" style={{ gap: s(16), paddingLeft: s(16), paddingRight: s(16), fontSize: sv(14) }}>
-            <span className="font-medium text-slate-900">
+        <div className="flex h-full items-center" style={{ gap: s(16), paddingLeft: s(16), paddingRight: s(16), fontSize: sv(14), color: 'var(--fd-ink-muted)' }}>
+            <span className="font-medium" style={{ color: 'var(--fd-ink)' }}>
                 {stats.completedChores}/{stats.totalChores} chores done
             </span>
-            <span className="text-slate-300">·</span>
+            <span style={{ color: 'var(--fd-line)' }}>·</span>
             <span>{stats.eventsToday} events today</span>
             {width > s(500) && (
                 <>
-                    <span className="text-slate-300">·</span>
+                    <span style={{ color: 'var(--fd-line)' }}>·</span>
                     <span>{stats.unreadThreads > 0 ? `${stats.unreadThreads} unread` : 'No unread messages'}</span>
                 </>
             )}

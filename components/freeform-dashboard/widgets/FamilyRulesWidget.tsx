@@ -30,8 +30,8 @@ function FamilyRulesWidget({ width, height, todayUtc }: FreeformWidgetProps) {
     if (activeRules.length === 0) {
         return (
             <div
-                className="flex h-full items-center justify-center text-slate-400"
-                style={{ fontSize: sv(13), padding: s(16) }}
+                className="flex h-full items-center justify-center"
+                style={{ fontSize: sv(13), padding: s(16), color: 'var(--fd-ink-faint)' }}
             >
                 No family rules defined
             </div>
@@ -44,11 +44,12 @@ function FamilyRulesWidget({ width, height, todayUtc }: FreeformWidgetProps) {
             style={{ padding: s(16) }}
         >
             <div
-                className="font-semibold uppercase tracking-wider text-slate-400 flex items-center"
+                className="font-semibold uppercase tracking-wider flex items-center"
                 style={{
                     fontSize: sv(11),
                     marginBottom: s(12),
                     gap: s(6),
+                    color: 'var(--fd-ink-faint)',
                 }}
             >
                 <Scale
@@ -78,7 +79,7 @@ function FamilyRulesWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                     gap: s(10),
                                     paddingTop: s(8),
                                     paddingBottom: s(8),
-                                    borderBottom: '1px solid rgb(241 245 249)',
+                                    borderBottom: '1px solid var(--fd-line-subtle)',
                                 }}
                             >
                                 <span
@@ -93,18 +94,19 @@ function FamilyRulesWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                 </span>
                                 <div className="flex-1 min-w-0">
                                     <div
-                                        className="font-medium text-slate-900"
+                                        className="font-medium"
                                         style={{
                                             fontSize: sv(14),
                                             marginBottom: s(2),
+                                            color: 'var(--fd-ink)',
                                         }}
                                     >
                                         {rule.title}
                                     </div>
                                     {activeVersion?.richTextContent && (
                                         <div
-                                            className="prose prose-sm max-w-none text-slate-600"
-                                            style={{ fontSize: sv(12) }}
+                                            className="prose prose-sm max-w-none"
+                                            style={{ fontSize: sv(12), color: 'var(--fd-ink-muted)' }}
                                             dangerouslySetInnerHTML={{
                                                 __html: activeVersion.richTextContent,
                                             }}

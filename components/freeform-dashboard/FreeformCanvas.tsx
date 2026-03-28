@@ -37,7 +37,7 @@ export default function FreeformCanvas({
                 <div
                     className="pointer-events-none absolute inset-0 opacity-30"
                     style={{
-                        backgroundImage: 'radial-gradient(circle, rgb(148 163 184) 1px, transparent 1px)',
+                        backgroundImage: 'radial-gradient(circle, var(--fd-ink-faint) 1px, transparent 1px)',
                         backgroundSize: '24px 24px',
                     }}
                 />
@@ -50,14 +50,14 @@ export default function FreeformCanvas({
                 guide.direction === 'vertical' ? (
                     <div
                         key={`guide-${i}`}
-                        className="pointer-events-none absolute top-0 bottom-0 w-px bg-blue-400 opacity-70"
-                        style={{ left: guide.value }}
+                        className="pointer-events-none absolute top-0 bottom-0 w-px opacity-70"
+                        style={{ left: guide.value, backgroundColor: 'var(--fd-accent)' }}
                     />
                 ) : (
                     <div
                         key={`guide-${i}`}
-                        className="pointer-events-none absolute left-0 right-0 h-px bg-blue-400 opacity-70"
-                        style={{ top: guide.value }}
+                        className="pointer-events-none absolute left-0 right-0 h-px opacity-70"
+                        style={{ top: guide.value, backgroundColor: 'var(--fd-accent)' }}
                     />
                 )
             )}

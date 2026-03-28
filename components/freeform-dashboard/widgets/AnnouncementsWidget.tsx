@@ -46,8 +46,8 @@ function AnnouncementsWidget({ width, height, todayUtc }: FreeformWidgetProps) {
     if (active.length === 0) {
         return (
             <div
-                className="flex h-full items-center justify-center text-slate-400"
-                style={{ fontSize: sv(13), padding: s(16) }}
+                className="flex h-full items-center justify-center"
+                style={{ fontSize: sv(13), padding: s(16), color: 'var(--fd-ink-faint)' }}
             >
                 No announcements
             </div>
@@ -60,8 +60,8 @@ function AnnouncementsWidget({ width, height, todayUtc }: FreeformWidgetProps) {
             style={{ padding: s(16) }}
         >
             <div
-                className="font-semibold uppercase tracking-wider text-slate-400"
-                style={{ fontSize: sv(11), marginBottom: s(12) }}
+                className="font-semibold uppercase tracking-wider"
+                style={{ fontSize: sv(11), marginBottom: s(12), color: 'var(--fd-ink-faint)' }}
             >
                 Announcements
             </div>
@@ -70,22 +70,24 @@ function AnnouncementsWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                 {active.map((ann) => (
                     <div
                         key={ann.id}
-                        className="rounded-lg border border-amber-100 bg-amber-50/50"
-                        style={{ padding: s(12) }}
+                        className="rounded-lg"
+                        style={{ padding: s(12), backgroundColor: 'var(--fd-amber-surface)', border: '1px solid var(--fd-amber-border)' }}
                     >
                         <div
-                            className="font-medium text-slate-900 flex items-center"
+                            className="font-medium flex items-center"
                             style={{
                                 fontSize: sv(14),
                                 gap: s(6),
                                 marginBottom: s(4),
+                                color: 'var(--fd-ink)',
                             }}
                         >
                             <Megaphone
-                                className="text-amber-500 flex-shrink-0"
+                                className="flex-shrink-0"
                                 style={{
                                     width: sv(14),
                                     height: sv(14),
+                                    color: 'var(--fd-amber-text)',
                                 }}
                             />
                             {ann.title}
@@ -93,8 +95,8 @@ function AnnouncementsWidget({ width, height, todayUtc }: FreeformWidgetProps) {
 
                         {ann.richTextContent && (
                             <div
-                                className="prose prose-sm max-w-none text-slate-600"
-                                style={{ fontSize: sv(13) }}
+                                className="prose prose-sm max-w-none"
+                                style={{ fontSize: sv(13), color: 'var(--fd-ink-muted)' }}
                                 dangerouslySetInnerHTML={{
                                     __html: ann.richTextContent,
                                 }}
@@ -106,11 +108,12 @@ function AnnouncementsWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                                 href={ann.linkUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center text-blue-600 hover:underline"
+                                className="inline-flex items-center hover:underline"
                                 style={{
                                     gap: s(4),
                                     marginTop: s(4),
                                     fontSize: sv(11),
+                                    color: 'var(--fd-accent)',
                                 }}
                             >
                                 <ExternalLink
