@@ -1,13 +1,13 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { BookOpen, ExternalLink } from 'lucide-react';
+import { BookOpen, ExternalLink, Play } from 'lucide-react';
 import { db } from '@/lib/db';
 import { registerFreeformWidget } from '@/lib/freeform-dashboard/freeform-widget-registry';
 import type { FreeformWidgetProps } from '@/lib/freeform-dashboard/types';
 import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
-import { checkAndAdvanceCategory } from '@/lib/content-queue';
+import { checkAndAdvanceCategory, getQueuedItems } from '@/lib/content-queue';
 
 function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetProps) {
     const { s, sv } = useWidgetScale();
@@ -47,13 +47,31 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
         [items],
     );
 
+    const queuedItems = useMemo(() => getQueuedItems(items), [items]);
+
+    function makeLive() {
+        if (queuedItems.length === 0 || !category) return;
+        const next = queuedItems[0];
+        const duration = next.durationMs ?? category.defaultDurationMs;
+        const now = new Date();
+        const liveUntil = new Date(now.getTime() + duration).toISOString();
+        db.transact(
+            (db.tx as any).contentQueueItems[next.id].update({
+                status: 'live',
+                liveAt: now.toISOString(),
+                liveUntil,
+                updatedAt: now.toISOString(),
+            }),
+        );
+    }
+
     if (!categorySlug) {
         return (
             <div
                 className="flex h-full items-center justify-center text-slate-400"
                 style={{ fontSize: sv(13), padding: s(16) }}
             >
-                Configure a category slug in widget settings
+                Configure a category in widget settings
             </div>
         );
     }
@@ -79,10 +97,26 @@ function ContentQueueWidget({ config, width, height, todayUtc }: FreeformWidgetP
                     {category.name}
                 </div>
                 <div
-                    className="flex flex-1 items-center justify-center text-slate-400"
+                    className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400"
                     style={{ fontSize: sv(13) }}
                 >
-                    No current content
+                    {queuedItems.length > 0 ? (
+                        <>
+                            <span>
+                                {queuedItems.length} item{queuedItems.length !== 1 ? 's' : ''} queued
+                            </span>
+                            <button
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700 transition-colors"
+                                style={{ fontSize: sv(12) }}
+                                onClick={makeLive}
+                            >
+                                <Play style={{ width: sv(12), height: sv(12) }} />
+                                Make Live
+                            </button>
+                        </>
+                    ) : (
+                        <span>No current content</span>
+                    )}
                 </div>
             </div>
         );
@@ -173,8 +207,8 @@ registerFreeformWidget({
         configFields: [
             {
                 key: 'categorySlug',
-                label: 'Category Slug',
-                type: 'string',
+                label: 'Content Category',
+                type: 'content-category',
                 required: true,
             },
         ],
