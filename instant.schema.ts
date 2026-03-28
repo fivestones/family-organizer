@@ -568,6 +568,7 @@ const _schema = i.schema({
             name: i.string(),
             slug: i.string().unique().indexed(),
             defaultDurationMs: i.number(),
+            loopWhenEmpty: i.boolean().optional().indexed(),
             createdAt: i.string().indexed(),
             updatedAt: i.string().indexed(),
         }),

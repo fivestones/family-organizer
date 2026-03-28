@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { X } from 'lucide-react';
 import type { ConfigField, DashboardWidgetRecord, FreeformWidgetMeta } from '@/lib/freeform-dashboard/types';
 import { getPhotoUrl } from '@/lib/photo-urls';
+import { db } from '@/lib/db';
 
 interface FreeformWidgetSettingsDialogProps {
     widget: DashboardWidgetRecord;
@@ -32,6 +33,16 @@ export default function FreeformWidgetSettingsDialog({
         step: 10,
     };
     const fields: ConfigField[] = [...(meta.configFields ?? []), CONTENT_SCALE_FIELD];
+
+    // Query content categories for content-category config fields
+    const hasContentCategoryField = fields.some((f) => f.type === 'content-category');
+    const { data: ccData } = db.useQuery(
+        hasContentCategoryField ? { contentCategories: {} } : null,
+    );
+    const contentCategories = useMemo(
+        () => (ccData?.contentCategories ?? []) as any[],
+        [ccData?.contentCategories],
+    );
 
     const handleSave = () => {
         onSave(widget.id, draft);
@@ -214,6 +225,36 @@ export default function FreeformWidgetSettingsDialog({
                         </div>
                         {(!Array.isArray(value) || (value as string[]).length === 0) && (
                             <p className="mt-1.5 text-xs text-slate-400">None selected — showing all members</p>
+                        )}
+                    </div>
+                );
+
+            case 'content-category':
+                return (
+                    <div key={field.key} className="py-2">
+                        <span className="mb-2 block text-sm font-medium text-slate-700">{field.label}</span>
+                        {contentCategories.length === 0 ? (
+                            <p className="text-xs text-slate-400">No content categories created yet. Create one on the Content page first.</p>
+                        ) : (
+                            <div className="space-y-1">
+                                {contentCategories.map((cat: any) => {
+                                    const selected = value === cat.slug;
+                                    return (
+                                        <button
+                                            key={cat.id}
+                                            className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                                                selected
+                                                    ? 'border-blue-400 bg-blue-50 text-blue-700'
+                                                    : 'border-slate-200 text-slate-700 hover:border-blue-300 hover:bg-blue-50'
+                                            }`}
+                                            onClick={() => setDraft((prev) => ({ ...prev, [field.key]: cat.slug }))}
+                                        >
+                                            <span className="font-medium">{cat.name}</span>
+                                            <span className="text-xs text-slate-400">{cat.slug}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         )}
                     </div>
                 );

@@ -49,7 +49,7 @@ export interface BreakpointDef {
 export interface ConfigField {
     key: string;
     label: string;
-    type: 'family-member' | 'family-members' | 'number' | 'string' | 'boolean' | 'range';
+    type: 'family-member' | 'family-members' | 'number' | 'string' | 'boolean' | 'range' | 'content-category';
     required?: boolean;
     /** For number/range fields: minimum value */
     min?: number;

@@ -31,9 +31,33 @@ export function buildAdvanceTransactions(
     }
 
     // Promote next queued item
-    const nextQueued = items
+    let queued = items
         .filter((i) => i.status === 'queued')
-        .sort((a, b) => a.sortOrder - b.sortOrder)[0];
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+
+    // If no queued items and looping is enabled, re-queue all archived items
+    if (queued.length === 0 && category.loopWhenEmpty) {
+        const archived = items
+            .filter((i) => i.status === 'archived' || (liveItem && i.id === liveItem.id))
+            .filter((i) => !liveItem || i.id !== liveItem.id)
+            .sort((a, b) => a.sortOrder - b.sortOrder);
+
+        for (const item of archived) {
+            txs.push(
+                tx.contentQueueItems[item.id].update({
+                    status: 'queued',
+                    liveAt: '',
+                    liveUntil: '',
+                    archivedAt: '',
+                    updatedAt: now.toISOString(),
+                }),
+            );
+        }
+
+        queued = archived;
+    }
+
+    const nextQueued = queued[0];
 
     if (nextQueued) {
         const duration = nextQueued.durationMs ?? category.defaultDurationMs;

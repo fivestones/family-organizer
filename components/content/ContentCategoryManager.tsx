@@ -14,6 +14,7 @@ import {
     ChevronRight,
     ExternalLink,
     SkipForward,
+    Repeat,
 } from 'lucide-react';
 import { db } from '@/lib/db';
 import { Button } from '@/components/ui/button';
@@ -82,12 +83,14 @@ export function ContentCategoryManager() {
     const [catName, setCatName] = useState('');
     const [catSlug, setCatSlug] = useState('');
     const [catDurationHours, setCatDurationHours] = useState('168'); // 1 week default
+    const [catLoop, setCatLoop] = useState(false);
 
     function openNewCategory() {
         setEditingCategory(null);
         setCatName('');
         setCatSlug('');
         setCatDurationHours('168');
+        setCatLoop(false);
         setCategoryDialogOpen(true);
     }
 
@@ -98,6 +101,7 @@ export function ContentCategoryManager() {
         setCatDurationHours(
             String(cat.defaultDurationMs / (1000 * 60 * 60)),
         );
+        setCatLoop(cat.loopWhenEmpty ?? false);
         setCategoryDialogOpen(true);
     }
 
@@ -115,6 +119,7 @@ export function ContentCategoryManager() {
                     name: catName.trim(),
                     slug,
                     defaultDurationMs: durationMs,
+                    loopWhenEmpty: catLoop,
                     updatedAt: now,
                 }),
             );
@@ -124,6 +129,7 @@ export function ContentCategoryManager() {
                     name: catName.trim(),
                     slug,
                     defaultDurationMs: durationMs,
+                    loopWhenEmpty: catLoop,
                     createdAt: now,
                     updatedAt: now,
                 }),
@@ -256,6 +262,11 @@ export function ContentCategoryManager() {
                                 <p className="text-xs text-slate-500">
                                     slug: {cat.slug} &middot; default:{' '}
                                     {formatDuration(cat.defaultDurationMs)}
+                                    {cat.loopWhenEmpty && (
+                                        <span className="ml-1 inline-flex items-center gap-0.5 text-blue-500">
+                                            <Repeat className="inline h-3 w-3" /> loop
+                                        </span>
+                                    )}
                                 </p>
                             </div>
                             <div className="flex items-center gap-1">
@@ -551,6 +562,29 @@ export function ContentCategoryManager() {
                                 placeholder="168 = 1 week"
                             />
                         </div>
+                        <label className="flex items-center justify-between gap-3">
+                            <div>
+                                <span className="text-sm font-medium text-slate-700">Loop when finished</span>
+                                <p className="text-xs text-slate-400">
+                                    Automatically restart from the beginning when all items have been shown
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={catLoop}
+                                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                                    catLoop ? 'bg-blue-600' : 'bg-slate-200'
+                                }`}
+                                onClick={() => setCatLoop(!catLoop)}
+                            >
+                                <span
+                                    className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                                        catLoop ? 'translate-x-5' : 'translate-x-0'
+                                    }`}
+                                />
+                            </button>
+                        </label>
                     </div>
                     <DialogFooter>
                         <Button
