@@ -863,6 +863,120 @@ const rules = {
             update: 'isFamilyPrincipal',
         },
     },
+    contentCategories: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+        },
+        allow: {
+            link: {
+                $default: 'isParent',
+            },
+            view: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'isParent',
+            unlink: {
+                $default: 'isParent',
+            },
+            update: 'isParent',
+        },
+    },
+    contentQueueItems: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+        },
+        allow: {
+            link: {
+                $default: 'isParent',
+            },
+            view: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'isParent',
+            unlink: {
+                $default: 'isParent',
+            },
+            update: 'isParent',
+        },
+    },
+    announcements: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+        },
+        allow: {
+            link: {
+                $default: 'isParent',
+            },
+            view: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'isParent',
+            unlink: {
+                $default: 'isParent',
+            },
+            update: 'isParent',
+        },
+    },
+    familyRules: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+        },
+        allow: {
+            link: {
+                $default: 'isParent',
+            },
+            view: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'isParent',
+            unlink: {
+                $default: 'isParent',
+            },
+            update: 'isParent',
+        },
+    },
+    familyRuleVersions: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+        },
+        allow: {
+            link: {
+                $default: 'isParent',
+            },
+            view: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'false',
+            unlink: {
+                $default: 'isParent',
+            },
+            update: 'false',
+        },
+    },
+    contentAttachments: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+        },
+        allow: {
+            link: {
+                $default: 'isParent',
+            },
+            view: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'isParent',
+            unlink: {
+                $default: 'isParent',
+            },
+            update: 'isParent',
+        },
+    },
 } satisfies InstantRules;
 
 export default rules;

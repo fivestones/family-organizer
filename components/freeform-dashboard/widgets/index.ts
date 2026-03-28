@@ -5,3 +5,6 @@ import './FourDayCalendarWidget';
 import './PersonCardWidget';
 import './FamilyAgendaWidget';
 import './FamilyChatWidget';
+import './ContentQueueWidget';
+import './AnnouncementsWidget';
+import './FamilyRulesWidget';

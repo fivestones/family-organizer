@@ -23,6 +23,7 @@ const NAV_LINKS = [
     { href: '/messages', label: 'Messages' },
     { href: '/familyMemberDetail', label: 'Finance' },
     { href: '/allowance-distribution', label: 'Allowance Distribution' },
+    { href: '/content', label: 'Content' },
     { href: '/history', label: 'History' },
     { href: '/settings', label: 'Settings' },
 ] as const;
