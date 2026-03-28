@@ -27,8 +27,8 @@ export default function FreeformCanvas({
 
     return (
         <div
-            className="relative isolate w-full"
-            style={{ minHeight }}
+            className="relative isolate h-full w-full"
+            style={{ minHeight: editMode ? minHeight : undefined }}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
         >
