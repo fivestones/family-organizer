@@ -50,6 +50,7 @@ type ChoreLike = ChoreScheduleLike & {
     rewardType?: 'fixed' | 'weight' | string | null;
     rewardAmount?: number | null;
     rewardCurrency?: string | null;
+    estimatedDurationSecs?: number | null;
     isUpForGrabs?: boolean | null;
     isJoint?: boolean | null;
     rotationType?: string | null;
@@ -215,6 +216,17 @@ function describeReward(chore: ChoreLike): string {
     return 'No reward configured';
 }
 
+function formatDuration(totalSecs: number): string {
+    const h = Math.floor(totalSecs / 3600);
+    const m = Math.floor((totalSecs % 3600) / 60);
+    const s = totalSecs % 60;
+    const parts: string[] = [];
+    if (h > 0) parts.push(`${h}h`);
+    if (m > 0) parts.push(`${m}m`);
+    if (s > 0) parts.push(`${s}s`);
+    return parts.join(' ') || '0s';
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (
         <section className="rounded-xl border border-slate-200 bg-white/90 p-4 shadow-sm">
@@ -377,6 +389,9 @@ export default function ChoreDetailDialog({ chore, familyMembers, open, onOpenCh
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 <Badge variant="outline">{detailState.recurrenceDetails.summary}</Badge>
+                                {chore.estimatedDurationSecs != null && chore.estimatedDurationSecs > 0 ? (
+                                    <Badge className="bg-violet-100 text-violet-800">{formatDuration(chore.estimatedDurationSecs)}</Badge>
+                                ) : null}
                                 {chore.isUpForGrabs ? <Badge className="bg-emerald-100 text-emerald-800">Up for Grabs</Badge> : null}
                                 {chore.isJoint ? <Badge className="bg-amber-100 text-amber-800">Joint</Badge> : null}
                                 {chore.rotationType && chore.rotationType !== 'none' ? (
@@ -573,6 +588,9 @@ export default function ChoreDetailDialog({ chore, familyMembers, open, onOpenCh
 
                         <div className="space-y-4">
                             <Section title="Schedule">
+                                {chore.estimatedDurationSecs != null && chore.estimatedDurationSecs > 0 ? (
+                                    <MetaRow label="Estimated duration" value={formatDuration(chore.estimatedDurationSecs)} />
+                                ) : null}
                                 <MetaRow label="Starts" value={formatDateLabel(chore.startDate)} />
                                 <MetaRow label="Repeats" value={detailState.recurrenceDetails.summary} />
                                 <MetaRow label="Repeat end" value={detailState.recurrenceDetails.repeatEnd} />
