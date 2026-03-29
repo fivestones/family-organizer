@@ -24,6 +24,7 @@ interface DayCalendarViewProps {
     bufferDays?: number;
     rowCount: number;
     hourHeight: number;
+    visibleHours?: number;
     fontScale: number;
     containerHeight: number | null;
     showGregorianCalendar: boolean;
@@ -574,6 +575,7 @@ export default function DayCalendarView({
     bufferDays = DAY_VIEW_BUFFER_DAYS,
     rowCount,
     hourHeight,
+    visibleHours,
     fontScale,
     containerHeight,
     showGregorianCalendar,
@@ -603,9 +605,15 @@ export default function DayCalendarView({
     const resizeStateRef = useRef<ResizeState | null>(null);
     const [now, setNow] = useState(() => new Date());
 
-    const effectiveHourHeight = useMemo(() => Math.max(18, hourHeight / rowCount), [hourHeight, rowCount]);
-    const snapMinutes = useMemo(() => getCalendarDayViewSnapMinutes(effectiveHourHeight), [effectiveHourHeight]);
     const rowContainerHeight = useMemo(() => Math.max(260, (containerHeight ?? 680) / rowCount), [containerHeight, rowCount]);
+    const effectiveHourHeight = useMemo(() => {
+        if (visibleHours != null) {
+            const availableHeight = Math.max(160, rowContainerHeight - DAY_VIEW_HEADER_HEIGHT_PX);
+            return Math.max(18, availableHeight / visibleHours);
+        }
+        return Math.max(18, hourHeight / rowCount);
+    }, [hourHeight, rowCount, rowContainerHeight, visibleHours]);
+    const snapMinutes = useMemo(() => getCalendarDayViewSnapMinutes(effectiveHourHeight), [effectiveHourHeight]);
     const allDayLaneCap = useMemo(() => determineAllDayLaneCap(rowContainerHeight), [rowContainerHeight]);
     const allDayLaneHeightPx = useMemo(() => Math.max(18, Math.round(16 + fontScale * 14)), [fontScale]);
     const allDayLaneGapPx = useMemo(() => Math.max(2, Math.round(2 + fontScale * 2)), [fontScale]);

@@ -70,6 +70,8 @@ import {
     CALENDAR_DAY_VIEW_FONT_SCALE_STORAGE_KEY,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY,
+    CALENDAR_DAY_VIEW_VISIBLE_HOURS_DEFAULT,
+    CALENDAR_DAY_VIEW_VISIBLE_HOURS_STORAGE_KEY,
     CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT,
     CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT,
@@ -95,6 +97,7 @@ import {
     type CalendarAgendaDisplaySettings,
     clampCalendarDayFontScale,
     clampCalendarDayHourHeight,
+    clampCalendarDayVisibleHours,
     clampCalendarDayRowCount,
     clampCalendarDayVisibleDays,
     clampCalendarYearFontScale,
@@ -1185,6 +1188,15 @@ const Calendar = ({
         const stored = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY));
         return Number.isFinite(stored) ? clampCalendarDayHourHeight(stored) : CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT;
     });
+    const [dayVisibleHours, setDayVisibleHours] = useState<number>(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) {
+            return CALENDAR_DAY_VIEW_VISIBLE_HOURS_DEFAULT;
+        }
+
+        const stored = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_VISIBLE_HOURS_STORAGE_KEY));
+        return Number.isFinite(stored) ? clampCalendarDayVisibleHours(stored) : CALENDAR_DAY_VIEW_VISIBLE_HOURS_DEFAULT;
+    });
+    const useVisibleHoursMode = typeof controlledDayHourHeight !== 'number';
     const [dayFontScale, setDayFontScale] = useState<number>(() => {
         if (typeof controlledDayFontScale === 'number') {
             return clampCalendarDayFontScale(controlledDayFontScale);
@@ -4670,6 +4682,11 @@ const Calendar = ({
 
     useEffect(() => {
         if (typeof window === 'undefined' || !commandsEnabled) return;
+        window.localStorage.setItem(CALENDAR_DAY_VIEW_VISIBLE_HOURS_STORAGE_KEY, String(dayVisibleHours));
+    }, [commandsEnabled, dayVisibleHours]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !commandsEnabled) return;
         window.localStorage.setItem(CALENDAR_DAY_VIEW_FONT_SCALE_STORAGE_KEY, String(dayFontScale));
     }, [commandsEnabled, dayFontScale]);
 
@@ -4732,6 +4749,7 @@ const Calendar = ({
             dayVisibleDays,
             dayRowCount,
             dayHourHeight,
+            dayVisibleHours,
             dayFontScale,
             yearMonthBasis: effectiveYearMonthBasis,
             showGregorianCalendar: showGregorianCalendarSetting,
@@ -4765,6 +4783,7 @@ const Calendar = ({
         currentPeriodLabel,
         dayFontScale,
         dayHourHeight,
+        dayVisibleHours,
         dayRowCount,
         dayVisibleDays,
         agendaDisplay,
@@ -4881,6 +4900,11 @@ const Calendar = ({
                 return;
             }
 
+            if (detail.type === 'setDayVisibleHours') {
+                setDayVisibleHours(clampCalendarDayVisibleHours(detail.dayVisibleHours));
+                return;
+            }
+
             if (detail.type === 'setDayFontScale') {
                 setDayFontScale(clampCalendarDayFontScale(detail.dayFontScale));
                 return;
@@ -4966,6 +4990,7 @@ const Calendar = ({
                     dayVisibleDays,
                     dayRowCount,
                     dayHourHeight,
+                    dayVisibleHours,
                     dayFontScale,
                     yearMonthBasis: effectiveYearMonthBasis,
                     showGregorianCalendar: showGregorianCalendarSetting,
@@ -5009,6 +5034,7 @@ const Calendar = ({
         currentPeriodLabel,
         dayFontScale,
         dayHourHeight,
+        dayVisibleHours,
         dayRowCount,
         dayVisibleDays,
         agendaDisplay,
@@ -5951,6 +5977,7 @@ const Calendar = ({
                                         bufferDays={controlledDayBufferDays ?? DAY_VIEW_BUFFER_DAYS}
                                         rowCount={dayRowCount}
                                         hourHeight={dayHourHeight}
+                                        visibleHours={useVisibleHoursMode ? dayVisibleHours : undefined}
                                         fontScale={dayFontScale}
                                         containerHeight={scrollContainerHeight}
                                         showGregorianCalendar={effectiveShowGregorianCalendar}

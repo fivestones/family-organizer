@@ -32,6 +32,10 @@ import {
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN,
     CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY,
+    CALENDAR_DAY_VIEW_VISIBLE_HOURS_DEFAULT,
+    CALENDAR_DAY_VIEW_VISIBLE_HOURS_MAX,
+    CALENDAR_DAY_VIEW_VISIBLE_HOURS_MIN,
+    CALENDAR_DAY_VIEW_VISIBLE_HOURS_STORAGE_KEY,
     CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT,
     CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY,
     CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT,
@@ -52,6 +56,7 @@ import {
     clampCalendarAgendaFontScale,
     clampCalendarDayFontScale,
     clampCalendarDayHourHeight,
+    clampCalendarDayVisibleHours,
     clampCalendarDayRowCount,
     clampCalendarDayVisibleDays,
     clampCalendarYearFontScale,
@@ -194,6 +199,7 @@ export default function CalendarHeaderControls() {
     const [dayVisibleDays, setDayVisibleDays] = useState(CALENDAR_DAY_VIEW_VISIBLE_DAYS_DEFAULT);
     const [dayRowCount, setDayRowCount] = useState(CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT);
     const [dayHourHeight, setDayHourHeight] = useState(CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT);
+    const [dayVisibleHours, setDayVisibleHours] = useState(CALENDAR_DAY_VIEW_VISIBLE_HOURS_DEFAULT);
     const [dayFontScale, setDayFontScale] = useState(CALENDAR_DAY_VIEW_FONT_SCALE_DEFAULT);
     const [yearMonthBasis, setYearMonthBasis] = useState<CalendarYearMonthBasis>('gregorian');
     const [showGregorianCalendar, setShowGregorianCalendar] = useState(true);
@@ -260,6 +266,10 @@ export default function CalendarHeaderControls() {
         const storedDayHourHeight = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY));
         if (Number.isFinite(storedDayHourHeight)) {
             setDayHourHeight(clampCalendarDayHourHeight(storedDayHourHeight));
+        }
+        const storedDayVisibleHours = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_VISIBLE_HOURS_STORAGE_KEY));
+        if (Number.isFinite(storedDayVisibleHours)) {
+            setDayVisibleHours(clampCalendarDayVisibleHours(storedDayVisibleHours));
         }
         const storedDayFontScale = Number(window.localStorage.getItem(CALENDAR_DAY_VIEW_FONT_SCALE_STORAGE_KEY));
         if (Number.isFinite(storedDayFontScale)) {
@@ -333,6 +343,7 @@ export default function CalendarHeaderControls() {
             setDayVisibleDays(clampCalendarDayVisibleDays(detail.dayVisibleDays));
             setDayRowCount(clampCalendarDayRowCount(detail.dayRowCount));
             setDayHourHeight(clampCalendarDayHourHeight(detail.dayHourHeight));
+            setDayVisibleHours(clampCalendarDayVisibleHours(detail.dayVisibleHours));
             setDayFontScale(clampCalendarDayFontScale(detail.dayFontScale));
             setYearMonthBasis(detail.yearMonthBasis);
             setShowGregorianCalendar(Boolean(detail.showGregorianCalendar));
@@ -889,20 +900,21 @@ export default function CalendarHeaderControls() {
 
                                 <div className="grid gap-2">
                                     <div className="flex items-center justify-between gap-3">
-                                        <Label htmlFor="calendar-day-hour-height-header">Hour Zoom</Label>
-                                        <span className="text-xs text-muted-foreground">{dayHourHeight}px</span>
+                                        <Label htmlFor="calendar-day-visible-hours-header">Hour Zoom</Label>
+                                        <span className="text-xs text-muted-foreground">{dayVisibleHours}h visible</span>
                                     </div>
                                     <input
-                                        id="calendar-day-hour-height-header"
+                                        id="calendar-day-visible-hours-header"
                                         type="range"
-                                        min={CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN}
-                                        max={CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX}
-                                        step={2}
-                                        value={dayHourHeight}
+                                        min={CALENDAR_DAY_VIEW_VISIBLE_HOURS_MIN}
+                                        max={CALENDAR_DAY_VIEW_VISIBLE_HOURS_MAX}
+                                        step={1}
+                                        value={CALENDAR_DAY_VIEW_VISIBLE_HOURS_MAX + CALENDAR_DAY_VIEW_VISIBLE_HOURS_MIN - dayVisibleHours}
                                         onChange={(event) => {
-                                            const next = clampCalendarDayHourHeight(Number(event.target.value));
-                                            setDayHourHeight(next);
-                                            dispatchCalendarCommand({ type: 'setDayHourHeight', dayHourHeight: next });
+                                            const inverted = CALENDAR_DAY_VIEW_VISIBLE_HOURS_MAX + CALENDAR_DAY_VIEW_VISIBLE_HOURS_MIN - Number(event.target.value);
+                                            const next = clampCalendarDayVisibleHours(inverted);
+                                            setDayVisibleHours(next);
+                                            dispatchCalendarCommand({ type: 'setDayVisibleHours', dayVisibleHours: next });
                                         }}
                                     />
                                 </div>

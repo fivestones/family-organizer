@@ -10,6 +10,9 @@ export const CALENDAR_DAY_VIEW_ROW_COUNT_DEFAULT = 1;
 export const CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN = 32;
 export const CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX = 112;
 export const CALENDAR_DAY_VIEW_HOUR_HEIGHT_DEFAULT = 44;
+export const CALENDAR_DAY_VIEW_VISIBLE_HOURS_MIN = 2;
+export const CALENDAR_DAY_VIEW_VISIBLE_HOURS_MAX = 24;
+export const CALENDAR_DAY_VIEW_VISIBLE_HOURS_DEFAULT = 12;
 export const CALENDAR_DAY_VIEW_FONT_SCALE_MIN = 0.35;
 export const CALENDAR_DAY_VIEW_FONT_SCALE_MAX = 1;
 export const CALENDAR_DAY_VIEW_FONT_SCALE_DEFAULT = 1;
@@ -18,6 +21,7 @@ export const CALENDAR_SHOW_CHORES_STORAGE_KEY = 'calendar.showChores';
 export const CALENDAR_VIEW_MODE_STORAGE_KEY = 'calendar.viewMode';
 export const CALENDAR_DAY_VIEW_VISIBLE_DAYS_STORAGE_KEY = 'calendar.dayViewVisibleDays';
 export const CALENDAR_DAY_VIEW_HOUR_HEIGHT_STORAGE_KEY = 'calendar.dayViewHourHeight';
+export const CALENDAR_DAY_VIEW_VISIBLE_HOURS_STORAGE_KEY = 'calendar.dayViewVisibleHours';
 export const CALENDAR_DAY_VIEW_ROW_COUNT_STORAGE_KEY = 'calendar.dayViewRowCount';
 export const CALENDAR_DAY_VIEW_FONT_SCALE_STORAGE_KEY = 'calendar.dayViewFontScale';
 export const CALENDAR_YEAR_MONTH_BASIS_STORAGE_KEY = 'calendar.yearMonthBasis';
@@ -46,6 +50,8 @@ export const clampCalendarDayVisibleDays = (value: number) =>
 export const clampCalendarDayRowCount = (value: number) => (value >= 2 ? 2 : 1);
 export const clampCalendarDayHourHeight = (value: number) =>
     Math.round(Math.min(CALENDAR_DAY_VIEW_HOUR_HEIGHT_MAX, Math.max(CALENDAR_DAY_VIEW_HOUR_HEIGHT_MIN, value)));
+export const clampCalendarDayVisibleHours = (value: number) =>
+    Math.round(Math.min(CALENDAR_DAY_VIEW_VISIBLE_HOURS_MAX, Math.max(CALENDAR_DAY_VIEW_VISIBLE_HOURS_MIN, value)));
 export const clampCalendarDayFontScale = (value: number) =>
     Math.round(Math.min(CALENDAR_DAY_VIEW_FONT_SCALE_MAX, Math.max(CALENDAR_DAY_VIEW_FONT_SCALE_MIN, value)) * 100) / 100;
 export const getCalendarDayViewSnapMinutes = (hourHeight: number) => {
@@ -173,6 +179,7 @@ export type CalendarCommandDetail =
     | { type: 'setDayVisibleDays'; dayVisibleDays: number }
     | { type: 'setDayRowCount'; dayRowCount: number }
     | { type: 'setDayHourHeight'; dayHourHeight: number }
+    | { type: 'setDayVisibleHours'; dayVisibleHours: number }
     | { type: 'setDayFontScale'; dayFontScale: number }
     | { type: 'setYearMonthBasis'; yearMonthBasis: CalendarYearMonthBasis }
     | { type: 'setShowGregorianCalendar'; showGregorianCalendar: boolean }
@@ -199,6 +206,7 @@ export interface CalendarStateDetail {
     dayVisibleDays: number;
     dayRowCount: number;
     dayHourHeight: number;
+    dayVisibleHours: number;
     dayFontScale: number;
     yearMonthBasis: CalendarYearMonthBasis;
     showGregorianCalendar: boolean;

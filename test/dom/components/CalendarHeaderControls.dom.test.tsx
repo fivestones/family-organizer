@@ -116,6 +116,7 @@ describe('CalendarHeaderControls member filter summary', () => {
                     dayVisibleDays: 1,
                     dayRowCount: 1,
                     dayHourHeight: 44,
+                    dayVisibleHours: 12,
                     dayFontScale: 1,
                     yearMonthBasis: 'gregorian',
                     showGregorianCalendar: true,
@@ -353,7 +354,7 @@ describe('CalendarHeaderControls member filter summary', () => {
 
         fireEvent.change(screen.getByLabelText('Visible Days'), { target: { value: '3' } });
         fireEvent.click(screen.getByText('Second row of days'));
-        fireEvent.change(screen.getByLabelText('Hour Zoom'), { target: { value: '72' } });
+        fireEvent.change(screen.getByLabelText('Hour Zoom'), { target: { value: '8' } });
         fireEvent.change(screen.getByLabelText('Event Font Size'), { target: { value: '0.55' } });
 
         await waitFor(() => {
@@ -368,8 +369,8 @@ describe('CalendarHeaderControls member filter summary', () => {
                         dayRowCount: 2,
                     }),
                     expect.objectContaining({
-                        type: 'setDayHourHeight',
-                        dayHourHeight: 72,
+                        type: 'setDayVisibleHours',
+                        dayVisibleHours: 18,
                     }),
                     expect.objectContaining({
                         type: 'setDayFontScale',
