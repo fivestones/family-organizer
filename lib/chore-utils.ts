@@ -23,6 +23,7 @@ export interface Chore {
     }[];
     completions?: ChoreCompletion[]; // Link to completions
     // +++ Up for Grabs fields +++
+    estimatedMinutes?: number | null;
     isJoint?: boolean | null;
     isUpForGrabs?: boolean | null;
     rewardType?: 'fixed' | 'weight' | null;

@@ -47,6 +47,7 @@ interface ChoreSaveData {
     rotationType: 'none' | 'daily' | 'weekly' | 'monthly';
     assignments: { order: number; familyMember: any }[] | null; // Adjust 'any' if FamilyMember type is available here
     weight?: number | null;
+    estimatedMinutes?: number | null;
     isUpForGrabs?: boolean | null;
     isJoint?: boolean | null;
     rewardType?: 'fixed' | 'weight' | null;
@@ -124,6 +125,7 @@ function DetailedChoreForm({
     const [rotationOrder, setRotationOrder] = useState<string[]>([]);
     const [useRotation, setUseRotation] = useState(false);
     const [weight, setWeight] = useState<string>('0'); // Default to '0'
+    const [estimatedMinutes, setEstimatedMinutes] = useState<string>('');
     const [isUpForGrabs, setIsUpForGrabs] = useState(false);
     const [isJoint, setIsJoint] = useState(false);
     const [rewardType, setRewardType] = useState<'fixed' | 'weight'>('weight'); // Default to weight-based
@@ -175,6 +177,7 @@ function DetailedChoreForm({
             setDescription(initialChore.description || '');
             setStartDate(toUTCDate(new Date(initialChore.startDate)));
             setWeight(initialChore.weight !== null && initialChore.weight !== undefined ? String(initialChore.weight) : '');
+            setEstimatedMinutes(initialChore.estimatedMinutes != null ? String(initialChore.estimatedMinutes) : '');
             setIsUpForGrabs(initialChore.isUpForGrabs ?? false);
             setIsJoint(initialChore.isJoint ?? false);
             setRewardType(initialChore.rewardType === 'fixed' ? 'fixed' : 'weight');
@@ -233,6 +236,7 @@ function DetailedChoreForm({
                 mode: 'daily',
             });
             setWeight('0');
+            setEstimatedMinutes('');
             setIsUpForGrabs(false);
             setIsJoint(false);
             setRewardType('weight');
@@ -453,6 +457,7 @@ function DetailedChoreForm({
                       }))
                     : null, // Send null if not using rotation or no one is in rotation order
             weight: finalWeight, // Use parsed weight or null
+            estimatedMinutes: estimatedMinutes.trim() ? parseInt(estimatedMinutes, 10) || null : null,
             isUpForGrabs: isUpForGrabs,
             isJoint: isJoint,
             rewardType: isUpForGrabs ? rewardType : null, // Only set rewardType if up for grabs
@@ -600,6 +605,27 @@ function DetailedChoreForm({
             <div className="space-y-2">
                 <Label htmlFor="description">Description</Label>
                 <Textarea id="description" placeholder="Chore description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+
+            {/* Estimated Duration */}
+            <div className="space-y-2">
+                <Label htmlFor="estimatedMinutes">Estimated Duration</Label>
+                <div className="flex items-center gap-2">
+                    <Input
+                        id="estimatedMinutes"
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="e.g., 15"
+                        value={estimatedMinutes}
+                        onChange={(e) => setEstimatedMinutes(e.target.value)}
+                        className="w-24"
+                    />
+                    <span className="text-sm text-muted-foreground">minutes</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                    How long this chore typically takes. Used for start-time alerts and countdown timers.
+                </p>
             </div>
 
             {/* +++ NEW: Up for Grabs Toggle +++ */}

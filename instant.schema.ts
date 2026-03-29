@@ -194,6 +194,7 @@ const _schema = i.schema({
             description: i.string().optional(),
             difficultyRating: i.any().optional(),
             done: i.boolean(),
+            estimatedMinutes: i.number().optional(),
             dueTimes: i.any().optional(),
             exdates: i.json().optional(),
             imageUrl: i.any().optional(),
