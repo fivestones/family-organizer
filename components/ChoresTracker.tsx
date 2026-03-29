@@ -110,7 +110,7 @@ interface Chore {
         dateCompleted?: string;
         notDone?: boolean;
     }[];
-    estimatedMinutes?: number | null;
+    estimatedDurationSecs?: number | null;
     isUpForGrabs?: boolean;
     isJoint?: boolean;
     rewardType?: 'fixed' | 'weight';
@@ -471,7 +471,7 @@ function ChoresTracker({
                 rotationType: choreData.rotationType || 'none',
                 sortOrder: choreData.sortOrder ?? getNextChoreSortOrder(chores as any),
                 weight: choreData.weight ?? null, // Save weight, null if undefined
-                estimatedMinutes: choreData.estimatedMinutes ?? null,
+                estimatedDurationSecs: choreData.estimatedDurationSecs ?? null,
                 isUpForGrabs: choreData.isUpForGrabs ?? false,
                 isJoint: choreData.isJoint ?? false,
                 rewardType: choreData.rewardType ?? null,
@@ -792,7 +792,7 @@ function ChoresTracker({
                     rotationType: updatedChoreData.rotationType,
                     sortOrder: updatedChoreData.sortOrder ?? existingChore.sortOrder ?? null,
                     weight: updatedChoreData.weight ?? null,
-                    estimatedMinutes: updatedChoreData.estimatedMinutes ?? null,
+                    estimatedDurationSecs: updatedChoreData.estimatedDurationSecs ?? null,
                     isUpForGrabs: updatedChoreData.isUpForGrabs ?? false,
                     isJoint: updatedChoreData.isJoint ?? false,
                     rewardType: updatedChoreData.rewardType ?? null,
