@@ -1732,12 +1732,10 @@ const Calendar = ({
             setDayViewVerticalResetKey((value) => value + 1);
         }
         if (viewMode === 'agenda' && previous !== 'agenda') {
-            const today = new Date();
-            const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-            setAgendaWindow(explicitDateRangeWindow || createRollingWindow(todayStart, { includePast: false }));
+            setAgendaWindow(explicitDateRangeWindow || createRollingWindow(effectiveCurrentDate, { includePast: false }));
             setAgendaFocusRequest({
                 nonce: Date.now(),
-                dateKey: format(todayStart, 'yyyy-MM-dd'),
+                dateKey: format(effectiveCurrentDate, 'yyyy-MM-dd'),
             });
         }
         previousViewModeRef.current = viewMode;

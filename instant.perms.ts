@@ -748,6 +748,19 @@ const rules = {
             update: 'false',
         },
     },
+    $streams: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+        },
+        allow: {
+            view: 'isFamilyPrincipal',
+            create: 'isFamilyPrincipal',
+            delete: 'false',
+            update: 'false',
+        },
+    },
     $files: {
         bind: {
             isKid: "'kid' in auth.ref('$user.type')",

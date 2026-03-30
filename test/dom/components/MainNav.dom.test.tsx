@@ -47,6 +47,7 @@ describe('MainNav', () => {
         'main-nav-measure-messages': 98,
         'main-nav-measure-finance': 84,
         'main-nav-measure-allowance-distribution': 162,
+        'main-nav-measure-content': 86,
         'main-nav-measure-history': 88,
         'main-nav-measure-settings': 88,
         'main-nav-measure-trigger': 36,

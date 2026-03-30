@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
-import { createS3FileResponse } from '@/lib/s3-file-response';
+import { createSignedDownloadUrlForS3Object } from '@/lib/s3-file-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,9 +19,10 @@ export async function GET(
     }
 
     try {
-        return await createS3FileResponse(filename);
+        const signedUrl = await createSignedDownloadUrlForS3Object(filename);
+        return NextResponse.redirect(signedUrl, 307);
     } catch (error) {
-        console.error('Error streaming file:', error);
+        console.error('Error signing file URL:', error);
         return new NextResponse('File unavailable', { status: 404 });
     }
 }

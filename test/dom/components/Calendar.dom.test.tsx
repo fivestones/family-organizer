@@ -234,6 +234,10 @@ describe('Calendar', () => {
         mocks.dropTargetForElements.mockReset();
         mocks.dropCleanup.mockReset();
         window.localStorage.clear();
+        // jsdom doesn't implement scrollIntoView
+        if (!Element.prototype.scrollIntoView) {
+            Element.prototype.scrollIntoView = vi.fn();
+        }
     });
 
     it('opens the add-event modal in create mode when a day cell is double-clicked', () => {
@@ -969,8 +973,17 @@ describe('Calendar', () => {
         const form = screen.getByTestId('add-event-form');
         expect(form).toHaveAttribute('data-selected-date', '2026-03-15');
         expect(form).toHaveAttribute('data-draft-all-day', 'false');
-        expect(form.getAttribute('data-draft-start')).toContain('2026-03-15T');
-        expect(form.getAttribute('data-draft-end')).toContain('2026-03-15T');
+        // The draft start/end are ISO strings (UTC), so in eastern timezones the
+        // date portion may roll back to the previous day.  Verify the dates round-trip
+        // back to local March 15 instead of checking the raw UTC string.
+        const draftStart = new Date(form.getAttribute('data-draft-start')!);
+        const draftEnd = new Date(form.getAttribute('data-draft-end')!);
+        expect(draftStart.getFullYear()).toBe(2026);
+        expect(draftStart.getMonth()).toBe(2); // March
+        expect(draftStart.getDate()).toBe(15);
+        expect(draftEnd.getFullYear()).toBe(2026);
+        expect(draftEnd.getMonth()).toBe(2);
+        expect(draftEnd.getDate()).toBe(15);
     });
 
     it('renders two stacked day rows without crashing when the second row option is enabled', async () => {
@@ -2485,7 +2498,8 @@ describe('Calendar', () => {
         renderCalendarWithItems([]);
 
         expect(mocks.dbUseQuery).toHaveBeenCalled();
-        const queryArg = mocks.dbUseQuery.mock.calls[0][0];
+        const calendarCall = mocks.dbUseQuery.mock.calls.find((c: any[]) => c[0]?.calendarItems);
+        const queryArg = calendarCall?.[0];
         const orConditions = queryArg?.calendarItems?.$?.where?.or;
 
         expect(Array.isArray(orConditions)).toBe(true);
