@@ -25,7 +25,8 @@ import {
 import { useAuth } from '@/components/AuthProvider';
 import { getAssignedMembersForChoreOnDate as getAssignedMembersLocal } from '@/lib/chore-utils';
 import CircularTimerRing from './CircularTimerRing';
-import { ChevronLeft, ChevronRight, Pause, Play, Timer, Users, User } from 'lucide-react';
+import SequenceTimeline from './SequenceTimeline';
+import { ChevronLeft, ChevronRight, LayoutGrid, GitBranch, Pause, Play, Timer, Users, User } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -217,6 +218,7 @@ export default function CountdownPageContent() {
 
     // --- State ---
     const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+    const [viewMode, setViewMode] = useState<'grid' | 'sequence'>('grid');
     const [autoComplete, setAutoComplete] = useState(countdownSettings.autoMarkCompleteOnCountdownEnd);
     const [nowMs, setNowMs] = useState(Date.now());
 
@@ -422,6 +424,35 @@ export default function CountdownPageContent() {
                     </p>
                 </div>
                 <div className="flex items-center gap-4">
+                    {/* View toggle */}
+                    <div className="flex rounded-lg border border-slate-200 p-0.5">
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('grid')}
+                            className={cn(
+                                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                                viewMode === 'grid'
+                                    ? 'bg-slate-900 text-white shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700',
+                            )}
+                        >
+                            <LayoutGrid className="h-3.5 w-3.5" />
+                            Grid
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('sequence')}
+                            className={cn(
+                                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                                viewMode === 'sequence'
+                                    ? 'bg-slate-900 text-white shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700',
+                            )}
+                        >
+                            <GitBranch className="h-3.5 w-3.5" />
+                            Sequence
+                        </button>
+                    </div>
                     <div className="flex items-center gap-2">
                         <Label htmlFor="auto-complete-toggle" className="text-xs text-slate-500">
                             Auto-complete
@@ -496,109 +527,121 @@ export default function CountdownPageContent() {
                 </div>
             )}
 
-            {/* Overdue */}
-            {overdueSlots.length > 0 && (
-                <section>
-                    <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-red-500">
-                        Overdue ({overdueSlots.length})
-                    </h2>
-                    <div className={cn(
-                        'grid gap-4',
-                        isCompact ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
-                    )}>
-                        {overdueSlots.map((slot) => (
-                            <SlotCard
-                                key={`${slot.choreId}-${slot.personId}`}
-                                slot={slot}
-                                nowMs={nowMs}
-                                memberName={memberName(slot.personId)}
-                                showMemberName={!selectedPersonId}
-                                onComplete={handleMarkDone}
-                                isCompact={isCompact}
-                            />
-                        ))}
-                    </div>
-                </section>
-            )}
+            {/* View content */}
+            {viewMode === 'sequence' ? (
+                <SequenceTimeline
+                    output={countdownOutput!}
+                    people={timelinePeople}
+                    nowMs={nowMs}
+                    onMarkDone={handleMarkDone}
+                />
+            ) : (
+                <>
+                    {/* Overdue */}
+                    {overdueSlots.length > 0 && (
+                        <section>
+                            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-red-500">
+                                Overdue ({overdueSlots.length})
+                            </h2>
+                            <div className={cn(
+                                'grid gap-4',
+                                isCompact ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+                            )}>
+                                {overdueSlots.map((slot) => (
+                                    <SlotCard
+                                        key={`${slot.choreId}-${slot.personId}`}
+                                        slot={slot}
+                                        nowMs={nowMs}
+                                        memberName={memberName(slot.personId)}
+                                        showMemberName={!selectedPersonId}
+                                        onComplete={handleMarkDone}
+                                        isCompact={isCompact}
+                                    />
+                                ))}
+                            </div>
+                        </section>
+                    )}
 
-            {/* Active */}
-            {activeSlots.length > 0 && (
-                <section>
-                    <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-amber-600">
-                        In Progress ({activeSlots.length})
-                    </h2>
-                    <div className={cn(
-                        'grid gap-4',
-                        isCompact ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
-                    )}>
-                        {activeSlots.map((slot) => (
-                            <SlotCard
-                                key={`${slot.choreId}-${slot.personId}`}
-                                slot={slot}
-                                nowMs={nowMs}
-                                memberName={memberName(slot.personId)}
-                                showMemberName={!selectedPersonId}
-                                onComplete={handleMarkDone}
-                                isCompact={isCompact}
-                            />
-                        ))}
-                    </div>
-                </section>
-            )}
+                    {/* Active */}
+                    {activeSlots.length > 0 && (
+                        <section>
+                            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-amber-600">
+                                In Progress ({activeSlots.length})
+                            </h2>
+                            <div className={cn(
+                                'grid gap-4',
+                                isCompact ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+                            )}>
+                                {activeSlots.map((slot) => (
+                                    <SlotCard
+                                        key={`${slot.choreId}-${slot.personId}`}
+                                        slot={slot}
+                                        nowMs={nowMs}
+                                        memberName={memberName(slot.personId)}
+                                        showMemberName={!selectedPersonId}
+                                        onComplete={handleMarkDone}
+                                        isCompact={isCompact}
+                                    />
+                                ))}
+                            </div>
+                        </section>
+                    )}
 
-            {/* Upcoming */}
-            {upcomingSlots.length > 0 && (
-                <section>
-                    <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
-                        Upcoming ({upcomingSlots.length})
-                    </h2>
-                    <div className={cn(
-                        'grid gap-4',
-                        isCompact ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
-                    )}>
-                        {upcomingSlots.map((slot) => (
-                            <SlotCard
-                                key={`${slot.choreId}-${slot.personId}`}
-                                slot={slot}
-                                nowMs={nowMs}
-                                memberName={memberName(slot.personId)}
-                                showMemberName={!selectedPersonId}
-                                onComplete={handleMarkDone}
-                                isCompact={isCompact}
-                            />
-                        ))}
-                    </div>
-                </section>
-            )}
+                    {/* Upcoming */}
+                    {upcomingSlots.length > 0 && (
+                        <section>
+                            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
+                                Upcoming ({upcomingSlots.length})
+                            </h2>
+                            <div className={cn(
+                                'grid gap-4',
+                                isCompact ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+                            )}>
+                                {upcomingSlots.map((slot) => (
+                                    <SlotCard
+                                        key={`${slot.choreId}-${slot.personId}`}
+                                        slot={slot}
+                                        nowMs={nowMs}
+                                        memberName={memberName(slot.personId)}
+                                        showMemberName={!selectedPersonId}
+                                        onComplete={handleMarkDone}
+                                        isCompact={isCompact}
+                                    />
+                                ))}
+                            </div>
+                        </section>
+                    )}
 
-            {/* Completed */}
-            {completedSlots.length > 0 && (
-                <section>
-                    <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-emerald-600">
-                        Completed ({completedSlots.length})
-                    </h2>
-                    <div className={cn(
-                        'grid gap-4',
-                        isCompact ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
-                    )}>
-                        {completedSlots.map((slot) => (
-                            <SlotCard
-                                key={`${slot.choreId}-${slot.personId}`}
-                                slot={slot}
-                                nowMs={nowMs}
-                                memberName={memberName(slot.personId)}
-                                showMemberName={!selectedPersonId}
-                                isCompact={isCompact}
-                            />
-                        ))}
-                    </div>
-                </section>
-            )}
+                    {/* Completed */}
+                    {completedSlots.length > 0 && (
+                        <section>
+                            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-emerald-600">
+                                Completed ({completedSlots.length})
+                            </h2>
+                            <div className={cn(
+                                'grid gap-4',
+                                isCompact ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+                            )}>
+                                {completedSlots.map((slot) => (
+                                    <SlotCard
+                                        key={`${slot.choreId}-${slot.personId}`}
+                                        slot={slot}
+                                        nowMs={nowMs}
+                                        memberName={memberName(slot.personId)}
+                                        showMemberName={!selectedPersonId}
+                                        isCompact={isCompact}
+                                    />
+                                ))}
+                            </div>
+                        </section>
+                    )}
 
-            {visibleSlots.length === 0 && selectedPersonId && (
-                <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-slate-200 text-slate-400">
-                    No timed chores for {memberName(selectedPersonId)} today
-                </div>
+                    {visibleSlots.length === 0 && selectedPersonId && (
+                        <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-slate-200 text-slate-400">
+                            No timed chores for {memberName(selectedPersonId)} today
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
