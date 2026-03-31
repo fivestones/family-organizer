@@ -4,7 +4,7 @@ import CountdownPageContent from '@/components/countdown/CountdownPage';
 
 export default function CountdownRoute() {
     return (
-        <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+        <div className="w-full px-4 sm:px-6 lg:px-8">
             <CountdownPageContent />
         </div>
     );
