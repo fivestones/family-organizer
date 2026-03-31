@@ -393,11 +393,15 @@ function ChoresTracker({
         try {
             const choreInputs: CountdownChoreInput[] = chores
                 .filter((c) => {
-                    // Only include chores that have timing and duration info
                     const mode = getChoreTimingMode(c as any);
-                    return mode !== 'anytime';
+                    if (mode === 'anytime') return false;
+                    // Only include chores actually assigned to someone on this date
+                    // (handles occurrence check, pause state, rotation, exdates)
+                    const assigned = getAssignedMembersForChoreOnDate(c as any, selectedDate);
+                    return assigned.length > 0;
                 })
                 .map((c) => {
+                    const assigned = getAssignedMembersForChoreOnDate(c as any, selectedDate);
                     const memberCompletions: Record<string, string> = {};
                     for (const comp of c.completions || []) {
                         if (comp.completed && comp.dateDue === selectedDateKey && comp.completedBy?.id) {
@@ -411,13 +415,7 @@ function ChoresTracker({
                         weight: c.weight ?? null,
                         sortOrder: c.sortOrder ?? null,
                         isJoint: c.isJoint ?? false,
-                        assigneeIds: (() => {
-                            // assignments (ordered rotation records) have familyMember nested
-                            const fromAssignments = (c.assignments || []).map((a: any) => a.familyMember?.id).filter(Boolean);
-                            if (fromAssignments.length > 0) return fromAssignments;
-                            // Fall back to direct assignees link
-                            return (c.assignees || []).map((a: any) => a.id).filter(Boolean);
-                        })(),
+                        assigneeIds: assigned.map((a) => a.id),
                         timingMode: c.timingMode || 'anytime',
                         timingConfig: c.timingConfig || null,
                         timeBucket: c.timeBucket || null,

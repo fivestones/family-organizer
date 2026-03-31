@@ -15,7 +15,6 @@ import {
     parseCountdownSettings,
     computeCountdownTimelines,
     getChoreTimingMode,
-    getAssignedMembersForChoreOnDate,
     type SharedScheduleSettings,
     type CountdownEngineOutput,
     type CountdownChoreInput,
@@ -24,6 +23,7 @@ import {
     type PersonCountdownTimeline,
 } from '@family-organizer/shared-core';
 import { useAuth } from '@/components/AuthProvider';
+import { getAssignedMembersForChoreOnDate as getAssignedMembersLocal } from '@/lib/chore-utils';
 import CircularTimerRing from './CircularTimerRing';
 import { ChevronLeft, ChevronRight, Pause, Play, Timer, Users, User } from 'lucide-react';
 
@@ -238,9 +238,14 @@ export default function CountdownPageContent() {
             const choreInputs: CountdownChoreInput[] = chores
                 .filter((c: any) => {
                     const mode = getChoreTimingMode(c);
-                    return mode !== 'anytime';
+                    if (mode === 'anytime') return false;
+                    // Only include chores actually assigned to someone today
+                    // (handles occurrence check, pause state, rotation, exdates)
+                    const assigned = getAssignedMembersLocal(c, today);
+                    return assigned.length > 0;
                 })
                 .map((c: any) => {
+                    const assigned = getAssignedMembersLocal(c, today);
                     const memberCompletions: Record<string, string> = {};
                     for (const comp of c.completions || []) {
                         if (comp.completed && comp.dateDue === todayKey && comp.completedBy?.id) {
@@ -254,11 +259,7 @@ export default function CountdownPageContent() {
                         weight: c.weight ?? null,
                         sortOrder: c.sortOrder ?? null,
                         isJoint: c.isJoint ?? false,
-                        assigneeIds: (() => {
-                            const fromAssignments = (c.assignments || []).map((a: any) => a.familyMember?.id).filter(Boolean);
-                            if (fromAssignments.length > 0) return fromAssignments;
-                            return (c.assignees || []).map((a: any) => a.id).filter(Boolean);
-                        })(),
+                        assigneeIds: assigned.map((a) => a.id),
                         timingMode: c.timingMode || 'anytime',
                         timingConfig: c.timingConfig || null,
                         timeBucket: c.timeBucket || null,
