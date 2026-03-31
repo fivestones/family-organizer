@@ -841,9 +841,15 @@ function ChoreList({
                                         if (match) return <CountdownPill slot={match.slot} />;
                                         return null;
                                     }
-                                    // "All" view: show the first/most relevant slot
-                                    const first = slots[0];
-                                    return first ? <CountdownPill slot={first.slot} /> : null;
+                                    // "All" view: show the most urgent incomplete slot.
+                                    // Priority: overdue > active > upcoming > waiting > completed.
+                                    const statePriority: Record<string, number> = {
+                                        overdue_active: 0, active: 1, upcoming: 2, waiting_decision: 3, buffer: 4, completed: 5,
+                                    };
+                                    const sorted = [...slots].sort(
+                                        (a, b) => (statePriority[a.slot.state] ?? 9) - (statePriority[b.slot.state] ?? 9)
+                                    );
+                                    return <CountdownPill slot={sorted[0].slot} />;
                                 })()}
                                 {/* +++ ADDED: Up for Grabs Label +++ */}
                                 {chore.isUpForGrabs && (
