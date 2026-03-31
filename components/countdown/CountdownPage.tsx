@@ -532,6 +532,8 @@ export default function CountdownPageContent() {
                 <SequenceTimeline
                     output={countdownOutput!}
                     people={timelinePeople}
+                    familyMembers={familyMembers.map((m: any) => ({ id: m.id, name: m.name, color: m.color }))}
+                    choresRaw={chores.map((c: any) => ({ id: c.id, timingMode: c.timingMode, timingConfig: c.timingConfig }))}
                     nowMs={nowMs}
                     onMarkDone={handleMarkDone}
                 />

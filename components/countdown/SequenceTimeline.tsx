@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
+import { buildMemberColorMap, hexToRgbaString } from '@/lib/family-member-colors';
 import type {
     CountdownEngineOutput,
     CountdownSlot,
@@ -19,12 +20,70 @@ interface PersonInfo {
     timeline: PersonCountdownTimeline;
 }
 
+interface FamilyMemberLike {
+    id: string;
+    name: string;
+    color?: string | null;
+}
+
+interface ChoreRaw {
+    id: string;
+    timingMode?: string;
+    timingConfig?: {
+        anchor?: {
+            relation?: 'before' | 'after';
+            sourceChoreId?: string | null;
+        };
+    } | null;
+}
+
 interface SequenceTimelineProps {
     output: CountdownEngineOutput;
     people: PersonInfo[];
+    familyMembers: FamilyMemberLike[];
+    choresRaw: ChoreRaw[];
     nowMs: number;
     onMarkDone?: (choreId: string, personId: string) => void;
     className?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Layout types
+// ---------------------------------------------------------------------------
+
+/** A single visual node in the sequence layout. */
+interface LayoutNode {
+    id: string; // unique: `${choreId}:${personId}` or `${choreId}:joint`
+    choreId: string;
+    choreTitle: string;
+    personIds: string[]; // one for regular, many for joint
+    isJoint: boolean;
+    durationSecs: number;
+    countdownStartMs: number;
+    countdownEndMs: number;
+    state: CountdownSlotState;
+    slot: CountdownSlot; // reference to first/primary slot
+    /** Layout computed values */
+    row: number;
+    col: number; // track/column index in the layout
+    colSpan: number; // 1 for regular nodes
+}
+
+/** A visual connection line between two nodes. */
+interface LayoutEdge {
+    fromNodeId: string;
+    toNodeId: string;
+    personId: string; // whose colored line this is
+    type: 'sequence' | 'dependency'; // sequence = same-person chain, dependency = cross-person
+}
+
+/** A gap marker between nodes in a person's sequence. */
+interface GapMarker {
+    afterNodeId: string;
+    beforeNodeId: string;
+    row: number;
+    col: number;
+    gapMinutes: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,33 +116,14 @@ function formatDuration(secs: number): string {
     return `${secs}s`;
 }
 
-// State-based styling
-const NODE_BG: Record<CountdownSlotState, string> = {
-    upcoming: 'bg-slate-100 border-slate-300',
-    active: 'bg-amber-100 border-amber-400',
-    overdue_active: 'bg-red-100 border-red-400',
-    buffer: 'bg-slate-50 border-slate-200',
-    completed: 'bg-emerald-100 border-emerald-300',
-    waiting_decision: 'bg-violet-100 border-violet-300',
-};
+/** Height in px for a chore node based on duration. */
+function nodeHeight(durationSecs: number): number {
+    // min 52px (5 min or less), max 120px (60+ min), linear between
+    const mins = durationSecs / 60;
+    return Math.round(Math.max(52, Math.min(120, 52 + (mins - 5) * (68 / 55))));
+}
 
-const NODE_DOT: Record<CountdownSlotState, string> = {
-    upcoming: 'bg-slate-400',
-    active: 'bg-amber-500',
-    overdue_active: 'bg-red-500',
-    buffer: 'bg-slate-300',
-    completed: 'bg-emerald-500',
-    waiting_decision: 'bg-violet-500',
-};
-
-const RAIL_COLOR: Record<CountdownSlotState, string> = {
-    upcoming: 'bg-slate-200',
-    active: 'bg-amber-300',
-    overdue_active: 'bg-red-300',
-    buffer: 'bg-slate-150',
-    completed: 'bg-emerald-300',
-    waiting_decision: 'bg-violet-200',
-};
+const GAP_THRESHOLD_SECS = 30 * 60; // 30 minutes
 
 const STATE_ICON: Record<CountdownSlotState, string> = {
     upcoming: '○',
@@ -95,233 +135,688 @@ const STATE_ICON: Record<CountdownSlotState, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Time axis helpers
+// Dependency extraction
 // ---------------------------------------------------------------------------
 
-interface TimeWindow {
-    startMs: number;
-    endMs: number;
-    durationMs: number;
+/** Build a map of choreId → sourceChoreId (the chore it depends on). */
+function buildDependencyMap(choresRaw: ChoreRaw[]): Map<string, string> {
+    const deps = new Map<string, string>();
+    for (const c of choresRaw) {
+        const mode = c.timingMode;
+        if (mode === 'before_chore' || mode === 'after_chore' || mode === 'chore_anchor') {
+            const sourceId = c.timingConfig?.anchor?.sourceChoreId;
+            if (sourceId) {
+                deps.set(c.id, sourceId);
+            }
+        }
+    }
+    return deps;
 }
 
-function computeTimeWindow(people: PersonInfo[], nowMs: number): TimeWindow | null {
-    let earliest = Infinity;
-    let latest = -Infinity;
-    for (const p of people) {
-        for (const slot of p.timeline.slots) {
+// ---------------------------------------------------------------------------
+// Layout algorithm
+// ---------------------------------------------------------------------------
+
+interface LayoutResult {
+    nodes: LayoutNode[];
+    edges: LayoutEdge[];
+    gaps: GapMarker[];
+    trackPersonIds: string[][]; // for each track column, which personIds are using it at any point
+    totalRows: number;
+    trackCount: number;
+}
+
+function computeLayout(
+    people: PersonInfo[],
+    choreDeps: Map<string, string>,
+    visiblePersonIds: Set<string>,
+    nowMs: number,
+): LayoutResult {
+    const nodes: LayoutNode[] = [];
+    const edges: LayoutEdge[] = [];
+    const gaps: GapMarker[] = [];
+
+    // Filter to visible people
+    const visiblePeople = people.filter(p => visiblePersonIds.has(p.personId));
+    if (visiblePeople.length === 0) {
+        return { nodes: [], edges: [], gaps: [], trackPersonIds: [], totalRows: 0, trackCount: 0 };
+    }
+
+    // Step 1: Build nodes from slots, merging joint chores
+    // Joint chores: multiple people share the same choreId with isJoint=true
+    // We group them into a single node.
+    const jointChoreSlots = new Map<string, CountdownSlot[]>(); // choreId → slots
+    const regularSlots: CountdownSlot[] = [];
+
+    for (const person of visiblePeople) {
+        for (const slot of person.timeline.slots) {
             if (slot.state === 'buffer') continue;
-            earliest = Math.min(earliest, slot.countdownStartMs);
-            latest = Math.max(latest, slot.countdownEndMs);
-        }
-    }
-    if (!Number.isFinite(earliest)) return null;
-
-    // Add 10% padding on each side, and include "now" in the window.
-    const padding = Math.max((latest - earliest) * 0.05, 5 * 60 * 1000);
-    const startMs = Math.min(earliest - padding, nowMs - padding);
-    const endMs = Math.max(latest + padding, nowMs + padding);
-    return { startMs, endMs, durationMs: endMs - startMs };
-}
-
-function msToPercent(ms: number, window: TimeWindow): number {
-    return ((ms - window.startMs) / window.durationMs) * 100;
-}
-
-// ---------------------------------------------------------------------------
-// Time markers for the axis
-// ---------------------------------------------------------------------------
-
-function getTimeMarkers(window: TimeWindow): Array<{ ms: number; label: string }> {
-    const markers: Array<{ ms: number; label: string }> = [];
-    // Round to nearest 15-minute increment.
-    const interval = 15 * 60 * 1000;
-    const first = Math.ceil(window.startMs / interval) * interval;
-    for (let t = first; t <= window.endMs; t += interval) {
-        markers.push({ ms: t, label: formatTime(t) });
-    }
-    return markers;
-}
-
-// ---------------------------------------------------------------------------
-// Joint chore grouping
-// ---------------------------------------------------------------------------
-
-interface JointLink {
-    choreId: string;
-    choreTitle: string;
-    personIds: string[];
-    topPercent: number;
-    bottomPercent: number;
-}
-
-function findJointLinks(people: PersonInfo[], window: TimeWindow): JointLink[] {
-    // Group slots by choreId where isJoint is true.
-    const jointMap = new Map<string, Array<{ personId: string; slot: CountdownSlot }>>();
-    for (const p of people) {
-        for (const slot of p.timeline.slots) {
-            if (!slot.isJoint) continue;
-            const list = jointMap.get(slot.choreId) || [];
-            list.push({ personId: p.personId, slot });
-            jointMap.set(slot.choreId, list);
+            if (slot.isJoint) {
+                const list = jointChoreSlots.get(slot.choreId) || [];
+                list.push(slot);
+                jointChoreSlots.set(slot.choreId, list);
+            } else {
+                regularSlots.push(slot);
+            }
         }
     }
 
-    const links: JointLink[] = [];
-    for (const [choreId, entries] of jointMap.entries()) {
-        if (entries.length < 2) continue;
-        // Use the midpoint of the slot for vertical positioning.
-        const midpoints = entries.map((e) => {
-            const mid = (e.slot.countdownStartMs + e.slot.countdownEndMs) / 2;
-            return msToPercent(mid, window);
-        });
-        links.push({
+    // Build a map from choreId to all visible person IDs it's assigned to (for joint)
+    const jointNodeMap = new Map<string, LayoutNode>();
+    for (const [choreId, slots] of Array.from(jointChoreSlots.entries())) {
+        const visibleSlots = slots.filter(s => visiblePersonIds.has(s.personId));
+        if (visibleSlots.length === 0) continue;
+        const primary = visibleSlots[0];
+        const personIds = visibleSlots.map(s => s.personId);
+        jointNodeMap.set(choreId, {
+            id: `${choreId}:joint`,
             choreId,
-            choreTitle: entries[0].slot.choreTitle,
-            personIds: entries.map((e) => e.personId),
-            topPercent: Math.min(...midpoints),
-            bottomPercent: Math.max(...midpoints),
+            choreTitle: primary.choreTitle,
+            personIds,
+            isJoint: true,
+            durationSecs: primary.durationSecs,
+            countdownStartMs: primary.countdownStartMs,
+            countdownEndMs: primary.countdownEndMs,
+            state: primary.state,
+            slot: primary,
+            row: -1,
+            col: -1,
+            colSpan: 1,
         });
     }
-    return links;
+
+    // Build regular (non-joint) nodes
+    const regularNodeMap = new Map<string, LayoutNode>(); // `choreId:personId` → node
+    for (const slot of regularSlots) {
+        if (!visiblePersonIds.has(slot.personId)) continue;
+        const nodeId = `${slot.choreId}:${slot.personId}`;
+        regularNodeMap.set(nodeId, {
+            id: nodeId,
+            choreId: slot.choreId,
+            choreTitle: slot.choreTitle,
+            personIds: [slot.personId],
+            isJoint: false,
+            durationSecs: slot.durationSecs,
+            countdownStartMs: slot.countdownStartMs,
+            countdownEndMs: slot.countdownEndMs,
+            state: slot.state,
+            slot,
+            row: -1,
+            col: -1,
+            colSpan: 1,
+        });
+    }
+
+    // Step 2: Build per-person chains (ordered by time)
+    // Each person has a sequence of nodes (regular or joint) sorted by start time.
+    const personChains = new Map<string, LayoutNode[]>();
+    for (const person of visiblePeople) {
+        const chain: LayoutNode[] = [];
+        const seenChoreIds = new Set<string>();
+        const sortedSlots = [...person.timeline.slots]
+            .filter(s => s.state !== 'buffer')
+            .sort((a, b) => a.countdownStartMs - b.countdownStartMs);
+
+        for (const slot of sortedSlots) {
+            if (!visiblePersonIds.has(slot.personId)) continue;
+            if (slot.isJoint) {
+                if (seenChoreIds.has(slot.choreId)) continue;
+                seenChoreIds.add(slot.choreId);
+                const jointNode = jointNodeMap.get(slot.choreId);
+                if (jointNode) chain.push(jointNode);
+            } else {
+                const nodeId = `${slot.choreId}:${slot.personId}`;
+                const node = regularNodeMap.get(nodeId);
+                if (node) chain.push(node);
+            }
+        }
+        personChains.set(person.personId, chain);
+    }
+
+    // Step 3: Identify sequence edges (consecutive in a person's chain) and
+    // whether there are time-dependency connections between them.
+    // Two consecutive nodes are "in sequence" if:
+    //   - The gap is < GAP_THRESHOLD_SECS, OR
+    //   - There's an explicit chore dependency between them
+    const choreNodeLookup = new Map<string, LayoutNode[]>(); // choreId → nodes referencing it
+    for (const node of Array.from(regularNodeMap.values()).concat(Array.from(jointNodeMap.values()))) {
+        const list = choreNodeLookup.get(node.choreId) || [];
+        list.push(node);
+        choreNodeLookup.set(node.choreId, list);
+    }
+
+    // Build cross-person dependency edges
+    const crossPersonDeps: Array<{ fromNode: LayoutNode; toNode: LayoutNode; personId: string }> = [];
+    for (const [choreId, sourceChoreId] of Array.from(choreDeps.entries())) {
+        // Find nodes for the dependent chore and its source
+        const depNodes = choreNodeLookup.get(choreId) || [];
+        const sourceNodes = choreNodeLookup.get(sourceChoreId) || [];
+        for (const depNode of depNodes) {
+            for (const sourceNode of sourceNodes) {
+                // Cross-person dependency: different people
+                const depPersonId = depNode.personIds[0];
+                const srcPersonId = sourceNode.personIds[0];
+                if (depPersonId && srcPersonId && depPersonId !== srcPersonId) {
+                    crossPersonDeps.push({
+                        fromNode: sourceNode,
+                        toNode: depNode,
+                        personId: depPersonId,
+                    });
+                }
+            }
+        }
+    }
+
+    // Step 4: Assign tracks (columns) to people
+    // Start with one track per person, then adjust for joint chores
+    const personTrack = new Map<string, number>();
+    visiblePeople.forEach((p, i) => personTrack.set(p.personId, i));
+    const trackCount = visiblePeople.length;
+    const trackPersonIds: string[][] = visiblePeople.map(p => [p.personId]);
+
+    // Step 5: Assign rows using topological ordering
+    // We process all nodes in time order, but joint chores must wait for
+    // all participating people to be ready (like a merge commit in git).
+    const personRowCursor = new Map<string, number>(); // personId → next available row
+    visiblePeople.forEach(p => personRowCursor.set(p.personId, 0));
+
+    // Build a global ordering: process chains interleaved by time
+    interface QueueEntry {
+        node: LayoutNode;
+        personId: string;
+        indexInChain: number;
+    }
+    const allEntries: QueueEntry[] = [];
+    for (const [personId, chain] of Array.from(personChains.entries())) {
+        chain.forEach((node, idx) => {
+            allEntries.push({ node, personId, indexInChain: idx });
+        });
+    }
+    // Sort by start time, breaking ties by person order
+    allEntries.sort((a, b) => {
+        const timeDiff = a.node.countdownStartMs - b.node.countdownStartMs;
+        if (timeDiff !== 0) return timeDiff;
+        return (personTrack.get(a.personId) ?? 0) - (personTrack.get(b.personId) ?? 0);
+    });
+
+    const placedNodes = new Set<string>(); // node IDs already placed
+    const nodeRowMap = new Map<string, number>(); // nodeId → row
+
+    // Track per-person chain for edge building
+    const personPrevNode = new Map<string, LayoutNode>();
+
+    for (const entry of allEntries) {
+        const { node, personId } = entry;
+        if (placedNodes.has(node.id)) {
+            // Joint node already placed by another person — just record the edge
+            const prevNode = personPrevNode.get(personId);
+            if (prevNode && prevNode.id !== node.id) {
+                const gap = (node.countdownStartMs - prevNode.countdownEndMs) / 1000;
+                if (gap < GAP_THRESHOLD_SECS || choreDeps.has(node.choreId)) {
+                    edges.push({
+                        fromNodeId: prevNode.id,
+                        toNodeId: node.id,
+                        personId,
+                        type: 'sequence',
+                    });
+                } else {
+                    // Gap marker
+                    const gapMins = Math.round(gap / 60);
+                    if (gapMins > 0) {
+                        const row = nodeRowMap.get(node.id) ?? 0;
+                        gaps.push({
+                            afterNodeId: prevNode.id,
+                            beforeNodeId: node.id,
+                            row: row, // will be between prev and this
+                            col: personTrack.get(personId) ?? 0,
+                            gapMinutes: gapMins,
+                        });
+                    }
+                }
+            }
+            // Advance this person's cursor to after the joint node
+            const jointRow = nodeRowMap.get(node.id) ?? 0;
+            personRowCursor.set(personId, jointRow + 1);
+            personPrevNode.set(personId, node);
+            continue;
+        }
+
+        // Determine row for this node
+        let row: number;
+        if (node.isJoint) {
+            // Joint node: must be at the max of all participants' cursors
+            row = 0;
+            for (const pid of node.personIds) {
+                row = Math.max(row, personRowCursor.get(pid) ?? 0);
+            }
+            // Also must be after any cross-person dependency source
+            for (const dep of crossPersonDeps) {
+                if (dep.toNode.id === node.id && placedNodes.has(dep.fromNode.id)) {
+                    const srcRow = nodeRowMap.get(dep.fromNode.id) ?? 0;
+                    row = Math.max(row, srcRow + 1);
+                }
+            }
+        } else {
+            row = personRowCursor.get(personId) ?? 0;
+            // Check cross-person dependencies
+            for (const dep of crossPersonDeps) {
+                if (dep.toNode.id === node.id && placedNodes.has(dep.fromNode.id)) {
+                    const srcRow = nodeRowMap.get(dep.fromNode.id) ?? 0;
+                    row = Math.max(row, srcRow + 1);
+                }
+            }
+        }
+
+        node.row = row;
+        node.col = personTrack.get(personId) ?? 0;
+        nodeRowMap.set(node.id, row);
+        placedNodes.add(node.id);
+        nodes.push(node);
+
+        // Update cursors
+        if (node.isJoint) {
+            for (const pid of node.personIds) {
+                personRowCursor.set(pid, row + 1);
+            }
+        } else {
+            personRowCursor.set(personId, row + 1);
+        }
+
+        // Build edges from previous node in this person's chain
+        const prevNode = personPrevNode.get(personId);
+        if (prevNode) {
+            const gap = (node.countdownStartMs - prevNode.countdownEndMs) / 1000;
+            if (gap < GAP_THRESHOLD_SECS || choreDeps.has(node.choreId)) {
+                edges.push({
+                    fromNodeId: prevNode.id,
+                    toNodeId: node.id,
+                    personId,
+                    type: 'sequence',
+                });
+            } else {
+                // Gap marker
+                const gapMins = Math.round(gap / 60);
+                if (gapMins > 0) {
+                    gaps.push({
+                        afterNodeId: prevNode.id,
+                        beforeNodeId: node.id,
+                        row,
+                        col: personTrack.get(personId) ?? 0,
+                        gapMinutes: gapMins,
+                    });
+                }
+            }
+        }
+
+        // For joint nodes, set previous for all participants
+        if (node.isJoint) {
+            for (const pid of node.personIds) {
+                const pidPrevNode = personPrevNode.get(pid);
+                if (pidPrevNode && pidPrevNode.id !== prevNode?.id) {
+                    const gap = (node.countdownStartMs - pidPrevNode.countdownEndMs) / 1000;
+                    if (gap < GAP_THRESHOLD_SECS || choreDeps.has(node.choreId)) {
+                        edges.push({
+                            fromNodeId: pidPrevNode.id,
+                            toNodeId: node.id,
+                            personId: pid,
+                            type: 'sequence',
+                        });
+                    }
+                }
+                personPrevNode.set(pid, node);
+            }
+        } else {
+            personPrevNode.set(personId, node);
+        }
+    }
+
+    // Add cross-person dependency edges
+    for (const dep of crossPersonDeps) {
+        if (placedNodes.has(dep.fromNode.id) && placedNodes.has(dep.toNode.id)) {
+            edges.push({
+                fromNodeId: dep.fromNode.id,
+                toNodeId: dep.toNode.id,
+                personId: dep.personId,
+                type: 'dependency',
+            });
+        }
+    }
+
+    const totalRows = Math.max(0, ...Array.from(personRowCursor.values()));
+
+    return { nodes, edges, gaps, trackPersonIds, totalRows, trackCount };
+}
+
+// ---------------------------------------------------------------------------
+// Rendering constants
+// ---------------------------------------------------------------------------
+
+const COLUMN_WIDTH = 180;
+const NODE_HORIZONTAL_PADDING = 12;
+const ROW_GAP = 16; // vertical space between rows
+const HEADER_HEIGHT = 56;
+const GAP_MARKER_HEIGHT = 32;
+
+function getNodeY(row: number, gapsBefore: number): number {
+    return HEADER_HEIGHT + row * (80 + ROW_GAP) + gapsBefore * GAP_MARKER_HEIGHT;
+}
+
+function getNodeCenterX(col: number): number {
+    return col * COLUMN_WIDTH + COLUMN_WIDTH / 2;
+}
+
+// ---------------------------------------------------------------------------
+// SVG line path helpers
+// ---------------------------------------------------------------------------
+
+function buildSequencePath(
+    fromX: number, fromY: number, fromH: number,
+    toX: number, toY: number,
+): string {
+    const startY = fromY + fromH;
+    const endY = toY;
+    if (Math.abs(fromX - toX) < 2) {
+        // Straight vertical line
+        return `M ${fromX} ${startY} L ${toX} ${endY}`;
+    }
+    // Curve from one column to another
+    const midY = (startY + endY) / 2;
+    return `M ${fromX} ${startY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${endY}`;
+}
+
+function buildDependencyPath(
+    fromX: number, fromY: number, fromH: number,
+    toX: number, toY: number,
+): string {
+    const startY = fromY + fromH / 2;
+    const endY = toY + 4; // a bit into the target node
+    // S-curve from source to target
+    const midY = (startY + endY) / 2;
+    return `M ${fromX} ${startY} C ${fromX + (toX - fromX) * 0.3} ${startY}, ${toX - (toX - fromX) * 0.3} ${endY}, ${toX} ${endY}`;
+}
+
+// ---------------------------------------------------------------------------
+// State-based styling
+// ---------------------------------------------------------------------------
+
+function getStateBg(state: CountdownSlotState): string {
+    switch (state) {
+        case 'active': return 'bg-amber-50 border-amber-300';
+        case 'overdue_active': return 'bg-red-50 border-red-300';
+        case 'completed': return 'bg-emerald-50 border-emerald-200';
+        case 'waiting_decision': return 'bg-violet-50 border-violet-200';
+        default: return 'bg-white border-slate-200';
+    }
+}
+
+function getStateRing(state: CountdownSlotState): string {
+    switch (state) {
+        case 'active': return 'ring-2 ring-amber-400/30';
+        case 'overdue_active': return 'ring-2 ring-red-400/30';
+        default: return '';
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Components
 // ---------------------------------------------------------------------------
 
-function TimelineNode({
-    slot,
-    window,
+function ChoreNode({
+    node,
     nowMs,
+    colorMap,
+    x,
+    y,
+    width,
     onMarkDone,
 }: {
-    slot: CountdownSlot;
-    window: TimeWindow;
+    node: LayoutNode;
     nowMs: number;
+    colorMap: Record<string, string>;
+    x: number;
+    y: number;
+    width: number;
     onMarkDone?: (choreId: string, personId: string) => void;
 }) {
-    const state = getLiveState(slot, nowMs);
-    const topPercent = msToPercent(slot.countdownStartMs, window);
-    const heightPercent = msToPercent(slot.countdownEndMs, window) - topPercent;
+    const state = getLiveState(node.slot, nowMs);
+    const height = nodeHeight(node.durationSecs);
+    const primaryColor = colorMap[node.personIds[0]] || '#94A3B8';
 
     return (
         <div
-            className="absolute left-0 right-0 group"
-            style={{ top: `${topPercent}%`, height: `${Math.max(heightPercent, 2)}%` }}
+            className={cn(
+                'absolute group rounded-xl border px-3 py-2 transition-all duration-300 overflow-hidden',
+                getStateBg(state),
+                getStateRing(state),
+            )}
+            style={{
+                left: x,
+                top: y,
+                width,
+                height,
+                borderLeftWidth: 3,
+                borderLeftColor: primaryColor,
+            }}
         >
-            <div
-                className={cn(
-                    'relative mx-1 h-full rounded-lg border px-2 py-1 overflow-hidden transition-all',
-                    NODE_BG[state],
-                    state === 'active' && 'ring-2 ring-amber-400/30',
-                    state === 'overdue_active' && 'ring-2 ring-red-400/30',
-                )}
-            >
-                {/* Git-log dot on the left rail */}
-                <div className={cn(
-                    'absolute -left-[5px] top-1/2 -translate-y-1/2 h-2.5 w-2.5 rounded-full border-2 border-white shadow-sm z-10',
-                    NODE_DOT[state],
-                )} />
-
-                <div className="flex flex-col justify-center h-full min-h-0">
+            <div className="flex flex-col justify-between h-full min-h-0">
+                <div>
                     <div className="flex items-center gap-1.5">
                         <span className="text-[10px] opacity-60">{STATE_ICON[state]}</span>
-                        <span className="text-xs font-medium truncate leading-tight">{slot.choreTitle}</span>
+                        <span className="text-xs font-medium truncate leading-tight">{node.choreTitle}</span>
                     </div>
                     <div className="text-[9px] text-slate-500 leading-tight mt-0.5">
-                        {formatTime(slot.countdownStartMs)} → {formatTime(slot.countdownEndMs)}
-                        <span className="ml-1 opacity-70">({formatDuration(slot.durationSecs)})</span>
+                        {formatTime(node.countdownStartMs)} → {formatTime(node.countdownEndMs)}
+                        <span className="ml-1 opacity-70">({formatDuration(node.durationSecs)})</span>
                     </div>
                 </div>
-
-                {/* Clickable done action on hover */}
-                {state !== 'completed' && onMarkDone && (
-                    <button
-                        type="button"
-                        onClick={() => onMarkDone(slot.choreId, slot.personId)}
-                        className="absolute inset-y-0 right-0 w-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-l from-white/80 to-transparent"
-                        title="Mark done"
-                    >
-                        <span className="text-emerald-600 text-xs font-bold">✓</span>
-                    </button>
+                {node.isJoint && (
+                    <div className="flex items-center gap-1 mt-1">
+                        {node.personIds.map(pid => (
+                            <div
+                                key={pid}
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: colorMap[pid] || '#94A3B8' }}
+                                title={pid}
+                            />
+                        ))}
+                        <span className="text-[8px] text-slate-400 ml-0.5">Joint</span>
+                    </div>
                 )}
+            </div>
+            {/* Mark done on hover */}
+            {state !== 'completed' && onMarkDone && (
+                <button
+                    type="button"
+                    onClick={() => onMarkDone(node.choreId, node.personIds[0])}
+                    className="absolute inset-y-0 right-0 w-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-l from-white/80 to-transparent"
+                    title="Mark done"
+                >
+                    <span className="text-emerald-600 text-xs font-bold">✓</span>
+                </button>
+            )}
+        </div>
+    );
+}
+
+function GapMarkerNode({
+    gapMinutes,
+    x,
+    y,
+    width,
+}: {
+    gapMinutes: number;
+    x: number;
+    y: number;
+    width: number;
+}) {
+    const label = gapMinutes >= 60
+        ? `${Math.floor(gapMinutes / 60)}h ${gapMinutes % 60 > 0 ? `${gapMinutes % 60}m` : ''} gap`
+        : `${gapMinutes}m gap`;
+
+    return (
+        <div
+            className="absolute flex items-center justify-center"
+            style={{ left: x, top: y, width, height: GAP_MARKER_HEIGHT }}
+        >
+            <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                <div className="h-px w-6 bg-slate-200" />
+                <span>{label.trim()}</span>
+                <div className="h-px w-6 bg-slate-200" />
             </div>
         </div>
     );
 }
 
-function SwimLane({
-    person,
-    window,
-    nowMs,
-    onMarkDone,
-    laneIndex,
+function ColumnHeader({
+    personId,
+    name,
+    color,
+    completedCount,
+    totalCount,
+    x,
+    isActive,
+    onToggle,
 }: {
-    person: PersonInfo;
-    window: TimeWindow;
-    nowMs: number;
-    onMarkDone?: (choreId: string, personId: string) => void;
-    laneIndex: number;
+    personId: string;
+    name: string;
+    color: string;
+    completedCount: number;
+    totalCount: number;
+    x: number;
+    isActive: boolean;
+    onToggle: () => void;
 }) {
-    const slots = person.timeline.slots.filter((s) => s.state !== 'buffer');
-    const aheadBy = person.timeline.aheadBySeconds;
-
     return (
-        <div className="flex flex-col min-w-[140px] flex-1 max-w-[260px]">
-            {/* Lane header */}
-            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-2 py-2 text-center">
-                <div className="text-xs font-semibold text-slate-700 truncate">{person.name}</div>
-                <div className="text-[10px] text-slate-400">
-                    {slots.filter((s) => s.state === 'completed').length}/{slots.length} done
-                    {aheadBy > 0 && (
-                        <span className="ml-1 text-emerald-600">+{Math.floor(aheadBy / 60)}m ahead</span>
-                    )}
-                </div>
+        <div
+            className={cn(
+                'absolute top-0 flex flex-col items-center justify-center cursor-pointer transition-opacity',
+                !isActive && 'opacity-40',
+            )}
+            style={{ left: x, width: COLUMN_WIDTH, height: HEADER_HEIGHT }}
+            onClick={onToggle}
+        >
+            <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold mb-1"
+                style={{ backgroundColor: color }}
+            >
+                {name.charAt(0).toUpperCase()}
             </div>
-
-            {/* Lane body — relative positioning context */}
-            <div className="relative flex-1">
-                {/* Vertical rail line (git-log style) */}
-                <div className="absolute left-[3px] top-0 bottom-0 w-px bg-slate-200" />
-
-                {/* Nodes */}
-                {slots.map((slot) => (
-                    <TimelineNode
-                        key={`${slot.choreId}-${slot.personId}`}
-                        slot={slot}
-                        window={window}
-                        nowMs={nowMs}
-                        onMarkDone={onMarkDone}
-                    />
-                ))}
-            </div>
+            <div className="text-[10px] font-medium text-slate-700 truncate max-w-[90%]">{name}</div>
+            <div className="text-[9px] text-slate-400">{completedCount}/{totalCount}</div>
         </div>
     );
 }
 
 // ---------------------------------------------------------------------------
-// Main export
+// Main component
 // ---------------------------------------------------------------------------
 
 export default function SequenceTimeline({
     output,
     people,
+    familyMembers,
+    choresRaw,
     nowMs,
     onMarkDone,
     className,
 }: SequenceTimelineProps) {
-    const window = useMemo(() => computeTimeWindow(people, nowMs), [people, nowMs]);
-    const timeMarkers = useMemo(() => (window ? getTimeMarkers(window) : []), [window]);
-    const jointLinks = useMemo(() => (window ? findJointLinks(people, window) : []), [people, window]);
+    // Member color map
+    const colorMap = useMemo(
+        () => buildMemberColorMap(familyMembers),
+        [familyMembers],
+    );
 
-    // Map personId → lane index for joint link rendering.
-    const laneIndexMap = useMemo(() => {
-        const map = new Map<string, number>();
-        people.forEach((p, i) => map.set(p.personId, i));
-        return map;
+    // Member filter
+    const [visibleIds, setVisibleIds] = useState<Set<string>>(() =>
+        new Set(people.map(p => p.personId)),
+    );
+
+    // Keep visible IDs in sync when people change
+    useEffect(() => {
+        setVisibleIds(prev => {
+            const allIds = new Set(people.map(p => p.personId));
+            // Add any new people that appeared
+            const next = new Set(prev);
+            Array.from(allIds).forEach(id => {
+                if (!prev.has(id) && !next.has(id)) next.add(id);
+            });
+            // Remove any that disappeared
+            Array.from(next).forEach(id => {
+                if (!allIds.has(id)) next.delete(id);
+            });
+            return next;
+        });
     }, [people]);
 
-    if (!window || people.length === 0) {
+    const togglePerson = useCallback((personId: string) => {
+        setVisibleIds(prev => {
+            const next = new Set(prev);
+            if (next.has(personId)) {
+                if (next.size > 1) next.delete(personId); // keep at least one
+            } else {
+                next.add(personId);
+            }
+            return next;
+        });
+    }, []);
+
+    // Build dependency map from raw chores
+    const choreDeps = useMemo(() => buildDependencyMap(choresRaw), [choresRaw]);
+
+    // Compute layout
+    const layout = useMemo(
+        () => computeLayout(people, choreDeps, visibleIds, nowMs),
+        // Only recompute when data changes, not every tick
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [people, choreDeps, visibleIds, Math.floor(nowMs / 30000)],
+    );
+
+    // Build node position lookup
+    const nodePositions = useMemo(() => {
+        const positions = new Map<string, { x: number; y: number; w: number; h: number; centerX: number }>();
+        // Count gaps before each row
+        const rowGapCounts = new Map<number, number>();
+        // Sort gaps by the row they appear before
+        for (const gap of layout.gaps) {
+            const nodeRow = layout.nodes.find(n => n.id === gap.beforeNodeId)?.row ?? gap.row;
+            rowGapCounts.set(nodeRow, (rowGapCounts.get(nodeRow) ?? 0) + 1);
+        }
+        // Cumulative gap count before each row
+        const cumulativeGaps = new Map<number, number>();
+        let cumGaps = 0;
+        for (let r = 0; r <= layout.totalRows; r++) {
+            cumulativeGaps.set(r, cumGaps);
+            cumGaps += rowGapCounts.get(r) ?? 0;
+        }
+
+        for (const node of layout.nodes) {
+            const gapsBefore = cumulativeGaps.get(node.row) ?? 0;
+            const y = getNodeY(node.row, gapsBefore);
+            const h = nodeHeight(node.durationSecs);
+            const x = node.col * COLUMN_WIDTH + NODE_HORIZONTAL_PADDING;
+            const w = (node.isJoint ? node.personIds.length * COLUMN_WIDTH : COLUMN_WIDTH) - NODE_HORIZONTAL_PADDING * 2;
+            const centerX = node.col * COLUMN_WIDTH + COLUMN_WIDTH / 2;
+            positions.set(node.id, { x, y, w, h, centerX });
+        }
+        return positions;
+    }, [layout]);
+
+    // Compute total canvas height
+    const totalHeight = useMemo(() => {
+        let maxY = HEADER_HEIGHT;
+        for (const pos of Array.from(nodePositions.values())) {
+            maxY = Math.max(maxY, pos.y + pos.h + ROW_GAP);
+        }
+        return maxY + 40; // bottom padding
+    }, [nodePositions]);
+
+    // Visible people for headers
+    const visiblePeople = useMemo(
+        () => people.filter(p => visibleIds.has(p.personId)),
+        [people, visibleIds],
+    );
+
+    if (people.length === 0) {
         return (
             <div className="flex h-40 items-center justify-center text-sm text-slate-400">
                 No timeline data to display
@@ -329,100 +824,218 @@ export default function SequenceTimeline({
         );
     }
 
-    // Calculate a reasonable height. Each minute ≈ 3px, minimum 400px.
-    const minuteSpan = window.durationMs / 60000;
-    const timelineHeight = Math.max(400, Math.min(2000, minuteSpan * 3));
+    const canvasWidth = Math.max(layout.trackCount * COLUMN_WIDTH, 400);
 
     return (
         <div className={cn('rounded-2xl border border-slate-200 bg-white overflow-hidden', className)}>
-            <div className="overflow-x-auto">
-                <div className="flex min-w-fit" style={{ height: timelineHeight }}>
-                    {/* Time axis */}
-                    <div className="relative w-16 flex-shrink-0 border-r border-slate-200 bg-slate-50/50">
-                        <div className="sticky top-0 z-20 bg-slate-50/95 backdrop-blur-sm border-b border-slate-200 px-2 py-2 text-center">
-                            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Time</div>
-                        </div>
-                        <div className="relative flex-1 h-full">
-                            {timeMarkers.map(({ ms, label }) => {
-                                const top = msToPercent(ms, window);
-                                return (
-                                    <div
-                                        key={ms}
-                                        className="absolute right-0 pr-2 -translate-y-1/2 text-[9px] text-slate-400 whitespace-nowrap"
-                                        style={{ top: `${top}%` }}
-                                    >
-                                        {label}
-                                    </div>
-                                );
-                            })}
-                            {/* Now indicator */}
-                            <div
-                                className="absolute left-0 right-0 flex items-center z-10"
-                                style={{ top: `${msToPercent(nowMs, window)}%` }}
-                            >
-                                <div className="flex-1 h-px bg-red-400" />
-                                <div className="w-1.5 h-1.5 rounded-full bg-red-500 -mr-[3px]" />
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Swim lanes */}
-                    {people.map((person, i) => (
-                        <React.Fragment key={person.personId}>
-                            {i > 0 && <div className="w-px bg-slate-100 flex-shrink-0" />}
-                            <SwimLane
-                                person={person}
-                                window={window}
-                                nowMs={nowMs}
-                                onMarkDone={onMarkDone}
-                                laneIndex={i}
-                            />
-                        </React.Fragment>
-                    ))}
-
-                    {/* Joint chore connectors overlay */}
-                    {jointLinks.length > 0 && (
-                        <svg
-                            className="absolute left-16 top-0 pointer-events-none"
-                            style={{
-                                width: `calc(100% - 4rem)`,
-                                height: timelineHeight,
-                            }}
+            {/* Filter bar */}
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex-wrap">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mr-1">Members</span>
+                {people.map(p => {
+                    const color = colorMap[p.personId] || '#94A3B8';
+                    const isVisible = visibleIds.has(p.personId);
+                    return (
+                        <button
+                            key={p.personId}
+                            type="button"
+                            onClick={() => togglePerson(p.personId)}
+                            className={cn(
+                                'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all border',
+                                isVisible
+                                    ? 'border-current shadow-sm'
+                                    : 'border-slate-200 bg-white text-slate-400 opacity-50',
+                            )}
+                            style={isVisible ? { color, borderColor: color, backgroundColor: hexToRgbaString(color, 0.08) } : undefined}
                         >
-                            {jointLinks.map((link) => {
-                                const sortedLanes = link.personIds
-                                    .map((pid) => laneIndexMap.get(pid) ?? -1)
-                                    .filter((i) => i >= 0)
-                                    .sort((a, b) => a - b);
-                                if (sortedLanes.length < 2) return null;
+                            <div
+                                className="w-2.5 h-2.5 rounded-full"
+                                style={{ backgroundColor: isVisible ? color : '#CBD5E1' }}
+                            />
+                            {p.name}
+                        </button>
+                    );
+                })}
+            </div>
 
-                                const laneWidth = 100 / people.length;
-                                const y = (link.topPercent + link.bottomPercent) / 2;
-                                const x1 = (sortedLanes[0] + 0.5) * laneWidth;
-                                const x2 = (sortedLanes[sortedLanes.length - 1] + 0.5) * laneWidth;
+            {/* Canvas */}
+            <div className="overflow-auto">
+                <div className="relative" style={{ width: canvasWidth, height: totalHeight, minHeight: 200 }}>
+                    {/* Column headers */}
+                    {visiblePeople.map((p, i) => {
+                        const color = colorMap[p.personId] || '#94A3B8';
+                        const total = p.timeline.slots.filter(s => s.state !== 'buffer').length;
+                        const completed = p.timeline.slots.filter(s => s.state === 'completed').length;
+                        return (
+                            <ColumnHeader
+                                key={p.personId}
+                                personId={p.personId}
+                                name={p.name}
+                                color={color}
+                                completedCount={completed}
+                                totalCount={total}
+                                x={i * COLUMN_WIDTH}
+                                isActive={true}
+                                onToggle={() => togglePerson(p.personId)}
+                            />
+                        );
+                    })}
 
+                    {/* Vertical guide lines (faint, behind everything) */}
+                    {visiblePeople.map((p, i) => {
+                        const color = colorMap[p.personId] || '#94A3B8';
+                        return (
+                            <div
+                                key={`guide-${p.personId}`}
+                                className="absolute"
+                                style={{
+                                    left: i * COLUMN_WIDTH + COLUMN_WIDTH / 2,
+                                    top: HEADER_HEIGHT,
+                                    bottom: 0,
+                                    width: 1,
+                                    backgroundColor: hexToRgbaString(color, 0.08),
+                                }}
+                            />
+                        );
+                    })}
+
+                    {/* SVG overlay for lines */}
+                    <svg
+                        className="absolute inset-0 pointer-events-none"
+                        style={{ width: canvasWidth, height: totalHeight }}
+                    >
+                        {/* Sequence edges */}
+                        {layout.edges.map((edge, i) => {
+                            const from = nodePositions.get(edge.fromNodeId);
+                            const to = nodePositions.get(edge.toNodeId);
+                            if (!from || !to) return null;
+
+                            const color = colorMap[edge.personId] || '#94A3B8';
+                            const fromCenterX = from.x + from.w / 2;
+                            const toCenterX = to.x + to.w / 2;
+
+                            if (edge.type === 'dependency') {
+                                // Dashed dependency arrow
+                                const path = buildDependencyPath(
+                                    fromCenterX, from.y, from.h,
+                                    toCenterX, to.y,
+                                );
+                                return (
+                                    <g key={`dep-${i}`}>
+                                        <path
+                                            d={path}
+                                            fill="none"
+                                            stroke={color}
+                                            strokeWidth={1.5}
+                                            strokeDasharray="6 3"
+                                            opacity={0.6}
+                                        />
+                                        {/* Arrow head */}
+                                        <circle
+                                            cx={toCenterX}
+                                            cy={to.y}
+                                            r={3}
+                                            fill={color}
+                                            opacity={0.6}
+                                        />
+                                    </g>
+                                );
+                            }
+
+                            // Solid sequence line
+                            const personIdx = visiblePeople.findIndex(p => p.personId === edge.personId);
+                            const trackX = personIdx >= 0 ? personIdx * COLUMN_WIDTH + COLUMN_WIDTH / 2 : fromCenterX;
+
+                            // From bottom of source node to top of target node, through the track center
+                            const fromBottomY = from.y + from.h;
+                            const toTopY = to.y;
+
+                            // If both nodes are in the same track, simple vertical line
+                            if (Math.abs(fromCenterX - toCenterX) < 5) {
                                 return (
                                     <line
-                                        key={link.choreId}
-                                        x1={`${x1}%`}
-                                        y1={`${y}%`}
-                                        x2={`${x2}%`}
-                                        y2={`${y}%`}
-                                        stroke="rgb(167, 139, 250)"
+                                        key={`seq-${i}`}
+                                        x1={trackX}
+                                        y1={fromBottomY}
+                                        x2={trackX}
+                                        y2={toTopY}
+                                        stroke={color}
                                         strokeWidth={2}
-                                        strokeDasharray="4 3"
                                         opacity={0.5}
                                     />
                                 );
-                            })}
-                        </svg>
-                    )}
+                            }
 
-                    {/* Now line across all lanes */}
-                    <div
-                        className="absolute left-16 right-0 h-px bg-red-400/50 pointer-events-none z-10"
-                        style={{ top: `${msToPercent(nowMs, window)}%` }}
-                    />
+                            // Curved line between different columns
+                            const path = buildSequencePath(
+                                fromCenterX, from.y, from.h,
+                                toCenterX, to.y,
+                            );
+                            return (
+                                <path
+                                    key={`seq-${i}`}
+                                    d={path}
+                                    fill="none"
+                                    stroke={color}
+                                    strokeWidth={2}
+                                    opacity={0.5}
+                                />
+                            );
+                        })}
+                    </svg>
+
+                    {/* Gap markers */}
+                    {layout.gaps.map((gap, i) => {
+                        const beforePos = nodePositions.get(gap.beforeNodeId);
+                        const afterPos = nodePositions.get(gap.afterNodeId);
+                        if (!beforePos || !afterPos) return null;
+                        // Position between the two nodes
+                        const y = afterPos.y + afterPos.h + 4;
+                        const x = gap.col * COLUMN_WIDTH + NODE_HORIZONTAL_PADDING;
+                        return (
+                            <GapMarkerNode
+                                key={`gap-${i}`}
+                                gapMinutes={gap.gapMinutes}
+                                x={x}
+                                y={y}
+                                width={COLUMN_WIDTH - NODE_HORIZONTAL_PADDING * 2}
+                            />
+                        );
+                    })}
+
+                    {/* Chore nodes */}
+                    {layout.nodes.map(node => {
+                        const pos = nodePositions.get(node.id);
+                        if (!pos) return null;
+
+                        // For joint nodes, compute x and width spanning participant columns
+                        let x = pos.x;
+                        let w = pos.w;
+                        if (node.isJoint && node.personIds.length > 1) {
+                            const colIndices = node.personIds
+                                .map(pid => visiblePeople.findIndex(p => p.personId === pid))
+                                .filter(idx => idx >= 0)
+                                .sort((a, b) => a - b);
+                            if (colIndices.length > 1) {
+                                const minCol = colIndices[0];
+                                const maxCol = colIndices[colIndices.length - 1];
+                                x = minCol * COLUMN_WIDTH + NODE_HORIZONTAL_PADDING;
+                                w = (maxCol - minCol + 1) * COLUMN_WIDTH - NODE_HORIZONTAL_PADDING * 2;
+                            }
+                        }
+
+                        return (
+                            <ChoreNode
+                                key={node.id}
+                                node={node}
+                                nowMs={nowMs}
+                                colorMap={colorMap}
+                                x={x}
+                                y={pos.y}
+                                width={w}
+                                onMarkDone={onMarkDone}
+                            />
+                        );
+                    })}
                 </div>
             </div>
         </div>
