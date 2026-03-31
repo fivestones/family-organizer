@@ -20,7 +20,8 @@ import { getTaskBucketCounts, getTaskLastActiveState, isActionableTask, isTaskDo
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import ChoreDetailDialog from './ChoreDetailDialog';
-import { sortChoresForDisplay } from '@family-organizer/shared-core';
+import { sortChoresForDisplay, getChoreTimingMode, type CountdownEngineOutput } from '@family-organizer/shared-core';
+import CountdownPill from './CountdownPill';
 
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({
@@ -53,6 +54,7 @@ function ChoreList({
     onRoutineMarkerClear,
     allChores = chores,
     scheduleSettings = null,
+    countdownTimelines = null,
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
     const [detailChoreId, setDetailChoreId] = useState<string | null>(null);
@@ -185,6 +187,41 @@ function ChoreList({
     const canEditRoutineMarkers = Boolean(canEditChores && formattedSelectedDate === todayDateKey);
     const canViewRoutineMarkers = Boolean(canEditChores);
     const routineMarkerPresets = scheduleSettings?.routineMarkers || [];
+
+    // Build a map: markerKey → { needsStart: boolean, needsFinish: boolean, dependentChores: [...] }
+    const markerDependencyMap = React.useMemo(() => {
+        const map = new Map<string, { needsStart: boolean; needsFinish: boolean; dependents: Array<{ title: string; event: string }> }>();
+        const choreList = allChores || chores || [];
+        for (const chore of choreList) {
+            const mode = getChoreTimingMode(chore);
+            if (mode !== 'before_marker' && mode !== 'after_marker') continue;
+            const anchor = (chore.timingConfig as any)?.anchor;
+            if (!anchor?.routineKey) continue;
+            const markerKey = String(anchor.routineKey);
+            const event = anchor.event === 'started' ? 'started' : 'completed';
+            const entry = map.get(markerKey) || { needsStart: false, needsFinish: false, dependents: [] };
+            if (event === 'started') entry.needsStart = true;
+            else entry.needsFinish = true;
+            entry.dependents.push({ title: chore.title || 'Untitled', event });
+            map.set(markerKey, entry);
+        }
+        return map;
+    }, [allChores, chores]);
+
+    // Build a lookup: choreId → CountdownSlot[] (across all people)
+    const countdownSlotsByChore = React.useMemo(() => {
+        const map = new Map<string, Array<{ personId: string; slot: any }>>();
+        if (!countdownTimelines?.timelines) return map;
+        for (const [personId, timeline] of Object.entries(countdownTimelines.timelines as Record<string, any>)) {
+            for (const slot of timeline.slots || []) {
+                const existing = map.get(slot.choreId) || [];
+                existing.push({ personId, slot });
+                map.set(slot.choreId, existing);
+            }
+        }
+        return map;
+    }, [countdownTimelines]);
+
     const timedFilteredChores = React.useMemo(
         () =>
             sortChoresForDisplay<any>(filteredChores as any, {
@@ -538,12 +575,15 @@ function ChoreList({
                             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                                 {routineMarkerPresets.map((marker: any) => {
                                     const status = markerStatusesByKey.get(marker.key);
+                                    const deps = markerDependencyMap.get(marker.key);
+                                    const hasSplitNeeds = deps && (deps.needsStart || deps.needsFinish);
+                                    const showSplitButtons = hasSplitNeeds && deps.needsStart && deps.needsFinish;
                                     const startedLabel = status?.startedAt
                                         ? new Date(status.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-                                        : 'Not started';
+                                        : null;
                                     const completedLabel = status?.completedAt
                                         ? new Date(status.completedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-                                        : 'Not done';
+                                        : null;
 
                                     return (
                                         <div key={marker.key} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
@@ -552,22 +592,65 @@ function ChoreList({
                                                 <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{marker.defaultTime || '--:--'}</div>
                                             </div>
                                             <div className="mt-2 space-y-1 text-xs text-slate-600">
-                                                <div>Happened: {completedLabel !== 'Not done' ? completedLabel : startedLabel}</div>
+                                                {showSplitButtons ? (
+                                                    <>
+                                                        <div>Started: {startedLabel || 'Not yet'}</div>
+                                                        <div>Finished: {completedLabel || 'Not yet'}</div>
+                                                    </>
+                                                ) : (
+                                                    <div>Happened: {completedLabel || startedLabel || 'Not yet'}</div>
+                                                )}
                                             </div>
                                             <div className="mt-3 flex flex-wrap gap-2">
-                                                <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    disabled={!canEditRoutineMarkers}
-                                                    onClick={() => onRoutineMarkerComplete?.(marker.key)}
-                                                >
-                                                    Mark happened
-                                                </Button>
+                                                {showSplitButtons ? (
+                                                    <>
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            disabled={!canEditRoutineMarkers || !!startedLabel}
+                                                            onClick={() => onRoutineMarkerStart?.(marker.key)}
+                                                        >
+                                                            {startedLabel ? `Started ${startedLabel}` : 'Mark started'}
+                                                        </Button>
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            disabled={!canEditRoutineMarkers || !!completedLabel}
+                                                            onClick={() => onRoutineMarkerComplete?.(marker.key)}
+                                                        >
+                                                            {completedLabel ? `Finished ${completedLabel}` : 'Mark finished'}
+                                                        </Button>
+                                                    </>
+                                                ) : (
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant="outline"
+                                                        disabled={!canEditRoutineMarkers}
+                                                        onClick={() => {
+                                                            onRoutineMarkerStart?.(marker.key);
+                                                            onRoutineMarkerComplete?.(marker.key);
+                                                        }}
+                                                    >
+                                                        Mark happened
+                                                    </Button>
+                                                )}
                                                 <Button type="button" size="sm" variant="ghost" disabled={!canEditRoutineMarkers} onClick={() => onRoutineMarkerClear?.(marker.key)}>
                                                     Reset
                                                 </Button>
                                             </div>
+                                            {deps && deps.dependents.length > 0 && (
+                                                <div className="mt-2 text-[10px] text-slate-400">
+                                                    {deps.dependents.map((d, i) => (
+                                                        <span key={i}>
+                                                            {i > 0 && ', '}
+                                                            {d.title} <span className="italic">({d.event === 'started' ? 'on start' : 'on finish'})</span>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 })}
@@ -748,6 +831,20 @@ function ChoreList({
                                     </span>
                                 ) : null}
                                 <span className="text-xs text-muted-foreground whitespace-nowrap">XP: {chore.weight ?? 0}</span>
+                                {/* Countdown pills */}
+                                {(() => {
+                                    const slots = countdownSlotsByChore.get(chore.id);
+                                    if (!slots || slots.length === 0) return null;
+                                    // If a specific member is selected, show only their slot
+                                    if (selectedMember !== 'All') {
+                                        const match = slots.find((s: any) => s.personId === selectedMember);
+                                        if (match) return <CountdownPill slot={match.slot} />;
+                                        return null;
+                                    }
+                                    // "All" view: show the first/most relevant slot
+                                    const first = slots[0];
+                                    return first ? <CountdownPill slot={first.slot} /> : null;
+                                })()}
                                 {/* +++ ADDED: Up for Grabs Label +++ */}
                                 {chore.isUpForGrabs && (
                                     <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 border border-green-200">

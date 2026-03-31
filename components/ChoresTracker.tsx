@@ -50,8 +50,14 @@ import {
     localDateToUTC,
     parseSharedScheduleSettings,
     sortChoresForDisplay,
+    computeCountdownTimelines,
+    COUNTDOWN_SETTINGS_NAME,
+    parseCountdownSettings,
+    getChoreTimingMode,
     type SharedScheduleSettings,
     type SharedRoutineMarkerStatusLike,
+    type CountdownEngineOutput,
+    type CountdownChoreInput,
 } from '@family-organizer/shared-core';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
@@ -279,7 +285,10 @@ function ChoresTracker({
         settings: {
             $: {
                 where: {
-                    name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
+                    or: [
+                        { name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME },
+                        { name: COUNTDOWN_SETTINGS_NAME },
+                    ],
                 },
             },
         },
@@ -297,7 +306,17 @@ function ChoresTracker({
     const allChoreCompletions: ChoreCompletion[] = useMemo(() => (data?.choreCompletions as any) || [], [data?.choreCompletions]);
     const routineMarkerStatuses: RoutineMarkerStatus[] = useMemo(() => (data?.routineMarkerStatuses as any) || [], [data?.routineMarkerStatuses]);
     const scheduleSettings: SharedScheduleSettings = useMemo(
-        () => parseSharedScheduleSettings((data?.settings as any[])?.[0]?.value || null),
+        () => {
+            const row = (data?.settings as any[])?.find((s: any) => s.name === HOUSEHOLD_SCHEDULE_SETTINGS_NAME);
+            return parseSharedScheduleSettings(row?.value || null);
+        },
+        [data?.settings]
+    );
+    const countdownSettings = useMemo(
+        () => {
+            const row = (data?.settings as any[])?.find((s: any) => s.name === COUNTDOWN_SETTINGS_NAME);
+            return parseCountdownSettings(row?.value || null);
+        },
         [data?.settings]
     );
 
@@ -368,6 +387,56 @@ function ChoresTracker({
     const selectedDateKey = selectedDate.toISOString().slice(0, 10);
     const todayDateKey = getFamilyDayDateUTC(new Date(), scheduleSettings).toISOString().slice(0, 10);
 
+    // --- Countdown engine ---
+    const countdownTimelines: CountdownEngineOutput | null = useMemo(() => {
+        if (chores.length === 0) return null;
+        try {
+            const choreInputs: CountdownChoreInput[] = chores
+                .filter((c) => {
+                    // Only include chores that have timing and duration info
+                    const mode = getChoreTimingMode(c as any);
+                    return mode !== 'anytime';
+                })
+                .map((c) => {
+                    const memberCompletions: Record<string, string> = {};
+                    for (const comp of c.completions || []) {
+                        if (comp.completed && comp.dateDue === selectedDateKey && comp.completedBy?.id) {
+                            memberCompletions[comp.completedBy.id] = comp.dateCompleted || new Date().toISOString();
+                        }
+                    }
+                    return {
+                        id: c.id,
+                        title: c.title,
+                        estimatedDurationSecs: c.estimatedDurationSecs ?? null,
+                        weight: c.weight ?? null,
+                        sortOrder: c.sortOrder ?? null,
+                        isJoint: c.isJoint ?? false,
+                        assigneeIds: (c.assignments || []).map((a: any) => a.familyMember?.id).filter(Boolean),
+                        timingMode: c.timingMode || 'anytime',
+                        timingConfig: c.timingConfig || null,
+                        timeBucket: c.timeBucket || null,
+                        completedAt: null,
+                        memberCompletions,
+                    };
+                });
+
+            if (choreInputs.length === 0) return null;
+
+            return computeCountdownTimelines({
+                chores: choreInputs,
+                routineMarkerStatuses,
+                allChoresRaw: chores as any,
+                countdownSettings,
+                scheduleSettings,
+                now: new Date(),
+                date: selectedDate,
+            });
+        } catch (err) {
+            console.error('Countdown engine error:', err);
+            return null;
+        }
+    }, [chores, selectedDateKey, selectedDate, routineMarkerStatuses, countdownSettings, scheduleSettings]);
+
     const markRoutineMarkerHappened = async (markerKey: string) => {
         if (!isParentMode) {
             toast({
@@ -418,6 +487,88 @@ function ChoresTracker({
                 description: error?.message || 'Failed to update routine marker status.',
                 variant: 'destructive',
             });
+        }
+    };
+
+    const markRoutineMarkerStarted = async (markerKey: string) => {
+        if (!isParentMode) {
+            toast({ title: 'Access Denied', description: 'Only parents can update routine markers.', variant: 'destructive' });
+            return;
+        }
+
+        const recordKey = `${selectedDateKey}:${markerKey}`;
+        const existing = routineMarkerStatuses.find((status) => String(status.key || '') === recordKey);
+        const timestamp = new Date().toISOString();
+
+        try {
+            if (existing?.id) {
+                await db.transact([
+                    tx.routineMarkerStatuses[existing.id].update({
+                        startedAt: timestamp,
+                        startedById: currentUser?.id || null,
+                    }),
+                ]);
+            } else {
+                const statusId = id();
+                await db.transact([
+                    tx.routineMarkerStatuses[statusId].update({
+                        key: recordKey,
+                        markerKey,
+                        date: selectedDateKey,
+                        startedAt: timestamp,
+                        startedById: currentUser?.id || null,
+                    }),
+                ]);
+            }
+
+            toast({
+                title: 'Marker started',
+                description: `${markerKey[0]?.toUpperCase() || ''}${markerKey.slice(1)} was marked as started.`,
+            });
+        } catch (error: any) {
+            console.error('Error updating routine marker status:', error);
+            toast({ title: 'Error', description: error?.message || 'Failed to update routine marker status.', variant: 'destructive' });
+        }
+    };
+
+    const markRoutineMarkerFinished = async (markerKey: string) => {
+        if (!isParentMode) {
+            toast({ title: 'Access Denied', description: 'Only parents can update routine markers.', variant: 'destructive' });
+            return;
+        }
+
+        const recordKey = `${selectedDateKey}:${markerKey}`;
+        const existing = routineMarkerStatuses.find((status) => String(status.key || '') === recordKey);
+        const timestamp = new Date().toISOString();
+
+        try {
+            if (existing?.id) {
+                await db.transact([
+                    tx.routineMarkerStatuses[existing.id].update({
+                        completedAt: timestamp,
+                        completedById: currentUser?.id || null,
+                    }),
+                ]);
+            } else {
+                const statusId = id();
+                await db.transact([
+                    tx.routineMarkerStatuses[statusId].update({
+                        key: recordKey,
+                        markerKey,
+                        date: selectedDateKey,
+                        completedAt: timestamp,
+                        completedById: currentUser?.id || null,
+                    }),
+                ]);
+            }
+
+            toast({
+                title: 'Marker finished',
+                description: `${markerKey[0]?.toUpperCase() || ''}${markerKey.slice(1)} was marked as finished.`,
+            });
+        } catch (error: any) {
+            console.error('Error updating routine marker status:', error);
+            toast({ title: 'Error', description: error?.message || 'Failed to update routine marker status.', variant: 'destructive' });
         }
     };
 
@@ -1391,11 +1542,12 @@ function ChoresTracker({
                                 routineMarkerStatuses={routineMarkerStatuses}
                                 selectedDateKey={selectedDateKey}
                                 todayDateKey={todayDateKey}
-                                onRoutineMarkerStart={(markerKey: string) => markRoutineMarkerHappened(markerKey)}
-                                onRoutineMarkerComplete={(markerKey: string) => markRoutineMarkerHappened(markerKey)}
+                                onRoutineMarkerStart={(markerKey: string) => markRoutineMarkerStarted(markerKey)}
+                                onRoutineMarkerComplete={(markerKey: string) => markRoutineMarkerFinished(markerKey)}
                                 onRoutineMarkerClear={clearRoutineMarkerStatus}
                                 allChores={chores}
                                 scheduleSettings={scheduleSettings}
+                                countdownTimelines={countdownTimelines}
                             />
                             {/* Optional: Add back allowance balance display if needed */}
                             {/* {selectedMember !== 'All' && ( ... allowance display ... )} */}

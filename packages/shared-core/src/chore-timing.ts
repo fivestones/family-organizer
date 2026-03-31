@@ -21,6 +21,8 @@ export interface SharedRoutineMarkerPreset {
   defaultTime: string;
   defaultStartedTime?: string;
   defaultCompletedTime?: string;
+  /** Per-marker override for the after-anchor delay in seconds (used by countdown engine). */
+  afterDelaySecs?: number;
 }
 
 export interface SharedRoutineMarkerStatusLike {
@@ -253,13 +255,17 @@ export function normalizeSharedScheduleSettings(value?: unknown): SharedSchedule
         stringValue(candidate.defaultCompletedTime) ||
         stringValue(candidate.defaultStartedTime);
       if (!key || !label || parseTimeOfDayToMinutes(defaultTime) == null) return null;
-      return {
+      const result: SharedRoutineMarkerPreset = {
         key,
         label,
         defaultTime,
         defaultStartedTime: stringValue(candidate.defaultStartedTime) || defaultTime,
         defaultCompletedTime: stringValue(candidate.defaultCompletedTime) || defaultTime,
       };
+      if (Number.isFinite(Number(candidate.afterDelaySecs)) && Number(candidate.afterDelaySecs) >= 0) {
+        result.afterDelaySecs = Number(candidate.afterDelaySecs);
+      }
+      return result;
     })
     .filter((marker): marker is SharedRoutineMarkerPreset => marker !== null);
 

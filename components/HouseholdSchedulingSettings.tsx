@@ -110,17 +110,20 @@ export default function HouseholdSchedulingSettings({ db }: HouseholdSchedulingS
         }));
     };
 
-    const updateRoutineMarker = (markerKey: string, field: 'label' | 'defaultTime', value: string) => {
+    const updateRoutineMarker = (markerKey: string, field: 'label' | 'defaultTime' | 'afterDelaySecs', value: string) => {
         setDraft((current) => ({
             ...current,
-            routineMarkers: current.routineMarkers.map((marker) =>
-                marker.key === markerKey
-                    ? {
-                          ...marker,
-                          [field]: value,
-                      }
-                    : marker
-            ),
+            routineMarkers: current.routineMarkers.map((marker) => {
+                if (marker.key !== markerKey) return marker;
+                if (field === 'afterDelaySecs') {
+                    const num = parseInt(value, 10);
+                    return {
+                        ...marker,
+                        afterDelaySecs: value === '' ? undefined : (Number.isFinite(num) && num >= 0 ? num : marker.afterDelaySecs),
+                    };
+                }
+                return { ...marker, [field]: value };
+            }),
         }));
     };
 
@@ -343,12 +346,18 @@ export default function HouseholdSchedulingSettings({ db }: HouseholdSchedulingS
                 key: slugifyKey(window.key || window.label),
                 order: index,
             })),
-            routineMarkers: draft.routineMarkers.map((marker) => ({
-                ...marker,
-                key: slugifyKey(marker.key || marker.label),
-                defaultStartedTime: marker.defaultTime,
-                defaultCompletedTime: marker.defaultTime,
-            })),
+            routineMarkers: draft.routineMarkers.map((marker) => {
+                const normalized: any = {
+                    ...marker,
+                    key: slugifyKey(marker.key || marker.label),
+                    defaultStartedTime: marker.defaultTime,
+                    defaultCompletedTime: marker.defaultTime,
+                };
+                if (marker.afterDelaySecs == null) {
+                    delete normalized.afterDelaySecs;
+                }
+                return normalized;
+            }),
         };
 
         setIsSaving(true);
@@ -483,7 +492,7 @@ export default function HouseholdSchedulingSettings({ db }: HouseholdSchedulingS
                         </div>
                         <div className="space-y-4">
                             {draft.routineMarkers.map((marker) => (
-                                <div key={marker.key} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1.5fr_1fr_auto]">
+                                <div key={marker.key} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1.5fr_1fr_1fr_auto]">
                                     <div className="space-y-2">
                                         <Label htmlFor={`marker-label-${marker.key}`}>Label</Label>
                                         <Input
@@ -499,6 +508,17 @@ export default function HouseholdSchedulingSettings({ db }: HouseholdSchedulingS
                                             type="time"
                                             value={marker.defaultTime}
                                             onChange={(event) => updateRoutineMarker(marker.key, 'defaultTime', event.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor={`marker-delay-${marker.key}`}>After delay (s)</Label>
+                                        <Input
+                                            id={`marker-delay-${marker.key}`}
+                                            type="number"
+                                            min={0}
+                                            placeholder="global default"
+                                            value={marker.afterDelaySecs != null ? String(marker.afterDelaySecs) : ''}
+                                            onChange={(event) => updateRoutineMarker(marker.key, 'afterDelaySecs', event.target.value)}
                                         />
                                     </div>
                                     <div className="flex items-end">

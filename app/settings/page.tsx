@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react';
 import AppleCalendarSyncSettings from '@/components/AppleCalendarSyncSettings';
+import CountdownSettings from '@/components/CountdownSettings';
 import CurrencySettings from '@/components/CurrencySettings';
 import DashboardSettingsPanel from '@/components/DashboardSettingsPanel';
 import DashboardThemeSelector from '@/components/freeform-dashboard/DashboardThemeSelector';
@@ -45,6 +46,10 @@ export default function SettingsPage() {
 
                 <div className="mt-8">
                     <HouseholdSchedulingSettings db={db} />
+                </div>
+
+                <div className="mt-8">
+                    <CountdownSettings db={db} />
                 </div>
 
                 <div className="mt-8">
