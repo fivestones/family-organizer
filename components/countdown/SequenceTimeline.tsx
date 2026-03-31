@@ -491,7 +491,7 @@ function computeLayout(
 // Rendering constants
 // ---------------------------------------------------------------------------
 
-const COLUMN_WIDTH = 180;
+const MIN_COLUMN_WIDTH = 140;
 const NODE_HORIZONTAL_PADDING = 12;
 const ROW_GAP = 16; // vertical space between rows
 const HEADER_HEIGHT = 56;
@@ -499,10 +499,6 @@ const GAP_MARKER_HEIGHT = 32;
 
 function getNodeY(row: number, gapsBefore: number): number {
     return HEADER_HEIGHT + row * (80 + ROW_GAP) + gapsBefore * GAP_MARKER_HEIGHT;
-}
-
-function getNodeCenterX(col: number): number {
-    return col * COLUMN_WIDTH + COLUMN_WIDTH / 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -674,6 +670,7 @@ function ColumnHeader({
     completedCount,
     totalCount,
     x,
+    width,
     isActive,
     onToggle,
 }: {
@@ -683,6 +680,7 @@ function ColumnHeader({
     completedCount: number;
     totalCount: number;
     x: number;
+    width: number;
     isActive: boolean;
     onToggle: () => void;
 }) {
@@ -692,7 +690,7 @@ function ColumnHeader({
                 'absolute top-0 flex flex-col items-center justify-center cursor-pointer transition-opacity',
                 !isActive && 'opacity-40',
             )}
-            style={{ left: x, width: COLUMN_WIDTH, height: HEADER_HEIGHT }}
+            style={{ left: x, width, height: HEADER_HEIGHT }}
             onClick={onToggle}
         >
             <div
@@ -720,6 +718,23 @@ export default function SequenceTimeline({
     onMarkDone,
     className,
 }: SequenceTimelineProps) {
+    // Measure container width for responsive columns
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [containerWidth, setContainerWidth] = useState(0);
+
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const obs = new ResizeObserver(entries => {
+            for (const entry of entries) {
+                setContainerWidth(entry.contentRect.width);
+            }
+        });
+        obs.observe(el);
+        setContainerWidth(el.clientWidth);
+        return () => obs.disconnect();
+    }, []);
+
     // Member color map
     const colorMap = useMemo(
         () => buildMemberColorMap(familyMembers),
@@ -763,6 +778,18 @@ export default function SequenceTimeline({
     // Build dependency map from raw chores
     const choreDeps = useMemo(() => buildDependencyMap(choresRaw), [choresRaw]);
 
+    // Visible people for headers (needed for colWidth calc)
+    const visiblePeople = useMemo(
+        () => people.filter(p => visibleIds.has(p.personId)),
+        [people, visibleIds],
+    );
+
+    // Dynamic column width: fill the container, with a minimum per column
+    const colWidth = useMemo(() => {
+        if (containerWidth <= 0 || visiblePeople.length === 0) return MIN_COLUMN_WIDTH;
+        return Math.max(MIN_COLUMN_WIDTH, Math.floor(containerWidth / visiblePeople.length));
+    }, [containerWidth, visiblePeople.length]);
+
     // Compute layout
     const layout = useMemo(
         () => computeLayout(people, choreDeps, visibleIds, nowMs),
@@ -793,13 +820,13 @@ export default function SequenceTimeline({
             const gapsBefore = cumulativeGaps.get(node.row) ?? 0;
             const y = getNodeY(node.row, gapsBefore);
             const h = nodeHeight(node.durationSecs);
-            const x = node.col * COLUMN_WIDTH + NODE_HORIZONTAL_PADDING;
-            const w = (node.isJoint ? node.personIds.length * COLUMN_WIDTH : COLUMN_WIDTH) - NODE_HORIZONTAL_PADDING * 2;
-            const centerX = node.col * COLUMN_WIDTH + COLUMN_WIDTH / 2;
+            const x = node.col * colWidth + NODE_HORIZONTAL_PADDING;
+            const w = (node.isJoint ? node.personIds.length * colWidth : colWidth) - NODE_HORIZONTAL_PADDING * 2;
+            const centerX = node.col * colWidth + colWidth / 2;
             positions.set(node.id, { x, y, w, h, centerX });
         }
         return positions;
-    }, [layout]);
+    }, [layout, colWidth]);
 
     // Compute total canvas height
     const totalHeight = useMemo(() => {
@@ -810,12 +837,6 @@ export default function SequenceTimeline({
         return maxY + 40; // bottom padding
     }, [nodePositions]);
 
-    // Visible people for headers
-    const visiblePeople = useMemo(
-        () => people.filter(p => visibleIds.has(p.personId)),
-        [people, visibleIds],
-    );
-
     if (people.length === 0) {
         return (
             <div className="flex h-40 items-center justify-center text-sm text-slate-400">
@@ -824,10 +845,10 @@ export default function SequenceTimeline({
         );
     }
 
-    const canvasWidth = Math.max(layout.trackCount * COLUMN_WIDTH, 400);
+    const canvasWidth = Math.max(layout.trackCount * colWidth, 400);
 
     return (
-        <div className={cn('rounded-2xl border border-slate-200 bg-white overflow-hidden', className)}>
+        <div ref={containerRef} className={cn('rounded-2xl border border-slate-200 bg-white overflow-hidden', className)}>
             {/* Filter bar */}
             <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex-wrap">
                 <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mr-1">Members</span>
@@ -873,7 +894,8 @@ export default function SequenceTimeline({
                                 color={color}
                                 completedCount={completed}
                                 totalCount={total}
-                                x={i * COLUMN_WIDTH}
+                                x={i * colWidth}
+                                width={colWidth}
                                 isActive={true}
                                 onToggle={() => togglePerson(p.personId)}
                             />
@@ -888,7 +910,7 @@ export default function SequenceTimeline({
                                 key={`guide-${p.personId}`}
                                 className="absolute"
                                 style={{
-                                    left: i * COLUMN_WIDTH + COLUMN_WIDTH / 2,
+                                    left: i * colWidth + colWidth / 2,
                                     top: HEADER_HEIGHT,
                                     bottom: 0,
                                     width: 1,
@@ -943,7 +965,7 @@ export default function SequenceTimeline({
 
                             // Solid sequence line
                             const personIdx = visiblePeople.findIndex(p => p.personId === edge.personId);
-                            const trackX = personIdx >= 0 ? personIdx * COLUMN_WIDTH + COLUMN_WIDTH / 2 : fromCenterX;
+                            const trackX = personIdx >= 0 ? personIdx * colWidth + colWidth / 2 : fromCenterX;
 
                             // From bottom of source node to top of target node, through the track center
                             const fromBottomY = from.y + from.h;
@@ -990,14 +1012,14 @@ export default function SequenceTimeline({
                         if (!beforePos || !afterPos) return null;
                         // Position between the two nodes
                         const y = afterPos.y + afterPos.h + 4;
-                        const x = gap.col * COLUMN_WIDTH + NODE_HORIZONTAL_PADDING;
+                        const x = gap.col * colWidth + NODE_HORIZONTAL_PADDING;
                         return (
                             <GapMarkerNode
                                 key={`gap-${i}`}
                                 gapMinutes={gap.gapMinutes}
                                 x={x}
                                 y={y}
-                                width={COLUMN_WIDTH - NODE_HORIZONTAL_PADDING * 2}
+                                width={colWidth - NODE_HORIZONTAL_PADDING * 2}
                             />
                         );
                     })}
@@ -1018,8 +1040,8 @@ export default function SequenceTimeline({
                             if (colIndices.length > 1) {
                                 const minCol = colIndices[0];
                                 const maxCol = colIndices[colIndices.length - 1];
-                                x = minCol * COLUMN_WIDTH + NODE_HORIZONTAL_PADDING;
-                                w = (maxCol - minCol + 1) * COLUMN_WIDTH - NODE_HORIZONTAL_PADDING * 2;
+                                x = minCol * colWidth + NODE_HORIZONTAL_PADDING;
+                                w = (maxCol - minCol + 1) * colWidth - NODE_HORIZONTAL_PADDING * 2;
                             }
                         }
 
