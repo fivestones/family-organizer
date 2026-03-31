@@ -41,6 +41,7 @@ describe('MainNav', () => {
     const widthByTestId: Record<string, number> = {
         'main-nav-measure-dashboard': 96,
         'main-nav-measure-chores': 82,
+        'main-nav-measure-countdown': 102,
         'main-nav-measure-tasks': 78,
         'main-nav-measure-task-series': 108,
         'main-nav-measure-calendar': 92,
@@ -108,7 +109,7 @@ describe('MainNav', () => {
         const container = screen.getByTestId('main-nav-container');
         Object.defineProperty(container, 'clientWidth', {
             configurable: true,
-            value: 1200,
+            value: 1400,
         });
 
         act(() => {
@@ -136,9 +137,10 @@ describe('MainNav', () => {
 
         expect(screen.getByTestId('main-nav-link-dashboard')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-link-chores')).toBeInTheDocument();
-        expect(screen.getByTestId('main-nav-link-tasks')).toBeInTheDocument();
-        expect(screen.queryByTestId('main-nav-link-task-series')).toBeNull();
+        expect(screen.getByTestId('main-nav-link-countdown')).toBeInTheDocument();
+        expect(screen.queryByTestId('main-nav-link-tasks')).toBeNull();
         expect(screen.getByTestId('main-nav-overflow-trigger')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-overflow-item-tasks')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-overflow-item-task-series')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-overflow-item-settings')).toBeInTheDocument();
 
