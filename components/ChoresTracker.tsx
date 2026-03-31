@@ -411,7 +411,13 @@ function ChoresTracker({
                         weight: c.weight ?? null,
                         sortOrder: c.sortOrder ?? null,
                         isJoint: c.isJoint ?? false,
-                        assigneeIds: (c.assignments || []).map((a: any) => a.familyMember?.id).filter(Boolean),
+                        assigneeIds: (() => {
+                            // assignments (ordered rotation records) have familyMember nested
+                            const fromAssignments = (c.assignments || []).map((a: any) => a.familyMember?.id).filter(Boolean);
+                            if (fromAssignments.length > 0) return fromAssignments;
+                            // Fall back to direct assignees link
+                            return (c.assignees || []).map((a: any) => a.id).filter(Boolean);
+                        })(),
                         timingMode: c.timingMode || 'anytime',
                         timingConfig: c.timingConfig || null,
                         timeBucket: c.timeBucket || null,
