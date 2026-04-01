@@ -492,6 +492,7 @@ function computeLayout(
 // ---------------------------------------------------------------------------
 
 const MIN_COLUMN_WIDTH = 140;
+const MAX_COLUMN_WIDTH = 260;
 const NODE_HORIZONTAL_PADDING = 12;
 const ROW_GAP = 16; // vertical space between rows
 const HEADER_HEIGHT = 56;
@@ -741,29 +742,46 @@ export default function SequenceTimeline({
         [familyMembers],
     );
 
-    // Member filter
+    // Member filter — track user's explicit selections
     const [visibleIds, setVisibleIds] = useState<Set<string>>(() =>
         new Set(people.map(p => p.personId)),
     );
+    // Track whether the user has manually toggled anyone (don't auto-reset after that)
+    const userHasToggledRef = useRef(false);
 
-    // Keep visible IDs in sync when people change
+    // Stable list of person IDs for sync comparison
+    const personIdList = useMemo(() => people.map(p => p.personId).sort().join(','), [people]);
+
+    // Only sync when the actual set of people changes (new member added/removed),
+    // not on every re-render. And never override user's manual selections.
     useEffect(() => {
+        const allIds = new Set(personIdList.split(',').filter(Boolean));
         setVisibleIds(prev => {
-            const allIds = new Set(people.map(p => p.personId));
-            // Add any new people that appeared
-            const next = new Set(prev);
-            Array.from(allIds).forEach(id => {
-                if (!prev.has(id) && !next.has(id)) next.add(id);
+            // Remove people that no longer exist
+            let changed = false;
+            const next = new Set<string>();
+            Array.from(prev).forEach(id => {
+                if (allIds.has(id)) {
+                    next.add(id);
+                } else {
+                    changed = true;
+                }
             });
-            // Remove any that disappeared
-            Array.from(next).forEach(id => {
-                if (!allIds.has(id)) next.delete(id);
-            });
-            return next;
+            // Add brand new people (only if user hasn't manually toggled)
+            if (!userHasToggledRef.current) {
+                Array.from(allIds).forEach(id => {
+                    if (!next.has(id)) {
+                        next.add(id);
+                        changed = true;
+                    }
+                });
+            }
+            return changed ? next : prev;
         });
-    }, [people]);
+    }, [personIdList]);
 
     const togglePerson = useCallback((personId: string) => {
+        userHasToggledRef.current = true;
         setVisibleIds(prev => {
             const next = new Set(prev);
             if (next.has(personId)) {
@@ -784,10 +802,11 @@ export default function SequenceTimeline({
         [people, visibleIds],
     );
 
-    // Dynamic column width: fill the container, with a minimum per column
+    // Dynamic column width: fill the container, clamped between min and max
     const colWidth = useMemo(() => {
         if (containerWidth <= 0 || visiblePeople.length === 0) return MIN_COLUMN_WIDTH;
-        return Math.max(MIN_COLUMN_WIDTH, Math.floor(containerWidth / visiblePeople.length));
+        const natural = Math.floor(containerWidth / visiblePeople.length);
+        return Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, natural));
     }, [containerWidth, visiblePeople.length]);
 
     // Compute layout
@@ -880,7 +899,7 @@ export default function SequenceTimeline({
 
             {/* Canvas */}
             <div className="overflow-auto">
-                <div className="relative" style={{ width: canvasWidth, height: totalHeight, minHeight: 200 }}>
+                <div className="relative mx-auto" style={{ width: canvasWidth, height: totalHeight, minHeight: 200 }}>
                     {/* Column headers */}
                     {visiblePeople.map((p, i) => {
                         const color = colorMap[p.personId] || '#94A3B8';
