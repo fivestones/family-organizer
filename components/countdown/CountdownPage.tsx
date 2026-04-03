@@ -20,13 +20,16 @@ import {
     type CountdownChoreInput,
     type CountdownSlot,
     type CountdownSlotState,
+    type CountdownCollision,
+    type CollisionDecision,
     type PersonCountdownTimeline,
 } from '@family-organizer/shared-core';
 import { useAuth } from '@/components/AuthProvider';
 import { getAssignedMembersForChoreOnDate as getAssignedMembersLocal } from '@/lib/chore-utils';
 import CircularTimerRing from './CircularTimerRing';
 import SequenceTimeline from './SequenceTimeline';
-import { ChevronLeft, ChevronRight, LayoutGrid, GitBranch, Pause, Play, Timer, Users, User } from 'lucide-react';
+import CollisionDecisionDialog from './CollisionDecisionDialog';
+import { ChevronLeft, ChevronRight, LayoutGrid, GitBranch, Pause, Play, Timer, Users, User, AlertTriangle } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -221,6 +224,8 @@ export default function CountdownPageContent() {
     const [viewMode, setViewMode] = useState<'grid' | 'sequence'>('grid');
     const [autoComplete, setAutoComplete] = useState(countdownSettings.autoMarkCompleteOnCountdownEnd);
     const [nowMs, setNowMs] = useState(Date.now());
+    const [collisionDecisions, setCollisionDecisions] = useState<Record<string, CollisionDecision>>({});
+    const [activeCollision, setActiveCollision] = useState<CountdownCollision | null>(null);
 
     // Sync auto-complete default from settings.
     useEffect(() => {
@@ -278,6 +283,7 @@ export default function CountdownPageContent() {
                 scheduleSettings,
                 now: new Date(nowMs),
                 date: today,
+                collisionDecisions: Object.keys(collisionDecisions).length > 0 ? collisionDecisions : undefined,
             });
         } catch (err) {
             console.error('Countdown engine error:', err);
@@ -285,7 +291,7 @@ export default function CountdownPageContent() {
         }
     // Recompute every 30s to pick up completions, not every tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chores, todayKey, routineMarkerStatuses, countdownSettings, scheduleSettings, Math.floor(nowMs / 30000)]);
+    }, [chores, todayKey, routineMarkerStatuses, countdownSettings, scheduleSettings, collisionDecisions, Math.floor(nowMs / 30000)]);
 
     // --- People with timelines ---
     const timelinePeople = useMemo(() => {
@@ -342,6 +348,29 @@ export default function CountdownPageContent() {
         }
         return { activeSlots: active, upcomingSlots: upcoming, completedSlots: completed, overdueSlots: overdue };
     }, [visibleSlots, nowMs]);
+
+    // --- Collision decision handler ---
+    const handleCollisionDecision = useCallback(
+        (startChoreId: string, deadlineChoreId: string, decision: CollisionDecision) => {
+            const key = `${startChoreId}:${deadlineChoreId}`;
+            setCollisionDecisions(prev => ({ ...prev, [key]: decision }));
+        },
+        [],
+    );
+
+    // Collect all unresolved collisions across people
+    const unresolvedCollisions = useMemo(() => {
+        if (!countdownOutput?.timelines) return [];
+        const all: Array<CountdownCollision & { memberName: string }> = [];
+        for (const [personId, timeline] of Object.entries(countdownOutput.timelines)) {
+            const t = timeline as PersonCountdownTimeline;
+            for (const c of t.collisions) {
+                const member = familyMembers.find((m: any) => m.id === personId);
+                all.push({ ...c, memberName: member?.name || 'Unknown' });
+            }
+        }
+        return all;
+    }, [countdownOutput, familyMembers]);
 
     // --- Reorder handler ---
     const handleReorder = useCallback(async (updates: Record<string, number>) => {
@@ -538,6 +567,45 @@ export default function CountdownPageContent() {
                     ))}
                 </div>
             )}
+
+            {/* Collision banners */}
+            {unresolvedCollisions.length > 0 && (
+                <div className="space-y-2">
+                    {unresolvedCollisions.map((c) => {
+                        const key = `${c.startDrivenChoreId}:${c.deadlineDrivenChoreId}`;
+                        return (
+                            <button
+                                key={key}
+                                type="button"
+                                onClick={() => setActiveCollision(c)}
+                                className="w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-left transition-all hover:bg-amber-100"
+                            >
+                                <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                                    <span>
+                                        Conflict for {c.memberName}: "{c.startDrivenChoreTitle}" overlaps with
+                                        "{c.deadlineDrivenChoreTitle}"
+                                    </span>
+                                    <span className="ml-auto text-xs text-amber-600 whitespace-nowrap">Resolve →</span>
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Collision decision dialog */}
+            <CollisionDecisionDialog
+                collision={activeCollision}
+                memberName={
+                    activeCollision
+                        ? familyMembers.find((m: any) => m.id === activeCollision.personId)?.name || 'Unknown'
+                        : ''
+                }
+                open={activeCollision !== null}
+                onDecision={handleCollisionDecision}
+                onClose={() => setActiveCollision(null)}
+            />
 
             {/* View content */}
             {viewMode === 'sequence' ? (
