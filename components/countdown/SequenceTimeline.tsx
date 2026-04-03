@@ -3,6 +3,9 @@
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { buildMemberColorMap, hexToRgbaString } from '@/lib/family-member-colors';
+import { draggable, dropTargetForElements, monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { type Edge, attachClosestEdge, extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
+import { GripVertical } from 'lucide-react';
 import type {
     CountdownEngineOutput,
     CountdownSlot,
@@ -29,6 +32,7 @@ interface FamilyMemberLike {
 interface ChoreRaw {
     id: string;
     timingMode?: string;
+    sortOrder?: number | null;
     timingConfig?: {
         anchor?: {
             relation?: 'before' | 'after';
@@ -44,6 +48,8 @@ interface SequenceTimelineProps {
     choresRaw: ChoreRaw[];
     nowMs: number;
     onMarkDone?: (choreId: string, personId: string) => void;
+    /** Called when user reorders chores within a same-deadline group. Map of choreId → new sortOrder. */
+    onReorder?: (updates: Record<string, number>) => void;
     className?: string;
 }
 
@@ -63,6 +69,9 @@ interface LayoutNode {
     countdownEndMs: number;
     state: CountdownSlotState;
     slot: CountdownSlot; // reference to first/primary slot
+    /** Grouping key for drag reorder: nodes with same key can be reordered. */
+    reorderGroupKey: string;
+    sortOrder: number | null;
     /** Layout computed values */
     row: number;
     col: number; // track/column index in the layout
@@ -171,6 +180,7 @@ function computeLayout(
     choreDeps: Map<string, string>,
     visiblePersonIds: Set<string>,
     nowMs: number,
+    choreSortOrders: Map<string, number | null>,
 ): LayoutResult {
     const nodes: LayoutNode[] = [];
     const edges: LayoutEdge[] = [];
@@ -208,6 +218,7 @@ function computeLayout(
         if (visibleSlots.length === 0) continue;
         const primary = visibleSlots[0];
         const personIds = visibleSlots.map(s => s.personId);
+        const groupKey = `joint:${primary.scheduleType}:${primary.deadlineOffset ?? 'none'}`;
         jointNodeMap.set(choreId, {
             id: `${choreId}:joint`,
             choreId,
@@ -219,6 +230,8 @@ function computeLayout(
             countdownEndMs: primary.countdownEndMs,
             state: primary.state,
             slot: primary,
+            reorderGroupKey: groupKey,
+            sortOrder: choreSortOrders.get(choreId) ?? null,
             row: -1,
             col: -1,
             colSpan: 1,
@@ -230,6 +243,7 @@ function computeLayout(
     for (const slot of regularSlots) {
         if (!visiblePersonIds.has(slot.personId)) continue;
         const nodeId = `${slot.choreId}:${slot.personId}`;
+        const groupKey = `${slot.personId}:${slot.scheduleType}:${slot.deadlineOffset ?? 'none'}`;
         regularNodeMap.set(nodeId, {
             id: nodeId,
             choreId: slot.choreId,
@@ -241,6 +255,8 @@ function computeLayout(
             countdownEndMs: slot.countdownEndMs,
             state: slot.state,
             slot,
+            reorderGroupKey: groupKey,
+            sortOrder: choreSortOrders.get(slot.choreId) ?? null,
             row: -1,
             col: -1,
             colSpan: 1,
@@ -565,6 +581,7 @@ function ChoreNode({
     x,
     y,
     width,
+    canDrag,
     onMarkDone,
 }: {
     node: LayoutNode;
@@ -573,18 +590,82 @@ function ChoreNode({
     x: number;
     y: number;
     width: number;
+    canDrag: boolean;
     onMarkDone?: (choreId: string, personId: string) => void;
 }) {
     const state = getLiveState(node.slot, nowMs);
     const height = nodeHeight(node.durationSecs);
     const primaryColor = colorMap[node.personIds[0]] || '#94A3B8';
 
+    const itemRef = useRef<HTMLDivElement>(null);
+    const handleRef = useRef<HTMLDivElement>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [dropEdge, setDropEdge] = useState<Edge | null>(null);
+
+    useEffect(() => {
+        if (!canDrag || !itemRef.current) return;
+
+        const element = itemRef.current;
+
+        const cleanupDraggable = draggable({
+            element,
+            dragHandle: handleRef.current ?? element,
+            getInitialData: () => ({
+                nodeId: node.id,
+                choreId: node.choreId,
+                reorderGroupKey: node.reorderGroupKey,
+                row: node.row,
+            }),
+            onDragStart: () => setIsDragging(true),
+            onDrop: () => setIsDragging(false),
+        });
+
+        const cleanupDropTarget = dropTargetForElements({
+            element,
+            getIsSticky: () => true,
+            getData: ({ input, element: el }) => {
+                const data = {
+                    nodeId: node.id,
+                    choreId: node.choreId,
+                    reorderGroupKey: node.reorderGroupKey,
+                    row: node.row,
+                };
+                return attachClosestEdge(data, {
+                    input,
+                    element: el,
+                    allowedEdges: ['top', 'bottom'],
+                });
+            },
+            canDrop: ({ source }) => {
+                // Only accept drops from same reorder group
+                return source.data.reorderGroupKey === node.reorderGroupKey
+                    && source.data.nodeId !== node.id;
+            },
+            onDrag({ self }) {
+                setDropEdge(extractClosestEdge(self.data));
+            },
+            onDragLeave() {
+                setDropEdge(null);
+            },
+            onDrop() {
+                setDropEdge(null);
+            },
+        });
+
+        return () => {
+            cleanupDraggable();
+            cleanupDropTarget();
+        };
+    }, [canDrag, node.id, node.choreId, node.reorderGroupKey, node.row]);
+
     return (
         <div
+            ref={itemRef}
             className={cn(
                 'absolute group rounded-xl border px-3 py-2 transition-all duration-300 overflow-hidden',
                 getStateBg(state),
                 getStateRing(state),
+                isDragging && 'opacity-40',
             )}
             style={{
                 left: x,
@@ -593,17 +674,37 @@ function ChoreNode({
                 height,
                 borderLeftWidth: 3,
                 borderLeftColor: primaryColor,
+                zIndex: isDragging ? 50 : undefined,
             }}
         >
+            {/* Drop indicators */}
+            {dropEdge === 'top' && (
+                <div className="absolute -top-[2px] left-0 right-0 h-[3px] bg-blue-500 rounded-full z-20" />
+            )}
+            {dropEdge === 'bottom' && (
+                <div className="absolute -bottom-[2px] left-0 right-0 h-[3px] bg-blue-500 rounded-full z-20" />
+            )}
+
             <div className="flex flex-col justify-between h-full min-h-0">
-                <div>
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] opacity-60">{STATE_ICON[state]}</span>
-                        <span className="text-xs font-medium truncate leading-tight">{node.choreTitle}</span>
-                    </div>
-                    <div className="text-[9px] text-slate-500 leading-tight mt-0.5">
-                        {formatTime(node.countdownStartMs)} → {formatTime(node.countdownEndMs)}
-                        <span className="ml-1 opacity-70">({formatDuration(node.durationSecs)})</span>
+                <div className="flex items-start gap-1">
+                    {/* Drag handle */}
+                    {canDrag && (
+                        <div
+                            ref={handleRef}
+                            className="flex-shrink-0 cursor-grab opacity-0 group-hover:opacity-40 hover:!opacity-70 transition-opacity mt-0.5"
+                        >
+                            <GripVertical className="h-3 w-3 text-slate-400" />
+                        </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] opacity-60">{STATE_ICON[state]}</span>
+                            <span className="text-xs font-medium truncate leading-tight">{node.choreTitle}</span>
+                        </div>
+                        <div className="text-[9px] text-slate-500 leading-tight mt-0.5">
+                            {formatTime(node.countdownStartMs)} → {formatTime(node.countdownEndMs)}
+                            <span className="ml-1 opacity-70">({formatDuration(node.durationSecs)})</span>
+                        </div>
                     </div>
                 </div>
                 {node.isJoint && (
@@ -717,6 +818,7 @@ export default function SequenceTimeline({
     choresRaw,
     nowMs,
     onMarkDone,
+    onReorder,
     className,
 }: SequenceTimelineProps) {
     // Measure container width for responsive columns
@@ -809,12 +911,21 @@ export default function SequenceTimeline({
         return Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, natural));
     }, [containerWidth, visiblePeople.length]);
 
+    // Build chore sort order map
+    const choreSortOrders = useMemo(() => {
+        const map = new Map<string, number | null>();
+        for (const c of choresRaw) {
+            map.set(c.id, c.sortOrder ?? null);
+        }
+        return map;
+    }, [choresRaw]);
+
     // Compute layout
     const layout = useMemo(
-        () => computeLayout(people, choreDeps, visibleIds, nowMs),
+        () => computeLayout(people, choreDeps, visibleIds, nowMs, choreSortOrders),
         // Only recompute when data changes, not every tick
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [people, choreDeps, visibleIds, Math.floor(nowMs / 30000)],
+        [people, choreDeps, visibleIds, choreSortOrders, Math.floor(nowMs / 30000)],
     );
 
     // Build node position lookup
@@ -855,6 +966,61 @@ export default function SequenceTimeline({
         }
         return maxY + 40; // bottom padding
     }, [nodePositions]);
+
+    // Reorder group sizes: nodes can only be dragged if their group has >1 member
+    const reorderGroupSizes = useMemo(() => {
+        const sizes = new Map<string, number>();
+        for (const node of layout.nodes) {
+            sizes.set(node.reorderGroupKey, (sizes.get(node.reorderGroupKey) ?? 0) + 1);
+        }
+        return sizes;
+    }, [layout.nodes]);
+
+    // Drag-and-drop monitor for reordering within same-deadline groups
+    useEffect(() => {
+        if (!onReorder) return;
+        const cleanup = monitorForElements({
+            onDrop: ({ source, location }) => {
+                if (!location.current.dropTargets.length) return;
+                const target = location.current.dropTargets[0];
+                const sourceGroupKey = source.data.reorderGroupKey as string;
+                const targetGroupKey = target.data.reorderGroupKey as string;
+                if (sourceGroupKey !== targetGroupKey) return;
+
+                const sourceNodeId = source.data.nodeId as string;
+                const targetNodeId = target.data.nodeId as string;
+                if (sourceNodeId === targetNodeId) return;
+
+                const closestEdge = extractClosestEdge(target.data);
+
+                // Get all nodes in this group, sorted by current row
+                const groupNodes = layout.nodes
+                    .filter(n => n.reorderGroupKey === sourceGroupKey)
+                    .sort((a, b) => a.row - b.row);
+
+                const sourceIdx = groupNodes.findIndex(n => n.id === sourceNodeId);
+                const targetIdx = groupNodes.findIndex(n => n.id === targetNodeId);
+                if (sourceIdx < 0 || targetIdx < 0) return;
+
+                // Compute new order
+                const reordered = [...groupNodes];
+                const [moved] = reordered.splice(sourceIdx, 1);
+                let insertIdx = targetIdx;
+                if (sourceIdx < targetIdx) insertIdx--; // adjust for removal
+                if (closestEdge === 'bottom') insertIdx++;
+                reordered.splice(Math.max(0, insertIdx), 0, moved);
+
+                // Assign new sortOrder values (0, 1, 2, ...)
+                const updates: Record<string, number> = {};
+                reordered.forEach((node, idx) => {
+                    updates[node.choreId] = idx;
+                });
+
+                onReorder(updates);
+            },
+        });
+        return cleanup;
+    }, [layout.nodes, onReorder]);
 
     if (people.length === 0) {
         return (
@@ -1064,6 +1230,9 @@ export default function SequenceTimeline({
                             }
                         }
 
+                        const groupSize = reorderGroupSizes.get(node.reorderGroupKey) ?? 0;
+                        const canDrag = !!onReorder && groupSize > 1;
+
                         return (
                             <ChoreNode
                                 key={node.id}
@@ -1073,6 +1242,7 @@ export default function SequenceTimeline({
                                 x={x}
                                 y={pos.y}
                                 width={w}
+                                canDrag={canDrag}
                                 onMarkDone={onMarkDone}
                             />
                         );

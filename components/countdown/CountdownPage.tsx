@@ -343,6 +343,18 @@ export default function CountdownPageContent() {
         return { activeSlots: active, upcomingSlots: upcoming, completedSlots: completed, overdueSlots: overdue };
     }, [visibleSlots, nowMs]);
 
+    // --- Reorder handler ---
+    const handleReorder = useCallback(async (updates: Record<string, number>) => {
+        try {
+            const transactions = Object.entries(updates).map(([choreId, sortOrder]) =>
+                tx.chores[choreId].update({ sortOrder })
+            );
+            await db.transact(transactions);
+        } catch (err) {
+            console.error('Failed to reorder chores:', err);
+        }
+    }, []);
+
     // --- Mark done handler ---
     const handleMarkDone = useCallback(async (choreId: string, personId: string) => {
         const now = new Date().toISOString();
@@ -533,9 +545,10 @@ export default function CountdownPageContent() {
                     output={countdownOutput!}
                     people={timelinePeople}
                     familyMembers={familyMembers.map((m: any) => ({ id: m.id, name: m.name, color: m.color }))}
-                    choresRaw={chores.map((c: any) => ({ id: c.id, timingMode: c.timingMode, timingConfig: c.timingConfig }))}
+                    choresRaw={chores.map((c: any) => ({ id: c.id, timingMode: c.timingMode, sortOrder: c.sortOrder, timingConfig: c.timingConfig }))}
                     nowMs={nowMs}
                     onMarkDone={handleMarkDone}
+                    onReorder={handleReorder}
                 />
             ) : (
                 <>
