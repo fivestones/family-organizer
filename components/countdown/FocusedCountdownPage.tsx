@@ -61,8 +61,11 @@ function formatCountdown(remainingMs: number): { main: string; sub: string; sign
 
 function formatDelta(seconds: number): string {
     const abs = Math.abs(Math.round(seconds));
-    const m = Math.floor(abs / 60);
+    const h = Math.floor(abs / 3600);
+    const m = Math.floor((abs % 3600) / 60);
     const s = abs % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
     if (m === 0) return `${s}s`;
     if (s === 0) return `${m}m`;
     return `${m}m ${s}s`;
@@ -111,6 +114,7 @@ function computeCumulativeDelta(
     slots: CountdownSlot[],
     nowMs: number,
     completionTimestamps: Record<string, string>,
+    focusSlot: CountdownSlot | null,
 ): number {
     let delta = 0;
     for (const slot of slots) {
@@ -124,11 +128,12 @@ function computeCumulativeDelta(
                 // Positive = finished early (good), negative = finished late
                 delta += (scheduledEndMs - completedAtMs) / 1000;
             }
-        } else if (liveState === 'overdue_active') {
-            // Currently overdue — count the overdue time as negative
-            delta -= (nowMs - slot.countdownEndMs) / 1000;
         }
-        // active/upcoming chores don't affect the delta yet
+    }
+    // Only count overdue time for the single focus chore (the first incomplete one).
+    // Other overdue chores are just "queued behind" it — their overdue time is redundant.
+    if (focusSlot && getLiveState(focusSlot, nowMs) === 'overdue_active') {
+        delta -= (nowMs - focusSlot.countdownEndMs) / 1000;
     }
     return delta;
 }
@@ -411,8 +416,8 @@ export default function FocusedCountdownPage() {
 
     // --- Cumulative ahead/behind delta ---
     const cumulativeDelta = useMemo(() => {
-        return computeCumulativeDelta(visibleSlots, nowMs, completionTimestamps);
-    }, [visibleSlots, nowMs, completionTimestamps]);
+        return computeCumulativeDelta(visibleSlots, nowMs, completionTimestamps, focusSlot);
+    }, [visibleSlots, nowMs, completionTimestamps, focusSlot]);
 
     // --- Chore description lookup ---
     const focusChoreDescription = useMemo(() => {
