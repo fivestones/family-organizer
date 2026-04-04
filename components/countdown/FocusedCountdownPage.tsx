@@ -531,9 +531,10 @@ export default function FocusedCountdownPage() {
     }, []);
 
     // Ideal base size: 20% of ring width for main digits
-    const idealMainPx = ringWidthPx * 0.20;
-    // Safe text area: ~58% of ring diameter (inside the thick stroke + padding)
-    const safeWidth = ringWidthPx * 0.58;
+    // Ideal base size: 26% of ring width for main digits (matches the HTML reference proportions)
+    const idealMainPx = ringWidthPx * 0.26;
+    // Safe text area for the countdown digits: ~65% of ring diameter
+    const safeWidth = ringWidthPx * 0.75;
 
     // Synchronous canvas-based text measurement + ratchet-down scale
     const fontScale = useMemo(() => {
@@ -576,13 +577,13 @@ export default function FocusedCountdownPage() {
     // CSS fallback sizes for the initial render frame
     const mainFontStyle = hasMeasured
         ? { fontSize: `${scaledMainPx}px` }
-        : { fontSize: 'min(16vmin, 140px)' };
+        : { fontSize: 'min(21vmin, 180px)' };
     const subFontStyle = hasMeasured
         ? { fontSize: `${scaledSubPx}px` }
-        : { fontSize: 'min(7vmin, 63px)' };
+        : { fontSize: 'min(9.5vmin, 81px)' };
     const signFontStyle = hasMeasured
         ? { fontSize: `${scaledSignPx}px` }
-        : { fontSize: 'min(5.5vmin, 49px)' };
+        : { fontSize: 'min(7.3vmin, 63px)' };
 
     // ---------------------------------------------------------------------------
     // Render
@@ -792,7 +793,7 @@ export default function FocusedCountdownPage() {
                                                 style={
                                                     hasMeasured
                                                         ? { width: `${scaledMainPx * 0.8}px`, height: `${scaledMainPx * 0.8}px` }
-                                                        : { width: 'min(13vmin, 112px)', height: 'min(13vmin, 112px)' }
+                                                        : { width: 'min(17vmin, 144px)', height: 'min(17vmin, 144px)' }
                                                 }
                                             />
                                         ) : (
@@ -815,24 +816,24 @@ export default function FocusedCountdownPage() {
                                 </div>
 
                                 {/* Chore title */}
-                                <div className="mt-2 max-w-[55%] text-center">
+                                <div className="mt-3 max-w-[82%] text-center">
                                     <div
                                         className={cn(
-                                            'font-semibold leading-tight tracking-wide',
+                                            'font-semibold leading-snug',
                                             focusTimerState === 'overdue'
                                                 ? 'text-red-100/90'
                                                 : focusTimerState === 'celebrating'
                                                   ? 'text-emerald-100/90'
                                                   : 'text-white/80',
                                         )}
-                                        style={hasMeasured ? { fontSize: `${Math.max(14, ringWidthPx * 0.032)}px` } : { fontSize: 'min(3.5vmin, 22px)' }}
+                                        style={hasMeasured ? { fontSize: `${Math.max(16, ringWidthPx * 0.042)}px` } : { fontSize: 'min(4vmin, 28px)' }}
                                     >
                                         {focusSlot.choreTitle}
                                     </div>
                                     {focusChoreDescription && (
                                         <div
-                                            className="mt-1 leading-snug text-white/50 line-clamp-2"
-                                            style={hasMeasured ? { fontSize: `${Math.max(11, ringWidthPx * 0.02)}px` } : { fontSize: 'min(2.2vmin, 14px)' }}
+                                            className="mt-1.5 leading-snug text-white/50 line-clamp-2"
+                                            style={hasMeasured ? { fontSize: `${Math.max(13, ringWidthPx * 0.028)}px` } : { fontSize: 'min(2.8vmin, 18px)' }}
                                         >
                                             {focusChoreDescription}
                                         </div>
