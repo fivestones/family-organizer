@@ -726,7 +726,7 @@ function getNextWindowBoundaryMinute(
     if (start != null) boundaries.add(start);
     if (end != null) boundaries.add(end);
   }
-  const sorted = [...boundaries].sort((a, b) => a - b);
+  const sorted = Array.from(boundaries).sort((a, b) => a - b);
   for (const b of sorted) {
     if (b >= nowOffset) return b;
   }

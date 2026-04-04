@@ -226,6 +226,7 @@ export default function CountdownPageContent() {
     const [nowMs, setNowMs] = useState(Date.now());
     const [collisionDecisions, setCollisionDecisions] = useState<Record<string, CollisionDecision>>({});
     const [activeCollision, setActiveCollision] = useState<CountdownCollision | null>(null);
+    const [dismissedWarnings, setDismissedWarnings] = useState<Set<string>>(new Set());
 
     // Sync auto-complete default from settings.
     useEffect(() => {
@@ -371,6 +372,32 @@ export default function CountdownPageContent() {
         }
         return all;
     }, [countdownOutput, familyMembers]);
+
+    // Collect all warnings across all timelines
+    const allWarnings = useMemo(() => {
+        if (!countdownOutput?.timelines) return [];
+        const warnings: Array<{ key: string; personId: string; memberName: string; message: string; severity: string }> = [];
+        for (const [personId, timeline] of Object.entries(countdownOutput.timelines)) {
+            const t = timeline as PersonCountdownTimeline;
+            for (const w of t.warnings) {
+                const member = familyMembers.find((m: any) => m.id === personId);
+                const key = `${personId}:${w.message}`;
+                warnings.push({
+                    key,
+                    personId,
+                    memberName: member?.name || 'Unknown',
+                    message: w.message,
+                    severity: w.severity,
+                });
+            }
+        }
+        return warnings;
+    }, [countdownOutput, familyMembers]);
+
+    const visibleWarnings = useMemo(
+        () => allWarnings.filter(w => !dismissedWarnings.has(w.key)),
+        [allWarnings, dismissedWarnings],
+    );
 
     // --- Reorder handler ---
     const handleReorder = useCallback(async (updates: Record<string, number>) => {
@@ -550,19 +577,34 @@ export default function CountdownPageContent() {
             )}
 
             {/* Warnings */}
-            {activeTimeline?.warnings && activeTimeline.warnings.length > 0 && (
+            {visibleWarnings.length > 0 && (
                 <div className="space-y-2">
-                    {activeTimeline.warnings.map((w, i) => (
+                    {visibleWarnings.map((w) => (
                         <div
-                            key={i}
+                            key={w.key}
                             className={cn(
-                                'rounded-xl border px-4 py-2 text-sm',
+                                'rounded-xl border px-4 py-2 text-sm flex items-center gap-2',
                                 w.severity === 'error' && 'border-red-200 bg-red-50 text-red-700',
                                 w.severity === 'warning' && 'border-amber-200 bg-amber-50 text-amber-700',
                                 w.severity === 'info' && 'border-blue-200 bg-blue-50 text-blue-700',
                             )}
                         >
-                            {w.message}
+                            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                            <span className="flex-1">
+                                <span className="font-medium">{w.memberName}:</span> {w.message}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setDismissedWarnings(prev => {
+                                    const next = new Set(prev);
+                                    next.add(w.key);
+                                    return next;
+                                })}
+                                className="flex-shrink-0 opacity-50 hover:opacity-100 transition-opacity text-xs"
+                                title="Dismiss"
+                            >
+                                ✕
+                            </button>
                         </div>
                     ))}
                 </div>

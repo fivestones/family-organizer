@@ -58,6 +58,7 @@ import {
     type SharedRoutineMarkerStatusLike,
     type CountdownEngineOutput,
     type CountdownChoreInput,
+    type PersonCountdownTimeline,
 } from '@family-organizer/shared-core';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
@@ -1382,6 +1383,8 @@ function ChoresTracker({
                                             currencyOptions={currencyOptions} // Pass computed options
                                             availableChoreAnchors={chores as any}
                                             scheduleSettings={scheduleSettings}
+                                            routineMarkerStatuses={routineMarkerStatuses}
+                                            countdownSettings={countdownSettings}
                                         />
                                     </DialogContent>
                                 </Dialog>
@@ -1516,6 +1519,32 @@ function ChoresTracker({
                     <div className="flex flex-col gap-4 grow min-h-0">
                         {' '}
                         {/* grow min-h-0 */}
+                        {/* Engine warnings */}
+                        {countdownTimelines && (() => {
+                            const warnings: Array<{ key: string; memberName: string; message: string; severity: string }> = [];
+                            for (const [pid, tl] of Object.entries(countdownTimelines.timelines)) {
+                                const t = tl as PersonCountdownTimeline;
+                                for (const w of t.warnings) {
+                                    const member = familyMembers.find((m: any) => m.id === pid);
+                                    warnings.push({ key: `${pid}:${w.message}`, memberName: member?.name || 'Unknown', message: w.message, severity: w.severity });
+                                }
+                            }
+                            if (warnings.length === 0) return null;
+                            return (
+                                <div className="space-y-1.5">
+                                    {warnings.map(w => (
+                                        <div key={w.key} className={cn(
+                                            'rounded-lg border px-3 py-1.5 text-xs flex items-center gap-2',
+                                            w.severity === 'error' ? 'border-red-200 bg-red-50 text-red-700' :
+                                            w.severity === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-700' :
+                                            'border-blue-200 bg-blue-50 text-blue-700',
+                                        )}>
+                                            <span className="font-medium">{w.memberName}:</span> {w.message}
+                                        </div>
+                                    ))}
+                                </div>
+                            );
+                        })()}
                         {/* Removed simple Add Chore form */}
                         <div className="flex flex-col gap-6 grow min-h-0">
                             {' '}
@@ -1552,6 +1581,7 @@ function ChoresTracker({
                                 allChores={chores}
                                 scheduleSettings={scheduleSettings}
                                 countdownTimelines={countdownTimelines}
+                                countdownSettings={countdownSettings}
                             />
                             {/* Optional: Add back allowance balance display if needed */}
                             {/* {selectedMember !== 'All' && ( ... allowance display ... )} */}

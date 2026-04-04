@@ -55,6 +55,7 @@ function ChoreList({
     allChores = chores,
     scheduleSettings = null,
     countdownTimelines = null,
+    countdownSettings = null,
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
     const [detailChoreId, setDetailChoreId] = useState<string | null>(null);
@@ -1225,6 +1226,8 @@ function ChoreList({
                             currencyOptions={currencyOptions}
                             availableChoreAnchors={allChores}
                             scheduleSettings={scheduleSettings}
+                            routineMarkerStatuses={routineMarkerStatuses}
+                            countdownSettings={countdownSettings}
                         />
                     )}
                 </DialogContent>

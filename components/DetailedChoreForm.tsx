@@ -28,8 +28,16 @@ import {
     getRoutineMarkerOptions,
     getTimeBucketOptions,
     wouldCreateChoreTimingCycle,
+    computeCountdownTimelines,
+    getChoreTimingMode,
+    parseCountdownSettings,
+    getFamilyDayDateUTC,
     type SharedScheduleSettings,
+    type CountdownSettings,
+    type CountdownChoreInput,
 } from '@family-organizer/shared-core';
+import { AlertTriangle } from 'lucide-react';
+import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { HelpCircle } from 'lucide-react';
@@ -71,6 +79,9 @@ interface DetailedChoreFormProps {
     currencyOptions: { value: string; label: string }[]; // Pass computed options
     availableChoreAnchors?: any[];
     scheduleSettings?: SharedScheduleSettings | null;
+    /** Optional: pass these to enable save-time timeline overflow warnings. */
+    routineMarkerStatuses?: any[];
+    countdownSettings?: CountdownSettings | null;
 }
 
 function TimingHelpPopover({ title, lines }: { title: string; lines: string[] }) {
@@ -116,6 +127,8 @@ function DetailedChoreForm({
     currencyOptions,
     availableChoreAnchors = [],
     scheduleSettings = null,
+    routineMarkerStatuses = [],
+    countdownSettings: countdownSettingsProp = null,
 }: DetailedChoreFormProps) {
     const [title, setTitle] = useState('');
     const [assignees, setAssignees] = useState<string[]>([]);
@@ -143,6 +156,8 @@ function DetailedChoreForm({
     const [anchorRoutineKey, setAnchorRoutineKey] = useState<string>('breakfast');
     const [anchorChoreId, setAnchorChoreId] = useState<string>('');
     const [anchorFallbackTime, setAnchorFallbackTime] = useState<string>('');
+    const [timelineWarnings, setTimelineWarnings] = useState<string[]>([]);
+    const [showWarningConfirm, setShowWarningConfirm] = useState(false);
     const [recurrenceUi, setRecurrenceUi] = useState<RecurrenceUiState>(() => ({
         ...getDefaultRecurrenceUiState(
             initialDate instanceof Date && !Number.isNaN(initialDate.getTime()) ? initialDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
@@ -325,6 +340,138 @@ function DetailedChoreForm({
         });
     };
 
+    /** Check if saving this chore would cause timeline overflow warnings. */
+    const checkTimelineOverflow = (): string[] => {
+        if (!scheduleSettings || !availableChoreAnchors || availableChoreAnchors.length === 0) return [];
+        if (timingMode === 'anytime') return [];
+
+        try {
+            const effectiveSettings = scheduleSettings;
+            const cdSettings = countdownSettingsProp ?? parseCountdownSettings(null);
+            const today = getFamilyDayDateUTC(new Date(), effectiveSettings);
+            const todayKey = today.toISOString().slice(0, 10);
+
+            // Build the synthetic chore from form state
+            const durH = parseInt(durationHours, 10) || 0;
+            const durM = parseInt(durationMinutes, 10) || 0;
+            const durS = parseInt(durationSeconds, 10) || 0;
+            const totalDurSecs = durH * 3600 + durM * 60 + durS;
+            const parsedWeight = parseFloat(weight) || 0;
+
+            // Build timing config from form state
+            let formTimingConfig: any = { mode: timingMode };
+            if (timingMode === 'before_time' || timingMode === 'after_time') {
+                formTimingConfig.time = triggerTime;
+            } else if (timingMode === 'between_times') {
+                formTimingConfig.startTime = windowStartTime;
+                formTimingConfig.endTime = windowEndTime;
+            } else if (timingMode === 'before_marker' || timingMode === 'after_marker') {
+                formTimingConfig.anchor = { relation: timingMode === 'before_marker' ? 'before' : 'after', routineKey: anchorRoutineKey };
+            } else if (timingMode === 'before_chore' || timingMode === 'after_chore') {
+                formTimingConfig.anchor = { relation: timingMode === 'before_chore' ? 'before' : 'after', sourceChoreId: anchorChoreId, fallbackTime: anchorFallbackTime };
+            } else if (timingMode === 'named_window') {
+                formTimingConfig.timeBucket = timeBucket;
+            }
+
+            const syntheticId = initialChore?.id || '__new_chore__';
+            const syntheticChoreInput: CountdownChoreInput = {
+                id: syntheticId,
+                title: title || 'New Chore',
+                estimatedDurationSecs: totalDurSecs > 0 ? totalDurSecs : null,
+                weight: parsedWeight > 0 ? parsedWeight : null,
+                sortOrder: initialChore?.sortOrder ?? null,
+                isJoint: isJoint,
+                assigneeIds: assignees,
+                timingMode,
+                timingConfig: formTimingConfig,
+                timeBucket: timingMode === 'named_window' ? timeBucket : null,
+                completedAt: null,
+                memberCompletions: {},
+            };
+
+            // Build existing chore inputs (excluding the one being edited)
+            const existingInputs: CountdownChoreInput[] = availableChoreAnchors
+                .filter((c: any) => {
+                    if (c.id === syntheticId) return false;
+                    const mode = getChoreTimingMode(c);
+                    if (mode === 'anytime') return false;
+                    const assigned = getAssignedMembersForChoreOnDate(c, today);
+                    return assigned.length > 0;
+                })
+                .map((c: any) => {
+                    const assigned = getAssignedMembersForChoreOnDate(c, today);
+                    const memberCompletions: Record<string, string> = {};
+                    for (const comp of c.completions || []) {
+                        if (comp.completed && comp.dateDue === todayKey && comp.completedBy?.id) {
+                            memberCompletions[comp.completedBy.id] = comp.dateCompleted || new Date().toISOString();
+                        }
+                    }
+                    return {
+                        id: c.id,
+                        title: c.title,
+                        estimatedDurationSecs: c.estimatedDurationSecs ?? null,
+                        weight: c.weight ?? null,
+                        sortOrder: c.sortOrder ?? null,
+                        isJoint: c.isJoint ?? false,
+                        assigneeIds: assigned.map((a: any) => a.id),
+                        timingMode: c.timingMode || 'anytime',
+                        timingConfig: c.timingConfig || null,
+                        timeBucket: c.timeBucket || null,
+                        completedAt: null,
+                        memberCompletions,
+                    };
+                });
+
+            // Skip if the synthetic chore has no duration
+            if (!syntheticChoreInput.estimatedDurationSecs && !(syntheticChoreInput.weight && syntheticChoreInput.weight > 0)) {
+                return [];
+            }
+
+            // Build synthetic raw chore for allChoresRaw context
+            const syntheticRaw = {
+                id: syntheticId,
+                title: title || 'New Chore',
+                timingMode,
+                timingConfig: formTimingConfig,
+                timeBucket: timingMode === 'named_window' ? timeBucket : null,
+                estimatedDurationSecs: totalDurSecs > 0 ? totalDurSecs : null,
+                weight: parsedWeight > 0 ? parsedWeight : null,
+                completions: [],
+                assignees: assignees.map(id => ({ id })),
+                assignments: [],
+            };
+
+            const allChoresRaw = [
+                ...availableChoreAnchors.filter((c: any) => c.id !== syntheticId),
+                syntheticRaw,
+            ];
+
+            const result = computeCountdownTimelines({
+                chores: [...existingInputs, syntheticChoreInput],
+                routineMarkerStatuses: routineMarkerStatuses || [],
+                allChoresRaw: allChoresRaw as any,
+                countdownSettings: cdSettings,
+                scheduleSettings: effectiveSettings,
+                now: new Date(),
+                date: today,
+            });
+
+            // Collect all warnings
+            const warnings: string[] = [];
+            for (const timeline of Object.values(result.timelines)) {
+                const t = timeline as any;
+                for (const w of t.warnings || []) {
+                    const member = familyMembers.find((m: any) => m.id === t.personId);
+                    warnings.push(`${member?.name || 'Someone'}: ${w.message}`);
+                }
+            }
+            return warnings;
+        } catch (err) {
+            console.error('Timeline check error:', err);
+            return [];
+        }
+    };
+
     const handleSave = () => {
         const startDateValue = startDate.toISOString().slice(0, 10);
         const finalRrule = normalizeRrule(serializeRecurrenceToRrule(recurrenceUi, startDateValue)) || null;
@@ -503,6 +650,17 @@ function DetailedChoreForm({
             saveData.assignees = [];
         }
 
+        // Check for timeline overflow warnings before saving
+        const warnings = checkTimelineOverflow();
+        if (warnings.length > 0 && !showWarningConfirm) {
+            setTimelineWarnings(warnings);
+            setShowWarningConfirm(true);
+            return;
+        }
+
+        // Reset warning state and save
+        setTimelineWarnings([]);
+        setShowWarningConfirm(false);
         onSave(saveData);
     };
 
@@ -1120,19 +1278,54 @@ function DetailedChoreForm({
                 </div>
             )}
 
+            {/* Timeline overflow warnings */}
+            {showWarningConfirm && timelineWarnings.length > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-amber-700 font-semibold text-sm">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        Timeline warnings
+                    </div>
+                    <ul className="text-xs text-amber-800 space-y-1 pl-6 list-disc">
+                        {timelineWarnings.map((w, i) => (
+                            <li key={i}>{w}</li>
+                        ))}
+                    </ul>
+                    <div className="flex gap-2 pt-1">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => { setShowWarningConfirm(false); setTimelineWarnings([]); }}
+                        >
+                            Go back
+                        </Button>
+                        <Button
+                            type="button"
+                            size="sm"
+                            className="bg-amber-600 hover:bg-amber-700 text-white"
+                            onClick={handleSave}
+                        >
+                            Save anyway
+                        </Button>
+                    </div>
+                </div>
+            )}
+
             {/* Save Button */}
-            <Button
-                onClick={handleSave}
-                className="w-full"
-                disabled={
-                    !title ||
-                    assignees.length === 0 ||
-                    (rewardType === 'weight' && !weight) || // Disable if weight type and no weight
-                    (rewardType === 'fixed' && isUpForGrabs && (!rewardAmount || !rewardCurrency || rewardCurrency === '__DEFINE_NEW__')) // Disable if fixed type and missing info, ONLY IF up for grabs
-                }
-            >
-                {initialChore ? 'Update Chore' : 'Save Chore'}
-            </Button>
+            {!showWarningConfirm && (
+                <Button
+                    onClick={handleSave}
+                    className="w-full"
+                    disabled={
+                        !title ||
+                        assignees.length === 0 ||
+                        (rewardType === 'weight' && !weight) ||
+                        (rewardType === 'fixed' && isUpForGrabs && (!rewardAmount || !rewardCurrency || rewardCurrency === '__DEFINE_NEW__'))
+                    }
+                >
+                    {initialChore ? 'Update Chore' : 'Save Chore'}
+                </Button>
+            )}
         </div>
     );
 }

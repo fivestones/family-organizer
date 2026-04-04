@@ -537,18 +537,18 @@ function propagateJointConstraints(
 
     // Collect all joint chore IDs.
     const jointChoreIds = new Set<string>();
-    for (const slots of allTimelines.values()) {
+    for (const slots of Array.from(allTimelines.values())) {
       for (const slot of slots) {
         if (slot.isJoint) jointChoreIds.add(slot.choreId);
       }
     }
 
-    for (const choreId of jointChoreIds) {
+    for (const choreId of Array.from(jointChoreIds)) {
       // Find the earliest required start across all participants.
       let earliestStart = Infinity;
       const participantSlots: Array<{ personId: string; slot: PlacedSlot; index: number }> = [];
 
-      for (const [personId, slots] of allTimelines) {
+      for (const [personId, slots] of Array.from(allTimelines)) {
         for (let i = 0; i < slots.length; i++) {
           if (slots[i].choreId === choreId && !slots[i].isResume) {
             participantSlots.push({ personId, slot: slots[i], index: i });
@@ -693,7 +693,7 @@ export function computeCountdownTimelines(
   const allUnresolvedCollisions = new Map<string, CountdownCollision[]>();
 
   // Phase 1: Pack each person's timeline independently.
-  for (const [personId, personChores] of byPerson) {
+  for (const [personId, personChores] of Array.from(byPerson)) {
     const deadlineSlots = packDeadlineDriven(personChores, personId, input);
     const startSlots = packStartDriven(personChores, personId, input);
 
@@ -721,7 +721,7 @@ export function computeCountdownTimelines(
   // Phase 3: Build output.
   const output: CountdownEngineOutput = { timelines: {} };
 
-  for (const [personId, placedSlots] of allTimelines) {
+  for (const [personId, placedSlots] of Array.from(allTimelines)) {
     const unresolvedCollisionChoreIds = new Set(
       (allUnresolvedCollisions.get(personId) ?? []).map(
         (c) => c.startDrivenChoreId,
