@@ -265,11 +265,21 @@ function packDeadlineDriven(
     );
 
     // Start at the chore's deadline, then check if any existing slot
-    // forces us earlier (because we need to finish before it starts).
+    // overlaps with the proposed placement. Only push earlier when
+    // there is an actual temporal overlap — chores with later deadlines
+    // should NOT be forced before earlier-deadline chores that occupy a
+    // completely separate time range.
     let endMs = deadlineMs;
-    for (const existing of slots) {
-      if (existing.startMs < endMs) {
-        endMs = Math.min(endMs, existing.startMs - bufferSecs * 1000);
+    let adjusted = true;
+    while (adjusted) {
+      adjusted = false;
+      const proposedStart = endMs - chore.durationSecs * 1000;
+      for (const existing of slots) {
+        if (existing.startMs < endMs && existing.endMs > proposedStart) {
+          endMs = existing.startMs - bufferSecs * 1000;
+          adjusted = true;
+          break;
+        }
       }
     }
 

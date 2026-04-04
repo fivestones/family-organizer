@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Rules
+- Do your very best to write code that is both perfectly functional and exetremely good looking.
+- When you finish coding something, do not test the UI unless you have been explicitly instructed to do so. I will do the UI testing for you. That means you must skip preview verification (unless I ask you to do so for a specific case).
+
 ## Commands
 
 ```bash
@@ -53,6 +57,8 @@ Two-layer auth:
 ### Web app pages and features
 
 **Routes (App Router):**
+- First, you have to activate the app. If you try to load any route before doing this, you will get a 404 not found error. After the server is running, get `DEVICE_ACCESS_KEY` from the .env file, and go to `http://<ip>:<port>/?activate=<DEVICE_ACCESS_KEY>`. This will activate you and immediately redirect you to `/`. Then you will be able to get to any of the other routes without a 404 error.
+- `/activate` — Device activation screen (enter shared `DEVICE_ACCESS_KEY`). You should not use this to activate; it's for human use and you can use the method described above for quicker access.
 - `/` — Main chore dashboard (`ChoresTracker` + `ChoreList`). Family member sidebar, date carousel, add/edit/delete chores, task series checklists with file attachment previews, marks completions.
 - `/calendar` — Multi-week calendar with drag-and-drop events. Supports both Gregorian and Nepali (Bikram Samvat) views. Displays chore dates and calendar items.
 - `/task-series` — Task series manager (parent-only). Lists all series with status filters (draft/pending/in_progress/archived), batch delete, progress tracking.
@@ -61,7 +67,7 @@ Two-layer auth:
 - `/allowance-distribution` — Parent-only allowance distribution workflow. Selects a period, calculates weight-based completion percentage, handles fixed up-for-grabs rewards, previews and executes payouts.
 - `/files` — File manager backed by S3/MinIO. Upload images (resized server-side to 64/320/1200px via Sharp) and documents, grid gallery view, preview modal.
 - `/settings` — Parent-only currency settings (toggle enabled currencies; at least one required).
-- `/activate` — Device activation screen (enter shared `DEVICE_ACCESS_KEY`).
+
 
 **Key components to know:**
 - `ChoresTracker.tsx` / `ChoreList.tsx` — the core chore UI; chore display, completion toggling, and the `DetailedChoreForm.tsx` dialog for creating/editing chores (rrule picker, rotation, weight, up-for-grabs, reward type/currency, date preview).
