@@ -1,11 +1,7 @@
 'use client';
 
-import CountdownPageContent from '@/components/countdown/CountdownPage';
+import FocusedCountdownPage from '@/components/countdown/FocusedCountdownPage';
 
 export default function CountdownRoute() {
-    return (
-        <div className="w-full px-4 sm:px-6 lg:px-8">
-            <CountdownPageContent />
-        </div>
-    );
+    return <FocusedCountdownPage />;
 }

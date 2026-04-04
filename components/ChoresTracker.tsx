@@ -18,10 +18,13 @@ import {
     CreditCard,
     Settings,
     Users,
+    GitBranch,
+    LayoutList,
 } from 'lucide-react';
 import FamilyMembersList from './FamilyMembersList';
 import ChoreList from './ChoreList';
 import AllChoresInventory from './AllChoresInventory';
+import SequenceTimeline from '@/components/countdown/SequenceTimeline';
 import DetailedChoreForm from './DetailedChoreForm';
 import DateCarousel from '@/components/ui/DateCarousel';
 import { toUTCDate, calculateDailyXP } from '@/lib/chore-utils';
@@ -167,6 +170,8 @@ function ChoresTracker({
 }: ChoresTrackerProps) {
     const [selectedMember, setSelectedMember] = useState<string>(viewScope === 'all' ? 'All' : initialSelectedMember || 'All');
     const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+    const [allChoresSubView, setAllChoresSubView] = useState<'inventory' | 'sequence'>('inventory');
+    const [nowMs, setNowMs] = useState(Date.now());
     // --- Remove state for simple add form ---
     // const [newChoreTitle, setNewChoreTitle] = useState<string>('');
     // const [newChoreAssignee, setNewChoreAssignee] = useState<string>('');
@@ -441,6 +446,50 @@ function ChoresTracker({
             return null;
         }
     }, [chores, selectedDateKey, selectedDate, routineMarkerStatuses, countdownSettings, scheduleSettings]);
+
+    // --- Tick for sequence view ---
+    React.useEffect(() => {
+        if (allChoresSubView !== 'sequence') return;
+        const interval = setInterval(() => setNowMs(Date.now()), 1000);
+        return () => clearInterval(interval);
+    }, [allChoresSubView]);
+
+    // --- Data for SequenceTimeline ---
+    const sequencePeople = useMemo(() => {
+        if (!countdownTimelines?.timelines) return [];
+        return Object.entries(countdownTimelines.timelines)
+            .filter(([, t]) => (t as PersonCountdownTimeline).slots.length > 0)
+            .map(([personId, timeline]) => {
+                const member = familyMembers.find((m) => m.id === personId);
+                return {
+                    personId,
+                    name: member?.name || 'Unknown',
+                    timeline: timeline as PersonCountdownTimeline,
+                };
+            })
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [countdownTimelines, familyMembers]);
+
+    const sequenceFamilyMembers = useMemo(
+        () => familyMembers.map((m: any) => ({ id: m.id, name: m.name, color: m.color })),
+        [familyMembers],
+    );
+
+    const sequenceChoresRaw = useMemo(
+        () => chores.map((c: any) => ({ id: c.id, timingMode: c.timingMode, sortOrder: c.sortOrder, timingConfig: c.timingConfig })),
+        [chores],
+    );
+
+    const handleSequenceReorder = React.useCallback(async (updates: Record<string, number>) => {
+        try {
+            const transactions = Object.entries(updates).map(([choreId, sortOrder]) =>
+                tx.chores[choreId].update({ sortOrder })
+            );
+            await db.transact(transactions);
+        } catch (err) {
+            console.error('Failed to reorder chores:', err);
+        }
+    }, []);
 
     const markRoutineMarkerHappened = async (markerKey: string) => {
         if (!isParentMode) {
@@ -1398,11 +1447,41 @@ function ChoresTracker({
                                 ) : null}
 
                                 {pageMode === 'chores' && viewScope === 'all' ? (
-                                    <Link href="/chores">
-                                        <Button variant="outline" size="sm">
-                                            Back to day view
-                                        </Button>
-                                    </Link>
+                                    <>
+                                        <div className="flex rounded-lg border border-slate-200 p-0.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => setAllChoresSubView('inventory')}
+                                                className={cn(
+                                                    'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                                                    allChoresSubView === 'inventory'
+                                                        ? 'bg-slate-900 text-white shadow-sm'
+                                                        : 'text-slate-500 hover:text-slate-700',
+                                                )}
+                                            >
+                                                <LayoutList className="h-3.5 w-3.5" />
+                                                List
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setAllChoresSubView('sequence')}
+                                                className={cn(
+                                                    'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+                                                    allChoresSubView === 'sequence'
+                                                        ? 'bg-slate-900 text-white shadow-sm'
+                                                        : 'text-slate-500 hover:text-slate-700',
+                                                )}
+                                            >
+                                                <GitBranch className="h-3.5 w-3.5" />
+                                                Sequence
+                                            </button>
+                                        </div>
+                                        <Link href="/chores">
+                                            <Button variant="outline" size="sm">
+                                                Back to day view
+                                            </Button>
+                                        </Link>
+                                    </>
                                 ) : null}
 
                                 {pageMode === 'tasks' ? (
@@ -1502,19 +1581,44 @@ function ChoresTracker({
                 </div>
                 {/* Chores List Area */}
                 {viewScope === 'all' && pageMode === 'chores' ? (
-                    <AllChoresInventory
-                        chores={chores as any}
-                        familyMembers={familyMembers as any}
-                        referenceDate={selectedDate}
-                        updateChore={updateChore}
-                        updateChoreSchedule={updateChoreSchedule}
-                        db={db}
-                        unitDefinitions={unitDefinitions}
-                        currencyOptions={currencyOptions}
-                        canEditChores={isParent}
-                        allChores={chores as any}
-                        scheduleSettings={scheduleSettings}
-                    />
+                    allChoresSubView === 'sequence' && countdownTimelines && sequencePeople.length > 0 ? (
+                        <SequenceTimeline
+                            output={countdownTimelines}
+                            people={sequencePeople}
+                            familyMembers={sequenceFamilyMembers}
+                            choresRaw={sequenceChoresRaw}
+                            nowMs={nowMs}
+                            onMarkDone={async (choreId, personId) => {
+                                const completionId = id();
+                                await db.transact([
+                                    tx.choreCompletions[completionId].update({
+                                        completed: true,
+                                        dateDue: selectedDateKey,
+                                        dateCompleted: new Date().toISOString(),
+                                    }).link({ chore: choreId, completedBy: personId }),
+                                ]);
+                            }}
+                            onReorder={handleSequenceReorder}
+                        />
+                    ) : allChoresSubView === 'sequence' ? (
+                        <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-slate-200 text-slate-400">
+                            No timed chores with sequence data available for this date
+                        </div>
+                    ) : (
+                        <AllChoresInventory
+                            chores={chores as any}
+                            familyMembers={familyMembers as any}
+                            referenceDate={selectedDate}
+                            updateChore={updateChore}
+                            updateChoreSchedule={updateChoreSchedule}
+                            db={db}
+                            unitDefinitions={unitDefinitions}
+                            currencyOptions={currencyOptions}
+                            canEditChores={isParent}
+                            allChores={chores as any}
+                            scheduleSettings={scheduleSettings}
+                        />
+                    )
                 ) : viewMode === 'list' ? (
                     <div className="flex flex-col gap-4 grow min-h-0">
                         {' '}
