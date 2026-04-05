@@ -9,8 +9,12 @@ import React, { useRef, useEffect, useState } from 'react';
 export type RadialTimerState = 'upcoming' | 'active' | 'overdue' | 'completed' | 'celebrating';
 
 interface RadialTimerProps {
-    /** 0 → 1 progress (fraction of time elapsed). Clamped internally. */
-    progress: number;
+    /** Slot start timestamp (ms). When provided with endMs, the ring self-animates at 60fps. */
+    startMs?: number;
+    /** Slot end timestamp (ms). */
+    endMs?: number;
+    /** Fallback static progress (0 → 1) used when startMs/endMs aren't provided. */
+    progress?: number;
     state: RadialTimerState;
     /** Unique key that changes when the chore changes — triggers crossfade. */
     choreKey: string;
@@ -47,13 +51,67 @@ function getPlasmaColor(state: RadialTimerState, progress: number): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export default function RadialTimer({ progress, state, choreKey, children, className }: RadialTimerProps) {
+export default function RadialTimer({
+    startMs,
+    endMs,
+    progress: staticProgress,
+    state,
+    choreKey,
+    children,
+    className,
+}: RadialTimerProps) {
     const canvasRef = useRef<HTMLDivElement>(null);
     const [rippleActive, setRippleActive] = useState(false);
     const prevChoreKeyRef = useRef(choreKey);
 
+    // Compute initial progress synchronously so there's no 1-frame flash at 0.
+    const computeProgress = (): number => {
+        if (state === 'completed' || state === 'celebrating') return 1;
+        if (state === 'overdue') return 1;
+        if (state === 'upcoming') return 0;
+        if (typeof startMs === 'number' && typeof endMs === 'number' && endMs > startMs) {
+            const elapsed = Date.now() - startMs;
+            const total = endMs - startMs;
+            return Math.max(0, Math.min(1, elapsed / total));
+        }
+        if (typeof staticProgress === 'number') {
+            return Math.max(0, Math.min(1, staticProgress));
+        }
+        return 0;
+    };
+
+    const [animatedProgress, setAnimatedProgress] = useState<number>(computeProgress);
+
+    // Run a requestAnimationFrame loop while the ring is actively ticking so the
+    // arc updates smoothly at 60fps independent of any parent re-render cadence.
+    useEffect(() => {
+        const selfAnimate =
+            state === 'active' &&
+            typeof startMs === 'number' &&
+            typeof endMs === 'number' &&
+            endMs > startMs;
+
+        if (!selfAnimate) {
+            // Snap to the correct static value for this state.
+            setAnimatedProgress(computeProgress());
+            return;
+        }
+
+        let rafId = 0;
+        const total = endMs! - startMs!;
+        const tick = () => {
+            const elapsed = Date.now() - startMs!;
+            const p = Math.max(0, Math.min(1, elapsed / total));
+            setAnimatedProgress(p);
+            rafId = requestAnimationFrame(tick);
+        };
+        rafId = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [state, startMs, endMs, choreKey]);
+
     // Clamp progress
-    const p = state === 'overdue' ? 1 : Math.max(0, Math.min(1, progress));
+    const p = state === 'overdue' ? 1 : Math.max(0, Math.min(1, animatedProgress));
 
     // Trigger ripple on completion
     useEffect(() => {
@@ -212,7 +270,7 @@ export default function RadialTimer({ progress, state, choreKey, children, class
                             strokeDasharray={circumference}
                             strokeDashoffset={arcOffset}
                             filter="url(#radial-soft-edge)"
-                            style={{ transition: 'stroke-dashoffset 1s linear' }}
+                            style={{ transition: 'none' }}
                         />
                     </mask>
                 </defs>

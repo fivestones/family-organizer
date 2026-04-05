@@ -755,6 +755,8 @@ export default function FocusedCountdownPage() {
                     /* Active timer */
                     <div ref={ringContainerRef} className="relative">
                         <RadialTimer
+                            startMs={focusSlot.countdownStartMs}
+                            endMs={focusSlot.countdownEndMs}
                             progress={focusProgress}
                             state={focusTimerState}
                             choreKey={`${focusSlot.choreId}:${focusSlot.personId}`}
