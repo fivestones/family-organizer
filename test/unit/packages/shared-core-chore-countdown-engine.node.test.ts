@@ -551,30 +551,200 @@ describe('chore-countdown-engine', () => {
         });
     });
 
-    describe('ahead-of-schedule computation', () => {
-        it('computes positive ahead time from early completions', () => {
+    describe('target timestamps and chain-shift pass', () => {
+        it('populates targetStartMs/targetEndMs equal to initial countdown times when no shift', () => {
             const chore = makeChoreInput({
-                estimatedDurationSecs: 300, // 5 min
+                estimatedDurationSecs: 300,
                 timingConfig: { mode: 'before_time', time: '09:00' },
-                memberCompletions: {
-                    // Completed 2 minutes before the slot end (9:00).
-                    'person-a': '2026-03-31T08:58:00',
-                },
             });
-
-            const result = computeCountdownTimelines(
-                makeInput([chore], { now: new Date('2026-03-31T08:59:00') }),
-            );
-            const timeline = result.timelines['person-a'];
-
-            // Slot ends at 9:00, completed at 8:58 → 2 min ahead.
-            expect(timeline.aheadBySeconds).toBe(120);
+            const result = computeCountdownTimelines(makeInput([chore]));
+            const slot = result.timelines['person-a'].slots[0];
+            expect(slot.targetEndMs).toBe(localTimeToMs('09:00'));
+            expect(slot.targetStartMs).toBe(localTimeToMs('09:00') - 300_000);
+            expect(slot.countdownStartMs).toBe(slot.targetStartMs);
+            expect(slot.countdownEndMs).toBe(slot.targetEndMs);
         });
 
-        it('returns 0 when no early completions', () => {
-            const chore = makeChoreInput();
-            const result = computeCountdownTimelines(makeInput([chore]));
-            expect(result.timelines['person-a'].aheadBySeconds).toBe(0);
+        it('pushes a stacked successor later when the prior chore finishes late', () => {
+            // Both chores due at 09:00, stacked back-to-back (buffer 15s).
+            // First: brush (3 min) → 08:54:45–08:57:45
+            // Second: bed (3 min) → 08:58:00–09:01:00? wait — both must end by 9:00
+            // Actually right-to-left packing: bed first (sortOrder=1 → closer to
+            // deadline), then brush before it.
+            const chores = [
+                makeChoreInput({
+                    id: 'bed',
+                    title: 'Get ready for bed',
+                    estimatedDurationSecs: 180,
+                    sortOrder: 1,
+                }),
+                makeChoreInput({
+                    id: 'brush',
+                    title: 'Brush teeth',
+                    estimatedDurationSecs: 180,
+                    sortOrder: 0,
+                    memberCompletions: {
+                        // 30 seconds late (brush's target end was 08:56:45).
+                        'person-a': '2026-03-31T08:57:15',
+                    },
+                }),
+            ];
+
+            const result = computeCountdownTimelines(
+                makeInput(chores, {
+                    countdownSettings: { ...DEFAULT_COUNTDOWN_SETTINGS, stackBufferSecs: 15 },
+                    now: new Date('2026-03-31T08:57:30'),
+                }),
+            );
+            const slots = result.timelines['person-a'].slots;
+            const brush = slots.find((s) => s.choreId === 'brush')!;
+            const bed = slots.find((s) => s.choreId === 'bed')!;
+
+            // Target times are unchanged.
+            expect(bed.targetEndMs).toBe(localTimeToMs('09:00'));
+            expect(bed.targetStartMs).toBe(localTimeToMs('09:00') - 180_000); // 8:57
+            expect(brush.targetEndMs).toBe(localTimeToMs('09:00') - 180_000 - 15_000); // 8:56:45
+
+            // Bed should shift: starts at brush-completion + 15s buffer, ends 3m later.
+            const completedMs = new Date('2026-03-31T08:57:15').getTime();
+            expect(bed.countdownStartMs).toBe(completedMs + 15_000); // 8:57:30
+            expect(bed.countdownEndMs).toBe(completedMs + 15_000 + 180_000); // 9:00:30
+
+            // Delta = target - effective = -30s (30s behind).
+            expect((bed.targetEndMs - bed.countdownEndMs) / 1000).toBe(-30);
+        });
+
+        it('pulls a stacked successor earlier when the prior chore finishes early', () => {
+            const chores = [
+                makeChoreInput({
+                    id: 'bed',
+                    estimatedDurationSecs: 60,
+                    sortOrder: 1,
+                }),
+                makeChoreInput({
+                    id: 'brush',
+                    estimatedDurationSecs: 60,
+                    sortOrder: 0,
+                    memberCompletions: {
+                        // brush target end = 09:00 - 60 - 15 = 08:58:45. Finish 30s early.
+                        'person-a': '2026-03-31T08:58:15',
+                    },
+                }),
+            ];
+
+            const result = computeCountdownTimelines(
+                makeInput(chores, {
+                    countdownSettings: { ...DEFAULT_COUNTDOWN_SETTINGS, stackBufferSecs: 15 },
+                }),
+            );
+            const bed = result.timelines['person-a'].slots.find((s) => s.choreId === 'bed')!;
+
+            const completedMs = new Date('2026-03-31T08:58:15').getTime();
+            expect(bed.countdownStartMs).toBe(completedMs + 15_000); // 8:58:30
+            expect(bed.countdownEndMs).toBe(completedMs + 15_000 + 60_000); // 8:59:30
+            // 30s ahead.
+            expect((bed.targetEndMs - bed.countdownEndMs) / 1000).toBe(30);
+        });
+
+        it('does NOT pull an unstacked successor when prior finishes early', () => {
+            // Two chores with different deadlines: dining (12:40) and dishes (13:00).
+            // There's a 10-minute gap — they should not chain for early completions.
+            const chores = [
+                makeChoreInput({
+                    id: 'dining',
+                    estimatedDurationSecs: 300, // 5 min → 12:35–12:40
+                    sortOrder: 0,
+                    timingConfig: { mode: 'before_time', time: '12:40' },
+                    memberCompletions: {
+                        'person-a': '2026-03-31T12:37:00', // 3 min early
+                    },
+                }),
+                makeChoreInput({
+                    id: 'dishes',
+                    estimatedDurationSecs: 600, // 10 min → 12:50–13:00
+                    sortOrder: 1,
+                    timingConfig: { mode: 'before_time', time: '13:00' },
+                }),
+            ];
+
+            const result = computeCountdownTimelines(makeInput(chores));
+            const dishes = result.timelines['person-a'].slots.find((s) => s.choreId === 'dishes')!;
+
+            // Dishes should not have shifted — still at its target time.
+            expect(dishes.countdownStartMs).toBe(dishes.targetStartMs);
+            expect(dishes.countdownEndMs).toBe(dishes.targetEndMs);
+        });
+
+        it('does push an unstacked successor when the prior completion bridges the gap', () => {
+            // Same setup but dining finishes so late its tail + buffer crosses into dishes.
+            const chores = [
+                makeChoreInput({
+                    id: 'dining',
+                    estimatedDurationSecs: 300,
+                    sortOrder: 0,
+                    timingConfig: { mode: 'before_time', time: '12:40' },
+                    memberCompletions: {
+                        // Dining finishes at 12:50:45.
+                        'person-a': '2026-03-31T12:50:45',
+                    },
+                }),
+                makeChoreInput({
+                    id: 'dishes',
+                    estimatedDurationSecs: 600,
+                    sortOrder: 1,
+                    timingConfig: { mode: 'before_time', time: '13:00' },
+                }),
+            ];
+
+            const result = computeCountdownTimelines(
+                makeInput(chores, {
+                    countdownSettings: { ...DEFAULT_COUNTDOWN_SETTINGS, stackBufferSecs: 15 },
+                    now: new Date('2026-03-31T12:51:00'),
+                }),
+            );
+            const dishes = result.timelines['person-a'].slots.find((s) => s.choreId === 'dishes')!;
+
+            const completedMs = new Date('2026-03-31T12:50:45').getTime();
+            expect(dishes.countdownStartMs).toBe(completedMs + 15_000); // 12:51:00
+            expect(dishes.countdownEndMs).toBe(completedMs + 15_000 + 600_000); // 13:01:00
+            // 60s behind.
+            expect((dishes.targetEndMs - dishes.countdownEndMs) / 1000).toBe(-60);
+        });
+
+        it('applies manualStarts to deadline-driven chores and chains successors', () => {
+            const chores = [
+                makeChoreInput({
+                    id: 'bed',
+                    estimatedDurationSecs: 60,
+                    sortOrder: 1,
+                }),
+                makeChoreInput({
+                    id: 'brush',
+                    estimatedDurationSecs: 60,
+                    sortOrder: 0,
+                }),
+            ];
+
+            // brush target start = 08:58:45 (assuming buffer 15s + bed 60s before 09:00).
+            // Manually start brush at 08:57:00 (1m45s early).
+            const manualStartIso = '2026-03-31T08:57:00';
+            const result = computeCountdownTimelines(
+                makeInput(chores, {
+                    countdownSettings: { ...DEFAULT_COUNTDOWN_SETTINGS, stackBufferSecs: 15 },
+                    manualStarts: { brush: manualStartIso },
+                }),
+            );
+            const brush = result.timelines['person-a'].slots.find((s) => s.choreId === 'brush')!;
+            const bed = result.timelines['person-a'].slots.find((s) => s.choreId === 'bed')!;
+
+            const manualMs = new Date(manualStartIso).getTime();
+            expect(brush.countdownStartMs).toBe(manualMs);
+            expect(brush.countdownEndMs).toBe(manualMs + 60_000); // 08:58:00
+            // Bed chains: starts at brush end + 15s buffer = 08:58:15.
+            expect(bed.countdownStartMs).toBe(manualMs + 60_000 + 15_000);
+            // Target bed end stays at 09:00 → delta positive (ahead).
+            expect(bed.targetEndMs).toBe(localTimeToMs('09:00'));
+            expect((bed.targetEndMs - bed.countdownEndMs) / 1000).toBeGreaterThan(0);
         });
     });
 

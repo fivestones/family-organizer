@@ -41,6 +41,7 @@ import {
     TrendingUp,
     TrendingDown,
     Minus,
+    Play,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -110,32 +111,23 @@ function getInitials(name: string): string {
 // Cumulative delta calculation
 // ---------------------------------------------------------------------------
 
-function computeCumulativeDelta(
-    slots: CountdownSlot[],
-    nowMs: number,
-    completionTimestamps: Record<string, string>,
-    focusSlot: CountdownSlot | null,
-): number {
-    let delta = 0;
-    for (const slot of slots) {
-        const liveState = getLiveState(slot, nowMs);
-        if (liveState === 'completed') {
-            // How long did it actually take vs scheduled?
-            const completedAtStr = completionTimestamps[`${slot.choreId}:${slot.personId}`];
-            if (completedAtStr) {
-                const completedAtMs = new Date(completedAtStr).getTime();
-                const scheduledEndMs = slot.countdownEndMs;
-                // Positive = finished early (good), negative = finished late
-                delta += (scheduledEndMs - completedAtMs) / 1000;
-            }
-        }
-    }
-    // Only count overdue time for the single focus chore (the first incomplete one).
-    // Other overdue chores are just "queued behind" it — their overdue time is redundant.
-    if (focusSlot && getLiveState(focusSlot, nowMs) === 'overdue_active') {
-        delta -= (nowMs - focusSlot.countdownEndMs) / 1000;
-    }
-    return delta;
+/**
+ * Returns seconds ahead (positive) / behind (negative) for the current stack.
+ *
+ * Formula: `targetEndMs - max(countdownEndMs, nowMs)` on the focus slot.
+ *
+ * - `countdownEndMs` is the effective end (already shifted by the engine's
+ *   chain pass to reflect actual completion times of earlier chores and any
+ *   manual early starts).
+ * - If we blow past the effective end live, we keep counting up using `nowMs`.
+ * - `targetEndMs` is the unshifted planned end — the reference point.
+ *
+ * Positive result = ahead, negative = behind.
+ */
+function computeStackDelta(focusSlot: CountdownSlot | null, nowMs: number): number {
+    if (!focusSlot) return 0;
+    const effectiveEnd = Math.max(focusSlot.countdownEndMs, nowMs);
+    return (focusSlot.targetEndMs - effectiveEnd) / 1000;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,11 +231,30 @@ export default function FocusedCountdownPage() {
     const [activeCollision, setActiveCollision] = useState<CountdownCollision | null>(null);
     const [celebratingSlotKey, setCelebratingSlotKey] = useState<string | null>(null);
     const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /**
+     * Map of choreId → ISO timestamp when the user clicked "Start Now". Persisted
+     * per family-day in localStorage so a page refresh (or navigating away and
+     * back) doesn't lose the manual start. The engine's chain-shift pass uses
+     * these to move the chore's effective start earlier and propagate the
+     * offset to any chained successors.
+     */
+    const [manualStarts, setManualStarts] = useState<Record<string, string>>({});
 
     // Sync auto-complete default from settings
     useEffect(() => {
         setAutoComplete(countdownSettings.autoMarkCompleteOnCountdownEnd);
     }, [countdownSettings.autoMarkCompleteOnCountdownEnd]);
+
+    // Load manualStarts for the current family-day from localStorage.
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const raw = window.localStorage.getItem(`manualStarts:${todayKey}`);
+            setManualStarts(raw ? (JSON.parse(raw) as Record<string, string>) : {});
+        } catch {
+            setManualStarts({});
+        }
+    }, [todayKey]);
 
     // Tick every second
     useEffect(() => {
@@ -306,6 +317,8 @@ export default function FocusedCountdownPage() {
                 date: today,
                 collisionDecisions:
                     Object.keys(collisionDecisions).length > 0 ? collisionDecisions : undefined,
+                manualStarts:
+                    Object.keys(manualStarts).length > 0 ? manualStarts : undefined,
             });
         } catch (err) {
             console.error('Countdown engine error:', err);
@@ -320,22 +333,10 @@ export default function FocusedCountdownPage() {
         countdownSettings,
         scheduleSettings,
         collisionDecisions,
+        manualStarts,
         // eslint-disable-next-line react-hooks/exhaustive-deps
         Math.floor(nowMs / 30000),
     ]);
-
-    // --- Build completion timestamps map for delta calc ---
-    const completionTimestamps = useMemo(() => {
-        const map: Record<string, string> = {};
-        for (const c of chores) {
-            for (const comp of (c as any).completions || []) {
-                if (comp.completed && comp.dateDue === todayKey && comp.completedBy?.id) {
-                    map[`${c.id}:${comp.completedBy.id}`] = comp.dateCompleted || new Date().toISOString();
-                }
-            }
-        }
-        return map;
-    }, [chores, todayKey]);
 
     // --- People with timelines ---
     const timelinePeople = useMemo(() => {
@@ -414,10 +415,10 @@ export default function FocusedCountdownPage() {
         return { focusSlot: focus, focusIndex: idx, completedCount: completed, nextSlot: next };
     }, [visibleSlots, nowMs]);
 
-    // --- Cumulative ahead/behind delta ---
+    // --- Ahead/behind delta for the current focus chore ---
     const cumulativeDelta = useMemo(() => {
-        return computeCumulativeDelta(visibleSlots, nowMs, completionTimestamps, focusSlot);
-    }, [visibleSlots, nowMs, completionTimestamps, focusSlot]);
+        return computeStackDelta(focusSlot, nowMs);
+    }, [focusSlot, nowMs]);
 
     // --- Chore description lookup ---
     const focusChoreDescription = useMemo(() => {
@@ -481,6 +482,28 @@ export default function FocusedCountdownPage() {
         [todayKey, countdownSettings.stackBufferSecs],
     );
 
+    // --- Start Now handler ---
+    // Sets a manual start timestamp (now) for the given chore. The engine's
+    // chain-shift pass picks this up and pulls the chore (and any chained
+    // successors) earlier in the schedule.
+    const handleStartNow = useCallback(
+        (choreId: string) => {
+            const nowIso = new Date().toISOString();
+            setManualStarts((prev) => {
+                const next = { ...prev, [choreId]: nowIso };
+                if (typeof window !== 'undefined') {
+                    try {
+                        window.localStorage.setItem(`manualStarts:${todayKey}`, JSON.stringify(next));
+                    } catch {
+                        /* ignore quota / privacy-mode errors */
+                    }
+                }
+                return next;
+            });
+        },
+        [todayKey],
+    );
+
     // --- Auto-complete effect ---
     useEffect(() => {
         if (!autoComplete || !activeTimeline) return;
@@ -502,8 +525,17 @@ export default function FocusedCountdownPage() {
     }, [focusSlot, nowMs, celebratingSlotKey]);
 
     const focusProgress = focusSlot ? getSlotProgress(focusSlot, nowMs) : 0;
-    const focusRemainingMs = focusSlot ? focusSlot.countdownEndMs - nowMs : 0;
-    const { main: countdownMain, sub: countdownSub, sign: countdownSign } = formatCountdown(focusRemainingMs);
+    // When the focus slot is upcoming, display the time until its start instead
+    // of the full duration (which would otherwise count down statically with
+    // the ring sitting at 0). Once it goes active we switch to the remaining
+    // duration as normal.
+    const focusIsUpcoming = focusTimerState === 'upcoming' && !!focusSlot;
+    const focusDisplayMs = focusSlot
+        ? focusIsUpcoming
+            ? focusSlot.countdownStartMs - nowMs
+            : focusSlot.countdownEndMs - nowMs
+        : 0;
+    const { main: countdownMain, sub: countdownSub, sign: countdownSign } = formatCountdown(focusDisplayMs);
 
     // --- Measurement-based adaptive font sizing ---
     // We measure the digits using a canvas context (synchronous, no DOM dependency).
@@ -764,6 +796,14 @@ export default function FocusedCountdownPage() {
                         >
                             {/* Countdown numbers */}
                             <div className="flex flex-col items-center gap-2">
+                                {focusIsUpcoming && (
+                                    <div
+                                        className="font-medium uppercase tracking-wider text-white/60"
+                                        style={hasMeasured ? { fontSize: `${Math.max(11, ringWidthPx * 0.022)}px` } : { fontSize: 'min(2.4vmin, 14px)' }}
+                                    >
+                                        Starts in
+                                    </div>
+                                )}
                                 <div className="flex items-baseline gap-0.5">
                                     {countdownSign && (
                                         <span
@@ -933,35 +973,50 @@ export default function FocusedCountdownPage() {
                         )}
                     </div>
 
-                    {/* Mark Done button */}
-                    <Button
-                        size="lg"
-                        onClick={() => {
-                            if (focusSlot && selectedPersonId) {
-                                handleMarkDone(focusSlot.choreId, selectedPersonId);
-                            }
-                        }}
-                        disabled={focusTimerState === 'celebrating'}
-                        className={cn(
-                            'w-full max-w-xs rounded-2xl py-6 text-base font-bold shadow-xl transition-all',
-                            focusTimerState === 'overdue'
-                                ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/30'
-                                : focusTimerState === 'celebrating'
-                                  ? 'bg-emerald-500 text-white shadow-emerald-500/30'
-                                  : focusTimerState === 'active'
-                                    ? 'bg-white/90 hover:bg-white text-slate-900 shadow-white/20'
-                                    : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-sm',
-                        )}
-                    >
-                        {focusTimerState === 'celebrating' ? (
+                    {/* Primary action button */}
+                    {focusIsUpcoming ? (
+                        <Button
+                            size="lg"
+                            onClick={() => {
+                                if (focusSlot) handleStartNow(focusSlot.choreId);
+                            }}
+                            className="w-full max-w-xs rounded-2xl bg-white/90 py-6 text-base font-bold text-slate-900 shadow-xl shadow-white/20 transition-all hover:bg-white"
+                        >
                             <span className="flex items-center gap-2">
-                                <Check className="h-5 w-5" />
-                                Done!
+                                <Play className="h-5 w-5 fill-current" />
+                                Start Now
                             </span>
-                        ) : (
-                            'Mark Done'
-                        )}
-                    </Button>
+                        </Button>
+                    ) : (
+                        <Button
+                            size="lg"
+                            onClick={() => {
+                                if (focusSlot && selectedPersonId) {
+                                    handleMarkDone(focusSlot.choreId, selectedPersonId);
+                                }
+                            }}
+                            disabled={focusTimerState === 'celebrating'}
+                            className={cn(
+                                'w-full max-w-xs rounded-2xl py-6 text-base font-bold shadow-xl transition-all',
+                                focusTimerState === 'overdue'
+                                    ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/30'
+                                    : focusTimerState === 'celebrating'
+                                      ? 'bg-emerald-500 text-white shadow-emerald-500/30'
+                                      : focusTimerState === 'active'
+                                        ? 'bg-white/90 hover:bg-white text-slate-900 shadow-white/20'
+                                        : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-sm',
+                            )}
+                        >
+                            {focusTimerState === 'celebrating' ? (
+                                <span className="flex items-center gap-2">
+                                    <Check className="h-5 w-5" />
+                                    Done!
+                                </span>
+                            ) : (
+                                'Mark Done'
+                            )}
+                        </Button>
+                    )}
                 </div>
             )}
         </div>

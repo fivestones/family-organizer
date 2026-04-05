@@ -214,8 +214,14 @@ interface PlacedSlot {
   choreId: string;
   choreTitle: string;
   personId: string;
+  /** Effective start — shifted by the chain walk. */
   startMs: number;
+  /** Effective end — shifted by the chain walk. */
   endMs: number;
+  /** Static planned start, unchanged by the chain walk. */
+  targetStartMs: number;
+  /** Static planned end, unchanged by the chain walk. */
+  targetEndMs: number;
   durationSecs: number;
   isJoint: boolean;
   jointParticipantIds: string[];
@@ -291,6 +297,8 @@ function packDeadlineDriven(
       personId,
       startMs,
       endMs,
+      targetStartMs: startMs,
+      targetEndMs: endMs,
       durationSecs: chore.durationSecs,
       isJoint: chore.input.isJoint,
       jointParticipantIds: chore.input.isJoint ? chore.input.assigneeIds : [],
@@ -371,22 +379,20 @@ function packStartDriven(
       input.scheduleSettings,
     );
 
-    let startMs = anchorMs + afterDelay * 1000;
+    let targetStart = anchorMs + afterDelay * 1000;
 
     // Check if we collide with already-placed start-driven slots.
     for (const existing of slots) {
-      if (startMs < existing.endMs + bufferSecs * 1000) {
-        startMs = existing.endMs + bufferSecs * 1000;
+      if (targetStart < existing.targetEndMs + bufferSecs * 1000) {
+        targetStart = existing.targetEndMs + bufferSecs * 1000;
       }
     }
 
-    // For manually started chores, override start time.
-    const manualStart = input.manualStarts?.[chore.input.id];
-    if (manualStart) {
-      startMs = new Date(manualStart).getTime();
-    }
-
-    const endMs = startMs + chore.durationSecs * 1000;
+    const targetEnd = targetStart + chore.durationSecs * 1000;
+    // Effective start/end are equal to target at this stage — the chain-shift
+    // pass runs later and may move them based on completions or manual starts.
+    const startMs = targetStart;
+    const endMs = targetEnd;
 
     slots.push({
       choreId: chore.input.id,
@@ -394,6 +400,8 @@ function packStartDriven(
       personId,
       startMs,
       endMs,
+      targetStartMs: targetStart,
+      targetEndMs: targetEnd,
       durationSecs: chore.durationSecs,
       isJoint: chore.input.isJoint,
       jointParticipantIds: chore.input.isJoint ? chore.input.assigneeIds : [],
@@ -486,10 +494,13 @@ function applyCollisionDecisions(
       );
       if (ds) {
         const newStart = ds.endMs + bufferSecs * 1000;
+        const newEnd = newStart + ss.durationSecs * 1000;
         resolved.push({
           ...ss,
           startMs: newStart,
-          endMs: newStart + ss.durationSecs * 1000,
+          endMs: newEnd,
+          targetStartMs: newStart,
+          targetEndMs: newEnd,
         });
       } else {
         resolved.push(ss);
@@ -508,6 +519,8 @@ function applyCollisionDecisions(
           resolved.push({
             ...ss,
             endMs: firstPartEnd,
+            targetStartMs: ss.startMs,
+            targetEndMs: firstPartEnd,
             durationSecs: firstPartDuration,
             isResume: false,
           });
@@ -515,10 +528,13 @@ function applyCollisionDecisions(
 
         if (remainingDuration > 0) {
           const resumeStart = ds.endMs + bufferSecs * 1000;
+          const resumeEnd = resumeStart + remainingDuration * 1000;
           resolved.push({
             ...ss,
             startMs: resumeStart,
-            endMs: resumeStart + remainingDuration * 1000,
+            endMs: resumeEnd,
+            targetStartMs: resumeStart,
+            targetEndMs: resumeEnd,
             durationSecs: remainingDuration,
             isResume: true,
           });
@@ -572,12 +588,14 @@ function propagateJointConstraints(
       // Force all participants to the earliest start.
       for (const { personId, slot, index } of participantSlots) {
         if (slot.startMs !== earliestStart) {
-          const delta = slot.startMs - earliestStart;
           const slots = allTimelines.get(personId)!;
+          const newEnd = earliestStart + slot.durationSecs * 1000;
           slots[index] = {
             ...slot,
             startMs: earliestStart,
-            endMs: earliestStart + slot.durationSecs * 1000,
+            endMs: newEnd,
+            targetStartMs: earliestStart,
+            targetEndMs: newEnd,
           };
 
           // Push preceding slots earlier by the same delta.
@@ -585,10 +603,13 @@ function propagateJointConstraints(
             const prev = slots[i];
             const requiredEnd = slots[i + 1].startMs - bufferSecs * 1000;
             if (prev.endMs > requiredEnd) {
+              const newPrevStart = requiredEnd - prev.durationSecs * 1000;
               slots[i] = {
                 ...prev,
                 endMs: requiredEnd,
-                startMs: requiredEnd - prev.durationSecs * 1000,
+                startMs: newPrevStart,
+                targetStartMs: newPrevStart,
+                targetEndMs: requiredEnd,
               };
               changed = true;
             }
@@ -620,32 +641,88 @@ function computeSlotState(
 }
 
 // ---------------------------------------------------------------------------
-// Step 9: Compute ahead-of-schedule
+// Step 9: Chain-shift pass
 // ---------------------------------------------------------------------------
 
-function computeAheadBy(
+/**
+ * Mutates each slot's effective `startMs` / `endMs` based on:
+ *   - actual completion timestamps of prior chores (late push / early pull)
+ *   - manual early starts (user clicked "Start Now")
+ *
+ * The static planned times live in `targetStartMs` / `targetEndMs` and are
+ * NOT modified here — they remain the reference point for computing how far
+ * ahead/behind the stack is running.
+ *
+ * Chaining rule: two adjacent slots are considered "stacked" iff the earlier
+ * slot's targetEnd + buffer exactly equals the later slot's targetStart (i.e.
+ * the packer placed them tight against each other). Stacked chores chain
+ * both ways — an early completion pulls the next one earlier; a late one
+ * pushes it later. Chores separated by a gap only chain when the prior one's
+ * effective end actually spills into the next one's target start.
+ */
+function applyChainShifts(
   slots: PlacedSlot[],
   chores: CountdownChoreInput[],
-  nowMs: number,
-): number {
-  let aheadMs = 0;
+  personId: string,
+  manualStarts: Record<string, string> | undefined,
+  bufferSecs: number,
+): void {
+  if (slots.length === 0) return;
+
+  // Walk in target-time order.
+  slots.sort((a, b) => a.targetStartMs - b.targetStartMs);
+
+  const bufferMs = bufferSecs * 1000;
   const choreMap = new Map(chores.map((c) => [c.id, c]));
+
+  let prevTargetEnd: number | null = null;
+  let chainEnd: number | null = null;
 
   for (const slot of slots) {
     const chore = choreMap.get(slot.choreId);
-    if (!chore) continue;
+    const completionStr = chore?.memberCompletions[personId];
+    const completionMs = completionStr
+      ? new Date(completionStr).getTime()
+      : null;
 
-    const memberCompletion = chore.memberCompletions[slot.personId];
-    if (!memberCompletion) continue;
+    const manualStartStr = manualStarts?.[slot.choreId];
+    const manualStartMs = manualStartStr
+      ? new Date(manualStartStr).getTime()
+      : null;
 
-    const completedAtMs = new Date(memberCompletion).getTime();
-    if (completedAtMs < slot.endMs) {
-      // Completed before the slot end — they saved time.
-      aheadMs += slot.endMs - completedAtMs;
+    let effectiveStart: number;
+
+    if (manualStartMs != null) {
+      // User explicitly started this slot early → it begins exactly now.
+      effectiveStart = manualStartMs;
+    } else if (chainEnd != null && prevTargetEnd != null) {
+      const stacked = prevTargetEnd + bufferMs === slot.targetStartMs;
+      if (stacked) {
+        // Back-to-back in the original plan → pull earlier or push later.
+        effectiveStart = chainEnd + bufferMs;
+      } else {
+        // Gap in the plan → only push later when the prior slot's tail
+        // actually spills past this slot's target start.
+        effectiveStart = Math.max(slot.targetStartMs, chainEnd + bufferMs);
+      }
+    } else {
+      effectiveStart = slot.targetStartMs;
     }
-  }
 
-  return Math.max(0, Math.round(aheadMs / 1000));
+    const effectiveEnd = effectiveStart + slot.durationSecs * 1000;
+
+    slot.startMs = effectiveStart;
+    slot.endMs = effectiveEnd;
+
+    // Advance the chain. A completed slot pins its chainEnd to when it was
+    // actually finished; an in-progress slot projects using its effective end.
+    if (completionMs != null) {
+      chainEnd = completionMs;
+    } else {
+      chainEnd = effectiveEnd;
+    }
+    prevTargetEnd = slot.targetEndMs;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -738,12 +815,25 @@ export function computeCountdownTimelines(
       ),
     );
 
+    // Apply the chain-shift pass: propagates actual completion times and any
+    // manual early starts forward, updating each slot's effective start/end
+    // while leaving targetStartMs/targetEndMs untouched.
+    applyChainShifts(
+      placedSlots,
+      input.chores,
+      personId,
+      input.manualStarts,
+      bufferSecs,
+    );
+
     const slots: CountdownSlot[] = placedSlots.map((ps) => ({
       choreId: ps.choreId,
       choreTitle: ps.choreTitle,
       personId: ps.personId,
       countdownStartMs: ps.startMs,
       countdownEndMs: ps.endMs,
+      targetStartMs: ps.targetStartMs,
+      targetEndMs: ps.targetEndMs,
       durationSecs: ps.durationSecs,
       state: computeSlotState(
         ps,
@@ -766,12 +856,6 @@ export function computeCountdownTimelines(
       }
     }
 
-    const aheadBySeconds = computeAheadBy(
-      placedSlots,
-      input.chores,
-      nowMs,
-    );
-
     const warnings = generateWarnings(
       placedSlots,
       personId,
@@ -783,7 +867,6 @@ export function computeCountdownTimelines(
     const timeline: PersonCountdownTimeline = {
       personId,
       slots,
-      aheadBySeconds,
       collisions: allUnresolvedCollisions.get(personId) ?? [],
       warnings,
     };

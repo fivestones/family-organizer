@@ -116,10 +116,29 @@ export interface CountdownSlot {
   choreId: string;
   choreTitle: string;
   personId: string;
-  /** Absolute timestamp in ms when this slot's countdown starts. */
+  /**
+   * Absolute timestamp in ms when this slot's countdown starts.
+   * This is the *effective* start time after the completion-driven chain
+   * shift has been applied (and any manual early start). Use this to drive
+   * the running countdown UI.
+   */
   countdownStartMs: number;
-  /** Absolute timestamp in ms when this slot's countdown ends (the deadline). */
+  /**
+   * Absolute timestamp in ms when this slot's countdown ends.
+   * Effective end — already shifted by the chain walk if applicable.
+   */
   countdownEndMs: number;
+  /**
+   * Static planned start time (before any completion-driven shift or manual
+   * early start). Represents "what time should this chore have started if
+   * everything ran exactly on schedule".
+   */
+  targetStartMs: number;
+  /**
+   * Static planned end time. Subtract from countdownEndMs (plus live overdue
+   * spill) to compute how far ahead/behind the overall countdown stack is.
+   */
+  targetEndMs: number;
   /** Duration of this slot in seconds. */
   durationSecs: number;
   state: CountdownSlotState;
@@ -159,7 +178,6 @@ export interface CountdownWarning {
 export interface PersonCountdownTimeline {
   personId: string;
   slots: CountdownSlot[];
-  aheadBySeconds: number;
   collisions: CountdownCollision[];
   warnings: CountdownWarning[];
 }
