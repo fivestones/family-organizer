@@ -470,6 +470,7 @@ export default function FocusedCountdownPage() {
                             completed: true,
                             dateDue: dateKey,
                             dateCompleted: now,
+                            allowanceAwarded: false,
                         })
                         .link({ chore: choreId, completedBy: personId }),
                 ]);
