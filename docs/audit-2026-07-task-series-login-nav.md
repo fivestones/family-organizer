@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: removed the unused legacy principal-switching hook (§5.4, Phase 5).** `components/auth/useInstantPrincipalSwitching.ts` had no imports and retained an older cached-parent elevation path that no longer matched the active session provider's mandatory-PIN and tree-preserving behavior. The 168-line duplicate was deleted so auth security fixes have one implementation surface. Verification: repo search finds no remaining symbol reference; `tsc --noEmit` passes.
 - **2026-07-14 — App-shell hardening implemented; iPad PWA pass still pending (Part 6 secondary, Phase 1).** The body now owns a fixed `h-dvh overflow-hidden` viewport, the header is a non-sticky `shrink-0` flex child with safe-area top padding, and `main` is the sole `overflow-y-auto` scroll container with bottom safe-area scroll padding. `viewportFit: 'cover'` is declared, and dashboard theming now changes backgrounds only instead of conditionally mutating body height/overflow. Verification: 9 focused shell/login/session DOM tests and `tsc --noEmit` pass. A physical iPad home-screen keyboard/backgrounding pass remains device-unverified.
 - **2026-07-14 — Completed: the editor restores protected tasks that bypass the delete prompt (§2.4).** If autosave sees a missing task with progress, responses, attachments, or other guarded data and no recorded confirmation, it now reinserts that task at its persisted order/indentation, updates the editor/card/date state without emitting a second editor update, warns the user, and requeues autosave from the repaired document. The incomplete document is never transacted, so sibling orders cannot be persisted in their temporarily shifted positions. Verification: 1 document-restoration unit test, all 11 editor DOM tests, and `tsc --noEmit` pass.
 - **2026-07-14 — Completed: task completion helper now states its real scope (§1.6).** `getRecursiveTaskCompletionTransactions` was renamed to `buildTaskCompletionTransactions`: it builds one task transition and ancestor rollups, but does not imply descendant completion. Stale unused `ChoreList` test mocks and the feature-test matrix name were updated with the API. Verification: 17 scheduler tests and 8 `ChoreList` tests pass; `tsc --noEmit` passes.
@@ -260,7 +261,7 @@ Net effect: the family sees "the app keeps logging me out" with different timing
 
 - `getParentUnlocked() || true` is always true ([InstantFamilySessionProvider.tsx:111](components/InstantFamilySessionProvider.tsx:111)) — the persisted lock flag is dead on the restore path. Today it's mostly masked (demotion clears the token too), but the expression is wrong; use the stored value or delete the flag.
 - **PIN hashing is unsalted SHA-256** ([instant-admin.ts:105-107](lib/instant-admin.ts:105), mirrored client-side in [pin-client.ts](lib/pin-client.ts)) — for 4-digit PINs the hash is decorative (10k guesses). Server-side, switch to HMAC with a server secret (or scrypt); rate-limit kid PIN attempts too (currently only parents are limited, [route.ts:60-66](app/api/instant-auth-token/route.ts:60)).
-- `components/auth/useInstantPrincipalSwitching.ts` (168 lines) is imported nowhere — dead code; delete it before it drifts further from reality.
+- **Completed 2026-07-14:** deleted the unimported 168-line `useInstantPrincipalSwitching.ts`; its older cached-parent elevation behavior no longer matched the active session provider.
 - **Completed 2026-07-14:** the `document.body.style.pointerEvents` patch was removed after the modal began closing before the principal swap and the full-tree remount was eliminated.
 - `AuthProvider.isAuthenticated` requires the `familyMembers` roster row to resolve ([AuthProvider.tsx:57-72](components/AuthProvider.tsx:57)); a deleted member or slow roster query reads as "logged out" with no message.
 - **Completed 2026-07-13 — device-auth WIP:** `getParentDomain` now returns no explicit domain for LAN IPv4/IPv6 hosts, localhost, root domains, and common multi-part public-suffix roots; `DEVICE_AUTH_COOKIE_DOMAIN` is the explicit override for sibling-subdomain deployments. The activation cookie is now bound to a digest of `DEVICE_ACCESS_KEY` rather than the literal `true`. The cookie rename to `activation_token` intentionally requires one re-activation on existing devices and future access-key rotations invalidate existing activation cookies.
@@ -335,7 +336,7 @@ These are real but were not the cause of the captured incident:
 18. One idle/lock policy; true kid demotion; rename `ensureKidPrincipal` (5.3).
 19. HMAC/scrypt PINs + kid rate limiting (5.4).
 20. ~~Sanitize response-field HTML (4.4).~~ **Completed 2026-07-14** through the shared DOMPurify renderer used by checklist and review/update surfaces.
-21. Delete `useInstantPrincipalSwitching.ts`; resolve `/my-tasks` (link it or remove it).
+21. **Partially completed 2026-07-14:** ~~delete `useInstantPrincipalSwitching.ts`.~~ The `/my-tasks` product/navigation decision remains open.
 22. Retire the LoginModal pointer-events hack once Phase 1 items 6 have soaked.
 
 ---
