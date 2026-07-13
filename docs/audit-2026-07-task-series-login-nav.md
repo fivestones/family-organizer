@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: shared principals discard stale member identity.** Minting a shared kid or parent token now rewrites `$users.familyMemberId` to the explicit empty-string sentinel instead of preserving whichever member ID may have been attached by an older session. Instant permission CEL can compare that sentinel safely, while member-scoped tokens continue to carry a real family-member ID. This prevents a shared-device principal from silently inheriting a previously selected member's write identity. Verification: the focused `instant-admin` unit test and `tsc --noEmit` pass.
 - **2026-07-13 — Completed: device-auth cookie hardening and domain guard (§5.4).** Device cookies now carry a SHA-256 token derived from the configured `DEVICE_ACCESS_KEY` instead of the forgeable literal `true`; rotating the access key therefore invalidates old cookies. Cookie-domain inference now leaves localhost, LAN IPv4/IPv6 hosts, root domains, and common multi-part public suffix roots host-only. Deployments that need sibling-subdomain SSO can set `DEVICE_AUTH_COOKIE_DOMAIN` explicitly. Existing devices must activate once after the cookie migration from `family_device_auth` to `activation_token`. Verification: 70 focused unit/integration assertions pass across middleware, activation, server actions, calendar auth, and mobile/file routes; `tsc --noEmit` reaches only three unrelated pre-existing errors recorded for follow-up.
 
 ---

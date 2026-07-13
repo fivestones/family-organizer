@@ -83,7 +83,15 @@ async function ensurePrincipalUserType(type: PrincipalType) {
     const email = getPrincipalEmail(type);
     const user = await adminDb.auth.getUser({ email });
 
-    await adminDb.transact([adminDb.tx.$users[user.id].update({ type })]);
+    await adminDb.transact([
+        adminDb.tx.$users[user.id].update({
+            type,
+            // Keep shared principals explicitly identity-less. Instant auth
+            // refs preserve null values, which cannot be compared reliably in
+            // permission CEL; an empty string remains safely comparable.
+            familyMemberId: '',
+        }),
+    ]);
 }
 
 export async function mintPrincipalToken(type: PrincipalType) {

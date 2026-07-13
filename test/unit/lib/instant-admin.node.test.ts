@@ -37,7 +37,7 @@ describe('lib/instant-admin', () => {
         expect(mod.hashPinServer('1234')).toBe('03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4');
     });
 
-    it('mints a principal token and stamps the Instant $users.type field', async () => {
+    it('mints a shared principal token without retaining a member identity', async () => {
         process.env.NEXT_PUBLIC_INSTANT_APP_ID = 'app_test';
         process.env.INSTANT_APP_ADMIN_TOKEN = 'admin_test';
         process.env.INSTANT_KID_AUTH_EMAIL = 'kid@family-organizer.local';
@@ -66,7 +66,7 @@ describe('lib/instant-admin', () => {
         expect(token).toBe('kid-token');
         expect(createToken).toHaveBeenCalledWith({ email: 'kid@family-organizer.local' });
         expect(getUser).toHaveBeenCalledWith({ email: 'kid@family-organizer.local' });
-        expect(update).toHaveBeenCalledWith({ type: 'kid' });
+        expect(update).toHaveBeenCalledWith({ type: 'kid', familyMemberId: '' });
         expect(transact).toHaveBeenCalledWith([{ op: 'update-user-type' }]);
     });
 });
