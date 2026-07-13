@@ -434,8 +434,17 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
             choreId: activity.id || null,
         });
 
-        await db.transact(transactions);
-        toast({ title: 'Schedule caught up', description: 'Planned end date updated to match current progress.' });
+        try {
+            await db.transact(transactions);
+            toast({ title: 'Schedule caught up', description: 'Planned end date updated to match current progress.' });
+        } catch (error) {
+            console.error('Schedule catch-up failed', error);
+            toast({
+                title: 'Could not catch up schedule',
+                description: 'The planned end date was not changed. Please try again.',
+                variant: 'destructive',
+            });
+        }
     };
 
     const handleNewSeries = () => {

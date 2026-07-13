@@ -296,6 +296,48 @@ describe('TaskSeriesManager', () => {
         expect(screen.getByRole('heading', { name: 'Starts Tomorrow' }).parentElement).toHaveTextContent('In Progress');
     });
 
+    it('reports a failed catch-up transaction without showing false success', async () => {
+        const user = userEvent.setup();
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        taskSeriesManagerMocks.dbTransact.mockRejectedValueOnce(new Error('network unavailable'));
+
+        renderManagerWithSeries([
+            makeSeries({
+                id: 'behind-series',
+                name: 'Behind Series',
+                plannedEndDate: '2020-01-01T00:00:00Z',
+                familyMember: { id: 'kid-a', name: 'Alex' },
+                scheduledActivity: {
+                    id: 'chore-a',
+                    title: 'A',
+                    startDate: '2000-04-01T00:00:00Z',
+                    rrule: 'FREQ=DAILY',
+                    exdates: [],
+                },
+                tasks: [
+                    { id: 'task-a', order: 0, isDayBreak: false, isCompleted: false },
+                    { id: 'break-a', order: 1, isDayBreak: true, isCompleted: false },
+                    { id: 'task-b', order: 2, isDayBreak: false, isCompleted: false },
+                ],
+            }),
+        ]);
+
+        await user.click(screen.getByRole('button', { name: /catch up/i }));
+
+        await waitFor(() => {
+            expect(taskSeriesManagerMocks.toast).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: 'Could not catch up schedule',
+                    variant: 'destructive',
+                })
+            );
+        });
+        expect(taskSeriesManagerMocks.toast).not.toHaveBeenCalledWith(
+            expect.objectContaining({ title: 'Schedule caught up' })
+        );
+        consoleError.mockRestore();
+    });
+
     it('queries without server-side ordering and sorts by updated date client-side', () => {
         renderManagerWithSeries([
             makeSeries({ id: 'older', name: 'Older Series', updatedAt: '2026-04-01T00:00:00Z' }),
