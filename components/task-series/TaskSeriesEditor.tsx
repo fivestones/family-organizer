@@ -33,7 +33,7 @@ import type { Task as SchedulerTask } from '@/lib/task-scheduler';
 import { computeDeletionImpact, taskHasData, type TaskLikeForGuard } from '@/lib/task-data-guard';
 import { TaskDeleteConfirmDialog } from './TaskDeleteConfirmDialog';
 import { buildTaskIdRepairPlan, type TaskNodeIdentity } from '@/lib/task-editor-ids';
-import { restorePersistedTaskNodes } from '@/lib/task-editor-document';
+import { buildSchedulerTasksFromEditorDocument, restorePersistedTaskNodes } from '@/lib/task-editor-document';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
 interface Task {
@@ -1638,26 +1638,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         if (scheduledActivityId && taskStructureChanged) {
             const chore = data?.chores?.find((c: any) => c.id === scheduledActivityId);
             if (chore?.rrule) {
-                // Build minimal Task[] for block counting
-                const schedulerTasks: SchedulerTask[] = [...dbTasks, ...Array.from(currentIds).filter(tid => !dbTasks.some(t => t.id === tid)).map(tid => {
-                    const node = editor?.state.doc.content.content?.find((n: any) => n.attrs?.id === tid);
-                    return {
-                        id: tid,
-                        text: node?.textContent || '',
-                        isDayBreak: node?.attrs?.isDayBreak || false,
-                        isCompleted: false,
-                        order: 0,
-                    } as SchedulerTask;
-                })].map((t: any) => ({
-                    id: t.id,
-                    text: t.text || '',
-                    isDayBreak: !!t.isDayBreak,
-                    isCompleted: !!t.isCompleted,
-                    order: typeof t.order === 'number' ? t.order : 0,
-                    workflowState: t.workflowState || undefined,
-                    parentTask: t.parentTask,
-                    subTasks: t.subTasks,
-                } as SchedulerTask));
+                const schedulerTasks = buildSchedulerTasksFromEditorDocument(json, dbTasks) as SchedulerTask[];
 
                 const totalBlocks = countTaskDayBlocks(schedulerTasks);
                 const existingBaseline = seriesDataRef.current?.baselineDayBreakCount;
