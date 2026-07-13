@@ -32,6 +32,7 @@ import { countTaskDayBlocks, computePlannedEndDate, type ChoreScheduleInfo } fro
 import type { Task as SchedulerTask } from '@/lib/task-scheduler';
 import { computeDeletionImpact, taskHasData, type TaskLikeForGuard } from '@/lib/task-data-guard';
 import { TaskDeleteConfirmDialog } from './TaskDeleteConfirmDialog';
+import { buildTaskIdRepairPlan, type TaskNodeIdentity } from '@/lib/task-editor-ids';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
 interface Task {
@@ -1003,21 +1004,37 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                                     // deleted tasks.
                                     tr = tr.replaceWith(0, state.doc.content.size, savedDoc.content);
 
-                                    // Ensure pasted nodes get fresh IDs
+                                    // Preserve each still-existing pre-paste ID
+                                    // once. Every inserted, duplicate, missing,
+                                    // or confirmed-deleted ID gets replaced.
                                     const confirmedSet = confirmedDeleteIds.current;
+                                    const reusableIds = new Set<string>();
+                                    state.doc.descendants((node: any) => {
+                                        const nodeId = node.type.name === 'taskItem' ? (node.attrs?.id as string | undefined) : undefined;
+                                        if (nodeId && !confirmedSet.has(nodeId)) reusableIds.add(nodeId);
+                                        return false;
+                                    });
+
+                                    const preservedPositions = new Set<number>();
+                                    const claimedIds = new Set<string>();
+                                    const taskNodes: TaskNodeIdentity[] = [];
                                     tr.doc.descendants((node: any, pos: number) => {
                                         if (node.type.name !== 'taskItem') return false;
                                         const nodeId = node.attrs?.id as string | undefined;
-                                        // Assign fresh IDs to nodes that had deleted task
-                                        // IDs or no ID at all
-                                        if (!nodeId || confirmedSet.has(nodeId)) {
-                                            tr = tr.setNodeMarkup(pos, undefined, {
-                                                ...node.attrs,
-                                                id: id(),
-                                            }, node.marks);
+                                        taskNodes.push({ pos, id: nodeId });
+                                        if (nodeId && reusableIds.has(nodeId) && !claimedIds.has(nodeId)) {
+                                            preservedPositions.add(pos);
+                                            claimedIds.add(nodeId);
                                         }
                                         return false;
                                     });
+
+                                    const repairs = buildTaskIdRepairPlan(taskNodes, preservedPositions, id);
+                                    for (const [pos, nextId] of Array.from(repairs.entries())) {
+                                        const node = tr.doc.nodeAt(pos);
+                                        if (!node || node.type.name !== 'taskItem') continue;
+                                        tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, id: nextId }, node.marks);
+                                    }
                                 } else {
                                     // Pure deletion: remove nodes by their IDs
                                     const toDelete: Array<{ from: number; to: number }> = [];

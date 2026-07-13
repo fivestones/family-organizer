@@ -21,6 +21,7 @@ import {
     TASK_SERIES_OPEN_DETAILS_EVENT,
     type TaskSeriesOpenDetailsPayload,
 } from './taskSeriesCommands';
+import { buildTaskIdRepairPlan, type TaskNodeIdentity } from '@/lib/task-editor-ids';
 
 // --- Context ---
 // Now stores both the visual label and the underlying date object
@@ -790,11 +791,25 @@ export const TaskItemExtension = Node.create({
                     const oldDoc = oldState.doc;
                     const newDoc = newState.doc;
 
-                    // Collect IDs of all taskItems that existed *before* the paste
-                    const oldIds = new Set<string>();
-                    oldDoc.descendants((node) => {
-                        if (node.type.name === 'taskItem' && node.attrs?.id) {
-                            oldIds.add(node.attrs.id as string);
+                    // Map each pre-paste task position through the paste. Only
+                    // those exact surviving nodes may keep their IDs; inserted
+                    // nodes get fresh IDs even when clipboard HTML carries an
+                    // ID that already exists in this or another series.
+                    const preservedPositions = new Set<number>();
+                    oldDoc.descendants((node, oldPos) => {
+                        if (node.type.name !== 'taskItem' || !node.attrs?.id) return false;
+
+                        let mappedPos = oldPos;
+                        let wasDeleted = false;
+                        for (const transaction of transactions) {
+                            const mapped = transaction.mapping.mapResult(mappedPos, 1);
+                            mappedPos = mapped.pos;
+                            wasDeleted = wasDeleted || mapped.deleted;
+                        }
+
+                        const mappedNode = !wasDeleted ? newDoc.nodeAt(mappedPos) : null;
+                        if (mappedNode?.type.name === 'taskItem' && mappedNode.attrs?.id === node.attrs.id) {
+                            preservedPositions.add(mappedPos);
                         }
                         return false;
                     });
@@ -807,41 +822,34 @@ export const TaskItemExtension = Node.create({
                         baselineIndentation = pasteNode.attrs.indentationLevel || 0;
                     }
 
-                    let tr = newState.tr;
-                    let changed = false;
-
-                    // Go through all taskItems in the NEW doc
+                    const taskNodes: TaskNodeIdentity[] = [];
                     newDoc.descendants((node, pos) => {
-                        if (node.type.name !== 'taskItem') return false;
+                        if (node.type.name === 'taskItem') {
+                            taskNodes.push({ pos, id: node.attrs?.id as string | undefined });
+                        }
+                        return false;
+                    });
 
-                        const nodeId = node.attrs?.id as string | undefined;
-                        const isDayBreak = !!node.attrs?.isDayBreak;
+                    const repairs = buildTaskIdRepairPlan(taskNodes, preservedPositions, generateId);
+                    if (repairs.size === 0) return null;
 
-                        // Skip day breaks entirely
-                        if (isDayBreak) return false;
-
-                        // If this node existed before paste, don't touch it
-                        if (nodeId && oldIds.has(nodeId)) return false;
-
-                        // This is a *new* taskItem (created by paste or still missing id).
-                        // Always assign a fresh ID so clipboard HTML never carries stale
-                        // IDs from deleted tasks into the editor.
+                    let tr = newState.tr;
+                    for (const [pos, nextId] of Array.from(repairs.entries())) {
+                        const node = tr.doc.nodeAt(pos);
+                        if (!node || node.type.name !== 'taskItem') continue;
                         tr = tr.setNodeMarkup(
                             pos,
                             undefined,
                             {
                                 ...node.attrs,
-                                id: generateId(),
+                                id: nextId,
                                 indentationLevel: baselineIndentation,
                             },
                             node.marks
                         );
-                        changed = true;
+                    }
 
-                        return false;
-                    });
-
-                    return changed ? tr : null;
+                    return tr.docChanged ? tr : null;
                 },
             }),
         ];

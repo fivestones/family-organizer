@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: task copy/paste can no longer duplicate or steal task IDs (§2.2, Phase 2).** The existing paste hook now maps exact pre-paste nodes into the new document and preserves those positions only; every inserted task or day break receives a fresh Instant ID even if clipboard HTML carries an ID already used in this series or a different one. A shared repair planner prevents generated collisions and is also used by the delete-confirm paste replay, which preserves each surviving old ID once and re-IDs duplicate, foreign, missing, and confirmed-deleted nodes. Verification: 2 ID-planner unit tests, all 10 `TaskSeriesEditor` DOM tests, and `tsc --noEmit` pass.
 - **2026-07-14 — Database portion completed: task deletion cascades through task-owned records (§2.3, Phase 2).** The checked-in and hosted Instant schema now cascades task deletion into `taskUpdates`, `taskResponseFields`, and `taskAttachments`, then cascades response-field deletion into `taskResponseFieldValues`; existing update-owned attachments/response values continue to use their prior cascades. A hosted smoke test creates the full graph, deletes the task, and proves all five namespaces are empty. The schema push also removed stale live-only `calendarSyncCalendars.ctag`/`syncToken` attributes that were absent from the repo; current code and schema use `lastCtag`/`lastSyncToken`. Verification: 8 schema/permission contract tests, the 2-test hosted Instant matrix (including the new cascade proof), and `tsc --noEmit` pass. **Still open:** reference-aware S3 object reclamation; duplicate task attachments can share a stored-object URL, so deleting the object blindly with either metadata row would break the survivor.
 - **2026-07-14 — Completed: task-series duplication preserves hierarchy and task-owned definitions (Part 3 #2, Phase 2).** Duplicate now preallocates an old→new task ID map, creates reset task rows with weights and correct parent/leaf completion defaults, then restores parent links in a second pass. Response-field definitions are recreated with fresh IDs, and task attachments receive fresh metadata rows linked to the copied task while sharing the immutable stored-object URL. The copy still intentionally starts unassigned, unscheduled, dependency-free, and with all workflow progress reset. Verification: all 6 `TaskSeriesManager` DOM tests pass with hierarchy/weight/field/attachment assertions; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: cyclic task-series dependencies no longer crash the manager (§1.5, Phase 2).** Status evaluation now tracks its active dependency stack, marks every series in a detected cycle, and treats only those cycle edges as non-blocking while normal dependencies retain their existing pending behavior. Both members of a two-series cycle resolve deterministically to their independent schedule/progress status instead of overflowing the stack. Verification: all 6 `TaskSeriesManager` DOM tests pass, including the cycle regression; `tsc --noEmit` passes.
@@ -31,7 +32,7 @@
 | 4 | Nav bar | **Completed 2026-07-14** | Interactive sign-in keeps the tree mounted, closes the dialog first, and pins the header first in flex order |
 | 5 | /tasks | **Completed 2026-07-14** | Done-only history no longer keeps a row alive; same-day completions remain available in the Done bin |
 | 6 | Data | **DB rows completed 2026-07-14** | Cascades remove task-owned rows and response values; reference-aware S3 object reclamation remains open |
-| 7 | Editor | **Medium (Confirmed)** | Copy-paste inside the bulk editor duplicates task IDs → silent data loss on save |
+| 7 | Editor | **Completed 2026-07-14** | Paste and confirmed paste replay preserve old IDs once and assign fresh IDs to every inserted task/day break |
 | 8 | Manager | **Completed 2026-07-14** | Duplicate preserves hierarchy, weights, response fields, and attachment metadata while resetting workflow progress |
 | 9 | Login | **Completed 2026-07-14** | The blocking screen is bootstrap-only; interactive switches preserve app state and subscriptions |
 | 10 | Perf | **Medium** | Unbounded queries fetch the entire task/update/completion history on list pages |
@@ -119,11 +120,13 @@ Problems:
 
 **Completed:** existing tasks now receive an update only when their editor-owned structure changes, and that payload contains no workflow, completion, deferral, or child-completion fields. New task creation still initializes those fields once. The editor links only new tasks, updates series metadata only when it changed (or when creating a series), and changes owner/activity links only when their targets differ. If structure, hierarchy, metadata, and links are all unchanged, no transaction is sent. Regression tests prove that a stale persisted `done` snapshot cannot enter an existing-task autosave payload and that metadata-only typing does not rewrite task rows.
 
-### 2.2 Pasting duplicates task IDs — **Medium, Confirmed**
+### 2.2 Pasting duplicates task IDs — **Completed 2026-07-14**
 
 Task identity lives in the `id` node-attribute. Copying a task and pasting it (within or across series) keeps the same `id`; there is no uniqueness plugin (the only re-ID pass is the delete-guard confirm path, [TaskSeriesEditor.tsx:1007-1020](components/task-series/TaskSeriesEditor.tsx:1007)). With two nodes sharing an ID, `debouncedSave` writes the same row twice (last-one-wins on `text`/`order`), `currentIds` dedupes so nothing is deleted, and on reload one of the two visible tasks is gone. Cross-series paste is worse: the task row gets **re-linked to the new series** (`tx.taskSeries[seriesId].link({ tasks: taskId })`), stealing it (and its update history) from the original series.
 
 **Fix:** add an `appendTransaction` ProseMirror plugin that scans for duplicate/foreign `id` attrs after any doc change and assigns fresh IDs to all but the first occurrence (fresh IDs to *all* pasted nodes whose ID already exists in `persistedTaskById` under a different series).
+
+**Completed:** an `appendTransaction` hook already existed, but it skipped every pasted node whose ID appeared in the old document—the exact duplicate-ID case—and skipped day breaks entirely. It now maps the exact old node positions through the paste transaction and preserves only those surviving positions. All other task items, including day breaks and cross-series clipboard nodes, receive fresh IDs through a shared collision-safe planner. The delete-guard's whole-document paste replay uses the same planner with a preserve-once set, closing the alternate path that bypasses the normal paste metadata.
 
 ### 2.3 Deletions orphan task data and leak storage — **Database portion completed 2026-07-14**
 
@@ -296,7 +299,7 @@ These are real but were not the cause of the captured incident:
 ### Phase 2 — data integrity
 
 8. **Partially completed 2026-07-14:** ~~schema cascades for task-owned children + hosted push (2.3).~~ S3 policy resolved in favor of a reference-aware orphan sweep; implementing that sweep remains open.
-9. Unique-ID enforcement plugin in the editor (2.2).
+9. ~~Unique-ID enforcement plugin in the editor (2.2).~~ **Completed 2026-07-14** for normal paste and confirmed paste replay, including day breaks and foreign IDs.
 10. ~~Faithful series duplication (Part 3 #2).~~ **Completed 2026-07-14** for hierarchy, weights, response fields, and attachment metadata.
 11. ~~Cycle guard in `computeStatus` (1.5).~~ **Completed 2026-07-14** with deterministic non-blocking cycle edges.
 
