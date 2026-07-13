@@ -16,6 +16,19 @@ export function localDateToUTC(date: Date): Date {
     return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
 }
 
+/** Return a YYYY-MM-DD key using the date's local calendar components. */
+export function getLocalDateKey(date: Date): string {
+    return localDateToUTC(date).toISOString().slice(0, 10);
+}
+
+/**
+ * Return today's local calendar key. `new Date()` is intentionally evaluated
+ * at call time so the web time-machine's Date override remains effective.
+ */
+export function getTodayKey(now: Date = new Date()): string {
+    return getLocalDateKey(now);
+}
+
 export function createRRuleWithStartDate(rruleString: string | null | undefined, startDateString: string | Date): RRule | null {
     if (!rruleString) return null;
 
@@ -32,4 +45,3 @@ export function createRRuleWithStartDate(rruleString: string | null | undefined,
         return null;
     }
 }
-

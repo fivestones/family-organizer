@@ -33,6 +33,7 @@ import {
 import { getTasksForDate } from '@/lib/task-scheduler';
 import { toUTCDate } from '@/lib/chore-utils';
 import type { Task } from '@/lib/task-scheduler';
+import { getTodayKey } from '@family-organizer/shared-core';
 
 type SeriesFilter = 'active_now' | 'future' | 'finished' | 'all';
 type SeriesStatus = 'active_now' | 'future' | 'finished';
@@ -85,8 +86,8 @@ const MyTaskSeriesOverview: React.FC<MyTaskSeriesOverviewProps> = ({ db, initial
         return member?.name || null;
     }, [selectedMemberId, data?.familyMembers]);
 
-    const today = useMemo(() => toUTCDate(new Date()), []);
-    const todayKey = useMemo(() => today.toISOString().slice(0, 10), [today]);
+    const todayKey = useMemo(() => getTodayKey(), []);
+    const today = useMemo(() => toUTCDate(new Date(`${todayKey}T00:00:00Z`)), [todayKey]);
 
     const enrichedSeries = useMemo<EnrichedSeries[]>(() => {
         const rawSeries = data?.taskSeries || [];

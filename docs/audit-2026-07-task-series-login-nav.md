@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: task scheduling and bins share local-calendar “today” semantics (§1.4, Phase 3).** Shared core now exports `getLocalDateKey`/`getTodayKey`, based on local calendar components and evaluated at call time so the production-gated Date time machine remains effective. Scheduler anchors and pull-forward checks, task-bin overdue defaults, review updates, note-until dates/date-picker guards, My Task Series, and manager status all use the shared key instead of raw UTC `toISOString()` for “today.” Verification: 34 focused shared-date, scheduler, task-bin, and manager tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: task copy/paste can no longer duplicate or steal task IDs (§2.2, Phase 2).** The existing paste hook now maps exact pre-paste nodes into the new document and preserves those positions only; every inserted task or day break receives a fresh Instant ID even if clipboard HTML carries an ID already used in this series or a different one. A shared repair planner prevents generated collisions and is also used by the delete-confirm paste replay, which preserves each surviving old ID once and re-IDs duplicate, foreign, missing, and confirmed-deleted nodes. Verification: 2 ID-planner unit tests, all 10 `TaskSeriesEditor` DOM tests, and `tsc --noEmit` pass.
 - **2026-07-14 — Database portion completed: task deletion cascades through task-owned records (§2.3, Phase 2).** The checked-in and hosted Instant schema now cascades task deletion into `taskUpdates`, `taskResponseFields`, and `taskAttachments`, then cascades response-field deletion into `taskResponseFieldValues`; existing update-owned attachments/response values continue to use their prior cascades. A hosted smoke test creates the full graph, deletes the task, and proves all five namespaces are empty. The schema push also removed stale live-only `calendarSyncCalendars.ctag`/`syncToken` attributes that were absent from the repo; current code and schema use `lastCtag`/`lastSyncToken`. Verification: 8 schema/permission contract tests, the 2-test hosted Instant matrix (including the new cascade proof), and `tsc --noEmit` pass. **Still open:** reference-aware S3 object reclamation; duplicate task attachments can share a stored-object URL, so deleting the object blindly with either metadata row would break the survivor.
 - **2026-07-14 — Completed: task-series duplication preserves hierarchy and task-owned definitions (Part 3 #2, Phase 2).** Duplicate now preallocates an old→new task ID map, creates reset task rows with weights and correct parent/leaf completion defaults, then restores parent links in a second pass. Response-field definitions are recreated with fresh IDs, and task attachments receive fresh metadata rows linked to the copied task while sharing the immutable stored-object URL. The copy still intentionally starts unassigned, unscheduled, dependency-free, and with all workflow progress reset. Verification: all 6 `TaskSeriesManager` DOM tests pass with hierarchy/weight/field/attachment assertions; `tsc --noEmit` passes.
@@ -74,7 +75,7 @@ In `getTasksForDate` the push condition at a day-break ([task-scheduler.ts:124](
 
 `lib/task-series-schedule.ts` `getTaskDayBlocks` ([task-series-schedule.ts:27](lib/task-series-schedule.ts:27)) splits *definitions* (all actionable tasks), while `getTasksForDate` splits *remaining work* (queue-filtered). They share day-break mechanics but were written twice with subtly different push conditions. Progress counts ("Days 3/7"), drift, catch-up, and the visible queue can disagree after edge cases (e.g., a block whose tasks were all deleted). Same fix as 1.2: one primitive, two projections.
 
-### 1.4 "Today" is computed in two different timezones — **Medium**
+### 1.4 "Today" is computed in two different timezones — **Completed 2026-07-14**
 
 - The scheduler derives today from **local** midnight: `toLocalMidnight(new Date())` ([task-scheduler.ts:95](lib/task-scheduler.ts:95)).
 - Task bins derive today from **UTC**: `new Date().toISOString().slice(0, 10)` ([task-bins.ts:135](lib/task-bins.ts:135), also [task-bins.ts:292](lib/task-bins.ts:292)).
@@ -82,6 +83,8 @@ In `getTasksForDate` the push condition at a day-break ([task-scheduler.ts:124](
 In Nepal (UTC+5:45), from midnight to 05:44 local the two disagree: the checklist has rolled to the new day while the bins/overdue math still thinks it's yesterday (and vice versa for late-evening UTC rollover in other timezones). Overdue counts and "submitted N days late" labels shift depending on the hour.
 
 **Fix:** one `getTodayKey()` in `shared-core` (local-midnight semantics, built on `getNow()` so the time machine keeps working), used by scheduler, bins, checklist (`selectedDateKey`), and MyTaskSeriesOverview.
+
+**Completed:** `shared-core` now owns `getLocalDateKey(date)` and call-time `getTodayKey()`. The scheduler converts that key back to its canonical UTC-midnight date object, while bins and UI mutations consume the key directly. `TaskBinsReview` also stopped using UTC conversion for tomorrow/date-picker values and compares calendar keys when disabling past dates. My Task Series and the manager derive their midnight comparison date from the same key. The app's production-gated time machine patches `Date`, so evaluating the default at call time preserves simulated-time behavior without introducing a second clock abstraction.
 
 ### 1.5 Dependency status can recurse forever — **Completed 2026-07-14**
 
@@ -306,7 +309,7 @@ These are real but were not the cause of the captured incident:
 ### Phase 3 — engine consolidation
 
 12. Single `splitIntoBlocks` primitive + table-driven tests for empty-block/day-break semantics (1.2, 1.3).
-13. `getTodayKey()` in shared-core; adopt everywhere (1.4).
+13. ~~`getTodayKey()` in shared-core; adopt everywhere (1.4).~~ **Completed 2026-07-14** across scheduler, bins/review actions, member overview, and manager status.
 14. Align editor date preview with the live projection (2.5).
 
 ### Phase 4 — performance

@@ -38,6 +38,7 @@ import {
 import type { Task as SchedulerTask } from '@/lib/task-scheduler';
 import { computeSeriesGrade } from '@/lib/task-response-aggregation';
 import { formatGradeDisplay } from '@/lib/grade-utils';
+import { getTodayKey } from '@family-organizer/shared-core';
 
 type Status = 'draft' | 'pending' | 'in_progress' | 'archived';
 
@@ -87,7 +88,8 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
             return bTime - aTime;
         });
     }, [data?.taskSeries]);
-    const today = useMemo(() => new Date(), []);
+    const todayKey = useMemo(() => getTodayKey(), []);
+    const today = useMemo(() => new Date(`${todayKey}T00:00:00Z`), [todayKey]);
 
     const enrichedSeries = useMemo(() => {
         type BaseInfo = {
@@ -254,7 +256,6 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
             let drift: ScheduleDrift = { status: 'on_target', days: 0, label: 'On target' };
             const activity = s.scheduledActivity;
             if (activity?.rrule) {
-                const todayKey = today.toISOString().slice(0, 10);
                 const schedule: ChoreScheduleInfo = {
                     startDate: activity.startDate ? new Date(activity.startDate).toISOString().slice(0, 10) : todayKey,
                     rruleString: activity.rrule,

@@ -65,6 +65,7 @@ import {
 import { TaskUpdatePanel, type TaskUpdatePanelSubmission } from '@/components/task-updates/TaskUpdatePanel';
 import { UpdateHistory } from '@/components/task-updates/UpdateHistory';
 import { AttachmentThumbnailRow } from '@/components/attachments/AttachmentThumbnail';
+import { getLocalDateKey, getTodayKey } from '@family-organizer/shared-core';
 
 // ---------------------------------------------------------------------------
 // Status styles
@@ -213,7 +214,7 @@ export const TaskBinsReview: React.FC = () => {
                 taskId,
                 allTasks: tasks as any[],
                 nextState: submission.nextState,
-                selectedDateKey: new Date().toISOString().slice(0, 10),
+                selectedDateKey: getTodayKey(),
                 note: submission.note,
                 actorFamilyMemberId: currentUser.id,
                 affectedFamilyMemberId: affectedId,
@@ -724,13 +725,13 @@ const NotedSplitButton: React.FC<NotedSplitButtonProps> = ({ onNote }) => {
         // "Noted" = note until next day
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        onNote('date', tomorrow.toISOString().slice(0, 10));
+        onNote('date', getLocalDateKey(tomorrow));
     };
 
     const handleDateSelect = (date: Date | undefined) => {
         if (!date) return;
         setSelectedDate(date);
-        onNote('date', date.toISOString().slice(0, 10));
+        onNote('date', getLocalDateKey(date));
         setShowDatePicker(false);
     };
 
@@ -785,7 +786,7 @@ const NotedSplitButton: React.FC<NotedSplitButtonProps> = ({ onNote }) => {
                         mode="single"
                         selected={selectedDate}
                         onSelect={handleDateSelect}
-                        disabled={(date) => date < new Date()}
+                        disabled={(date) => getLocalDateKey(date) < getTodayKey()}
                         initialFocus
                     />
                 </PopoverContent>

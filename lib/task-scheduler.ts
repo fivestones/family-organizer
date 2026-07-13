@@ -3,6 +3,7 @@ import { toUTCDate } from './chore-utils';
 import { choreOccursOnDate, getChoreOccurrencesInRange } from './chore-schedule';
 import { id as createId, tx } from '@instantdb/react';
 import { buildTaskUpdateTransactions } from '@/lib/task-update-mutations';
+import { getTodayKey } from '@family-organizer/shared-core';
 import {
     getTaskWorkflowState,
     isActionableTask,
@@ -92,7 +93,7 @@ export function getTasksForDate(
     // 1. Normalize dates
     const utcViewDate = toUTCDate(viewDate);
     const viewDateString = utcViewDate.toISOString().slice(0, 10); // "YYYY-MM-DD"
-    const today = toLocalMidnight(new Date());
+    const today = new Date(`${getTodayKey()}T00:00:00Z`);
     const todayString = toUTCDate(today).toISOString().slice(0, 10);
 
     // 1. Sort tasks by order
@@ -248,7 +249,7 @@ export function isSeriesActiveForDate(
     const isPulledForwardToday =
         !isScheduled &&
         (pullForwardCount || 0) > 0 &&
-        utcViewDate.getTime() === toLocalMidnight(new Date()).getTime();
+        utcViewDate.getTime() === new Date(`${getTodayKey()}T00:00:00Z`).getTime();
     if (!isScheduled && !isPulledForwardToday) {
         return false;
     }

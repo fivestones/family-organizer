@@ -3,6 +3,7 @@
 
 import { getChoreOccurrencesInRange } from '@/lib/chore-schedule';
 import { toUTCDate } from '@/lib/chore-utils';
+import { getTodayKey } from '@family-organizer/shared-core';
 import {
     getLatestTaskUpdate,
     getTaskWorkflowState,
@@ -132,7 +133,7 @@ export function buildTaskBinEntries(
     filters: TaskBinFilters = {},
     todayKey?: string
 ): TaskBinEntry[] {
-    const today = todayKey || new Date().toISOString().slice(0, 10);
+    const today = todayKey || getTodayKey();
     const seriesContexts = buildSeriesTaskContexts(tasks);
 
     return tasks
@@ -289,7 +290,7 @@ function buildBlockIndexByTaskId(tasks: TaskBinTask[]): Map<string, number> {
 function getTaskLatenessInfo(
     task: TaskBinTask,
     allTasks: TaskBinTask[],
-    todayKey = new Date().toISOString().slice(0, 10),
+    todayKey = getTodayKey(),
     seriesContexts = buildSeriesTaskContexts(allTasks),
 ): TaskLatenessInfo | null {
     const series = resolveOne(task.taskSeries);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { localDateToUTC, toUTCDate } from '@family-organizer/shared-core';
+import { getLocalDateKey, getTodayKey, localDateToUTC, toUTCDate } from '@family-organizer/shared-core';
 
 describe('shared-core date helpers', () => {
     describe('toUTCDate', () => {
@@ -67,6 +67,19 @@ describe('shared-core date helpers', () => {
             expect(result.getUTCMonth()).toBe(11);
             expect(result.getUTCDate()).toBe(31);
             expect(result.getUTCHours()).toBe(0);
+        });
+    });
+
+    describe('local calendar keys', () => {
+        it('uses local date components instead of the UTC date', () => {
+            const localJustAfterMidnight = new Date(2026, 2, 15, 0, 5, 0);
+
+            expect(getLocalDateKey(localJustAfterMidnight)).toBe('2026-03-15');
+            expect(getTodayKey(localJustAfterMidnight)).toBe('2026-03-15');
+        });
+
+        it('handles a local year rollover', () => {
+            expect(getTodayKey(new Date(2027, 0, 1, 0, 1, 0))).toBe('2027-01-01');
         });
     });
 });
