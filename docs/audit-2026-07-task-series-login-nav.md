@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: the built member task-series overview is reachable from navigation (§4.4, Phase 5).** Main navigation now includes `/my-tasks` immediately after the general Tasks view, and the responsive measurement/overflow system treats it like every other destination. The page continues to default to the logged-in family member while supporting its existing explicit `?member=` override. Verification: both responsive `MainNav` DOM tests pass with inline and overflow assertions; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: removed the unused legacy principal-switching hook (§5.4, Phase 5).** `components/auth/useInstantPrincipalSwitching.ts` had no imports and retained an older cached-parent elevation path that no longer matched the active session provider's mandatory-PIN and tree-preserving behavior. The 168-line duplicate was deleted so auth security fixes have one implementation surface. Verification: repo search finds no remaining symbol reference; `tsc --noEmit` passes.
 - **2026-07-14 — App-shell hardening implemented; iPad PWA pass still pending (Part 6 secondary, Phase 1).** The body now owns a fixed `h-dvh overflow-hidden` viewport, the header is a non-sticky `shrink-0` flex child with safe-area top padding, and `main` is the sole `overflow-y-auto` scroll container with bottom safe-area scroll padding. `viewportFit: 'cover'` is declared, and dashboard theming now changes backgrounds only instead of conditionally mutating body height/overflow. Verification: 9 focused shell/login/session DOM tests and `tsc --noEmit` pass. A physical iPad home-screen keyboard/backgrounding pass remains device-unverified.
 - **2026-07-14 — Completed: the editor restores protected tasks that bypass the delete prompt (§2.4).** If autosave sees a missing task with progress, responses, attachments, or other guarded data and no recorded confirmation, it now reinserts that task at its persisted order/indentation, updates the editor/card/date state without emitting a second editor update, warns the user, and requeues autosave from the repaired document. The incomplete document is never transacted, so sibling orders cannot be persisted in their temporarily shifted positions. Verification: 1 document-restoration unit test, all 11 editor DOM tests, and `tsc --noEmit` pass.
@@ -214,7 +215,7 @@ Active rows render `<Checkbox checked={false}>` ([TaskSeriesChecklist.tsx:651-65
 
 - **Stored response HTML sanitization — Completed 2026-07-14.** Checklist summaries, composer values, shared update threads, and therefore Task Bins review all use one DOMPurify-backed renderer. A DOM regression proves authored `<strong>` formatting survives while `<script>` and `onerror` payloads are removed.
 - Past dates are fully read-only (`isPastDate` → `isReadOnly`), so nobody can backfill yesterday's forgotten checkmark without the time machine. Consider allowing parents to complete-for-date.
-- `/my-tasks` (MyTaskSeriesOverview) is a fully built page reachable by no nav link ([MainNav.tsx:17-30](components/MainNav.tsx:17)). Decide: add it to the nav (it's a better kid-facing view than `/tasks` in some ways) or delete it.
+- **`/my-tasks` navigation — Completed 2026-07-14.** The existing member-focused task-series overview is now linked as “My Tasks” immediately after Tasks, in both inline and responsive overflow navigation.
 - Expansion state (`expandedTaskSeriesByMember`) is in-memory only and resets on navigation; persist per-member view prefs like `viewShowTaskDetails` already does.
 - TaskBinsReview fetches **every task in the database** with full update trees ([TaskBinsReview.tsx:136-161](components/task-series/TaskBinsReview.tsx:136)); filter server-side by non-terminal `workflowState` (indexed) instead.
 
@@ -336,7 +337,7 @@ These are real but were not the cause of the captured incident:
 18. One idle/lock policy; true kid demotion; rename `ensureKidPrincipal` (5.3).
 19. HMAC/scrypt PINs + kid rate limiting (5.4).
 20. ~~Sanitize response-field HTML (4.4).~~ **Completed 2026-07-14** through the shared DOMPurify renderer used by checklist and review/update surfaces.
-21. **Partially completed 2026-07-14:** ~~delete `useInstantPrincipalSwitching.ts`.~~ The `/my-tasks` product/navigation decision remains open.
+21. ~~Delete `useInstantPrincipalSwitching.ts`; resolve `/my-tasks` (link it or remove it).~~ **Completed 2026-07-14:** dead hook removed and the existing member overview linked as “My Tasks.”
 22. Retire the LoginModal pointer-events hack once Phase 1 items 6 have soaked.
 
 ---

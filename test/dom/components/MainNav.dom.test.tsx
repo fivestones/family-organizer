@@ -43,6 +43,7 @@ describe('MainNav', () => {
         'main-nav-measure-chores': 82,
         'main-nav-measure-countdown': 102,
         'main-nav-measure-tasks': 78,
+        'main-nav-measure-my-tasks': 92,
         'main-nav-measure-task-series': 108,
         'main-nav-measure-calendar': 92,
         'main-nav-measure-messages': 98,
@@ -118,6 +119,7 @@ describe('MainNav', () => {
 
         expect(screen.getByTestId('main-nav-link-dashboard')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-link-task-series')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-link-my-tasks')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-link-settings')).toBeInTheDocument();
         expect(screen.queryByTestId('main-nav-overflow-trigger')).toBeNull();
     });
@@ -141,6 +143,7 @@ describe('MainNav', () => {
         expect(screen.queryByTestId('main-nav-link-tasks')).toBeNull();
         expect(screen.getByTestId('main-nav-overflow-trigger')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-overflow-item-tasks')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-overflow-item-my-tasks')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-overflow-item-task-series')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-overflow-item-settings')).toBeInTheDocument();
 

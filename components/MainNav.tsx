@@ -19,6 +19,7 @@ const NAV_LINKS = [
     { href: '/chores', label: 'Chores' },
     { href: '/countdown', label: 'Countdown' },
     { href: '/tasks', label: 'Tasks' },
+    { href: '/my-tasks', label: 'My Tasks' },
     { href: '/task-series', label: 'Task Series' },
     { href: '/calendar', label: 'Calendar' },
     { href: '/messages', label: 'Messages' },
