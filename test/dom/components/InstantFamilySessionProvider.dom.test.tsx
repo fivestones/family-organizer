@@ -118,7 +118,6 @@ describe('InstantFamilySessionProvider', () => {
     it('expires shared-device parent mode after inactivity and falls back to kid principal', async () => {
         freezeTime(new Date('2026-02-25T12:00:00Z'));
         localStorage.setItem('family_organizer_preferred_principal', 'parent');
-        localStorage.setItem('family_organizer_parent_principal_unlocked', 'true');
         localStorage.setItem('family_organizer_parent_shared_device', 'true');
         localStorage.setItem('family_organizer_parent_last_activity_at', String(Date.now()));
 

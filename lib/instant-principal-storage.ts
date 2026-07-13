@@ -4,7 +4,6 @@ export const KID_TOKEN_CACHE_KEY = 'family_organizer_instant_kid_token';
 export const PARENT_TOKEN_CACHE_KEY = 'family_organizer_instant_parent_token';
 export const ACTIVE_MEMBER_TOKEN_CACHE_KEY = 'family_organizer_instant_member_token';
 export const ACTIVE_MEMBER_ID_CACHE_KEY = 'family_organizer_instant_member_id';
-export const PARENT_UNLOCKED_KEY = 'family_organizer_parent_principal_unlocked';
 export const PARENT_SHARED_DEVICE_KEY = 'family_organizer_parent_shared_device';
 export const PARENT_LAST_ACTIVITY_KEY = 'family_organizer_parent_last_activity_at';
 export const PREFERRED_PRINCIPAL_KEY = 'family_organizer_preferred_principal';
@@ -67,20 +66,6 @@ export function setCachedMemberId(memberId: string) {
 export function clearCachedMemberId() {
     if (!isBrowser()) return;
     localStorage.removeItem(ACTIVE_MEMBER_ID_CACHE_KEY);
-}
-
-export function getParentUnlocked() {
-    if (!isBrowser()) return false;
-    return localStorage.getItem(PARENT_UNLOCKED_KEY) === 'true';
-}
-
-export function setParentUnlocked(value: boolean) {
-    if (!isBrowser()) return;
-    if (value) {
-        localStorage.setItem(PARENT_UNLOCKED_KEY, 'true');
-    } else {
-        localStorage.removeItem(PARENT_UNLOCKED_KEY);
-    }
 }
 
 export function getParentSharedDeviceMode() {

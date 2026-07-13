@@ -13,14 +13,12 @@ import {
     getParentLastActivityAt,
     getParentSharedDeviceIdleTimeoutMs,
     getParentSharedDeviceMode,
-    getParentUnlocked,
     getPreferredPrincipal,
     requireCachedMemberToken,
     setCachedMemberToken,
     setCachedToken,
     setParentLastActivityAt,
     setParentSharedDeviceMode,
-    setParentUnlocked,
     setPreferredPrincipal,
 } from '@/lib/instant-principal-storage';
 
@@ -59,18 +57,13 @@ describe('instant principal storage helpers', () => {
         expect(getCachedMemberToken()).toBeNull();
     });
 
-    it('manages parent unlocked and shared-device flags with sensible defaults', () => {
-        expect(getParentUnlocked()).toBe(false);
+    it('manages the shared-device flag with a sensible default', () => {
         expect(getParentSharedDeviceMode()).toBe(DEFAULT_PARENT_SHARED_DEVICE);
 
-        setParentUnlocked(true);
         setParentSharedDeviceMode(false);
-        expect(getParentUnlocked()).toBe(true);
         expect(getParentSharedDeviceMode()).toBe(false);
 
-        setParentUnlocked(false);
         clearParentSharedDeviceMode();
-        expect(getParentUnlocked()).toBe(false);
         expect(getParentSharedDeviceMode()).toBe(DEFAULT_PARENT_SHARED_DEVICE);
     });
 

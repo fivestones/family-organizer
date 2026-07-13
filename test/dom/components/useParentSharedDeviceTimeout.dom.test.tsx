@@ -12,14 +12,12 @@ import { useParentSharedDeviceTimeout } from '@/components/auth/useParentSharedD
 
 function Harness(props: {
     principalType: 'kid' | 'parent' | 'unknown';
-    parentUnlocked: boolean;
     isParentSessionSharedDevice: boolean;
     parentSharedDeviceIdleTimeoutMs: number;
     onExpire: () => void;
 }) {
     useParentSharedDeviceTimeout({
         principalType: props.principalType as any,
-        parentUnlocked: props.parentUnlocked,
         isParentSessionSharedDevice: props.isParentSessionSharedDevice,
         parentSharedDeviceIdleTimeoutMs: props.parentSharedDeviceIdleTimeoutMs,
         expireParentMode: props.onExpire,
@@ -33,13 +31,12 @@ describe('useParentSharedDeviceTimeout', () => {
         window.localStorage.clear();
     });
 
-    it('does not schedule expiry when parent mode is not fully active on a shared device', async () => {
+    it('does not schedule expiry for a kid principal on a shared device', async () => {
         const onExpire = vi.fn();
 
         render(
             <Harness
                 principalType="kid"
-                parentUnlocked={true}
                 isParentSessionSharedDevice={true}
                 parentSharedDeviceIdleTimeoutMs={1_000}
                 onExpire={onExpire}
@@ -61,7 +58,6 @@ describe('useParentSharedDeviceTimeout', () => {
         render(
             <Harness
                 principalType="parent"
-                parentUnlocked={true}
                 isParentSessionSharedDevice={true}
                 parentSharedDeviceIdleTimeoutMs={1_000}
                 onExpire={onExpire}
@@ -83,7 +79,6 @@ describe('useParentSharedDeviceTimeout', () => {
         render(
             <Harness
                 principalType="parent"
-                parentUnlocked={true}
                 isParentSessionSharedDevice={true}
                 parentSharedDeviceIdleTimeoutMs={1_000}
                 onExpire={onExpire}

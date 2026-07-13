@@ -11,13 +11,11 @@ import {
     getCachedMemberToken,
     getParentSharedDeviceIdleTimeoutMs,
     getParentSharedDeviceMode,
-    getParentUnlocked,
     isBrowser,
     setCachedMemberId,
     setCachedMemberToken,
     setParentLastActivityAt,
     setParentSharedDeviceMode,
-    setParentUnlocked,
 } from '@/lib/instant-principal-storage';
 import type { ElevateParentParams, InstantPrincipalType } from '@/lib/instant-principal-types';
 import { useParentSharedDeviceTimeout } from '@/components/auth/useParentSharedDeviceTimeout';
@@ -78,7 +76,6 @@ async function fetchMemberToken(params: SignInFamilyMemberParams) {
 async function clearCurrentSession() {
     clearCachedMemberToken();
     clearCachedMemberId();
-    setParentUnlocked(false);
     clearParentLastActivityAt();
     await db.auth.signOut().catch(() => {});
 }
@@ -88,7 +85,6 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
     const [status, setStatus] = useState<BootstrapStatus>('checking');
     const [principalType, setPrincipalType] = useState<InstantPrincipalType>('unknown');
     const [isSwitchingPrincipal, setIsSwitchingPrincipal] = useState(false);
-    const [parentUnlocked, setParentUnlockedState] = useState(false);
     const [isParentSessionSharedDevice, setIsParentSessionSharedDevice] = useState(DEFAULT_PARENT_SHARED_DEVICE);
     const bootstrapAttemptedRef = useRef(false);
     const parentSharedDeviceIdleTimeoutMs = getParentSharedDeviceIdleTimeoutMs();
@@ -97,7 +93,6 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
         (nextUser: any | null | undefined) => {
             if (!nextUser) {
                 setPrincipalType('unknown');
-                setParentUnlockedState(false);
                 return;
             }
 
@@ -110,9 +105,6 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
                 setCachedMemberToken(nextUser.refresh_token);
             }
 
-            const unlocked = nextPrincipalType === 'parent' ? getParentUnlocked() || true : false;
-            setParentUnlockedState(unlocked);
-            setParentUnlocked(unlocked);
         },
         []
     );
@@ -131,12 +123,8 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
             setParentSharedDeviceMode(nextSharedDevice);
 
             if (nextPrincipalType === 'parent') {
-                setParentUnlocked(true);
-                setParentUnlockedState(true);
                 setParentLastActivityAt(Date.now());
             } else {
-                setParentUnlocked(false);
-                setParentUnlockedState(false);
                 clearParentLastActivityAt();
             }
 
@@ -160,7 +148,6 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
         try {
             await clearCurrentSession();
             setPrincipalType('unknown');
-            setParentUnlockedState(false);
             setStatus('ready');
             if (opts?.clearParentSession) {
                 clearParentSharedDeviceMode();
@@ -181,7 +168,6 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
 
     useEffect(() => {
         if (!isBrowser()) return;
-        setParentUnlockedState(getParentUnlocked());
         setIsParentSessionSharedDevice(getParentSharedDeviceMode());
     }, []);
 
@@ -221,9 +207,7 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
                 console.warn('Cached member Instant token failed; clearing cached session.', restoreError);
                 clearCachedMemberToken();
                 clearCachedMemberId();
-                setParentUnlocked(false);
                 if (!cancelled) {
-                    setParentUnlockedState(false);
                     setPrincipalType('unknown');
                     setStatus('ready');
                 }
@@ -245,7 +229,6 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
 
     useParentSharedDeviceTimeout({
         principalType,
-        parentUnlocked,
         isParentSessionSharedDevice,
         parentSharedDeviceIdleTimeoutMs,
         expireParentMode: expireParentSharedDeviceMode,
@@ -267,7 +250,6 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
             isParentSessionSharedDevice,
             isSwitchingPrincipal,
             parentSharedDeviceIdleTimeoutMs,
-            parentUnlocked,
             principalType,
             signInFamilyMember,
         ]

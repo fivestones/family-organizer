@@ -10,7 +10,6 @@ import type { InstantPrincipalType } from '@/lib/instant-principal-types';
 
 type UseParentSharedDeviceTimeoutParams = {
     principalType: InstantPrincipalType;
-    parentUnlocked: boolean;
     isParentSessionSharedDevice: boolean;
     parentSharedDeviceIdleTimeoutMs: number;
     expireParentMode: () => void;
@@ -18,14 +17,13 @@ type UseParentSharedDeviceTimeoutParams = {
 
 export function useParentSharedDeviceTimeout({
     principalType,
-    parentUnlocked,
     isParentSessionSharedDevice,
     parentSharedDeviceIdleTimeoutMs,
     expireParentMode,
 }: UseParentSharedDeviceTimeoutParams) {
     useEffect(() => {
         if (!isBrowser()) return;
-        if (principalType !== 'parent' || !parentUnlocked || !isParentSessionSharedDevice) {
+        if (principalType !== 'parent' || !isParentSessionSharedDevice) {
             return;
         }
 
@@ -65,5 +63,5 @@ export function useParentSharedDeviceTimeout({
             window.removeEventListener('click', recordActivity);
             window.removeEventListener('touchstart', recordActivity);
         };
-    }, [principalType, parentUnlocked, isParentSessionSharedDevice, parentSharedDeviceIdleTimeoutMs, expireParentMode]);
+    }, [principalType, isParentSessionSharedDevice, parentSharedDeviceIdleTimeoutMs, expireParentMode]);
 }
