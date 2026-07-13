@@ -821,18 +821,23 @@ const rules = {
             isKid: "'kid' in auth.ref('$user.type')",
             isParent: "'parent' in auth.ref('$user.type')",
             isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+            authFamilyMemberIds: "auth.ref('$user.familyMemberId')",
+            hasAuthFamilyMemberId: "authFamilyMemberIds.exists(memberId, memberId != '')",
+            ownsCompletion: "hasAuthFamilyMemberId && authFamilyMemberIds[0] in data.ref('completedBy.id')",
+            kidSafeCompletionUpdate:
+                "request.modifiedFields.all(field, field in ['completed', 'notDone', 'dateCompleted'])",
         },
         allow: {
             link: {
                 $default: 'isFamilyPrincipal',
             },
             view: 'isFamilyPrincipal',
-            create: 'isFamilyPrincipal',
+            create: 'isParent || (isKid && hasAuthFamilyMemberId && data.allowanceAwarded == false)',
             delete: 'isParent',
             unlink: {
                 $default: 'isParent',
             },
-            update: 'isFamilyPrincipal',
+            update: 'isParent || (isKid && ownsCompletion && kidSafeCompletionUpdate)',
         },
     },
     messageThreadMembers: {
@@ -964,6 +969,10 @@ const rules = {
         allow: {
             link: {
                 $default: 'isFamilyPrincipal',
+                completedChores:
+                    "'parent' in auth.ref('$user.type') || ('kid' in auth.ref('$user.type') && data.id in auth.ref('$user.familyMemberId'))",
+                markedCompletions:
+                    "'parent' in auth.ref('$user.type') || ('kid' in auth.ref('$user.type') && data.id in auth.ref('$user.familyMemberId'))",
             },
             view: 'isFamilyPrincipal',
             create: 'isParent',

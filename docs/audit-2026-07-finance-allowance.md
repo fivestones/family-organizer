@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed and deployed upstream: kids cannot tamper with payout state (§3; fix plan 7 partial).** `choreCompletions.allowanceAwarded` and `dateDue` are no longer kid-updatable. A member kid may update only completion-state fields on a row linked to that same member, cannot create/link a sibling completion, and the shared kid principal cannot create a completion row. Parent payout writes remain supported. Verification: the permission contract, `tsc --noEmit`, and the hosted identity/field matrix pass.
 - **2026-07-14 — Completed upstream: duplicate up-for-grabs claims no longer double-pay (§2; fix plan 3).** All claim entry points now use one UUIDv5 completion ID per `(choreId, dateDue)`, causing concurrent Instant transactions to converge. Allowance preprocessing also canonicalizes legacy duplicate rows by earliest completion, excludes losing rows from every member's calculation, and expands the winner's `completionsToMark` to mark the entire duplicate group awarded. XP follows the same canonical winner. Verification: 37 focused shared-core/chore-utils/ChoresTracker tests pass; `tsc --noEmit` passes.
 
 ---
@@ -83,13 +84,13 @@ From [instant.perms.ts:388-406](instant.perms.ts:388) and friends, all under a k
 | `exchangeRates` | create/update/delete `isFamilyPrincipal` | Kids can rewrite rates used in combined-balance and goal-progress displays |
 | `calculatedAllowancePeriods` | all `isFamilyPrincipal` | Distribution bookkeeping is editable by kids |
 | `allowanceTransactions` | create requires `createdBy == auth.id`, update `false`, delete `isParent` | The ledger itself is well protected — good |
-| `choreCompletions.allowanceAwarded` | update `isFamilyPrincipal` | Kids can re-arm paid completions for re-payment (chores audit 2.1) |
+| `choreCompletions.allowanceAwarded` | **Completed 2026-07-14:** kid updates are ownership-scoped and limited to completion-state fields | Kids cannot set or re-arm payout state; parent distribution can still mark rows awarded |
 
 Kids do legitimately need to deposit/withdraw/transfer (each touches two envelopes' balances), and CEL can't validate arithmetic — so `update: isParent` alone would break the product. Realistic options:
 
 1. **Ledger-authoritative model (1.1)** shrinks the blast radius: if balances are derived and reconciled, a forged balance write is detected and reverted; the append-only ledger with `auditMatchesPrincipal` stays the source of truth.
 2. Move kid-initiated money ops to a small server route (admin SDK validates: own envelopes only, sufficient funds, writes ledger + balances atomically). Then envelope `update`/`delete` can become `isParent`.
-3. At minimum now: `delete: isParent` on envelopes, `create/update/delete: isParent` on `exchangeRates` (writes can move server-side, see 4.2), and the `allowanceAwarded` field rule.
+3. At minimum now: `delete: isParent` on envelopes and `create/update/delete: isParent` on `exchangeRates` (writes can move server-side, see 4.2). The `allowanceAwarded` kid-write closure was completed and deployed on 2026-07-14.
 
 This is a family app — the "attacker" is a bored twelve-year-old — but that is precisely the audience that discovers the InstantDB devtools.
 
@@ -144,7 +145,7 @@ This is a family app — the "attacker" is a bored twelve-year-old — but that 
 6. Migrate negative balances on envelope delete; consider soft-delete (§5).
 
 **Phase 2 — permissions & secrets:**
-7. Envelope `delete: isParent`; `exchangeRates` writes parent/server-only; `allowanceAwarded` field rule (§3).
+7. Envelope `delete: isParent`; `exchangeRates` writes parent/server-only; ~~`allowanceAwarded` kid-write closure~~ **completed and deployed 2026-07-14** (§3).
 8. Rotate the OpenExchangeRates key; move rate fetching server-side (§4).
 
 **Phase 3 — structural:**

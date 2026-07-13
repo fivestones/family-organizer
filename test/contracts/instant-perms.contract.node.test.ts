@@ -51,6 +51,24 @@ describe('instant.perms contract', () => {
         expect(perms.calendarSyncAccounts.allow.delete).toBe('isParent');
     });
 
+    it('limits kid completion writes to their own safe fields', () => {
+        const perms = rules as any;
+        expect(perms.choreCompletions.bind.authFamilyMemberIds).toBe("auth.ref('$user.familyMemberId')");
+        expect(perms.choreCompletions.bind.hasAuthFamilyMemberId).toBe(
+            "authFamilyMemberIds.exists(memberId, memberId != '')"
+        );
+        expect(perms.choreCompletions.bind.ownsCompletion).toContain("data.ref('completedBy.id')");
+        expect(perms.choreCompletions.allow.create).toContain('hasAuthFamilyMemberId');
+        expect(perms.choreCompletions.allow.create).toContain('data.allowanceAwarded == false');
+        expect(perms.choreCompletions.allow.update).toContain('kidSafeCompletionUpdate');
+        expect(perms.choreCompletions.bind.kidSafeCompletionUpdate).not.toContain('allowanceAwarded');
+        expect(perms.choreCompletions.bind.kidSafeCompletionUpdate).not.toContain('dateDue');
+        expect(perms.choreCompletions.allow.link.$default).toBe('isFamilyPrincipal');
+        expect(perms.familyMembers.allow.link.$default).toBe('isFamilyPrincipal');
+        expect(perms.familyMembers.allow.link.completedChores).toContain("data.id in auth.ref('$user.familyMemberId')");
+        expect(perms.familyMembers.allow.link.markedCompletions).toContain("data.id in auth.ref('$user.familyMemberId')");
+    });
+
     it('lets family principals link chore completions without opening broader chore writes', () => {
         const perms = rules as any;
         expect(perms.chores.allow.create).toBe('isParent');

@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed and deployed: chore-completion ownership and payout-field isolation (§2.1).** Member-scoped kids can create completion rows only with `allowanceAwarded: false`, link `completedBy`/`markedBy` only to their authenticated family member, and update only their own `completed`, `notDone`, and `dateCompleted` fields. They cannot update a sibling's row, change `dateDue`, re-arm `allowanceAwarded`, delete/unlink completions, or create rows from the shared kid principal; parents retain the administrative paths. The rules were pushed to the configured Instant app. Verification: 7 local permission-contract tests, the focused shared-principal unit test, `tsc --noEmit`, and the hosted anonymous/shared-kid/member-kid/parent matrix pass using the same multi-step transaction shape as `ChoresTracker`.
 - **2026-07-14 — Completed: up-for-grabs claims converge and legacy duplicates cannot double-credit (§1.1).** A shared UUIDv5 helper derives the completion row ID from `(choreId, dateDue)` for up-for-grabs chores, so concurrent web, countdown/sequence, and mobile claims update/link the same Instant row instead of creating two rewards. Normal assigned chores retain random IDs. Existing duplicate rows are canonicalized by earliest `dateCompleted`: XP credits only that winner, and allowance preprocessing suppresses losing rows while expanding the winner's award-mark set to close every duplicate. Verification: 37 focused shared-core/chore-utils/ChoresTracker tests pass; `tsc --noEmit` passes.
 - **2026-07-13 — Completed: second-precision `after_chore` countdown anchoring (§5.2).** Completion-anchored chores now use the anchor chore's exact completion timestamp rather than its minute-truncated schedule offset, and the packing pass no longer pushes the dependent chore behind the already-completed anchor's old slot window. The focused countdown-engine suite passes all 37 scenarios, including a completion at `08:03:45` that starts the dependent chore exactly five minutes later.
 
@@ -18,7 +19,7 @@
 | # | Severity | Finding |
 |---|----------|---------|
 | 1 | **Completed 2026-07-14** | Up-for-grabs claims now converge on a deterministic row; legacy duplicates are canonicalized for XP and payout |
-| 2 | **High (Confirmed)** | Kids' permissions allow rewriting any completion — including `allowanceAwarded`, siblings' completions, and back-dating |
+| 2 | **Completed 2026-07-14** | Kid completion writes are member-scoped; payout/date fields and administrative delete/unlink paths are parent-only |
 | 3 | **Medium (Confirmed)** | "Mark all & complete" builds every task transaction from the same stale snapshot — parent tasks end up in wrong states |
 | 4 | **Medium (Confirmed)** | Chore assignment/XP logic exists in two diverging copies; the dashboard and the chores page use different ones |
 | 5 | **Medium** | Rotation assignment is recomputed from the entire occurrence history — O(years) work in every render loop, and retroactively unstable |
@@ -67,7 +68,7 @@ On edit, a null weight hydrates the input as `''` ([DetailedChoreForm.tsx:196](c
 
 ## 2. Permissions (CEL rules)
 
-### 2.1 `choreCompletions` are wide open to kids — **High, Confirmed**
+### 2.1 `choreCompletions` are wide open to kids — **Completed 2026-07-14**
 
 [instant.perms.ts:819-837](instant.perms.ts:819): `create` and `update` are `isFamilyPrincipal`. A kid principal can therefore, via the API (nothing in the UI offers it, but the rules are the boundary):
 
@@ -75,7 +76,7 @@ On edit, a null weight hydrates the input as `''` ([DetailedChoreForm.tsx:196](c
 - Flip `completed` on a sibling's completion, or change `dateDue` to move a completion into a richer allowance period.
 - Create completions linked to any member (`familyMembers` link `$default` is `isFamilyPrincipal`), i.e. complete chores *as* someone else without the `markedBy` audit trail parents get.
 
-**Fix:** field-level rules — `allowanceAwarded` update `isParent`; for kid updates require the completion to be their own (`authFamilyMemberId in data.ref('completedBy.id')`); for creates, bind `authFamilyMemberId` and require the `completedBy` link to be self unless `isParent`. The bind pattern already exists in the messaging rules.
+**Completed:** kid creation requires a non-empty authenticated member identity and `allowanceAwarded == false`. Link rules on `familyMembers.completedChores` and `markedCompletions` allow a kid to target only that authenticated member, covering both the array-style transactions used by `ChoresTracker` and chained completion links. Kid updates require ownership through `data.ref('completedBy.id')` and `request.modifiedFields` permits only `completed`, `notDone`, and `dateCompleted`; `dateDue` and `allowanceAwarded` are therefore immutable to kids after creation. Delete/unlink remain parent-only. Shared kid tokens explicitly carry no usable member identity. The hosted matrix proves own create/toggle, parent payout update, and denials for sibling create/update, payout/date mutation, shared-principal creation, and malformed permission evaluation.
 
 ### 2.2 Related rule gaps
 
@@ -146,7 +147,7 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 
 ## 7. Fix plan
 
-**Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; 2.1 completion permission tightening (field rules); 1.2 shared-map bulk completion.
+**Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; ~~2.1 completion permission tightening~~ **completed and deployed 2026-07-14**; 1.2 shared-map bulk completion.
 **Phase 1 — integrity:** 4.1 chore deletion impact dialog + cascades; 1.4 weightless-chore save fix.
 **Phase 2 — consolidation:** 3.1 single shared-core implementation + contract test; 3.2 dead-code removal; 1.5 resolve/delete legacy occurrence helpers.
 **Phase 3 — performance:** 5.1 occurrence-set memoization + rotation index caching; deduplicate countdown builder calls.

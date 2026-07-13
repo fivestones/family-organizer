@@ -131,6 +131,7 @@ async function expectRejected(promise: Promise<unknown>, label: string) {
     } catch (error) {
         rejected = true;
         expect(error).toBeTruthy();
+        expect(String(error)).not.toContain('Could not evaluate permission rule');
     }
 
     if (!rejected) {
@@ -339,12 +340,13 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             await parentDb.transact(parentDb.tx.allowanceTransactions[validKidTxId].delete());
             cleanup.allowanceTransactions.delete(validKidTxId);
 
-            // Kid principal can mark chores complete for any family member by linking a completion row onto the chore.
+            // Completion ownership is identity-scoped: a member kid can create
+            // and safely toggle their own row, but cannot create/update a
+            // sibling row or mutate payout/date fields.
             const targetFamilyMember = parentRows[0] || kidFamilyMembers[0];
             expect(targetFamilyMember?.id).toBeTruthy();
 
             const choreId = instantId();
-            const completionId = instantId();
             const nowIso = new Date().toISOString();
 
             await parentDb.transact([
@@ -361,18 +363,95 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             ]);
             cleanup.chores.add(choreId);
 
-            await kidDb.transact([
-                kidDb.tx.choreCompletions[completionId].update({
-                    dateDue: '2026-02-25',
-                    dateCompleted: nowIso,
-                    completed: true,
-                    allowanceAwarded: false,
-                }),
-                kidDb.tx.chores[choreId].link({ completions: completionId }),
-                kidDb.tx.familyMembers[targetFamilyMember.id].link({ completedChores: completionId }),
-                kidDb.tx.familyMembers[targetFamilyMember.id].link({ markedCompletions: completionId }),
-            ]);
-            cleanup.choreCompletions.add(completionId);
+            const completionKidDb = createClient();
+            const completionMemberSession = await mintFamilyMemberToken(kidMember.id);
+            await completionKidDb.auth.signInWithToken(completionMemberSession.token);
+            try {
+                const ownCompletionId = instantId();
+                await completionKidDb.transact([
+                    completionKidDb.tx.choreCompletions[ownCompletionId].update({
+                        dateDue: '2026-02-25',
+                        dateCompleted: nowIso,
+                        completed: true,
+                        allowanceAwarded: false,
+                    }),
+                    completionKidDb.tx.chores[choreId].link({ completions: ownCompletionId }),
+                    completionKidDb.tx.familyMembers[kidMember.id].link({ completedChores: ownCompletionId }),
+                    completionKidDb.tx.familyMembers[kidMember.id].link({ markedCompletions: ownCompletionId }),
+                ]);
+                cleanup.choreCompletions.add(ownCompletionId);
+
+                await completionKidDb.transact(
+                    completionKidDb.tx.choreCompletions[ownCompletionId].update({
+                        completed: false,
+                        notDone: true,
+                        dateCompleted: null,
+                    })
+                );
+                await expectRejected(
+                    completionKidDb.transact(
+                        completionKidDb.tx.choreCompletions[ownCompletionId].update({ allowanceAwarded: true })
+                    ),
+                    'kid choreCompletions allowanceAwarded update'
+                );
+                await expectRejected(
+                    completionKidDb.transact(
+                        completionKidDb.tx.choreCompletions[ownCompletionId].update({ dateDue: '2026-03-01' })
+                    ),
+                    'kid choreCompletions dateDue update'
+                );
+
+                const siblingCreateId = instantId();
+                await expectRejected(
+                    completionKidDb.transact(
+                        completionKidDb.tx.choreCompletions[siblingCreateId].update({
+                            dateDue: '2026-02-25',
+                            dateCompleted: nowIso,
+                            completed: true,
+                            allowanceAwarded: false,
+                        }).link({ chore: choreId, completedBy: siblingMember.id })
+                    ),
+                    'kid choreCompletions create for sibling'
+                );
+
+                const sharedKidCompletionId = instantId();
+                await expectRejected(
+                    kidDb.transact(
+                        kidDb.tx.choreCompletions[sharedKidCompletionId].update({
+                            dateDue: '2026-02-25',
+                            dateCompleted: nowIso,
+                            completed: true,
+                            allowanceAwarded: false,
+                        })
+                    ),
+                    'shared kid choreCompletions create without member identity'
+                );
+
+                const siblingCompletionId = instantId();
+                await parentDb.transact([
+                    parentDb.tx.choreCompletions[siblingCompletionId].update({
+                        dateDue: '2026-02-25',
+                        dateCompleted: nowIso,
+                        completed: true,
+                        allowanceAwarded: false,
+                    }),
+                    parentDb.tx.chores[choreId].link({ completions: siblingCompletionId }),
+                    parentDb.tx.familyMembers[siblingMember.id].link({ completedChores: siblingCompletionId }),
+                ]);
+                cleanup.choreCompletions.add(siblingCompletionId);
+                await expectRejected(
+                    completionKidDb.transact(
+                        completionKidDb.tx.choreCompletions[siblingCompletionId].update({ completed: false })
+                    ),
+                    'kid choreCompletions sibling update'
+                );
+
+                await parentDb.transact(
+                    parentDb.tx.choreCompletions[ownCompletionId].update({ allowanceAwarded: true })
+                );
+            } finally {
+                completionKidDb.shutdown?.();
+            }
         },
         120_000
     );
