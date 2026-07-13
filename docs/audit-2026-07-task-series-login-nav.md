@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: stored task-response HTML is sanitized before rendering (§4.4, Phase 5).** Checklist summaries, composer response values, update threads, and the Task Bins review path now render through a shared `SanitizedRichText` component backed by DOMPurify. Existing authored formatting remains intact while scripts and executable attributes are removed. Verification: 15 focused sanitizer/checklist DOM tests pass, including `<script>` and `onerror` stripping; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: cancelling manager deletion clears its pending target (Part 3 #5).** The controlled alert-dialog callback now clears `seriesToDelete` whenever the prompt closes, including Cancel, escape, and outside-close paths; failed and successful delete closures use the same cleanup boundary. Verification: all 9 manager DOM tests pass, including cancel-without-write followed by a clean second-series prompt; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: failed manager catch-up writes surface honest feedback (Part 3 #4).** `handleCatchUp` now catches transaction failures, records the underlying error, and shows a destructive toast stating that the planned end date was not changed; the success toast is emitted only after the write resolves. Verification: all 8 manager DOM tests pass, including a rejected-write regression that proves no false success; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: Task Series Manager rolls status across midnight (Part 3 #3).** The manager's local date key is now state refreshed every minute and on `visibilitychange` when the tab returns to the foreground. Date-derived status, drift, and catch-up inputs recompute only when the calendar key actually changes. Verification: all 7 manager DOM tests pass, including a fake-clock transition from 23:59 Pending to 00:00 In Progress without remounting; `tsc --noEmit` passes.
@@ -207,7 +208,7 @@ Active rows render `<Checkbox checked={false}>` ([TaskSeriesChecklist.tsx:651-65
 
 ### 4.4 Smaller presentation issues
 
-- `dangerouslySetInnerHTML` renders stored response HTML unsanitized in three places ([TaskSeriesChecklist.tsx:788](components/TaskSeriesChecklist.tsx:788), [TaskSeriesChecklist.tsx:1163](components/TaskSeriesChecklist.tsx:1163), TaskBinsReview equivalents). Content is TipTap-authored today, but any future input path makes this XSS. Run through DOMPurify or render with a read-only TipTap instance.
+- **Stored response HTML sanitization — Completed 2026-07-14.** Checklist summaries, composer values, shared update threads, and therefore Task Bins review all use one DOMPurify-backed renderer. A DOM regression proves authored `<strong>` formatting survives while `<script>` and `onerror` payloads are removed.
 - Past dates are fully read-only (`isPastDate` → `isReadOnly`), so nobody can backfill yesterday's forgotten checkmark without the time machine. Consider allowing parents to complete-for-date.
 - `/my-tasks` (MyTaskSeriesOverview) is a fully built page reachable by no nav link ([MainNav.tsx:17-30](components/MainNav.tsx:17)). Decide: add it to the nav (it's a better kid-facing view than `/tasks` in some ways) or delete it.
 - Expansion state (`expandedTaskSeriesByMember`) is in-memory only and resets on navigation; persist per-member view prefs like `viewShowTaskDetails` already does.
@@ -330,7 +331,7 @@ These are real but were not the cause of the captured incident:
 17. In-place completion feedback + Done-bin deferral (4.2).
 18. One idle/lock policy; true kid demotion; rename `ensureKidPrincipal` (5.3).
 19. HMAC/scrypt PINs + kid rate limiting (5.4).
-20. Sanitize response-field HTML (4.4).
+20. ~~Sanitize response-field HTML (4.4).~~ **Completed 2026-07-14** through the shared DOMPurify renderer used by checklist and review/update surfaces.
 21. Delete `useInstantPrincipalSwitching.ts`; resolve `/my-tasks` (link it or remove it).
 22. Retire the LoginModal pointer-events hack once Phase 1 items 6 have soaked.
 

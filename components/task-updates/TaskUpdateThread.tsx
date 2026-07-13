@@ -4,6 +4,7 @@ import React from 'react';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { GradeDisplay } from '@/components/responses/GradeDisplay';
 import { cn } from '@/lib/utils';
+import { SanitizedRichText } from '@/components/responses/SanitizedRichText';
 import {
     getTaskUpdateActorName,
     getTaskUpdateFeedbackReplies,
@@ -73,9 +74,9 @@ export const TaskResponseFieldValuesList: React.FC<{
                             </div>
                         ) : null}
                         {value.richTextContent && value.richTextContent !== '<p></p>' ? (
-                            <div
+                            <SanitizedRichText
                                 className={cn('prose prose-sm mt-1 max-w-none', contentClassName)}
-                                dangerouslySetInnerHTML={{ __html: value.richTextContent }}
+                                html={value.richTextContent}
                             />
                         ) : null}
                         {value.fileUrl ? (

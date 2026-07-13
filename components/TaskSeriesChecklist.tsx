@@ -15,6 +15,7 @@ import { uploadSingleFileToS3 } from '@/lib/file-uploads';
 import { FocusOverlay } from '@/components/responses/FocusOverlay';
 import type { FocusPanelItem, FocusPanelState, FocusableItem } from '@/components/responses/focus-panel-types';
 import type { GradeTypeLike } from '@/lib/task-response-types';
+import { SanitizedRichText } from '@/components/responses/SanitizedRichText';
 import {
     getTaskChildProgressPercent,
     getBucketedTasks,
@@ -785,7 +786,10 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                 <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{fieldLabel}</div>
                             ) : null}
                             {rfv.richTextContent && rfv.richTextContent !== '<p></p>' ? (
-                                <div className="prose prose-sm mt-1 max-w-none text-xs text-slate-700" dangerouslySetInnerHTML={{ __html: rfv.richTextContent }} />
+                                <SanitizedRichText
+                                    className="prose prose-sm mt-1 max-w-none text-xs text-slate-700"
+                                    html={rfv.richTextContent}
+                                />
                             ) : null}
                             {rfv.fileUrl ? (
                                 <div className="mt-1.5">
@@ -1160,7 +1164,10 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                                                         <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{fieldLabel}</div>
                                                                     ) : null}
                                                                     {rfv.richTextContent && rfv.richTextContent !== '<p></p>' ? (
-                                                                        <div className="prose prose-sm mt-1 max-w-none text-sm text-slate-700" dangerouslySetInnerHTML={{ __html: rfv.richTextContent }} />
+                                                                        <SanitizedRichText
+                                                                            className="prose prose-sm mt-1 max-w-none text-sm text-slate-700"
+                                                                            html={rfv.richTextContent}
+                                                                        />
                                                                     ) : null}
                                                                     {rfv.fileUrl ? (
                                                                         <div className="mt-1.5">
