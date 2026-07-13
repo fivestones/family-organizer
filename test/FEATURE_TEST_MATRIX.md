@@ -115,7 +115,7 @@ Use fake time for:
 - `TS-008` `P1` `New (added)` Unit: `isSeriesActiveForDate` respects schedule + projected series range.
 - `TS-009` `P1` `New (added)` Unit: `getTasksForDate` unscheduled anchor-day behavior (block 0 remains visible on anchor day; future scheduled occurrences project from that anchor).
 - `TS-010` `P1` `New (added)` Unit: `getTasksForDate` trims leading/trailing day-break markers so ghost/dangling empty blocks do not appear.
-- `TS-011` `P1` `New (added)` Unit: `getRecursiveTaskCompletionTransactions` propagates `childTasksComplete` through ancestors (including sibling-incomplete guard).
+- `TS-011` `P1` `New (added)` Unit: `buildTaskCompletionTransactions` propagates `childTasksComplete` through ancestors (including sibling-incomplete guard).
 - `TS-012` `P1` `New (added)` DOM: `TaskSeriesChecklist` auto-completes header/context rows in interactive mode and disables/suppresses auto-toggle in read-only mode.
 - `TS-013` `P1` `Planned` E2E: Checklist completion unlocks chore completion path.
 - `TS-014` `P2` `Planned` DOM: Notes/attachments UI states (uploading, error, success, preview).

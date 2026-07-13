@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: task completion helper now states its real scope (§1.6).** `getRecursiveTaskCompletionTransactions` was renamed to `buildTaskCompletionTransactions`: it builds one task transition and ancestor rollups, but does not imply descendant completion. Stale unused `ChoreList` test mocks and the feature-test matrix name were updated with the API. Verification: 17 scheduler tests and 8 `ChoreList` tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: stored task-response HTML is sanitized before rendering (§4.4, Phase 5).** Checklist summaries, composer response values, update threads, and the Task Bins review path now render through a shared `SanitizedRichText` component backed by DOMPurify. Existing authored formatting remains intact while scripts and executable attributes are removed. Verification: 15 focused sanitizer/checklist DOM tests pass, including `<script>` and `onerror` stripping; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: cancelling manager deletion clears its pending target (Part 3 #5).** The controlled alert-dialog callback now clears `seriesToDelete` whenever the prompt closes, including Cancel, escape, and outside-close paths; failed and successful delete closures use the same cleanup boundary. Verification: all 9 manager DOM tests pass, including cancel-without-write followed by a clean second-series prompt; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: failed manager catch-up writes surface honest feedback (Part 3 #4).** `handleCatchUp` now catches transaction failures, records the underlying error, and shows a destructive toast stating that the planned end date was not changed; the success toast is emitted only after the write resolves. Verification: all 8 manager DOM tests pass, including a rejected-write regression that proves no false success; `tsc --noEmit` passes.
@@ -103,9 +104,9 @@ In Nepal (UTC+5:45), from midnight to 05:44 local the two disagree: the checklis
 
 **Completed:** `computeStatus` now maintains both an in-progress set and ordered dependency stack. Encountering an active ID marks the full cycle segment; while the recursion unwinds, each member ignores its cyclic dependency edge and computes status from its own schedule and progress. Dependencies outside the cycle still block normally, and cached results remain stable regardless of which cycle member appears first in the list. The schema field remains for existing data, but creating a dependency-editing UI is still an explicit product decision rather than part of this crash fix.
 
-### 1.6 Misleading name
+### 1.6 Misleading name — **Completed 2026-07-14**
 
-`getRecursiveTaskCompletionTransactions` ([task-scheduler.ts:254](lib/task-scheduler.ts:254)) is not recursive over children — it completes one task and syncs ancestors. Rename (`buildTaskCompletionTransactions`) before someone trusts the name and completes a parent expecting children to follow.
+`getRecursiveTaskCompletionTransactions` was not recursive over children—it completed one task and synced ancestors. **Completed:** it is now `buildTaskCompletionTransactions`, matching the underlying mutation builder and avoiding any descendant-completion promise. The scheduler tests and feature-test matrix use the new contract name, and an obsolete `ChoreList` mock for the already-removed import was deleted.
 
 ---
 

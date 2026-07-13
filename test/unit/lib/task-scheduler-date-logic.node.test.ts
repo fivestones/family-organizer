@@ -36,7 +36,7 @@ vi.mock('@/lib/db', () => ({
     db: {},
 }));
 
-import { getRecursiveTaskCompletionTransactions, getTasksForDate, isSeriesActiveForDate, type Task } from '@/lib/task-scheduler';
+import { buildTaskCompletionTransactions, getTasksForDate, isSeriesActiveForDate, type Task } from '@/lib/task-scheduler';
 import { countTaskDayBlocks } from '@/lib/task-series-schedule';
 
 function makeTask(overrides: Partial<Task> & Pick<Task, 'id' | 'text' | 'order'>): Task {
@@ -221,7 +221,7 @@ describe('task-scheduler date logic', () => {
             }),
         ];
 
-        const txs = getRecursiveTaskCompletionTransactions('child', true, tasks, '2026-03-10') as any[];
+        const txs = buildTaskCompletionTransactions('child', true, tasks, '2026-03-10') as any[];
 
         // Should contain: task state update, taskUpdates row, links, history event, parent sync
         expect(txs).toEqual(
@@ -279,7 +279,7 @@ describe('task-scheduler date logic', () => {
             }),
         ];
 
-        const txs = getRecursiveTaskCompletionTransactions('child-1', true, tasks, '2026-03-10') as any[];
+        const txs = buildTaskCompletionTransactions('child-1', true, tasks, '2026-03-10') as any[];
 
         expect(txs).toEqual(
             expect.arrayContaining([
@@ -328,7 +328,7 @@ describe('task-scheduler date logic', () => {
             }),
         ];
 
-        const txs = getRecursiveTaskCompletionTransactions('child', false, tasks, '2026-03-10') as any[];
+        const txs = buildTaskCompletionTransactions('child', false, tasks, '2026-03-10') as any[];
 
         expect(txs).toEqual(
             expect.arrayContaining([

@@ -240,7 +240,7 @@ export function isSeriesActiveForDate(
     return allTasks.some((task) => isActionableTask(task, allTasks) && ['blocked', 'skipped', 'needs_review'].includes(getTaskWorkflowState(task)));
 }
 
-export function getRecursiveTaskCompletionTransactions(taskId: string, isCompleted: boolean, allTasks: Task[], completedOnDateStr: string, actorFamilyMemberId?: string, affectedFamilyMemberId?: string): any[] {
+export function buildTaskCompletionTransactions(taskId: string, isCompleted: boolean, allTasks: Task[], completedOnDateStr: string, actorFamilyMemberId?: string, affectedFamilyMemberId?: string): any[] {
     const targetTask = allTasks.find((task) => task.id === taskId);
     const nextState = isCompleted ? 'done' : targetTask?.lastActiveState === 'in_progress' ? 'in_progress' : 'not_started';
 

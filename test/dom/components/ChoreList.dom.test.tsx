@@ -11,7 +11,6 @@ const choreListMocks = vi.hoisted(() => ({
     createRRuleWithStartDate: vi.fn(),
     getTasksForDate: vi.fn(() => []),
     isSeriesActiveForDate: vi.fn(() => false),
-    getRecursiveTaskCompletionTransactions: vi.fn(() => []),
 }));
 
 vi.mock('@/components/ui/use-toast', () => ({
@@ -86,7 +85,6 @@ vi.mock('@/components/TaskSeriesChecklist', () => ({
 
 vi.mock('@/lib/task-scheduler', () => ({
     getTasksForDate: choreListMocks.getTasksForDate,
-    getRecursiveTaskCompletionTransactions: choreListMocks.getRecursiveTaskCompletionTransactions,
     isSeriesActiveForDate: choreListMocks.isSeriesActiveForDate,
 }));
 
@@ -178,10 +176,8 @@ describe('ChoreList', () => {
         choreListMocks.createRRuleWithStartDate.mockReset();
         choreListMocks.getTasksForDate.mockReset();
         choreListMocks.isSeriesActiveForDate.mockReset();
-        choreListMocks.getRecursiveTaskCompletionTransactions.mockReset();
         choreListMocks.getTasksForDate.mockReturnValue([]);
         choreListMocks.isSeriesActiveForDate.mockReturnValue(false);
-        choreListMocks.getRecursiveTaskCompletionTransactions.mockReturnValue([]);
     });
 
     it('filters chores by selected member and selected date', () => {
