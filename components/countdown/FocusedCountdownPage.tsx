@@ -14,6 +14,7 @@ import {
     parseCountdownSettings,
     computeCountdownTimelines,
     getChoreTimingMode,
+    createChoreCompletionRecordId,
     type SharedScheduleSettings,
     type CountdownEngineOutput,
     type CountdownChoreInput,
@@ -458,7 +459,8 @@ export default function FocusedCountdownPage() {
             }, countdownSettings.stackBufferSecs * 1000);
 
             try {
-                const completionId = id();
+                const chore = chores.find((entry: any) => entry.id === choreId);
+                const completionId = createChoreCompletionRecordId(choreId, dateKey, Boolean(chore?.isUpForGrabs), id);
                 await db.transact([
                     tx.choreCompletions[completionId]
                         .update({
@@ -473,7 +475,7 @@ export default function FocusedCountdownPage() {
                 console.error('Failed to mark chore done:', err);
             }
         },
-        [todayKey, countdownSettings.stackBufferSecs],
+        [chores, todayKey, countdownSettings.stackBufferSecs],
     );
 
     // --- Start Now handler ---

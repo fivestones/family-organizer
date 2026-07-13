@@ -1,5 +1,39 @@
 import { RRule, RRuleSet } from 'rrule';
+import { v5 as uuidv5 } from 'uuid';
 import { toUTCDate } from './date';
+
+const UP_FOR_GRABS_COMPLETION_NAMESPACE = 'f57d1ba6-d981-4cd3-b3d7-83e2c7349851';
+
+export function createChoreCompletionRecordId(
+  choreId: string,
+  dateKey: string,
+  isUpForGrabs: boolean,
+  createId: () => string,
+) {
+  if (!isUpForGrabs) return createId();
+
+  const normalizedChoreId = String(choreId || '').trim();
+  const normalizedDateKey = String(dateKey || '').trim();
+  if (!normalizedChoreId || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedDateKey)) {
+    throw new Error('A chore id and YYYY-MM-DD date are required for an up-for-grabs completion');
+  }
+
+  return uuidv5(`${normalizedChoreId}:${normalizedDateKey}`, UP_FOR_GRABS_COMPLETION_NAMESPACE);
+}
+
+export function pickCanonicalChoreCompletion<T extends { id?: string | null; dateCompleted?: string | null }>(
+  completions: T[],
+): T | null {
+  if (completions.length === 0) return null;
+  return [...completions].sort((left, right) => {
+    const leftTime = new Date(left.dateCompleted || '').getTime();
+    const rightTime = new Date(right.dateCompleted || '').getTime();
+    const normalizedLeftTime = Number.isFinite(leftTime) ? leftTime : Number.POSITIVE_INFINITY;
+    const normalizedRightTime = Number.isFinite(rightTime) ? rightTime : Number.POSITIVE_INFINITY;
+    if (normalizedLeftTime !== normalizedRightTime) return normalizedLeftTime - normalizedRightTime;
+    return String(left.id || '').localeCompare(String(right.id || ''));
+  })[0];
+}
 
 export interface SharedChoreAssignee {
   id: string;
@@ -290,12 +324,11 @@ export function calculateDailyXP(
 
     if (chore.isUpForGrabs) {
       if (completionsForDate.length > 0) {
-        for (const completion of completionsForDate) {
-          const completerId = getCompletionMemberId(completion);
-          if (!completerId || !xpMap[completerId]) continue;
-          if (weight > 0) xpMap[completerId].possible += weight;
-          xpMap[completerId].current += weight;
-        }
+        const completion = pickCanonicalChoreCompletion(completionsForDate);
+        const completerId = getCompletionMemberId(completion);
+        if (!completerId || !xpMap[completerId]) continue;
+        if (weight > 0) xpMap[completerId].possible += weight;
+        xpMap[completerId].current += weight;
       } else {
         for (const assignee of assignedMembers) {
           if (!xpMap[assignee.id]) continue;

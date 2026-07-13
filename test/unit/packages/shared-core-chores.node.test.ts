@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
     calculateDailyXP,
+    createChoreCompletionRecordId,
     formatDateKeyUTC,
     getAssignedMembersForChoreOnDate,
     getCompletedChoreCompletionsForDate,
     getMemberCompletionForDate,
     isChoreDueOnDate,
+    pickCanonicalChoreCompletion,
     type SharedChoreLike,
 } from '@family-organizer/shared-core';
 
@@ -31,6 +33,26 @@ function makeRotatingChore(overrides: Partial<SharedChoreLike> = {}): SharedChor
 }
 
 describe('shared-core chores helpers', () => {
+    it('uses one deterministic record id for concurrent up-for-grabs claims', () => {
+        const createId = () => 'random-id';
+        const first = createChoreCompletionRecordId('chore-1', '2026-03-02', true, createId);
+        const second = createChoreCompletionRecordId('chore-1', '2026-03-02', true, createId);
+
+        expect(first).toBe(second);
+        expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+        expect(createChoreCompletionRecordId('chore-1', '2026-03-03', true, createId)).not.toBe(first);
+        expect(createChoreCompletionRecordId('chore-1', '2026-03-02', false, createId)).toBe('random-id');
+    });
+
+    it('selects the earliest completion as the canonical legacy claim', () => {
+        expect(
+            pickCanonicalChoreCompletion([
+                { id: 'later', dateCompleted: '2026-03-02T08:02:00Z' },
+                { id: 'earlier', dateCompleted: '2026-03-02T08:01:00Z' },
+            ])
+        ).toMatchObject({ id: 'earlier' });
+    });
+
     it('assigns rotating chores using sorted assignment order', () => {
         const chore = makeRotatingChore();
 
@@ -183,5 +205,44 @@ describe('shared-core chores helpers', () => {
 
         expect(xp['kid-a']).toEqual({ current: 0, possible: 0 });
         expect(xp['kid-b']).toEqual({ current: -2, possible: 0 });
+    });
+
+    it('credits only the canonical completion when legacy up-for-grabs claims are duplicated', () => {
+        const chore = makeRotatingChore({
+            id: 'ufg-duplicate',
+            isUpForGrabs: true,
+            rotationType: 'none',
+            assignments: [],
+            weight: 5,
+            rewardType: 'weight',
+            completions: [
+                {
+                    id: 'later',
+                    completed: true,
+                    dateDue: '2026-03-02',
+                    dateCompleted: '2026-03-02T08:02:00Z',
+                    completedBy: { id: 'kid-b' },
+                },
+                {
+                    id: 'earlier',
+                    completed: true,
+                    dateDue: '2026-03-02',
+                    dateCompleted: '2026-03-02T08:01:00Z',
+                    completedBy: { id: 'kid-a' },
+                },
+            ],
+        });
+
+        const xp = calculateDailyXP(
+            [chore],
+            [
+                { id: 'kid-a', name: 'Alex' },
+                { id: 'kid-b', name: 'Blair' },
+            ],
+            new Date('2026-03-02T12:00:00Z')
+        );
+
+        expect(xp['kid-a']).toEqual({ current: 5, possible: 5 });
+        expect(xp['kid-b']).toEqual({ current: 0, possible: 0 });
     });
 });

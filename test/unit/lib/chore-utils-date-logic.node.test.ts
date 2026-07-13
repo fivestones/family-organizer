@@ -45,6 +45,8 @@ vi.mock('@/lib/db', () => ({
 import {
     calculatePeriodDetails,
     calculateDailyXP,
+    buildUpForGrabsClaimDeduplication,
+    expandUpForGrabsAwardCompletionIds,
     getAllowancePeriodForDate,
     getAssignedMembersForChoreOnDate,
     getChoreAssignmentGridFromChore,
@@ -380,6 +382,49 @@ describe('chore-utils date logic', () => {
             { op: 'update', entity: 'choreCompletions', id: 'comp-1', payload: { allowanceAwarded: true } },
             { op: 'update', entity: 'choreCompletions', id: 'comp-2', payload: { allowanceAwarded: true } },
         ]);
+    });
+
+    it('groups legacy duplicate up-for-grabs claims under the earliest winner', () => {
+        const chores = [
+            makeRotatingChore({ id: 'ufg', isUpForGrabs: true }),
+            makeRotatingChore({ id: 'regular', isUpForGrabs: false }),
+        ];
+        const dedupe = buildUpForGrabsClaimDeduplication(
+            [
+                {
+                    id: 'later',
+                    completed: true,
+                    dateDue: '2026-03-02',
+                    dateCompleted: '2026-03-02T08:02:00Z',
+                    chore: [{ id: 'ufg' }],
+                },
+                {
+                    id: 'earlier',
+                    completed: true,
+                    dateDue: '2026-03-02',
+                    dateCompleted: '2026-03-02T08:01:00Z',
+                    chore: [{ id: 'ufg' }],
+                },
+                {
+                    id: 'regular-claim',
+                    completed: true,
+                    dateDue: '2026-03-02',
+                    dateCompleted: '2026-03-02T08:00:00Z',
+                    chore: [{ id: 'regular' }],
+                },
+            ],
+            chores
+        );
+
+        expect(dedupe.supersededCompletionIds).toEqual(new Set(['later']));
+        expect(dedupe.completionIdsByWinnerId.get('earlier')).toEqual(['later', 'earlier']);
+        expect(dedupe.completionIdsByWinnerId.has('regular-claim')).toBe(false);
+        expect(
+            expandUpForGrabsAwardCompletionIds(
+                ['earlier', 'regular-claim'],
+                dedupe.completionIdsByWinnerId
+            )
+        ).toEqual(['later', 'earlier', 'regular-claim']);
     });
 
     it('returns assignment preview grid for rotating chores across a date range', async () => {

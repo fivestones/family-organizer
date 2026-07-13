@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import {
   HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
   calculateDailyXP,
+  createChoreCompletionRecordId,
   formatDateKeyUTC,
   getFamilyDayDateUTC,
   getAssignedMembersForChoreOnDate,
@@ -308,7 +309,7 @@ export default function ChoresTab() {
         return;
       }
 
-      const completionId = id();
+      const completionId = createChoreCompletionRecordId(chore.id, selectedDateKey, Boolean(chore.isUpForGrabs), id);
       const transactions = [
         tx.choreCompletions[completionId].update({
           dateDue: selectedDateKey,

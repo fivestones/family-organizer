@@ -6,6 +6,7 @@ import { id, tx } from '@instantdb/react-native';
 import { router } from 'expo-router';
 import {
   calculateDailyXP,
+  createChoreCompletionRecordId,
   formatDateKeyUTC,
   getAssignedMembersForChoreOnDate,
   getCompletedChoreCompletionsForDate,
@@ -825,7 +826,7 @@ export default function DashboardTab() {
         return;
       }
 
-      const completionId = id();
+      const completionId = createChoreCompletionRecordId(chore.id, selectedDateKey, Boolean(chore.isUpForGrabs), id);
       const transactions = [
         tx.choreCompletions[completionId].update({
           dateDue: selectedDateKey,

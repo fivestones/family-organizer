@@ -3,6 +3,7 @@ import { tx, id } from '@instantdb/react';
 import { db } from '@/lib/db';
 import type { ChorePauseState } from '@/lib/chore-schedule';
 import { choreOccursOnDate, getChoreOccurrencesInRange, getNextChoreOccurrence } from '@/lib/chore-schedule';
+import { pickCanonicalChoreCompletion } from '@family-organizer/shared-core';
 
 // --- Type Definitions (Refine based on actual schema/data structure) ---
 export interface Chore {
@@ -35,10 +36,58 @@ export interface ChoreCompletion {
     id: string;
     completed: boolean;
     dateDue: string; // ISO string date
-    completedBy?: { id: string }; // Link to family member
+    completedBy?: { id: string } | { id: string }[]; // Link to family member
     allowanceAwarded?: boolean;
     dateCompleted?: string;
-    chore?: { id: string; weight?: number | null }; // Optional link back to chore with weight
+    chore?: { id: string; weight?: number | null } | { id: string; weight?: number | null }[]; // Optional link back to chore with weight
+}
+
+export function buildUpForGrabsClaimDeduplication(
+    completions: ChoreCompletion[],
+    chores: Chore[]
+) {
+    const choresById = new Map(chores.map((chore) => [chore.id, chore]));
+    const groups = new Map<string, ChoreCompletion[]>();
+
+    for (const completion of completions) {
+        if (!completion.completed || !completion.dateDue) continue;
+        const choreRef = Array.isArray(completion.chore) ? completion.chore[0] : completion.chore;
+        if (!choreRef?.id || !choresById.get(choreRef.id)?.isUpForGrabs) continue;
+        const key = `${choreRef.id}:${completion.dateDue}`;
+        const group = groups.get(key) || [];
+        group.push(completion);
+        groups.set(key, group);
+    }
+
+    const supersededCompletionIds = new Set<string>();
+    const completionIdsByWinnerId = new Map<string, string[]>();
+    for (const group of Array.from(groups.values())) {
+        const winner = pickCanonicalChoreCompletion(group);
+        if (!winner?.id) continue;
+        const completionIds = group.map((completion) => completion.id);
+        completionIdsByWinnerId.set(winner.id, completionIds);
+        for (const completionId of completionIds) {
+            if (completionId !== winner.id) supersededCompletionIds.add(completionId);
+        }
+    }
+
+    return {
+        supersededCompletionIds,
+        completionIdsByWinnerId,
+    };
+}
+
+export function expandUpForGrabsAwardCompletionIds(
+    completionIds: string[],
+    completionIdsByWinnerId: ReadonlyMap<string, string[]>
+) {
+    return Array.from(
+        new Set(
+            completionIds.flatMap(
+                (completionId) => completionIdsByWinnerId.get(completionId) || [completionId]
+            )
+        )
+    );
 }
 
 interface FamilyMember {
@@ -732,16 +781,15 @@ export const calculateDailyXP = (chores: any[], familyMembers: any[], date: Date
 
             if (completionsForDate.length > 0) {
                 // Case: Claimed
-                completionsForDate.forEach((c: any) => {
-                    const completerId = getCompleterId(c);
-                    if (completerId && xpMap[completerId]) {
-                        // +++ CHANGE: Only add to possible if positive +++
-                        if (weight > 0) {
-                            xpMap[completerId].possible += weight;
-                        }
-                        xpMap[completerId].current += weight;
+                const canonicalCompletion = pickCanonicalChoreCompletion(completionsForDate);
+                const completerId = getCompleterId(canonicalCompletion);
+                if (completerId && xpMap[completerId]) {
+                    // +++ CHANGE: Only add to possible if positive +++
+                    if (weight > 0) {
+                        xpMap[completerId].possible += weight;
                     }
-                });
+                    xpMap[completerId].current += weight;
+                }
             } else {
                 // Case: Unclaimed (Up for Grabs)
                 // Add to 'possible' for ALL assignees

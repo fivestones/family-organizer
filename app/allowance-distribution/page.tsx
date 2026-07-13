@@ -17,6 +17,8 @@ import {
     createRRuleWithStartDate,
     getAllowancePeriodForDate,
     calculatePeriodDetails,
+    buildUpForGrabsClaimDeduplication,
+    expandUpForGrabsAwardCompletionIds,
     markCompletionsAwarded,
     toUTCDate,
     Chore,
@@ -158,6 +160,7 @@ export default function AllowanceDistributionPage() {
             setError(null);
 
             const { familyMembers, choreCompletions: allUnawardedCompletions, chores, unitDefinitions, allowanceEnvelopes } = typedData;
+            const upForGrabsClaims = buildUpForGrabsClaimDeduplication(allUnawardedCompletions, chores);
             const results: MemberAllowanceInfo[] = [];
             const newEditableAmounts: EditableAmounts = {};
             // +++ NEW: Reset period amounts on each process run +++
@@ -224,7 +227,10 @@ export default function AllowanceDistributionPage() {
                     }
 
                     const memberPendingPeriods: CalculatedPeriod[] = [];
-                    const memberUnawardedCompletions = allUnawardedCompletions.filter((c: any) => c.completedBy?.[0]?.id === member.id);
+                    const memberUnawardedCompletions = allUnawardedCompletions.filter((c: any) => {
+                        const completedBy = Array.isArray(c.completedBy) ? c.completedBy[0] : c.completedBy;
+                        return completedBy?.id === member.id && !upForGrabsClaims.supersededCompletionIds.has(c.id);
+                    });
 
                     // 3. Iterate through boundaries to define periods
                     for (let i = 0; i < periodBoundaries.length; i++) {
@@ -282,6 +288,10 @@ export default function AllowanceDistributionPage() {
                         );
 
                         if (details) {
+                            details.completionsToMark = expandUpForGrabsAwardCompletionIds(
+                                details.completionsToMark,
+                                upForGrabsClaims.completionIdsByWinnerId
+                            );
                             // Determine payout due date and status
                             const payoutDueDate = addDays(periodEndDate, delayDays);
                             const isDue = isBefore(payoutDueDate, currentSimulatedDate) || isEqual(payoutDueDate, currentSimulatedDate);

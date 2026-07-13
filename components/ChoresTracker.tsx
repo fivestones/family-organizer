@@ -57,6 +57,7 @@ import {
     COUNTDOWN_SETTINGS_NAME,
     parseCountdownSettings,
     getChoreTimingMode,
+    createChoreCompletionRecordId,
     type SharedScheduleSettings,
     type SharedRoutineMarkerStatusLike,
     type CountdownEngineOutput,
@@ -822,7 +823,7 @@ function ChoresTracker({
                 });
             } else {
                 // Create new completion
-                const newCompletionId = id();
+                const newCompletionId = createChoreCompletionRecordId(choreId, formattedDate, isUpForGrabsChore, id);
                 const nowIso = new Date().toISOString();
                 const transactions: any[] = [
                     tx.choreCompletions[newCompletionId].update({
@@ -1589,12 +1590,19 @@ function ChoresTracker({
                             choresRaw={sequenceChoresRaw}
                             nowMs={nowMs}
                             onMarkDone={async (choreId, personId) => {
-                                const completionId = id();
+                                const sequenceChore = chores.find((chore: any) => chore.id === choreId);
+                                const completionId = createChoreCompletionRecordId(
+                                    choreId,
+                                    selectedDateKey,
+                                    Boolean(sequenceChore?.isUpForGrabs),
+                                    id
+                                );
                                 await db.transact([
                                     tx.choreCompletions[completionId].update({
                                         completed: true,
                                         dateDue: selectedDateKey,
                                         dateCompleted: new Date().toISOString(),
+                                        allowanceAwarded: false,
                                     }).link({ chore: choreId, completedBy: personId }),
                                 ]);
                             }}

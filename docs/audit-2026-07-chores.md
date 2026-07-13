@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: up-for-grabs claims converge and legacy duplicates cannot double-credit (§1.1).** A shared UUIDv5 helper derives the completion row ID from `(choreId, dateDue)` for up-for-grabs chores, so concurrent web, countdown/sequence, and mobile claims update/link the same Instant row instead of creating two rewards. Normal assigned chores retain random IDs. Existing duplicate rows are canonicalized by earliest `dateCompleted`: XP credits only that winner, and allowance preprocessing suppresses losing rows while expanding the winner's award-mark set to close every duplicate. Verification: 37 focused shared-core/chore-utils/ChoresTracker tests pass; `tsc --noEmit` passes.
 - **2026-07-13 — Completed: second-precision `after_chore` countdown anchoring (§5.2).** Completion-anchored chores now use the anchor chore's exact completion timestamp rather than its minute-truncated schedule offset, and the packing pass no longer pushes the dependent chore behind the already-completed anchor's old slot window. The focused countdown-engine suite passes all 37 scenarios, including a completion at `08:03:45` that starts the dependent chore exactly five minutes later.
 
 ---
@@ -16,7 +17,7 @@
 
 | # | Severity | Finding |
 |---|----------|---------|
-| 1 | **High (Confirmed)** | Up-for-grabs chores can be double-completed from two devices — both kids get XP and *both* fixed rewards get paid |
+| 1 | **Completed 2026-07-14** | Up-for-grabs claims now converge on a deterministic row; legacy duplicates are canonicalized for XP and payout |
 | 2 | **High (Confirmed)** | Kids' permissions allow rewriting any completion — including `allowanceAwarded`, siblings' completions, and back-dating |
 | 3 | **Medium (Confirmed)** | "Mark all & complete" builds every task transaction from the same stale snapshot — parent tasks end up in wrong states |
 | 4 | **Medium (Confirmed)** | Chore assignment/XP logic exists in two diverging copies; the dashboard and the chores page use different ones |
@@ -28,7 +29,7 @@
 
 ## 1. Correctness
 
-### 1.1 Up-for-grabs double-completion race — **High, Confirmed**
+### 1.1 Up-for-grabs double-completion race — **Completed 2026-07-14**
 
 `toggleChoreDone` guards up-for-grabs claims purely client-side: it checks the locally-cached `allChoreCompletions` for an existing completion ([ChoresTracker.tsx:753-776](components/ChoresTracker.tsx:753)) before creating a new completion row with a fresh random ID ([ChoresTracker.tsx:825-838](components/ChoresTracker.tsx:825)). Two kids tapping the same up-for-grabs chore within the sync window (a second or two, longer offline) both pass the check and both create completions. Consequences:
 
@@ -36,7 +37,7 @@
 - `calculatePeriodDetails` pays the **fixed reward twice** — it iterates all completions in the period with no per-(chore, date) dedupe ([chore-utils.ts:544-584](lib/chore-utils.ts:544)).
 - Display code assumes one completer (`completionsOnDate[0]`), so the UI hides the duplicate while the money/XP double-count stands.
 
-**Fix:** make the completion ID deterministic for up-for-grabs claims — e.g. `uuidv5(choreId + dateDue)` — so concurrent claims converge on a single row (last write wins on `completedBy`, no duplicates, no double pay). Additionally dedupe in `calculatePeriodDetails` by `(choreId, dateDue)` for up-for-grabs chores as a belt-and-suspenders for existing duplicate rows. A "claimed by X just now" toast on the loser's device falls out naturally from the Instant subscription.
+**Completed:** `createChoreCompletionRecordId` uses UUIDv5 over `(choreId, dateDue)` for up-for-grabs completions and is used by every current web/countdown/sequence/mobile create path. Concurrent claims therefore target one valid Instant UUID and the has-one `completedBy` relationship converges on a single winner. For pre-fix duplicate rows, the earliest completion is canonical: both XP implementations credit only it, while allowance preprocessing pays only its member and includes every duplicate ID in the award-mark transaction. The loser device receives the converged row through Instant's subscription and the existing "already completed" UI takes over.
 
 ### 1.2 Bulk "Mark all & complete" corrupts parent-task state — **Medium, Confirmed**
 
@@ -145,7 +146,7 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 
 ## 7. Fix plan
 
-**Phase 0 — money/fairness correctness:** 1.1 deterministic up-for-grabs completion IDs + period dedupe; 2.1 completion permission tightening (field rules); 1.2 shared-map bulk completion.
+**Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; 2.1 completion permission tightening (field rules); 1.2 shared-map bulk completion.
 **Phase 1 — integrity:** 4.1 chore deletion impact dialog + cascades; 1.4 weightless-chore save fix.
 **Phase 2 — consolidation:** 3.1 single shared-core implementation + contract test; 3.2 dead-code removal; 1.5 resolve/delete legacy occurrence helpers.
 **Phase 3 — performance:** 5.1 occurrence-set memoization + rotation index caching; deduplicate countdown builder calls.
