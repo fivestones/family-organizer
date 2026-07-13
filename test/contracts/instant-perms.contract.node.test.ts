@@ -78,4 +78,15 @@ describe('instant.perms contract', () => {
         expect(perms.chores.allow.link.$default).toBe('isParent');
         expect(perms.chores.allow.unlink.$default).toBe('isParent');
     });
+
+    it('cascades task-owned records when their task or response field is deleted', async () => {
+        const schemaSource = await fs.readFile(path.join(process.cwd(), 'instant.schema.ts'), 'utf8');
+
+        for (const linkName of ['taskResponseFieldsTask', 'taskResponseFieldValuesField', 'tasksAttachments', 'taskUpdatesTask']) {
+            const linkStart = schemaSource.indexOf(`${linkName}: {`);
+            expect(linkStart, `missing link ${linkName}`).toBeGreaterThan(-1);
+            const linkSource = schemaSource.slice(linkStart, linkStart + 500);
+            expect(linkSource, `${linkName} must cascade from its has-one task/field relation`).toContain("onDelete: 'cascade'");
+        }
+    });
 });

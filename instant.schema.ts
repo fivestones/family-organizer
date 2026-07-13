@@ -1163,6 +1163,7 @@ const _schema = i.schema({
                 on: 'taskResponseFields',
                 has: 'one',
                 label: 'task',
+                onDelete: 'cascade',
             },
             reverse: {
                 on: 'tasks',
@@ -1175,6 +1176,7 @@ const _schema = i.schema({
                 on: 'taskResponseFieldValues',
                 has: 'one',
                 label: 'field',
+                onDelete: 'cascade',
             },
             reverse: {
                 on: 'taskResponseFields',
@@ -1205,6 +1207,7 @@ const _schema = i.schema({
                 on: 'taskAttachments',
                 has: 'one',
                 label: 'task',
+                onDelete: 'cascade',
             },
         },
         tasksParentTask: {
@@ -1309,6 +1312,7 @@ const _schema = i.schema({
                 on: 'taskUpdates',
                 has: 'one',
                 label: 'task',
+                onDelete: 'cascade',
             },
             reverse: {
                 on: 'tasks',

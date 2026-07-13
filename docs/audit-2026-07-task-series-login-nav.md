@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Database portion completed: task deletion cascades through task-owned records (§2.3, Phase 2).** The checked-in and hosted Instant schema now cascades task deletion into `taskUpdates`, `taskResponseFields`, and `taskAttachments`, then cascades response-field deletion into `taskResponseFieldValues`; existing update-owned attachments/response values continue to use their prior cascades. A hosted smoke test creates the full graph, deletes the task, and proves all five namespaces are empty. The schema push also removed stale live-only `calendarSyncCalendars.ctag`/`syncToken` attributes that were absent from the repo; current code and schema use `lastCtag`/`lastSyncToken`. Verification: 8 schema/permission contract tests, the 2-test hosted Instant matrix (including the new cascade proof), and `tsc --noEmit` pass. **Still open:** reference-aware S3 object reclamation; duplicate task attachments can share a stored-object URL, so deleting the object blindly with either metadata row would break the survivor.
 - **2026-07-14 — Completed: task-series duplication preserves hierarchy and task-owned definitions (Part 3 #2, Phase 2).** Duplicate now preallocates an old→new task ID map, creates reset task rows with weights and correct parent/leaf completion defaults, then restores parent links in a second pass. Response-field definitions are recreated with fresh IDs, and task attachments receive fresh metadata rows linked to the copied task while sharing the immutable stored-object URL. The copy still intentionally starts unassigned, unscheduled, dependency-free, and with all workflow progress reset. Verification: all 6 `TaskSeriesManager` DOM tests pass with hierarchy/weight/field/attachment assertions; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: cyclic task-series dependencies no longer crash the manager (§1.5, Phase 2).** Status evaluation now tracks its active dependency stack, marks every series in a detected cycle, and treats only those cycle edges as non-blocking while normal dependencies retain their existing pending behavior. Both members of a two-series cycle resolve deterministically to their independent schedule/progress status instead of overflowing the stack. Verification: all 6 `TaskSeriesManager` DOM tests pass, including the cycle regression; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: historical Done tasks no longer keep task series visible forever (§4.1, Phase 0).** `ChoreList` and `TaskSeriesChecklist` now share `hasVisibleTaskSeriesContent`: scheduled tasks keep the series visible (including a Done task that the scheduler returned for its completion date), as do blocked/skipped/review items, but unrelated historical Done rows do not. This aligns row and checklist visibility and removes the empty “No active tasks” shells from future dates. Verification: 36 focused task-progress, `ChoreList`, and checklist tests pass; `tsc --noEmit` passes.
@@ -29,7 +30,7 @@
 | 3 | Editor | **Completed 2026-07-14** | Autosave writes changed structure only; live checklist workflow state is no longer replayed from a stale editor snapshot |
 | 4 | Nav bar | **Completed 2026-07-14** | Interactive sign-in keeps the tree mounted, closes the dialog first, and pins the header first in flex order |
 | 5 | /tasks | **Completed 2026-07-14** | Done-only history no longer keeps a row alive; same-day completions remain available in the Done bin |
-| 6 | Data | **Medium (Confirmed)** | Deleting tasks/series orphans `taskUpdates`, `taskResponseFields`, `taskAttachments` rows and leaks S3 files |
+| 6 | Data | **DB rows completed 2026-07-14** | Cascades remove task-owned rows and response values; reference-aware S3 object reclamation remains open |
 | 7 | Editor | **Medium (Confirmed)** | Copy-paste inside the bulk editor duplicates task IDs → silent data loss on save |
 | 8 | Manager | **Completed 2026-07-14** | Duplicate preserves hierarchy, weights, response fields, and attachment metadata while resetting workflow progress |
 | 9 | Login | **Completed 2026-07-14** | The blocking screen is bootstrap-only; interactive switches preserve app state and subscriptions |
@@ -124,7 +125,7 @@ Task identity lives in the `id` node-attribute. Copying a task and pasting it (w
 
 **Fix:** add an `appendTransaction` ProseMirror plugin that scans for duplicate/foreign `id` attrs after any doc change and assigns fresh IDs to all but the first occurrence (fresh IDs to *all* pasted nodes whose ID already exists in `persistedTaskById` under a different series).
 
-### 2.3 Deletions orphan task data and leak storage — **Medium, Confirmed**
+### 2.3 Deletions orphan task data and leak storage — **Database portion completed 2026-07-14**
 
 Schema check ([instant.schema.ts:1161-1318](instant.schema.ts:1161)): `taskUpdatesTask`, `taskResponseFieldsTask`, and `tasksAttachments` have **no** `onDelete: 'cascade'` toward `tasks`. Cascades exist only from update→attachment and update→responseFieldValue. So:
 
@@ -133,6 +134,10 @@ Schema check ([instant.schema.ts:1161-1318](instant.schema.ts:1161)): `taskUpdat
 - No path ever deletes the underlying S3 objects (task attachments, update attachments, response-field files). `handleDeleteAttachment` ([TaskSeriesEditor.tsx:360](components/task-series/TaskSeriesEditor.tsx:360)) removes the row only.
 
 **Fix:** add `onDelete: 'cascade'` on the has-one side of `taskUpdatesTask`, `taskResponseFieldsTask`, `tasksAttachments` (and `taskResponseFieldValuesField` if a field is deleted) and push perms/schema. For S3, collect URLs before deletion and call the existing delete endpoint (or accept the leak consciously and add a periodic orphan-sweep script under `scripts/`).
+
+**Database rows completed and deployed:** all four missing has-one cascades are now in `instant.schema.ts` and the configured hosted Instant app. The live regression creates a task with an update, response field/value, and attachment, deletes only the task, then confirms that every dependent namespace is empty. This covers both editor task deletion and manager series deletion because both ultimately delete task rows.
+
+**S3 cleanup still open:** attachment duplication now creates distinct metadata rows that intentionally share an immutable object URL. Calling the existing object-delete action when either task is removed could therefore break the remaining copy. Safe cleanup needs a reference-aware sweep: enumerate live task/update attachment URLs, list the task-upload prefix, and delete only objects absent from every live metadata row (with a grace period). Until that exists, row integrity is fixed but unreferenced object bytes may remain.
 
 ### 2.4 The delete-guard's "skip" branch leaves ghosts
 
@@ -290,7 +295,7 @@ These are real but were not the cause of the captured incident:
 
 ### Phase 2 — data integrity
 
-8. Schema cascades for task-owned children + push (2.3); decide S3 cleanup policy (endpoint call vs. sweep script).
+8. **Partially completed 2026-07-14:** ~~schema cascades for task-owned children + hosted push (2.3).~~ S3 policy resolved in favor of a reference-aware orphan sweep; implementing that sweep remains open.
 9. Unique-ID enforcement plugin in the editor (2.2).
 10. ~~Faithful series duplication (Part 3 #2).~~ **Completed 2026-07-14** for hierarchy, weights, response fields, and attachment metadata.
 11. ~~Cycle guard in `computeStatus` (1.5).~~ **Completed 2026-07-14** with deterministic non-blocking cycle edges.

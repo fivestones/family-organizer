@@ -152,6 +152,11 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         allowanceTransactions: new Set<string>(),
         chores: new Set<string>(),
         choreCompletions: new Set<string>(),
+        tasks: new Set<string>(),
+        taskUpdates: new Set<string>(),
+        taskResponseFields: new Set<string>(),
+        taskResponseFieldValues: new Set<string>(),
+        taskAttachments: new Set<string>(),
     };
 
     beforeAll(async () => {
@@ -190,6 +195,21 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         }
         for (const entryId of Array.from(cleanup.allowanceTransactions)) {
             txs.push(adminDb.tx.allowanceTransactions[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.taskResponseFieldValues)) {
+            txs.push(adminDb.tx.taskResponseFieldValues[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.taskUpdates)) {
+            txs.push(adminDb.tx.taskUpdates[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.taskResponseFields)) {
+            txs.push(adminDb.tx.taskResponseFields[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.taskAttachments)) {
+            txs.push(adminDb.tx.taskAttachments[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.tasks)) {
+            txs.push(adminDb.tx.tasks[entryId].delete());
         }
         if (txs.length > 0) {
             await adminDb.transact(txs);
@@ -452,6 +472,87 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             } finally {
                 completionKidDb.shutdown?.();
             }
+        },
+        120_000
+    );
+
+    it(
+        'cascades task-owned records in the hosted schema',
+        async () => {
+            const taskId = instantId();
+            const updateId = instantId();
+            const fieldId = instantId();
+            const valueId = instantId();
+            const attachmentId = instantId();
+            const now = Date.now();
+
+            cleanup.tasks.add(taskId);
+            cleanup.taskUpdates.add(updateId);
+            cleanup.taskResponseFields.add(fieldId);
+            cleanup.taskResponseFieldValues.add(valueId);
+            cleanup.taskAttachments.add(attachmentId);
+
+            await adminDb.transact([
+                adminDb.tx.tasks[taskId].update({
+                    text: 'Cascade smoke task',
+                    order: 0,
+                    isDayBreak: false,
+                    workflowState: 'not_started',
+                }),
+                adminDb.tx.taskUpdates[updateId]
+                    .update({
+                        createdAt: now,
+                        updatedAt: now,
+                        fromState: 'not_started',
+                        toState: 'in_progress',
+                        scheduledForDate: '2026-07-14',
+                    })
+                    .link({ task: taskId }),
+                adminDb.tx.taskResponseFields[fieldId]
+                    .update({
+                        type: 'rich_text',
+                        label: 'Smoke response',
+                        weight: 0,
+                        required: false,
+                        order: 0,
+                        createdAt: now,
+                        updatedAt: now,
+                    })
+                    .link({ task: taskId }),
+                adminDb.tx.taskResponseFieldValues[valueId]
+                    .update({ createdAt: now, updatedAt: now, richTextContent: 'Smoke value' })
+                    .link({ field: fieldId }),
+                adminDb.tx.taskAttachments[attachmentId].update({
+                    createdAt: new Date(now),
+                    updatedAt: new Date(now),
+                    name: 'smoke.txt',
+                    type: 'text/plain',
+                    url: 'task-cascade-smoke/smoke.txt',
+                }),
+                adminDb.tx.tasks[taskId].link({ attachments: attachmentId }),
+            ]);
+
+            await adminDb.transact(adminDb.tx.tasks[taskId].delete());
+
+            const result = await adminDb.query({
+                tasks: { $: { where: { id: taskId } } },
+                taskUpdates: { $: { where: { id: updateId } } },
+                taskResponseFields: { $: { where: { id: fieldId } } },
+                taskResponseFieldValues: { $: { where: { id: valueId } } },
+                taskAttachments: { $: { where: { id: attachmentId } } },
+            });
+
+            expect(result.tasks || []).toHaveLength(0);
+            expect(result.taskUpdates || []).toHaveLength(0);
+            expect(result.taskResponseFields || []).toHaveLength(0);
+            expect(result.taskResponseFieldValues || []).toHaveLength(0);
+            expect(result.taskAttachments || []).toHaveLength(0);
+
+            cleanup.tasks.delete(taskId);
+            cleanup.taskUpdates.delete(updateId);
+            cleanup.taskResponseFields.delete(fieldId);
+            cleanup.taskResponseFieldValues.delete(valueId);
+            cleanup.taskAttachments.delete(attachmentId);
         },
         120_000
     );
