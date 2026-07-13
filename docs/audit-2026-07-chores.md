@@ -1,0 +1,152 @@
+# Audit: Chores System
+
+**Date:** 2026-07-12
+**Scope:** `lib/chore-utils.ts`, `lib/chore-schedule.ts`, `lib/recurrence.ts`, `packages/shared-core/src/chores.ts` + `chore-countdown-engine.ts`, `components/ChoresTracker.tsx` (mutation paths), `components/ChoreList.tsx` (completion flows), `components/DetailedChoreForm.tsx`, chore-related permissions in `instant.perms.ts`.
+**Method:** Static code-path tracing. Query over-fetching for the chores dashboard was covered in the task-series audit (finding 4.3) and is not repeated here.
+
+---
+
+## Implementation progress
+
+- **2026-07-13 — Completed: second-precision `after_chore` countdown anchoring (§5.2).** Completion-anchored chores now use the anchor chore's exact completion timestamp rather than its minute-truncated schedule offset, and the packing pass no longer pushes the dependent chore behind the already-completed anchor's old slot window. The focused countdown-engine suite passes all 37 scenarios, including a completion at `08:03:45` that starts the dependent chore exactly five minutes later.
+
+---
+
+## Executive summary
+
+| # | Severity | Finding |
+|---|----------|---------|
+| 1 | **High (Confirmed)** | Up-for-grabs chores can be double-completed from two devices — both kids get XP and *both* fixed rewards get paid |
+| 2 | **High (Confirmed)** | Kids' permissions allow rewriting any completion — including `allowanceAwarded`, siblings' completions, and back-dating |
+| 3 | **Medium (Confirmed)** | "Mark all & complete" builds every task transaction from the same stale snapshot — parent tasks end up in wrong states |
+| 4 | **Medium (Confirmed)** | Chore assignment/XP logic exists in two diverging copies; the dashboard and the chores page use different ones |
+| 5 | **Medium** | Rotation assignment is recomputed from the entire occurrence history — O(years) work in every render loop, and retroactively unstable |
+| 6 | **Medium (Confirmed)** | Deleting a chore orphans completions/assignments and silently un-schedules linked task series |
+| 7 | **Low** | Dead/broken helpers, leftover debug code, unresolved "gemini thinks" UTC questions in occurrence helpers |
+
+---
+
+## 1. Correctness
+
+### 1.1 Up-for-grabs double-completion race — **High, Confirmed**
+
+`toggleChoreDone` guards up-for-grabs claims purely client-side: it checks the locally-cached `allChoreCompletions` for an existing completion ([ChoresTracker.tsx:753-776](components/ChoresTracker.tsx:753)) before creating a new completion row with a fresh random ID ([ChoresTracker.tsx:825-838](components/ChoresTracker.tsx:825)). Two kids tapping the same up-for-grabs chore within the sync window (a second or two, longer offline) both pass the check and both create completions. Consequences:
+
+- `calculateDailyXP` credits **both** completers ([chore-utils.ts:733-744](lib/chore-utils.ts:733)).
+- `calculatePeriodDetails` pays the **fixed reward twice** — it iterates all completions in the period with no per-(chore, date) dedupe ([chore-utils.ts:544-584](lib/chore-utils.ts:544)).
+- Display code assumes one completer (`completionsOnDate[0]`), so the UI hides the duplicate while the money/XP double-count stands.
+
+**Fix:** make the completion ID deterministic for up-for-grabs claims — e.g. `uuidv5(choreId + dateDue)` — so concurrent claims converge on a single row (last write wins on `completedBy`, no duplicates, no double pay). Additionally dedupe in `calculatePeriodDetails` by `(choreId, dateDue)` for up-for-grabs chores as a belt-and-suspenders for existing duplicate rows. A "claimed by X just now" toast on the loser's device falls out naturally from the Instant subscription.
+
+### 1.2 Bulk "Mark all & complete" corrupts parent-task state — **Medium, Confirmed**
+
+`confirmMarkAllAndComplete` flat-maps one `buildTaskUpdateTransactions` call per incomplete task ([ChoreList.tsx:526-540](components/ChoreList.tsx:526)). Each call clones the *same* `allTasks` snapshot, so each transaction's ancestor-sync (`syncAncestorChildCompletionState`) sees all *other* siblings as still incomplete. Completing the last 3 children of a parent this way leaves the parent `in_progress` with `childTasksComplete: false` even though every child is now `done` in the database.
+
+**Fix:** thread one shared, mutated `taskMap` through the batch (apply each task's state change to the map before building the next transaction), or add a `buildBulkTaskUpdateTransactions` helper that marks all targets first and syncs ancestors once.
+
+### 1.3 Rotation semantics are retroactively unstable — **Medium**
+
+`getRotationIndex` counts *actual occurrences* from the chore's start date to the target date ([chore-utils.ts:266-300](lib/chore-utils.ts:266), duplicated in [shared-core/chores.ts:142-184](packages/shared-core/src/chores.ts:142)). Because the index is derived from the full occurrence history:
+
+- Adding an exdate (skip a day / pause) shifts **every future** assignee by one — plausibly intended ("nobody loses a turn").
+- It also shifts the computed assignee for **past** dates whenever the schedule is edited retroactively, so historical XP, "who was assigned" displays, and allowance `totalWeight` recalculations silently change after a schedule edit.
+- Weekly/monthly bucketing counts *distinct buckets containing occurrences*, so a week with all occurrences excluded doesn't advance the rotation — again arguably intended, but none of this is written down or tested against the pause feature.
+
+**Fix:** document the intended invariants and add unit tests pairing rotation with `createChorePausePatch` / exdates. If retroactive stability matters (it does for allowance recalcs), snapshot the assignee onto the completion row at completion time (`assignedTo` link) and use the stored value for anything historical.
+
+### 1.4 Editing a chore that has no weight can't be saved — **Low, Confirmed**
+
+On edit, a null weight hydrates the input as `''` ([DetailedChoreForm.tsx:196](components/DetailedChoreForm.tsx:196)), and `handleSave` rejects `parseFloat('') = NaN` with an alert ([DetailedChoreForm.tsx:493-498](components/DetailedChoreForm.tsx:493)) — so saving *any* edit to a weightless chore demands entering a number. Treat empty as null (weightless) instead. While in there: the form's ~10 validation paths use native `alert()`; the rest of the app uses toasts.
+
+### 1.5 Unresolved UTC questions in occurrence helpers — **Low**
+
+`getNextOccurrence` / `getOccurrences` ([chore-utils.ts:133-147](lib/chore-utils.ts:133)) pass raw local `Date`s to `rrule.after/between` and carry literal "gemini thinks we need…" comments in place of a decision. Everything on the hot paths now goes through `lib/chore-schedule.ts` (which does this correctly), so audit the remaining callers of these two, migrate them, and delete the helpers.
+
+---
+
+## 2. Permissions (CEL rules)
+
+### 2.1 `choreCompletions` are wide open to kids — **High, Confirmed**
+
+[instant.perms.ts:819-837](instant.perms.ts:819): `create` and `update` are `isFamilyPrincipal`. A kid principal can therefore, via the API (nothing in the UI offers it, but the rules are the boundary):
+
+- Set `allowanceAwarded: true/false` on any completion — hiding chores from payout or re-arming already-paid ones for double payment.
+- Flip `completed` on a sibling's completion, or change `dateDue` to move a completion into a richer allowance period.
+- Create completions linked to any member (`familyMembers` link `$default` is `isFamilyPrincipal`), i.e. complete chores *as* someone else without the `markedBy` audit trail parents get.
+
+**Fix:** field-level rules — `allowanceAwarded` update `isParent`; for kid updates require the completion to be their own (`authFamilyMemberId in data.ref('completedBy.id')`); for creates, bind `authFamilyMemberId` and require the `completedBy` link to be self unless `isParent`. The bind pattern already exists in the messaging rules.
+
+### 2.2 Related rule gaps
+
+- `chores.update` is parent-only (good), but `routineMarkerStatuses` create/update is parent-only while kids presumably tap routine markers on the countdown page — verify the countdown flows still work under a kid principal; if they write marker statuses, this rule blocks them (or they're being written while the tablet is in parent mode, which is worse).
+- `historyEvents.create: isFamilyPrincipal` with immutability (update/delete false) is a reasonable trade — kids can forge history entries but not tamper with existing ones. Accept or tighten deliberately.
+
+---
+
+## 3. Duplication / architecture
+
+### 3.1 Two implementations of the core assignment/XP logic — **Medium, Confirmed**
+
+`getAssignedMembersForChoreOnDate`, `getRotationIndex`, occurrence-set construction, exdate parsing, and `calculateDailyXP` all exist twice:
+
+- `lib/chore-utils.ts` (+ `lib/chore-schedule.ts`) — used by ChoresTracker, ChoreList, FamilyMembersList (6 import sites).
+- `packages/shared-core/src/chores.ts` — used by the dashboard widgets (`DashboardHeader`, `TodaysChoresWidget`, `TodaysTasksWidget`, `UpcomingChoresWidget`) and the mobile app.
+
+They are *near*-identical today (the shared-core copy skips `normalizeRrule`, drops assignee `color`, and its `getRotationIndex` takes an extra param). Any future tweak — joint-chore XP, negative-weight capping, rrule normalization fixes — lands in one copy and the dashboard's XP quietly disagrees with the sidebar's. **Fix:** make `shared-core` the single source (it's the one mobile uses), re-export from `lib/chore-utils.ts` for compatibility, and delete the web-only copies. Add one contract test asserting both entry points return identical results for a fixture set until the merge completes.
+
+### 3.2 Dead and debug code
+
+- [chore-utils.ts:463-464](lib/chore-utils.ts:463): `if (memberId == 'c72238c8-…') { }` — an empty block with a hardcoded family-member UUID. Delete.
+- `isChoreAssignedForPersonOnDate` and `getChoreAssignmentGrid` ([chore-utils.ts:151-264](lib/chore-utils.ts:151)) are unused, self-annotated with `TODO`, and query a `date` field that doesn't exist on `choreCompletions` (schema has `dateDue`/`dateCompleted`) — they would throw if ever called. Delete.
+
+---
+
+## 4. Data integrity
+
+### 4.1 `deleteChore` leaves orphans and silently breaks task series — **Medium, Confirmed**
+
+[ChoresTracker.tsx:1160-1175](components/ChoresTracker.tsx:1160) deletes only the chore row (the comment admits the open question). No `onDelete: cascade` exists on `choresCompletions` or the assignments link, so completions and `choreAssignments` rows are orphaned. Worse: any task series linked via `scheduledActivity` loses its schedule — the series silently reverts to draft status and disappears from `/tasks` with no warning.
+
+**Fix:** a confirmation dialog in the same style as `TaskDeleteConfirmDialog` ("this chore has 214 completions and drives the '7th Grade Math' task series"), plus either schema cascades for completions/assignments or explicit cleanup transactions. Blocked deletion (or a prompt to relink) when a task series depends on the chore.
+
+---
+
+## 5. Performance
+
+### 5.1 Rotation/occurrence math is O(history) per call — **Medium**
+
+`getRotationIndex` expands **every occurrence since the chore's start date** ([chore-utils.ts:269](lib/chore-utils.ts:269)). A daily rotating chore two years old = ~700 rrule occurrences materialized *per call*. Callers include `getAssignedMembersForChoreOnDate`, which itself runs:
+
+- twice per chore in the countdown input builder ([ChoresTracker.tsx:400-410](components/ChoresTracker.tsx:400) — once in `.filter`, again in `.map`),
+- per chore per avatar in `ChoreList`,
+- per chore per day in `calculateDailyXP` (dashboard runs 7-day summaries),
+- per occurrence in allowance-period calculations.
+
+Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for every single-day check ([chore-schedule.ts:56-80](lib/chore-schedule.ts:56)).
+
+**Fix:** (a) memoize occurrence sets per `(rrule, startDate, exdates)` — a tiny LRU in `chore-schedule.ts` transparently fixes every caller; (b) for rotation, derive the index arithmetically where possible (daily/interval rules don't need materialization) or cache `(choreId → sorted occurrence keys)` per render; (c) deduplicate the double call in the countdown builder.
+
+### 5.2 Countdown engine
+
+`packages/shared-core/src/chore-countdown-engine.ts` (903 lines) is the most intricate module in the repo. The second-precision `after_chore` anchoring work is now implemented and covered by the focused engine suite (see the implementation log above). The collision/packing rules (`packStartDriven`) still have three interacting special cases (buffer, completion-anchored slots skipping their anchor, after-anchor default delay), so add a broader table-driven scenario file (chore fixtures → expected slot layout) before the next behavioral change.
+
+---
+
+## 6. Improvement ideas (not defects)
+
+- **Claim button for up-for-grabs:** an explicit "Claim" state (claimed → do it → done) instead of instant completion would kill the race at the UX level too, and lets a parent see who committed to what.
+- **Rotation transparency:** show "Next: Judah (Tue), Maya (Wed)" on rotating chores; add a "swap turns" action that writes an explicit override instead of forcing exdate tricks.
+- **Snapshot assignee on completion** (see 1.3) — also unlocks accurate "completed late / completed for someone else" reporting.
+- **Backfill affordance:** parents currently can't fix "we forgot to check it yesterday" without the debug time machine; a parent-only complete-for-date action (already have `markedBy` audit) closes that.
+- **Merge the XP heuristics:** `isJoint` exists on chores but XP math ignores it — either split weight among completers or remove the flag from the form until it means something.
+- **`estimatedDurationSecs` + weight double as countdown inputs** — the form warns on timeline overflow only when duration is set; surface "this chore has timing but no duration" as a lint in the inventory view.
+
+---
+
+## 7. Fix plan
+
+**Phase 0 — money/fairness correctness:** 1.1 deterministic up-for-grabs completion IDs + period dedupe; 2.1 completion permission tightening (field rules); 1.2 shared-map bulk completion.
+**Phase 1 — integrity:** 4.1 chore deletion impact dialog + cascades; 1.4 weightless-chore save fix.
+**Phase 2 — consolidation:** 3.1 single shared-core implementation + contract test; 3.2 dead-code removal; 1.5 resolve/delete legacy occurrence helpers.
+**Phase 3 — performance:** 5.1 occurrence-set memoization + rotation index caching; deduplicate countdown builder calls.
+**Phase 4 — polish:** rotation transparency, claim flow, backfill, joint-chore XP decision, countdown scenario tests (5.2).

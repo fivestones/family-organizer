@@ -386,20 +386,40 @@ function packStartDriven(
   const bufferSecs = input.countdownSettings.stackBufferSecs;
   const slots: PlacedSlot[] = [];
 
+  const choreInputMap = new Map(input.chores.map((c) => [c.id, c]));
+
   for (const chore of startChores) {
     const afterDelay = chore.timingMode === 'anytime'
       ? 0
       : getAfterDelay(chore, input);
-    const anchorMs = offsetToTimestampMs(
-      chore.startAnchorOffset!,
-      input.date,
-      input.scheduleSettings,
-    );
+
+    // For after_chore slots, use the anchor chore's completion timestamp
+    // with second precision instead of the minute-truncated offset from the
+    // timing resolver. This prevents the afterDelay from appearing shortened
+    // due to seconds being dropped.
+    let anchorMs: number;
+    const anchorChoreId = getAnchorChoreId(chore.input);
+    const anchorChoreCompletion = anchorChoreId
+      ? choreInputMap.get(anchorChoreId)?.memberCompletions[personId]
+      : null;
+    if (anchorChoreCompletion && chore.timingMode === 'after_chore') {
+      anchorMs = new Date(anchorChoreCompletion).getTime();
+    } else {
+      anchorMs = offsetToTimestampMs(
+        chore.startAnchorOffset!,
+        input.date,
+        input.scheduleSettings,
+      );
+    }
 
     let targetStart = anchorMs + afterDelay * 1000;
 
     // Check if we collide with already-placed start-driven slots.
+    // Skip the anchor chore when the placement is completion-based — the
+    // after_chore slot is explicitly tied to the anchor's completion time,
+    // not to the anchor's remaining slot window.
     for (const existing of slots) {
+      if (anchorChoreCompletion && existing.choreId === anchorChoreId) continue;
       if (targetStart < existing.targetEndMs + bufferSecs * 1000) {
         targetStart = existing.targetEndMs + bufferSecs * 1000;
       }
