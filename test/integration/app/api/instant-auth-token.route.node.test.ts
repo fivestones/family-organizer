@@ -53,7 +53,7 @@ describe('POST /api/instant-auth-token', () => {
         const response = await POST(
             new NextRequest('http://localhost:3000/api/instant-auth-token', {
                 method: 'POST',
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
                 body: JSON.stringify({ familyMemberId: 'child-1', pin: '' }),
             })
         );
@@ -70,7 +70,7 @@ describe('POST /api/instant-auth-token', () => {
         const response = await POST(
             new NextRequest('http://localhost:3000/api/instant-auth-token', {
                 method: 'POST',
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
                 body: JSON.stringify({ familyMemberId: 'child-1', pin: '1234' }),
             })
         );

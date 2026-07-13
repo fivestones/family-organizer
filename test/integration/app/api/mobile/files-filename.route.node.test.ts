@@ -53,7 +53,7 @@ describe('GET /api/mobile/files/[filename]', () => {
     it('returns JSON with presigned URL for authenticated requests', async () => {
         const response = await GET(
             new NextRequest('http://localhost:3000/api/mobile/files/photo.png', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             }),
             { params: Promise.resolve({ filename: 'photo.png' }) }
         );
@@ -85,7 +85,7 @@ describe('GET /api/mobile/files/[filename]', () => {
 
         const response = await GET(
             new NextRequest('http://localhost:3000/api/mobile/files/missing.png', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             }),
             { params: Promise.resolve({ filename: 'missing.png' }) }
         );
@@ -98,7 +98,7 @@ describe('GET /api/mobile/files/[filename]', () => {
     it('returns 400 when filename is empty', async () => {
         const response = await GET(
             new NextRequest('http://localhost:3000/api/mobile/files/', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             }),
             { params: Promise.resolve({ filename: '' }) }
         );

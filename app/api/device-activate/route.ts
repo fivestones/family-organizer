@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE, getDeviceAuthCookieOptions } from '@/lib/device-auth';
+import { DEVICE_AUTH_COOKIE_NAME, sha256hex, getDeviceAuthCookieOptions } from '@/lib/device-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +29,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid activation key' }, { status: 403 });
     }
 
+    const expectedToken = await sha256hex(secretKey);
+    // Prefer the Host header so the real public hostname is used even behind a reverse proxy
+    const hostname = request.headers.get('host') ?? request.nextUrl.hostname;
     const response = NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
-    response.cookies.set(DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE, getDeviceAuthCookieOptions());
+    response.cookies.set(DEVICE_AUTH_COOKIE_NAME, expectedToken, getDeviceAuthCookieOptions(hostname));
     return response;
 }

@@ -25,11 +25,15 @@ vi.mock('@aws-sdk/s3-presigned-post', () => ({
     createPresignedPost: actionMocks.createPresignedPost,
 }));
 
+// SHA-256('test-device-key')
+const EXPECTED_TOKEN = 'dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6';
+
 describe('app/actions server auth + file actions', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
 
+        process.env.DEVICE_ACCESS_KEY = 'test-device-key';
         process.env.S3_ENDPOINT = 'https://internal-s3.example.test';
         process.env.NEXT_PUBLIC_S3_ENDPOINT = 'https://public-s3.example.test';
         process.env.S3_ACCESS_KEY_ID = 'akid';
@@ -56,7 +60,7 @@ describe('app/actions server auth + file actions', () => {
     function setDeviceCookie(value: string | undefined) {
         actionMocks.cookies.mockResolvedValue({
             get: (name: string) => {
-                if (name !== 'family_device_auth' || value === undefined) return undefined;
+                if (name !== 'activation_token' || value === undefined) return undefined;
                 return { name, value };
             },
         });
@@ -70,14 +74,14 @@ describe('app/actions server auth + file actions', () => {
     });
 
     it('hashPin returns sha256 when authorized', async () => {
-        setDeviceCookie('true');
+        setDeviceCookie(EXPECTED_TOKEN);
         const { hashPin } = await import('@/app/actions');
 
         await expect(hashPin('1234')).resolves.toBe('03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4');
     });
 
     it('getPresignedUploadUrl validates inputs before signing', async () => {
-        setDeviceCookie('true');
+        setDeviceCookie(EXPECTED_TOKEN);
         const { getPresignedUploadUrl } = await import('@/app/actions');
 
         await expect(getPresignedUploadUrl('', 'photo.png')).rejects.toThrow('Invalid content type');
@@ -93,7 +97,7 @@ describe('app/actions server auth + file actions', () => {
     });
 
     it('getPresignedUploadUrl returns signed upload data for authorized devices', async () => {
-        setDeviceCookie('true');
+        setDeviceCookie(EXPECTED_TOKEN);
         const { getPresignedUploadUrl } = await import('@/app/actions');
 
         const result = await getPresignedUploadUrl('image/png', 'photo.png');
@@ -116,7 +120,7 @@ describe('app/actions server auth + file actions', () => {
     });
 
     it('getPresignedUploadUrl wraps signer failures with a stable error message', async () => {
-        setDeviceCookie('true');
+        setDeviceCookie(EXPECTED_TOKEN);
         actionMocks.createPresignedPost.mockRejectedValueOnce(new Error('signer exploded'));
         const { getPresignedUploadUrl } = await import('@/app/actions');
 
@@ -131,7 +135,7 @@ describe('app/actions server auth + file actions', () => {
     });
 
     it('getFiles lists server-side file metadata for authorized devices', async () => {
-        setDeviceCookie('true');
+        setDeviceCookie(EXPECTED_TOKEN);
         const { getFiles } = await import('@/app/actions');
 
         const result = await getFiles();
@@ -142,7 +146,7 @@ describe('app/actions server auth + file actions', () => {
     });
 
     it('refreshFiles revalidates the home route when authorized', async () => {
-        setDeviceCookie('true');
+        setDeviceCookie(EXPECTED_TOKEN);
         const { refreshFiles } = await import('@/app/actions');
 
         await refreshFiles();

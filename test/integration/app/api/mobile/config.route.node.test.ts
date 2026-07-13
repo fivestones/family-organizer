@@ -25,7 +25,7 @@ describe('GET /api/mobile/config', () => {
     it('returns 503 when INSTANT_APP_ID is not configured', async () => {
         const response = await GET(
             new NextRequest('http://localhost:3000/api/mobile/config', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             })
         );
 
@@ -40,7 +40,7 @@ describe('GET /api/mobile/config', () => {
 
         const response = await GET(
             new NextRequest('http://localhost:3000/api/mobile/config', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             })
         );
 
@@ -59,7 +59,7 @@ describe('GET /api/mobile/config', () => {
 
         const response = await GET(
             new NextRequest('http://localhost:3000/api/mobile/config', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             })
         );
 
@@ -93,7 +93,7 @@ describe('GET /api/mobile/config', () => {
 
         const response = await GET(
             new NextRequest('http://localhost:3000/api/mobile/config', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             })
         );
 

@@ -1,7 +1,7 @@
 // middleware.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE, getDeviceAuthCookieOptions } from '@/lib/device-auth';
+import { DEVICE_AUTH_COOKIE_NAME, sha256hex, getDeviceAuthCookieOptions } from '@/lib/device-auth';
 
 // 2. Paths that are always allowed (e.g., static assets, manifest)
 // You might want to allow manifest.json so the PWA is recognized,
@@ -18,7 +18,7 @@ const PUBLIC_ALLOWLIST_PATHS = [
 const PUBLIC_ALLOWLIST_PREFIXES = ['/api/mobile/'];
 const API_ROUTE_AUTH_PREFIXES = ['/api/calendar-sync/'];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
     // 1. Read the key INSIDE the function to ensure we get the runtime value
     const SECRET_KEY = process.env.DEVICE_ACCESS_KEY;
 
@@ -36,24 +36,29 @@ export function middleware(request: NextRequest) {
         return NextResponse.next();
     }
 
-    // --- B. PASS: Check if device is already authenticated ---
-    const deviceCookie = request.cookies.get(DEVICE_AUTH_COOKIE_NAME);
-    if (deviceCookie && deviceCookie.value === DEVICE_AUTH_COOKIE_VALUE) {
-        return NextResponse.next();
-    }
+    if (SECRET_KEY) {
+        const expectedToken = await sha256hex(SECRET_KEY);
+        // Prefer the Host header so the real public hostname is used even behind a reverse proxy
+        const hostname = request.headers.get('host') ?? request.nextUrl.hostname;
 
-    // --- C. ACTIVATE: Check if this is the Magic Link ---
-    // URL Pattern: https://your-site.com/?activate=SUPER_SECRET_KEY
-    const activationKey = searchParams.get('activate');
+        // --- B. PASS: Check if device is already authenticated ---
+        const deviceCookie = request.cookies.get(DEVICE_AUTH_COOKIE_NAME);
+        if (deviceCookie && deviceCookie.value === expectedToken) {
+            return NextResponse.next();
+        }
 
-    // Check if SECRET_KEY exists to prevent security holes if env is missing
-    if (SECRET_KEY && activationKey === SECRET_KEY) {
-        // 1. Create a response that redirects to the home page (removing the query param)
-        const response = NextResponse.redirect(new URL('/', request.url));
-        
-        // 2. Stamp the "Badge" (Set the long-lived cookie)
-        response.cookies.set(DEVICE_AUTH_COOKIE_NAME, DEVICE_AUTH_COOKIE_VALUE, getDeviceAuthCookieOptions());
-        return response;
+        // --- C. ACTIVATE: Check if this is the Magic Link ---
+        // URL Pattern: https://your-site.com/?activate=SUPER_SECRET_KEY
+        const activationKey = searchParams.get('activate');
+
+        if (activationKey === SECRET_KEY) {
+            // 1. Create a response that redirects to the home page (removing the query param)
+            const response = NextResponse.redirect(new URL('/', request.url));
+
+            // 2. Stamp the "Badge" (Set the long-lived cookie)
+            response.cookies.set(DEVICE_AUTH_COOKIE_NAME, expectedToken, getDeviceAuthCookieOptions(hostname));
+            return response;
+        }
     }
 
     // --- D. BLOCK: Deny everything else ---

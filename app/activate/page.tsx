@@ -1,7 +1,8 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { createHash } from 'crypto';
 import { DeviceActivationForm } from '@/components/auth/DeviceActivationForm';
-import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
+import { DEVICE_AUTH_COOKIE_NAME } from '@/lib/device-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +13,8 @@ type ActivatePageProps = {
 export default async function ActivatePage({ searchParams }: ActivatePageProps) {
     const cookieStore = await cookies();
     const cookieValue = cookieStore.get(DEVICE_AUTH_COOKIE_NAME)?.value;
-    if (hasValidDeviceAuthCookie(cookieValue)) {
+    const secretKey = process.env.DEVICE_ACCESS_KEY;
+    if (secretKey && cookieValue === createHash('sha256').update(secretKey).digest('hex')) {
         redirect('/');
     }
 

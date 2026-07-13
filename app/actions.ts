@@ -5,7 +5,7 @@ import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { randomUUID, createHash } from 'crypto';
-import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
+import { DEVICE_AUTH_COOKIE_NAME } from '@/lib/device-auth';
 import { finalizeUploadedAttachment, type AttachmentFinalizeInput } from '@/lib/attachment-finalizer';
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
@@ -25,7 +25,12 @@ function getRequiredEnv(name: string): string {
 async function requireDeviceAuth() {
     const cookieStore = await cookies();
     const cookieValue = cookieStore.get(DEVICE_AUTH_COOKIE_NAME)?.value;
-    if (!hasValidDeviceAuthCookie(cookieValue)) {
+    const secretKey = process.env.DEVICE_ACCESS_KEY;
+    if (!secretKey || !cookieValue) {
+        throw new Error('Unauthorized device');
+    }
+    const expectedToken = createHash('sha256').update(secretKey).digest('hex');
+    if (cookieValue !== expectedToken) {
         throw new Error('Unauthorized device');
     }
 }

@@ -50,7 +50,7 @@ describe('GET /files/[filename]', () => {
     it('rejects missing filenames', async () => {
         const response = await GET(
             new NextRequest('http://localhost:3000/files/', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             }),
             { params: Promise.resolve({ filename: '' }) }
         );
@@ -62,7 +62,7 @@ describe('GET /files/[filename]', () => {
     it('redirects authorized devices to a signed S3 URL', async () => {
         const response = await GET(
             new NextRequest('http://localhost:3000/files/photo.png', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             }),
             { params: Promise.resolve({ filename: 'photo.png' }) }
         );
@@ -96,7 +96,7 @@ describe('GET /files/[filename]', () => {
 
         const response = await GET(
             new NextRequest('http://localhost:3000/files/photo.png', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             }),
             { params: Promise.resolve({ filename: 'photo.png' }) }
         );

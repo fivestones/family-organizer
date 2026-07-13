@@ -32,7 +32,10 @@ describe('POST /api/device-activate', () => {
         const response = await POST(makeRequest({ key: 'test-device-key' }));
         expect(response.status).toBe(200);
         expect(await response.json()).toEqual({ ok: true });
-        expect(response.headers.get('set-cookie')).toContain('family_device_auth=true');
+        // Cookie value is the SHA-256 hash of the activation key
+        expect(response.headers.get('set-cookie')).toContain(
+            'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6'
+        );
         expect(response.headers.get('Cache-Control')).toBe('no-store');
     });
 });

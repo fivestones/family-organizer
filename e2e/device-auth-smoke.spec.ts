@@ -29,7 +29,7 @@ test.describe('device auth + Instant auth smoke', () => {
             return {
                 status: response.status,
                 body,
-                cookieEnabled: document.cookie.includes('family_device_auth='),
+                cookieEnabled: document.cookie.includes('activation_token='),
             };
         });
 

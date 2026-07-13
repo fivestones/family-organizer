@@ -84,7 +84,7 @@ describe('POST /api/mobile/shortcuts/chore-create-token', () => {
             new NextRequest('http://localhost:3000/api/mobile/shortcuts/chore-create-token', {
                 method: 'POST',
                 headers: {
-                    cookie: 'family_device_auth=true',
+                    cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6',
                     'content-type': 'application/json',
                 },
                 body: JSON.stringify({ familyMemberId: 'parent-1', pin: '1234', label: 'Kitchen Shortcut' }),

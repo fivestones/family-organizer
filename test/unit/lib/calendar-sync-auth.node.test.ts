@@ -49,7 +49,7 @@ describe('calendar sync auth', () => {
         const { requireCalendarSyncRouteAuth } = await import('@/lib/calendar-sync-auth');
         const result = await requireCalendarSyncRouteAuth(
             new NextRequest('http://localhost:3000/api/calendar-sync/apple/run', {
-                headers: { cookie: 'family_device_auth=true' },
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
             })
         );
 
@@ -74,7 +74,7 @@ describe('calendar sync auth', () => {
         const result = await requireCalendarSyncRouteAuth(
             new NextRequest('http://localhost:3000/api/calendar-sync/apple/status', {
                 headers: {
-                    cookie: 'family_device_auth=true',
+                    cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6',
                     [CALENDAR_SYNC_PARENT_TOKEN_HEADER]: 'parent-token',
                 },
             })

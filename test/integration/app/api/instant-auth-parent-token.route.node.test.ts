@@ -51,7 +51,7 @@ describe('POST /api/instant-auth-parent-token', () => {
             method: 'POST',
             headers: {
                 'content-type': 'application/json',
-                ...(cookie ? { cookie: 'family_device_auth=true' } : {}),
+                ...(cookie ? { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' } : {}),
             },
             body: JSON.stringify(body),
         });

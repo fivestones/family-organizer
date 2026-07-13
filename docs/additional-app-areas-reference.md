@@ -32,7 +32,7 @@ Relevant files:
 Current behavior:
 
 - Web device activation is cookie-based.
-- `POST /api/device-activate` validates `DEVICE_ACCESS_KEY` and sets `family_device_auth=true`.
+- `POST /api/device-activate` validates `DEVICE_ACCESS_KEY` and sets an HttpOnly `activation_token` bound to a SHA-256 digest of the current access key. `DEVICE_AUTH_COOKIE_DOMAIN` can explicitly share it across sibling subdomains; localhost and LAN-IP deployments use a host-only cookie.
 - The `/activate` route redirects home if the cookie is already valid.
 - After activation, the web app bootstraps an Instant session through `InstantFamilySessionProvider`.
 - The provider prefers a cached parent principal only when parent mode was already unlocked and a cached token exists.

@@ -1,9 +1,20 @@
 import 'server-only';
 
-import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
+import { createHmac, createHash, randomUUID, timingSafeEqual } from 'crypto';
 import type { NextApiRequest } from 'next';
 import type { NextRequest } from 'next/server';
-import { DEVICE_AUTH_COOKIE_NAME, hasValidDeviceAuthCookie } from '@/lib/device-auth';
+import { DEVICE_AUTH_COOKIE_NAME } from '@/lib/device-auth';
+
+/** Synchronous SHA-256 hex digest using Node.js crypto (server/Node runtime only). */
+function sha256hexSync(text: string): string {
+    return createHash('sha256').update(text).digest('hex');
+}
+
+/** Returns the expected cookie token for the configured DEVICE_ACCESS_KEY, or null if unconfigured. */
+function getExpectedCookieToken(): string | null {
+    const key = process.env.DEVICE_ACCESS_KEY;
+    return key ? sha256hexSync(key) : null;
+}
 
 const MOBILE_DEVICE_SESSION_TOKEN_VERSION = 'v1';
 const DEFAULT_MOBILE_DEVICE_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
@@ -290,9 +301,12 @@ export type DeviceAuthContext =
     | { authorized: false; reason: string };
 
 export function getDeviceAuthContextFromNextRequest(request: Pick<NextRequest, 'cookies' | 'headers'>): DeviceAuthContext {
-    const cookieValue = request.cookies.get(DEVICE_AUTH_COOKIE_NAME)?.value;
-    if (hasValidDeviceAuthCookie(cookieValue)) {
-        return { authorized: true, source: 'cookie' };
+    const expectedToken = getExpectedCookieToken();
+    if (expectedToken) {
+        const cookieValue = request.cookies.get(DEVICE_AUTH_COOKIE_NAME)?.value;
+        if (cookieValue === expectedToken) {
+            return { authorized: true, source: 'cookie' };
+        }
     }
 
     const bearerToken = extractBearerTokenFromAuthorizationHeader(request.headers.get('authorization'));
@@ -307,9 +321,12 @@ export function getDeviceAuthContextFromNextRequest(request: Pick<NextRequest, '
 export function getDeviceAuthContextFromNextApiRequest(
     request: Pick<NextApiRequest, 'cookies' | 'headers'>
 ): DeviceAuthContext {
-    const cookieValue = request.cookies?.[DEVICE_AUTH_COOKIE_NAME];
-    if (hasValidDeviceAuthCookie(cookieValue)) {
-        return { authorized: true, source: 'cookie' };
+    const expectedToken = getExpectedCookieToken();
+    if (expectedToken) {
+        const cookieValue = request.cookies?.[DEVICE_AUTH_COOKIE_NAME];
+        if (cookieValue === expectedToken) {
+            return { authorized: true, source: 'cookie' };
+        }
     }
 
     const bearerToken = extractBearerTokenFromAuthorizationHeader(getHeaderValueCaseInsensitive(request.headers, 'authorization'));

@@ -145,6 +145,7 @@ When mocking InstantDB in jsdom tests, mock `@/lib/db` to avoid booting the real
 | `NEXT_PUBLIC_INSTANT_API_URI` | Override InstantDB API URL (local dev) |
 | `NEXT_PUBLIC_INSTANT_WEBSOCKET_URI` | Override InstantDB WS URL (local dev) |
 | `DEVICE_ACCESS_KEY` | Shared secret for device activation |
+| `DEVICE_AUTH_COOKIE_DOMAIN` | Optional parent domain for activation-cookie SSO across sibling subdomains |
 | `S3_ENDPOINT` / `NEXT_PUBLIC_S3_ENDPOINT` | MinIO/S3 endpoints (internal/public) |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET_NAME` | S3 credentials |
 
@@ -538,4 +539,3 @@ Fetch the URL for a topic to learn more about it.
 
 Think before you answer. Make sure your code passes typechecks `tsc --noEmit` and works as expected.
 Remember! AESTHETICS ARE VERY IMPORTANT. All apps should LOOK AMAZING and have GREAT FUNCTIONALITY!
-
