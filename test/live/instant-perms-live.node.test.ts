@@ -215,6 +215,12 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             const parentRows = kidFamilyMembers.filter((m) => m.role === 'parent');
             expect(kidFamilyMembers.some((m) => typeof m.pinHash === 'string' && m.pinHash.length > 0)).toBe(false);
 
+            // Calendar sync account rows contain encrypted Apple credentials
+            // and account identity; kid principals must not receive the rows.
+            const kidCalendarSyncAccountsResp = await kidDb.queryOnce({ calendarSyncAccounts: {} });
+            expect((kidCalendarSyncAccountsResp.data.calendarSyncAccounts as any[]) || []).toHaveLength(0);
+            await expect(parentDb.queryOnce({ calendarSyncAccounts: {} })).resolves.toBeTruthy();
+
             // A member-scoped kid principal may update only its own safe
             // preferences and may never see a sibling's PIN hash.
             const kidMember = kidFamilyMembers.find((member) => member.role !== 'parent');

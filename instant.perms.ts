@@ -305,7 +305,7 @@ const rules = {
             link: {
                 $default: 'isParent',
             },
-            view: 'isFamilyPrincipal',
+            view: 'isParent',
             create: 'isParent',
             delete: 'isParent',
             unlink: {

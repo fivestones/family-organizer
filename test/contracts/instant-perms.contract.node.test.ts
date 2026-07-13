@@ -43,6 +43,14 @@ describe('instant.perms contract', () => {
         expect(perms.familyMembers.fields.pinHash).toBe('isParent || data.id in authFamilyMemberIds');
     });
 
+    it('keeps Apple Calendar account credentials parent-only', () => {
+        const perms = rules as any;
+        expect(perms.calendarSyncAccounts.allow.view).toBe('isParent');
+        expect(perms.calendarSyncAccounts.allow.create).toBe('isParent');
+        expect(perms.calendarSyncAccounts.allow.update).toBe('isParent');
+        expect(perms.calendarSyncAccounts.allow.delete).toBe('isParent');
+    });
+
     it('lets family principals link chore completions without opening broader chore writes', () => {
         const perms = rules as any;
         expect(perms.chores.allow.create).toBe('isParent');
