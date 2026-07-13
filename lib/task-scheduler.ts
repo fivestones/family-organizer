@@ -4,6 +4,7 @@ import { choreOccursOnDate, getChoreOccurrencesInRange } from './chore-schedule'
 import { id as createId, tx } from '@instantdb/react';
 import { buildTaskUpdateTransactions } from '@/lib/task-update-mutations';
 import { getTodayKey } from '@family-organizer/shared-core';
+import { splitTaskDayBlocks } from '@/lib/task-day-blocks';
 import {
     getTaskWorkflowState,
     isActionableTask,
@@ -98,7 +99,8 @@ export function getTasksForDate(
 
     // 1. Sort tasks by order
     const sortedTasks = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
-    const actionableTaskIds = new Set(sortedTasks.filter((task) => isActionableTask(task, sortedTasks)).map((task) => task.id));
+    const definitionBlocks = splitTaskDayBlocks(sortedTasks);
+    const actionableTaskIds = new Set(definitionBlocks.flat().map((task) => task.id));
 
     // --- DETERMINE ANCHOR DATE ---
     // The "queue" starts rolling from Today OR the Series Start Date, whichever is later.
@@ -116,44 +118,16 @@ export function getTasksForDate(
         return sortedTasks.filter((task) => actionableTaskIds.has(task.id) && wasCompletedOnDate(task, viewDateString, utcViewDate));
     }
 
-    const blocks: Task[][] = [];
-    let currentBlock: Task[] = [];
-    let currentBlockHadActionableTasks = false;
-
-    for (const task of sortedTasks) {
-        if (task.isDayBreak) {
-            if (currentBlock.length > 0 || !currentBlockHadActionableTasks) {
-                blocks.push(currentBlock);
-            }
-            currentBlock = [];
-            currentBlockHadActionableTasks = false;
-            continue;
-        }
-
-        if (!actionableTaskIds.has(task.id)) {
-            continue;
-        }
-
-        currentBlockHadActionableTasks = true;
-        if (
-            isTaskInActiveQueue(task, viewDateString) ||
-            wasCompletedOnDate(task, anchorDateString, anchorDate) ||
-            wasCompletedOnDate(task, viewDateString, utcViewDate)
-        ) {
-            currentBlock.push(task);
-        }
-    }
-
-    if (currentBlock.length > 0 || currentBlockHadActionableTasks) {
-        blocks.push(currentBlock);
-    }
-
-    const normalizedBlocks = blocks.filter((block, index) => {
-        if (block.length > 0) return true;
-        const previousBlock = blocks[index - 1];
-        const nextBlock = blocks[index + 1];
-        return previousBlock?.length !== 0 && nextBlock?.length !== 0;
-    });
+    const normalizedBlocks = definitionBlocks
+        .map((block) =>
+            block.filter(
+                (task) =>
+                    isTaskInActiveQueue(task, viewDateString) ||
+                    wasCompletedOnDate(task, anchorDateString, anchorDate) ||
+                    wasCompletedOnDate(task, viewDateString, utcViewDate)
+            )
+        )
+        .filter((block) => block.length > 0);
 
     if (normalizedBlocks.length === 0) return [];
 

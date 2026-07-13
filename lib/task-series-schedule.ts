@@ -3,11 +3,12 @@
 // pull-forward eligibility, and schedule drift calculations.
 
 import type { Task } from '@/lib/task-scheduler';
-import { isActionableTask, isTaskDone, taskHasChildren } from '@/lib/task-progress';
+import { isTaskDone } from '@/lib/task-progress';
 import { getChoreOccurrencesInRange, getNextChoreOccurrence } from '@/lib/chore-schedule';
 import { toUTCDate } from '@/lib/chore-utils';
 import { id as createInstantId } from '@instantdb/react';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
+import { splitTaskDayBlocks } from '@/lib/task-day-blocks';
 
 // ---------------------------------------------------------------------------
 // Block counting
@@ -25,31 +26,7 @@ export interface TaskDayBlock {
  * block itself existed in the series).
  */
 export function getTaskDayBlocks(allTasks: Task[]): TaskDayBlock[] {
-    const sorted = [...allTasks].sort((a, b) => (a.order || 0) - (b.order || 0));
-    const blocks: TaskDayBlock[] = [];
-    let current: Task[] = [];
-    let blockHasActionable = false;
-
-    for (const task of sorted) {
-        if (task.isDayBreak) {
-            if (current.length > 0 || blockHasActionable) {
-                blocks.push({ index: blocks.length, tasks: current });
-            }
-            current = [];
-            blockHasActionable = false;
-            continue;
-        }
-
-        if (!isActionableTask(task, sorted)) continue;
-        blockHasActionable = true;
-        current.push(task);
-    }
-
-    if (current.length > 0 || blockHasActionable) {
-        blocks.push({ index: blocks.length, tasks: current });
-    }
-
-    return blocks;
+    return splitTaskDayBlocks(allTasks).map((tasks, index) => ({ index, tasks }));
 }
 
 /** Count total task-day blocks. */

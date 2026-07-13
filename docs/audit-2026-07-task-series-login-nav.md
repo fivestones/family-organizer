@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: one task-day block splitter now drives definitions and the live queue (§1.2–1.3, Phase 3).** `splitTaskDayBlocks` sorts once, excludes parent/header nodes through the shared actionable predicate, and defines leading, trailing, or consecutive empty break segments as non-days. `getTaskDayBlocks` wraps that primitive for planning/counts; `getTasksForDate` projects active or viewed-date-completed tasks from those same definition blocks and drops blocks with no remaining visible work. This removes the asymmetric final flush and neighbor-dependent empty-block filter. Verification: 43 focused schedule/scheduler tests pass, including table coverage for empty break segments and completed trailing definitions; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: task scheduling and bins share local-calendar “today” semantics (§1.4, Phase 3).** Shared core now exports `getLocalDateKey`/`getTodayKey`, based on local calendar components and evaluated at call time so the production-gated Date time machine remains effective. Scheduler anchors and pull-forward checks, task-bin overdue defaults, review updates, note-until dates/date-picker guards, My Task Series, and manager status all use the shared key instead of raw UTC `toISOString()` for “today.” Verification: 34 focused shared-date, scheduler, task-bin, and manager tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: task copy/paste can no longer duplicate or steal task IDs (§2.2, Phase 2).** The existing paste hook now maps exact pre-paste nodes into the new document and preserves those positions only; every inserted task or day break receives a fresh Instant ID even if clipboard HTML carries an ID already used in this series or a different one. A shared repair planner prevents generated collisions and is also used by the delete-confirm paste replay, which preserves each surviving old ID once and re-IDs duplicate, foreign, missing, and confirmed-deleted nodes. Verification: 2 ID-planner unit tests, all 10 `TaskSeriesEditor` DOM tests, and `tsc --noEmit` pass.
 - **2026-07-14 — Database portion completed: task deletion cascades through task-owned records (§2.3, Phase 2).** The checked-in and hosted Instant schema now cascades task deletion into `taskUpdates`, `taskResponseFields`, and `taskAttachments`, then cascades response-field deletion into `taskResponseFieldValues`; existing update-owned attachments/response values continue to use their prior cascades. A hosted smoke test creates the full graph, deletes the task, and proves all five namespaces are empty. The schema push also removed stale live-only `calendarSyncCalendars.ctag`/`syncToken` attributes that were absent from the repo; current code and schema use `lastCtag`/`lastSyncToken`. Verification: 8 schema/permission contract tests, the 2-test hosted Instant matrix (including the new cascade proof), and `tsc --noEmit` pass. **Still open:** reference-aware S3 object reclamation; duplicate task attachments can share a stored-object URL, so deleting the object blindly with either metadata row would break the survivor.
@@ -61,7 +62,7 @@ The "Pulled forward" banner at [ChoreList.tsx:1079](components/ChoreList.tsx:107
 
 **Completed:** `ChoreList` now recognizes a today-only, off-schedule pull-forward before its chore-level assignment filter and applies the same exception to the owned-series body and name pill. The exception remains scoped to `/tasks`, the selected family-day key, and a positive `pullForwardCount`; selected-member ownership is still enforced. `isSeriesActiveForDate` now permits that same current-day exception only when `getTasksForDate` returns a visible block, so exhausted pull-forwards and future off-schedule dates stay hidden. Regression coverage proves the scheduler and full rendered-row path for a Mon/Wed series viewed on Tuesday.
 
-### 1.2 Block-splitting logic is internally inconsistent — **Medium**
+### 1.2 Block-splitting logic is internally inconsistent — **Completed 2026-07-14**
 
 In `getTasksForDate` the push condition at a day-break ([task-scheduler.ts:124](lib/task-scheduler.ts:124)) is `currentBlock.length > 0 || !currentBlockHadActionableTasks`, but the final flush ([task-scheduler.ts:146](lib/task-scheduler.ts:146)) inverts it: `currentBlock.length > 0 || currentBlockHadActionableTasks`. Consequences:
 
@@ -71,9 +72,13 @@ In `getTasksForDate` the push condition at a day-break ([task-scheduler.ts:124](
 
 **Fix:** extract one `splitIntoBlocks(tasks)` shared by `getTasksForDate` and `getTaskDayBlocks` (they already disagree — see 1.3), make the flush condition symmetric, and codify empty-block semantics with table-driven unit tests. This function is the heart of the feature and currently exists in two divergent copies.
 
-### 1.3 Two divergent block-splitters
+**Completed:** `splitTaskDayBlocks` is now the sole definition splitter. It ignores empty segments before, after, or between break markers because a task day must contain at least one actionable definition. The scheduler maps those blocks to active/viewed-date-completed work and then removes empty live blocks, so a completed middle or trailing block advances the queue identically. The old inverted break/final conditions and `previousBlock`/`nextBlock` normalization no longer exist.
+
+### 1.3 Two divergent block-splitters — **Completed 2026-07-14**
 
 `lib/task-series-schedule.ts` `getTaskDayBlocks` ([task-series-schedule.ts:27](lib/task-series-schedule.ts:27)) splits *definitions* (all actionable tasks), while `getTasksForDate` splits *remaining work* (queue-filtered). They share day-break mechanics but were written twice with subtly different push conditions. Progress counts ("Days 3/7"), drift, catch-up, and the visible queue can disagree after edge cases (e.g., a block whose tasks were all deleted). Same fix as 1.2: one primitive, two projections.
+
+**Completed:** planning/counting and queue projection now start from the same actionable definition blocks. They intentionally diverge only after splitting: planning retains completed definitions for total/completed-day counts, while the live queue filters each block to work relevant to the viewed date.
 
 ### 1.4 "Today" is computed in two different timezones — **Completed 2026-07-14**
 
@@ -308,7 +313,7 @@ These are real but were not the cause of the captured incident:
 
 ### Phase 3 — engine consolidation
 
-12. Single `splitIntoBlocks` primitive + table-driven tests for empty-block/day-break semantics (1.2, 1.3).
+12. ~~Single `splitIntoBlocks` primitive + table-driven tests for empty-block/day-break semantics (1.2, 1.3).~~ **Completed 2026-07-14** with empty segments explicitly treated as non-days.
 13. ~~`getTodayKey()` in shared-core; adopt everywhere (1.4).~~ **Completed 2026-07-14** across scheduler, bins/review actions, member overview, and manager status.
 14. Align editor date preview with the live projection (2.5).
 

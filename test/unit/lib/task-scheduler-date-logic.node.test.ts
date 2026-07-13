@@ -37,6 +37,7 @@ vi.mock('@/lib/db', () => ({
 }));
 
 import { getRecursiveTaskCompletionTransactions, getTasksForDate, isSeriesActiveForDate, type Task } from '@/lib/task-scheduler';
+import { countTaskDayBlocks } from '@/lib/task-series-schedule';
 
 function makeTask(overrides: Partial<Task> & Pick<Task, 'id' | 'text' | 'order'>): Task {
     return {
@@ -161,6 +162,25 @@ describe('task-scheduler date logic', () => {
 
         expect(anchor.map((task) => task.id)).toEqual(['only']);
         expect(nextDay).toEqual([]);
+    });
+
+    it('drops completed trailing definitions instead of projecting an empty task day', () => {
+        const tasks: Task[] = [
+            makeTask({ id: 'active', text: 'Active block', order: 1 }),
+            makeTask({ id: 'break', text: 'Break', order: 2, isDayBreak: true }),
+            makeTask({
+                id: 'finished',
+                text: 'Finished block',
+                order: 3,
+                isCompleted: true,
+                workflowState: 'done',
+                completedOnDate: '2026-03-09',
+            }),
+        ];
+
+        expect(getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 10, 12)).map((task) => task.id)).toEqual(['active']);
+        expect(getTasksForDate(tasks, 'FREQ=DAILY', '2026-03-01', new Date(2026, 2, 11, 12))).toEqual([]);
+        expect(countTaskDayBlocks(tasks)).toBe(2);
     });
 
     it('keeps a task visible on the day it was completed even when viewing after the anchor date', () => {

@@ -56,6 +56,22 @@ describe('task-series-schedule', () => {
             expect(countTaskDayBlocks(tasks)).toBe(0);
         });
 
+        it('ignores leading, trailing, and consecutive empty break segments', () => {
+            const tasks = [
+                makeDayBreak('leading', 0),
+                makeTask({ id: 'a', order: 1, text: 'A' }),
+                makeDayBreak('middle-1', 2),
+                makeDayBreak('middle-2', 3),
+                makeTask({ id: 'b', order: 4, text: 'B' }),
+                makeDayBreak('trailing', 5),
+            ];
+
+            expect(getTaskDayBlocks(tasks).map((block) => block.tasks.map((task) => task.id))).toEqual([
+                ['a'],
+                ['b'],
+            ]);
+        });
+
         it('ignores parent tasks (tasks with children)', () => {
             const tasks = [
                 makeTask({ id: 'parent', order: 0, text: 'Parent' }),
