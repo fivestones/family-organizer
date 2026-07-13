@@ -57,8 +57,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Family member not found' }, { status: 404 });
     }
 
+    const hasPin = typeof member.pinHash === 'string' && member.pinHash.length > 0;
     const rateLimitKey =
-        member.role === 'parent'
+        member.role === 'parent' || hasPin
             ? getParentElevationRateLimitKey({
                   familyMemberId: body.familyMemberId,
                   ip: rateLimitIp(request),
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
                 ('retryAfterMs' in rateLimitDecision ? rateLimitDecision.retryAfterMs : 1000) / 1000
             );
             return NextResponse.json(
-                { error: 'Too many parent elevation attempts. Try again later.' },
+                { error: 'Too many sign-in attempts. Try again later.' },
                 {
                     status: 429,
                     headers: {

@@ -50,7 +50,7 @@ describe('POST /api/instant-auth-token', () => {
         });
         rateLimitMocks.check.mockReset().mockReturnValue({ allowed: true });
         rateLimitMocks.clear.mockReset();
-        rateLimitMocks.getKey.mockReset().mockReturnValue('parent-rate-key');
+        rateLimitMocks.getKey.mockReset().mockReturnValue('member-rate-key');
         rateLimitMocks.recordFailure.mockReset();
     });
 
@@ -154,6 +154,51 @@ describe('POST /api/instant-auth-token', () => {
         );
 
         expect(response.status).toBe(403);
-        expect(rateLimitMocks.recordFailure).toHaveBeenCalledWith('parent-rate-key');
+        expect(rateLimitMocks.recordFailure).toHaveBeenCalledWith('member-rate-key');
+    });
+
+    it('rate-limits incorrect PIN attempts for a PIN-protected kid', async () => {
+        tokenRouteMocks.getFamilyMemberById.mockResolvedValue({
+            id: 'child-1',
+            name: 'Ava',
+            role: 'child',
+            pinHash: 'scrypt$v1$salt$hash',
+        });
+        tokenRouteMocks.verifyFamilyMemberCredentials.mockRejectedValue(new Error('Incorrect PIN'));
+
+        const response = await POST(
+            new NextRequest('http://localhost:3000/api/instant-auth-token', {
+                method: 'POST',
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
+                body: JSON.stringify({ familyMemberId: 'child-1', pin: '0000' }),
+            })
+        );
+
+        expect(response.status).toBe(403);
+        expect(rateLimitMocks.getKey).toHaveBeenCalledWith({ familyMemberId: 'child-1', ip: null });
+        expect(rateLimitMocks.recordFailure).toHaveBeenCalledWith('member-rate-key');
+    });
+
+    it('blocks a PIN-protected kid while its backoff is active', async () => {
+        tokenRouteMocks.getFamilyMemberById.mockResolvedValue({
+            id: 'child-1',
+            name: 'Ava',
+            role: 'child',
+            pinHash: 'scrypt$v1$salt$hash',
+        });
+        rateLimitMocks.check.mockReturnValue({ allowed: false, retryAfterMs: 2_400 });
+
+        const response = await POST(
+            new NextRequest('http://localhost:3000/api/instant-auth-token', {
+                method: 'POST',
+                headers: { cookie: 'activation_token=dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6' },
+                body: JSON.stringify({ familyMemberId: 'child-1', pin: '0000' }),
+            })
+        );
+
+        expect(response.status).toBe(429);
+        expect(response.headers.get('Retry-After')).toBe('3');
+        expect(await response.json()).toEqual({ error: 'Too many sign-in attempts. Try again later.' });
+        expect(tokenRouteMocks.verifyFamilyMemberCredentials).not.toHaveBeenCalled();
     });
 });

@@ -32,9 +32,50 @@ describe('lib/instant-admin', () => {
         expect(mod.getParentPrincipalAuthEmail()).toBe('parent-admin@family-organizer.local');
     });
 
-    it('hashes parent PINs with sha256 (matching existing app behavior)', async () => {
+    it('hashes PINs with a salted scrypt format and verifies them', async () => {
         const mod = await import('@/lib/instant-admin');
-        expect(mod.hashPinServer('1234')).toBe('03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4');
+        const firstHash = mod.hashPinServer('1234');
+        const secondHash = mod.hashPinServer('1234');
+
+        expect(firstHash).toMatch(/^scrypt\$v1\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+        expect(secondHash).not.toBe(firstHash);
+        expect(mod.verifyPinHashServer('1234', firstHash)).toEqual({ valid: true, needsUpgrade: false });
+        expect(mod.verifyPinHashServer('0000', firstHash)).toEqual({ valid: false, needsUpgrade: false });
+    });
+
+    it('accepts a valid legacy sha256 PIN hash only for migration', async () => {
+        const mod = await import('@/lib/instant-admin');
+        const legacyHash = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4';
+
+        expect(mod.verifyPinHashServer('1234', legacyHash)).toEqual({ valid: true, needsUpgrade: true });
+        expect(mod.verifyPinHashServer('0000', legacyHash)).toEqual({ valid: false, needsUpgrade: false });
+        expect(mod.verifyPinHashServer('1234', 'not-a-valid-hash')).toEqual({ valid: false, needsUpgrade: false });
+    });
+
+    it('upgrades a valid legacy PIN hash after successful credential verification', async () => {
+        process.env.NEXT_PUBLIC_INSTANT_APP_ID = 'app_test';
+        process.env.INSTANT_APP_ADMIN_TOKEN = 'admin_test';
+        const legacyHash = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4';
+        const update = vi.fn().mockReturnValue({ op: 'upgrade-pin-hash' });
+        const transact = vi.fn().mockResolvedValue(undefined);
+        instantAdminMocks.init.mockReturnValue({
+            query: vi.fn().mockResolvedValue({
+                familyMembers: [{ id: 'parent-1', role: 'parent', pinHash: legacyHash }],
+            }),
+            tx: {
+                familyMembers: {
+                    'parent-1': { update },
+                },
+            },
+            transact,
+        } as any);
+
+        const mod = await import('@/lib/instant-admin');
+        await expect(mod.verifyFamilyMemberCredentials('parent-1', '1234')).resolves.toMatchObject({ id: 'parent-1' });
+
+        expect(update).toHaveBeenCalledTimes(1);
+        expect(update.mock.calls[0]?.[0]?.pinHash).toMatch(/^scrypt\$v1\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+        expect(transact).toHaveBeenCalledWith([{ op: 'upgrade-pin-hash' }]);
     });
 
     it('mints a shared principal token without retaining a member identity', async () => {

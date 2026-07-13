@@ -7,6 +7,7 @@ import { cookies } from 'next/headers';
 import { randomUUID, createHash } from 'crypto';
 import { DEVICE_AUTH_COOKIE_NAME } from '@/lib/device-auth';
 import { finalizeUploadedAttachment, type AttachmentFinalizeInput } from '@/lib/attachment-finalizer';
+import { hashPinServer } from '@/lib/instant-admin';
 import { requireFamilyMemberToken } from '@/lib/request-family-member';
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
@@ -317,5 +318,5 @@ export async function refreshFiles(instantAuthToken: string) {
 // Replaces client-side crypto.subtle to allow login over HTTP (non-secure context)
 export async function hashPin(pin: string, instantAuthToken: string): Promise<string> {
     await requireActionFamilyMember(instantAuthToken, { requireParent: true });
-    return createHash('sha256').update(pin).digest('hex');
+    return hashPinServer(pin);
 }

@@ -83,11 +83,11 @@ describe('app/actions server auth + file actions', () => {
         await expect(hashPin('1234', 'parent-token')).rejects.toThrow('Unauthorized device');
     });
 
-    it('hashPin returns sha256 when authorized', async () => {
+    it('hashPin returns a salted scrypt hash when authorized', async () => {
         setDeviceCookie(EXPECTED_TOKEN);
         const { hashPin } = await import('@/app/actions');
 
-        await expect(hashPin('1234', 'parent-token')).resolves.toBe('03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4');
+        await expect(hashPin('1234', 'parent-token')).resolves.toMatch(/^scrypt\$v1\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
         expect(actionMocks.requireFamilyMemberToken).toHaveBeenCalledWith('parent-token', { requireParent: true });
     });
 
