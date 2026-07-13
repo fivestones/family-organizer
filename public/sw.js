@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'family-organizer-v1';
+const CACHE_VERSION = 'family-organizer-v2';
 const APP_SHELL_CACHE = `${CACHE_VERSION}-app-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_URL = '/offline.html';
@@ -34,11 +34,11 @@ function isSameOriginGet(request) {
 }
 
 function isStaticAsset(pathname) {
-    return (
-        pathname.startsWith('/_next/static/') ||
-        pathname.startsWith('/_next/image') ||
-        /\.(?:js|css|png|jpg|jpeg|svg|gif|webp|woff2?|ttf|ico|json)$/.test(pathname)
-    );
+    return pathname.startsWith('/_next/static/') || APP_SHELL_URLS.includes(pathname);
+}
+
+function isCacheableResponse(response) {
+    return response.ok && response.type === 'basic' && !response.redirected;
 }
 
 self.addEventListener('fetch', (event) => {
@@ -52,8 +52,10 @@ self.addEventListener('fetch', (event) => {
             (async () => {
                 try {
                     const networkResponse = await fetch(request);
-                    const cache = await caches.open(RUNTIME_CACHE);
-                    cache.put(request, networkResponse.clone()).catch(() => {});
+                    if (isCacheableResponse(networkResponse)) {
+                        const cache = await caches.open(RUNTIME_CACHE);
+                        cache.put(request, networkResponse.clone()).catch(() => {});
+                    }
                     return networkResponse;
                 } catch {
                     const cachedPage = await caches.match(request);
@@ -80,6 +82,7 @@ self.addEventListener('fetch', (event) => {
                     event.waitUntil(
                         fetch(request)
                             .then(async (resp) => {
+                                if (!isCacheableResponse(resp)) return;
                                 const cache = await caches.open(RUNTIME_CACHE);
                                 await cache.put(request, resp.clone());
                             })
@@ -89,8 +92,10 @@ self.addEventListener('fetch', (event) => {
                 }
 
                 const networkResponse = await fetch(request);
-                const cache = await caches.open(RUNTIME_CACHE);
-                cache.put(request, networkResponse.clone()).catch(() => {});
+                if (isCacheableResponse(networkResponse)) {
+                    const cache = await caches.open(RUNTIME_CACHE);
+                    cache.put(request, networkResponse.clone()).catch(() => {});
+                }
                 return networkResponse;
             })()
         );

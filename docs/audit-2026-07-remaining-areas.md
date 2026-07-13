@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-13 — Completed: safe service-worker caching (§2).** Runtime caching is now limited to `/_next/static/` and the explicit app-shell assets; `/files/*` and arbitrary same-origin extension matches are never intercepted. Both navigation and static strategies cache only successful, same-origin, non-redirected basic responses. Cache version `family-organizer-v2` flushes previously poisoned entries on activation. Verification: 5 cache-policy tests cover signed-file exclusion, error/redirect/CORS rejection, and the valid static path; `tsc --noEmit` passes.
 - **2026-07-13 — Completed: repository TypeScript baseline restored (§8).** Fixed the web/React-Native ambient `FormData` collision at the avatar-upload route boundary and typed browser idle/animation timers with `window.setTimeout` return values instead of `NodeJS.Timeout`. `npx tsc --noEmit` now passes. The focused `AuthProvider` DOM suite passes all 4 tests under the bundled Node 24 runtime; system Node 25's incomplete experimental `localStorage` emitted an environment-only failure before the same suite ran cleanly on the supported runtime.
 - **2026-07-13 — Completed related device-auth WIP.** The cross-cutting web cookie and server request checks now validate an access-key-derived token, LAN/public-suffix hosts no longer receive invalid `Domain` attributes, and an explicit `DEVICE_AUTH_COOKIE_DOMAIN` option covers sibling-subdomain deployments. All 70 focused auth/file/mobile assertions pass. This closes the uncommitted-state caveat in §7; it does not replace the member-level authorization still required for the file actions in §1.1.
 
@@ -18,7 +19,7 @@
 | # | Area | Severity | Finding |
 |---|------|----------|---------|
 | 1 | Files | **High (Confirmed)** | `deleteS3Objects` server action can wipe the entire bucket with only the device cookie — no member/parent auth |
-| 2 | PWA | **Medium (Confirmed)** | Service worker caches non-OK and redirect responses; `/files/*.png` signed-URL redirects match the static-asset regex — broken images that never heal |
+| 2 | PWA | **Completed 2026-07-13** | Runtime cache narrowed; failed, redirected, cross-origin, and `/files/*` responses are excluded |
 | 3 | Shell | **Medium (Confirmed)** | The time-machine `Date` patch ships in production — any kid can cheat chores/allowance by setting one localStorage key |
 | 4 | Calendar | **Medium** | 4,600-line component; middleware exempts `/api/calendar-sync/*` from device auth — each route must self-enforce (verify) |
 | 5 | History | **Medium** | Append-only, undeletable, written on every toggle — unbounded growth with no retention plan |
@@ -48,7 +49,7 @@ Two compounding problems in the fetch handler:
 1. **Responses are cached without checking `resp.ok`** ([sw.js:84](public/sw.js:84), [sw.js:93](public/sw.js:93)). A transient 500/403 on a JS chunk or image is cached and then served cache-first forever (the background revalidation also blindly `put`s whatever it gets).
 2. **`isStaticAsset` matches by file extension anywhere on the origin** ([sw.js:36-42](public/sw.js:36)) — including `/files/photo.png`, which is not a static asset but a 307 redirect to a *time-limited* signed S3 URL ([app/files/[filename]/route.ts:22](app/files/[filename]/route.ts:22)). The followed-redirect response gets cached; once the signature would have expired, the cached body is what keeps serving — or, if the fetch raced expiry, a cached S3 `AccessDenied` serves forever. This is a credible source of "photos randomly break until I clear the app".
 
-**Fix:** cache only `resp.ok && resp.type === 'basic'`; scope the static matcher to `/_next/static/` + explicit public assets; never cache `/files/`. Bump `CACHE_VERSION` when shipping so existing bad entries flush.
+**Completed 2026-07-13:** responses are cached only when successful, basic, and non-redirected; the static matcher is limited to `/_next/static/` plus explicit app-shell assets, so `/files/` is never intercepted. `CACHE_VERSION` was bumped to `family-organizer-v2` to remove existing bad entries. The policy is covered by focused unit tests.
 
 ## 3. Time machine ships to production — **Medium, Confirmed**
 
@@ -96,7 +97,7 @@ The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `wi
 
 **Phase 0 — real exposure:**
 1. Auth on file server actions (1.1) — parent-gate `deleteS3Objects`, member-gate the rest.
-2. Service worker: `resp.ok` checks + exclude `/files/` + version bump (§2).
+2. ~~Service worker: `resp.ok` checks + exclude `/files/` + version bump (§2).~~ **Completed 2026-07-13.**
 3. Gate the production time machine (§3).
 4. `pinHash` field rule → self-or-parent (§6).
 
