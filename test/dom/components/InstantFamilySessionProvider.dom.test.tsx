@@ -25,12 +25,19 @@ vi.mock('@/lib/db', () => ({
 import { InstantFamilySessionProvider, useInstantPrincipal } from '@/components/InstantFamilySessionProvider';
 
 function Probe() {
-    const { principalType, ensureKidPrincipal } = useInstantPrincipal();
+    const { principalType, isSwitchingPrincipal, ensureKidPrincipal, signInFamilyMember } = useInstantPrincipal();
     return (
-        <div>
+        <div data-testid="principal-probe">
             <div data-testid="principal">{principalType}</div>
+            <div data-testid="switching">{isSwitchingPrincipal ? 'switching' : 'idle'}</div>
             <button type="button" onClick={() => void ensureKidPrincipal()}>
                 Ensure Kid Principal
+            </button>
+            <button
+                type="button"
+                onClick={() => void signInFamilyMember({ familyMemberId: 'parent-1', pin: '1234' })}
+            >
+                Switch Member
             </button>
         </div>
     );
@@ -67,6 +74,45 @@ describe('InstantFamilySessionProvider', () => {
 
         expect(fetchMock).not.toHaveBeenCalled();
         expect(dbMocks.signInWithToken).not.toHaveBeenCalled();
+    });
+
+    it('keeps children mounted while an interactive principal switch is in flight', async () => {
+        let resolveFetch: ((value: unknown) => void) | undefined;
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveFetch = resolve;
+                    })
+            )
+        );
+
+        render(
+            <InstantFamilySessionProvider>
+                <Probe />
+            </InstantFamilySessionProvider>
+        );
+
+        await waitFor(() => expect(screen.getByTestId('principal')).toHaveTextContent('kid'));
+        const user = userEvent.setup();
+        await user.click(screen.getByRole('button', { name: /switch member/i }));
+
+        await waitFor(() => expect(screen.getByTestId('switching')).toHaveTextContent('switching'));
+        expect(screen.getByTestId('principal-probe')).toBeInTheDocument();
+        expect(screen.queryByText('Connecting to family data...')).not.toBeInTheDocument();
+
+        await act(async () => {
+            resolveFetch?.({
+                ok: true,
+                json: async () => ({
+                    token: 'parent-token',
+                    principalType: 'parent',
+                    familyMemberId: 'parent-1',
+                }),
+            });
+        });
+        await waitFor(() => expect(screen.getByTestId('switching')).toHaveTextContent('idle'));
     });
 
     it('expires shared-device parent mode after inactivity and falls back to kid principal', async () => {

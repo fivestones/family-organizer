@@ -28,7 +28,7 @@ export function ThemedHeader({ children }: { children: React.ReactNode }) {
 
     return (
         <header
-            className={`sticky top-0 z-40 flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 transition-colors duration-200 ${activeTheme ? themeClass : 'bg-card'}`}
+            className={`order-first sticky top-0 z-40 flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 transition-colors duration-200 ${activeTheme ? themeClass : 'bg-card'}`}
             style={
                 activeTheme
                     ? {

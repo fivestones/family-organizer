@@ -53,20 +53,6 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     const [membersError, setMembersError] = useState<string>('');
 
     useEffect(() => {
-        if (isOpen) {
-            const timer = setTimeout(() => {
-                document.body.style.pointerEvents = '';
-            }, 0);
-            return () => clearTimeout(timer);
-        }
-
-        document.body.style.pointerEvents = 'auto';
-        return () => {
-            document.body.style.pointerEvents = 'auto';
-        };
-    }, [isOpen]);
-
-    useEffect(() => {
         if (!isOpen) return;
         setSelectedMemberId(null);
         setPin('');
@@ -132,6 +118,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 return;
             }
 
+            onClose();
             await signInFamilyMember({
                 familyMemberId: member.id,
                 pin,
@@ -148,7 +135,6 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 rememberMe
             );
             toast({ title: `Welcome back, ${member.name}!` });
-            onClose();
         } catch (error) {
             console.error('Login error', error);
             toast({

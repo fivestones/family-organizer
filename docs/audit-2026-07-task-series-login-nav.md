@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: interactive principal switches preserve the app tree and header order (§5.2, Part 6).** `signInFamilyMember` now uses `isSwitchingPrincipal` without entering the bootstrap-only `signing-in` screen, so header, main content, subscriptions, and local state stay mounted. `LoginModal` closes before the auth swap starts, allowing Radix portal/focus cleanup to finish; the obsolete body `pointerEvents` patch was removed. `ThemedHeader` also carries `order-first` as flex-layout insurance. Verification: 8 focused modal/session/header DOM tests prove in-flight tree continuity, close-before-sign-in ordering, and header ordering; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: parent login no longer offers a false PIN bypass (§5.1).** The web modal now always requires a PIN for a parent selection, regardless of a cached parent token; the optional-PIN copy and enabling condition were removed. The token route records a parent elevation failure only for `Incorrect PIN`, not for an empty required field or unrelated token-minting error. The unused web `canUseCachedParentPrincipal` context value was removed (mobile has its own independent provider). Verification: 12 focused login-modal/session-provider/token-route tests and `tsc --noEmit` pass.
 - **2026-07-14 — Completed: shared principals discard stale member identity.** Minting a shared kid or parent token now rewrites `$users.familyMemberId` to the explicit empty-string sentinel instead of preserving whichever member ID may have been attached by an older session. Instant permission CEL can compare that sentinel safely, while member-scoped tokens continue to carry a real family-member ID. This prevents a shared-device principal from silently inheriting a previously selected member's write identity. Verification: the focused `instant-admin` unit test and `tsc --noEmit` pass.
 - **2026-07-13 — Completed: device-auth cookie hardening and domain guard (§5.4).** Device cookies now carry a SHA-256 token derived from the configured `DEVICE_ACCESS_KEY` instead of the forgeable literal `true`; rotating the access key therefore invalidates old cookies. Cookie-domain inference now leaves localhost, LAN IPv4/IPv6 hosts, root domains, and common multi-part public suffix roots host-only. Deployments that need sibling-subdomain SSO can set `DEVICE_AUTH_COOKIE_DOMAIN` explicitly. Existing devices must activate once after the cookie migration from `family_device_auth` to `activation_token`. Verification: 70 focused unit/integration assertions pass across middleware, activation, server actions, calendar auth, and mobile/file routes; `tsc --noEmit` reaches only three unrelated pre-existing errors recorded for follow-up.
@@ -21,12 +22,12 @@
 | 1 | /tasks | **High (Confirmed)** | Pulled-forward tasks are invisible on days the chore isn't scheduled — the exact "work ahead on a free day" use case |
 | 2 | Login | **Completed 2026-07-14** | Parent selection always requires a PIN; empty submissions do not consume elevation backoff |
 | 3 | Editor | **High (Confirmed)** | Every autosave rewrites `workflowState`/`lastActiveState` for *all* tasks, racing against kids completing tasks on other devices |
-| 4 | Nav bar | **High (Confirmed — DOM captured)** | The sign-in full-tree remount re-inserts `<header>` *after* `<main>` in the body — the nav is literally last in document flow. Fix the remount (5.2) + one-line CSS hardening |
+| 4 | Nav bar | **Completed 2026-07-14** | Interactive sign-in keeps the tree mounted, closes the dialog first, and pins the header first in flex order |
 | 5 | /tasks | **Medium (Confirmed)** | Fully-completed series render forever on every future date (the Done bin keeps the section alive) |
 | 6 | Data | **Medium (Confirmed)** | Deleting tasks/series orphans `taskUpdates`, `taskResponseFields`, `taskAttachments` rows and leaks S3 files |
 | 7 | Editor | **Medium (Confirmed)** | Copy-paste inside the bulk editor duplicates task IDs → silent data loss on save |
 | 8 | Manager | **Medium (Confirmed)** | "Duplicate" flattens hierarchy and drops response fields, weights, attachments |
-| 9 | Login | **Medium (Confirmed)** | Whole app unmounts ("Connecting to family data...") on every sign-in/switch |
+| 9 | Login | **Completed 2026-07-14** | The blocking screen is bootstrap-only; interactive switches preserve app state and subscriptions |
 | 10 | Perf | **Medium** | Unbounded queries fetch the entire task/update/completion history on list pages |
 | 11 | Device auth | **Completed 2026-07-13** | Access-key-bound cookie shipped; invalid LAN/public-suffix domain inference fixed |
 
@@ -199,13 +200,15 @@ Also stop counting "PIN is required" (empty submissions) as brute-force failures
 
 **Completed with option (a):** the modal no longer reads or displays cached-parent reuse state. Parent Continue stays disabled until a PIN is entered, and offline parent selection always explains that server verification is required. The token route now increments backoff only when credential verification returns `Incorrect PIN`; `PIN is required` returns 400 without changing rate-limit state.
 
-### 5.2 Every login unmounts the whole app — **High, Confirmed (upgraded)**
+### 5.2 Every login unmounts the whole app — **Completed 2026-07-14**
 
 `InstantFamilySessionProvider` returns the full-screen "Connecting to family data..." panel whenever `status === 'signing-in'` ([InstantFamilySessionProvider.tsx:276-282](components/InstantFamilySessionProvider.tsx:276)) — which `signInFamilyMember` sets on every user switch. The entire tree (including the LoginModal that initiated the call) unmounts mid-await, all component state is lost, and InstantDB re-boots its subscriptions (the giant queries from 4.3 refetch). This is the "flash/reload feeling" on every login.
 
 **Upgraded to High:** a captured DOM snapshot proved this remount is also the direct cause of the nav-bar-at-bottom bug — the re-insertion pass after the swap can put `<header>` after `<main>` (and inverted the dialog's overlay/content the same way). Full analysis and fix in Part 6.
 
 **Fix:** reserve the blocking screen for the *initial* bootstrap (`checking`). For interactive switches, keep children mounted and let the modal show its own spinner (`isVerifying` already exists); close the dialog before initiating the switch. If some subtrees misbehave during principal swaps, gate those subtrees, not the root.
+
+**Completed:** interactive `signInFamilyMember` calls no longer set the provider's bootstrap `signing-in` status. The context's `isSwitchingPrincipal` flag still reports progress without replacing children, and the modal is closed immediately before the switch begins. A deferred-token DOM regression holds the request open and proves the existing child tree remains rendered with no “Connecting to family data...” screen.
 
 ### 5.3 Idle-logout layering is confusing — **Medium**
 
@@ -222,13 +225,13 @@ Net effect: the family sees "the app keeps logging me out" with different timing
 - `getParentUnlocked() || true` is always true ([InstantFamilySessionProvider.tsx:111](components/InstantFamilySessionProvider.tsx:111)) — the persisted lock flag is dead on the restore path. Today it's mostly masked (demotion clears the token too), but the expression is wrong; use the stored value or delete the flag.
 - **PIN hashing is unsalted SHA-256** ([instant-admin.ts:105-107](lib/instant-admin.ts:105), mirrored client-side in [pin-client.ts](lib/pin-client.ts)) — for 4-digit PINs the hash is decorative (10k guesses). Server-side, switch to HMAC with a server secret (or scrypt); rate-limit kid PIN attempts too (currently only parents are limited, [route.ts:60-66](app/api/instant-auth-token/route.ts:60)).
 - `components/auth/useInstantPrincipalSwitching.ts` (168 lines) is imported nowhere — dead code; delete it before it drifts further from reality.
-- The `document.body.style.pointerEvents` patch in LoginModal ([LoginModal.tsx:55-67](components/auth/LoginModal.tsx:55)) papers over a Radix cleanup bug — likely aggravated by 5.2's mid-flight unmounts; fixing 5.2 may let this hack go.
+- **Completed 2026-07-14:** the `document.body.style.pointerEvents` patch was removed after the modal began closing before the principal swap and the full-tree remount was eliminated.
 - `AuthProvider.isAuthenticated` requires the `familyMembers` roster row to resolve ([AuthProvider.tsx:57-72](components/AuthProvider.tsx:57)); a deleted member or slow roster query reads as "logged out" with no message.
 - **Completed 2026-07-13 — device-auth WIP:** `getParentDomain` now returns no explicit domain for LAN IPv4/IPv6 hosts, localhost, root domains, and common multi-part public-suffix roots; `DEVICE_AUTH_COOKIE_DOMAIN` is the explicit override for sibling-subdomain deployments. The activation cookie is now bound to a digest of `DEVICE_ACCESS_KEY` rather than the literal `true`. The cookie rename to `activation_token` intentionally requires one re-activation on existing devices and future access-key rotations invalidate existing activation cookies.
 
 ---
 
-## Part 6 — Nav bar moving to the bottom — **Confirmed via captured DOM**
+## Part 6 — Nav bar moving to the bottom — **Completed 2026-07-14**
 
 ### Root cause
 
@@ -244,9 +247,9 @@ The trigger is finding **5.2**: `signInFamilyMember` sets `status='signing-in'`,
 
 ### Fix (in order of importance)
 
-1. **Stop unmounting the app during sign-in** — the 5.2 fix is *the* nav-bar fix. Reserve the blocking "Connecting..." screen for initial bootstrap (`status === 'checking'`); during interactive switches keep children mounted and show progress inside the modal (`isVerifying` already exists).
-2. **Close the dialog before switching principals.** In `LoginModal.handlePinSubmit`, close the dialog (and let Radix run its cleanup) *before* calling `signInFamilyMember`, so no live portal/focus-trap/scroll-lock exists during any auth-state churn. This also likely retires the pointer-events hack.
-3. **CSS hardening, one line:** body is already `flex flex-col` — add `order-first` to the header (and nothing else). Even if DOM order ever scrambles again for any reason, the nav renders on top. Cheap insurance; remove once 1–2 have soaked.
+1. **Completed:** interactive sign-in no longer swaps the app tree for the bootstrap screen; the modal owns the progress state.
+2. **Completed:** `LoginModal.handlePinSubmit` closes the dialog before calling `signInFamilyMember`, and the pointer-events cleanup workaround is gone.
+3. **Completed:** `ThemedHeader` has `order-first`, with a DOM contract test locking the class in place.
 
 ### Secondary findings kept from the layout investigation
 
@@ -269,7 +272,7 @@ These are real but were not the cause of the captured incident:
 
 ### Phase 1 — app shell / nav bar
 
-6. **Nav bar fix** (Part 6): keep the app mounted during sign-in (5.2), close the login dialog before switching principals, and add `order-first` to the header as CSS insurance. This is the actual fix for the captured bug.
+6. ~~**Nav bar fix** (Part 6): keep the app mounted during sign-in (5.2), close the login dialog before switching principals, and add `order-first` to the header as CSS insurance.~~ **Completed 2026-07-14.**
 7. App-shell hardening (Part 6 secondary): convert to the fixed layout (body `h-dvh overflow-hidden`, non-sticky header, `main` as sole scroll container). One PR touching `layout.tsx` + `ThemedAppShell.tsx`; manual pass on iPad PWA (keyboard open/close, backgrounding).
 
 ### Phase 2 — data integrity

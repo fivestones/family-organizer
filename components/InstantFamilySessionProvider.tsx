@@ -119,7 +119,6 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
 
     const signInFamilyMember = useCallback(async (params: SignInFamilyMemberParams) => {
         setIsSwitchingPrincipal(true);
-        setStatus('signing-in');
         try {
             const payload = await fetchMemberToken(params);
             await db.auth.signInWithToken(payload.token);

@@ -140,6 +140,7 @@ describe('LoginModal', () => {
         );
         expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringMatching(/welcome back, ava/i) }));
         expect(onClose).toHaveBeenCalledTimes(1);
+        expect(onClose.mock.invocationCallOrder[0]).toBeLessThan(mocks.signInFamilyMember.mock.invocationCallOrder[0]);
     });
 
     it('shows an offline error instead of attempting parent sign-in when a fresh parent PIN check is required', async () => {
