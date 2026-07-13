@@ -94,6 +94,55 @@ describe('TaskSeriesChecklist', () => {
         vi.unstubAllGlobals();
     });
 
+    it('does not render when only historical done tasks remain', () => {
+        const completedTask = task({
+            id: 'done-task',
+            text: 'Finished yesterday',
+            order: 1,
+            workflowState: 'done',
+            isCompleted: true,
+            completedOnDate: '2026-04-01',
+        });
+
+        const { container } = render(
+            <TaskSeriesChecklist
+                tasks={[]}
+                allTasks={[completedTask] as any}
+                onToggle={vi.fn()}
+                isReadOnly={false}
+                selectedMember="kid-a"
+                showDetails={false}
+            />
+        );
+
+        expect(container).toBeEmptyDOMElement();
+    });
+
+    it('keeps a done task visible when the scheduler includes it for the viewed date', () => {
+        const completedTask = task({
+            id: 'done-today',
+            text: 'Finished today',
+            order: 1,
+            workflowState: 'done',
+            isCompleted: true,
+            completedOnDate: '2026-04-02',
+        });
+
+        render(
+            <TaskSeriesChecklist
+                tasks={[completedTask] as any}
+                allTasks={[completedTask] as any}
+                onToggle={vi.fn()}
+                isReadOnly={false}
+                selectedMember="kid-a"
+                showDetails={false}
+            />
+        );
+
+        expect(screen.getByText('Done')).toBeInTheDocument();
+        expect(screen.getByText('1 task')).toBeInTheDocument();
+    });
+
     it('shows header/context rows without auto-completing them in interactive mode', () => {
         const onToggle = vi.fn();
         const allTasks = [

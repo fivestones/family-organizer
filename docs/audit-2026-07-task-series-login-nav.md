@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: historical Done tasks no longer keep task series visible forever (§4.1, Phase 0).** `ChoreList` and `TaskSeriesChecklist` now share `hasVisibleTaskSeriesContent`: scheduled tasks keep the series visible (including a Done task that the scheduler returned for its completion date), as do blocked/skipped/review items, but unrelated historical Done rows do not. This aligns row and checklist visibility and removes the empty “No active tasks” shells from future dates. Verification: 36 focused task-progress, `ChoreList`, and checklist tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: task-series autosave no longer replays stale workflow state (§2.1, Phase 0).** Existing-task autosaves now write only changed structural fields (`text`, `order`, indentation, day-break status, and `updatedAt`); workflow state, deferral state, completion flags, and `childTasksComplete` remain owned by checklist mutations. Unchanged tasks are skipped, new tasks alone receive workflow defaults and a series link, unchanged series metadata is not rewritten, and unchanged owner/activity links are not replayed. A completely no-op editor update now avoids `db.transact` altogether. Verification: 10 focused `TaskSeriesEditor` DOM tests pass, including stale-progress preservation, new-task initialization, metadata-only saves, and no-op saves; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: pulled-forward task series remain visible on off-schedule days (§1.1, Phase 0).** `/tasks` now treats a positive pull-forward on the selected family day as an explicit visibility override when the chore is not scheduled: the chore row, owned-series content, and series-name pill all remain eligible, while `getTasksForDate` still decides whether a real block exists. `isSeriesActiveForDate` recognizes the same today-only override and does not leak attention-state fallbacks onto arbitrary off-schedule dates. Verification: 16 scheduler unit tests and 7 `ChoreList` DOM tests pass, including a Mon/Wed series pulled forward on Tuesday; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: interactive principal switches preserve the app tree and header order (§5.2, Part 6).** `signInFamilyMember` now uses `isSwitchingPrincipal` without entering the bootstrap-only `signing-in` screen, so header, main content, subscriptions, and local state stay mounted. `LoginModal` closes before the auth swap starts, allowing Radix portal/focus cleanup to finish; the obsolete body `pointerEvents` patch was removed. `ThemedHeader` also carries `order-first` as flex-layout insurance. Verification: 8 focused modal/session/header DOM tests prove in-flight tree continuity, close-before-sign-in ordering, and header ordering; `tsc --noEmit` passes.
@@ -25,7 +26,7 @@
 | 2 | Login | **Completed 2026-07-14** | Parent selection always requires a PIN; empty submissions do not consume elevation backoff |
 | 3 | Editor | **Completed 2026-07-14** | Autosave writes changed structure only; live checklist workflow state is no longer replayed from a stale editor snapshot |
 | 4 | Nav bar | **Completed 2026-07-14** | Interactive sign-in keeps the tree mounted, closes the dialog first, and pins the header first in flex order |
-| 5 | /tasks | **Medium (Confirmed)** | Fully-completed series render forever on every future date (the Done bin keeps the section alive) |
+| 5 | /tasks | **Completed 2026-07-14** | Done-only history no longer keeps a row alive; same-day completions remain available in the Done bin |
 | 6 | Data | **Medium (Confirmed)** | Deleting tasks/series orphans `taskUpdates`, `taskResponseFields`, `taskAttachments` rows and leaks S3 files |
 | 7 | Editor | **Medium (Confirmed)** | Copy-paste inside the bulk editor duplicates task IDs → silent data loss on save |
 | 8 | Manager | **Medium (Confirmed)** | "Duplicate" flattens hierarchy and drops response fields, weights, attachments |
@@ -163,11 +164,13 @@ When unconfirmed data-tasks disappear from the doc through a path the guard didn
 
 ## Part 4 — `/tasks` presentation
 
-### 4.1 Completed series haunt every future date — **Medium, Confirmed**
+### 4.1 Completed series haunt every future date — **Completed 2026-07-14**
 
 Visibility of the checklist section is `tasks.length > 0 || hasBucketedTasks` ([ChoreList.tsx:960-964](components/ChoreList.tsx:960)), and `getTaskBucketCounts` includes the **done** bucket ([task-progress.ts:377-384](lib/task-progress.ts:377)). `TaskSeriesChecklist` likewise renders whenever any bucket is non-empty ([TaskSeriesChecklist.tsx:266-279](components/TaskSeriesChecklist.tsx:266)). So once a series has a single completed task, its section renders on *every* date the owner is assigned — including long after the series is fully finished ("No active tasks are due right now" + a Done bin). Meanwhile the series-name pill uses a different rule (`isSeriesActiveForDate`, [ChoreList.tsx:890](components/ChoreList.tsx:890)), so pill and body can disagree.
 
 **Fix:** exclude `done` from the "keep the section alive" test (show the Done bin only when there are also active/blocked/review items or when the completion happened on the viewed date); hide the section entirely when the series status is archived; use one shared visibility predicate for pill + body.
+
+**Completed:** the row and checklist now call the same visibility predicate. A scheduled task returned for the viewed date keeps the series visible even when it is Done, so the user can still inspect a same-day completion. Outside that scheduler projection, only blocked, skipped, or needs-review buckets keep the series alive; historical Done tasks alone no longer render the row or its empty checklist shell. The series pill continues to use `isSeriesActiveForDate`, whose active/attention semantics now match the body for this case.
 
 ### 4.2 Checkbox is hardcoded unchecked; completions vanish
 
@@ -273,7 +276,7 @@ These are real but were not the cause of the captured incident:
 1. ~~**Pull-forward visibility** (1.1): bypass owner-assignment check when `pullForwardCount > 0` on today; extend `isSeriesActiveForDate`.~~ **Completed 2026-07-14**, including the earlier chore-row filter and scheduler/DOM regressions.
 2. ~~**PIN-optional lie** (5.1): remove the affordance and stop counting empty-PIN submits as failures.~~ **Completed 2026-07-14.**
 3. ~~**Editor autosave scope** (2.1): stop writing workflow fields for existing tasks; skip no-op task updates and no-op series updates.~~ **Completed 2026-07-14**, including no-op link and transaction suppression.
-4. **Done-forever sections** (4.1): shared visibility predicate; exclude `done` bucket from keep-alive.
+4. ~~**Done-forever sections** (4.1): shared visibility predicate; exclude `done` bucket from keep-alive.~~ **Completed 2026-07-14**, while retaining same-day completions returned by the scheduler.
 5. ~~**Device-auth WIP guard** (5.4): IP/localhost guard in `getParentDomain` before this branch ships.~~ **Completed 2026-07-13**, including IPv6, multi-part suffix handling, explicit domain configuration, and access-key-bound cookie values.
 
 ### Phase 1 — app shell / nav bar

@@ -383,6 +383,25 @@ export function getTaskBucketCounts(allTasks: TaskProgressTaskLike[] | null | un
     };
 }
 
+/**
+ * Decide whether a task-series section has content relevant to the viewed day.
+ * A done task keeps the section visible only when the scheduler included it in
+ * `scheduledTasks` (normally because it was completed on that viewed date).
+ * Historical done rows alone must not keep the series alive forever.
+ */
+export function hasVisibleTaskSeriesContent(
+    scheduledTasks: TaskProgressTaskLike[] | null | undefined,
+    allTasks: TaskProgressTaskLike[] | null | undefined
+): boolean {
+    const safeTasks = allTasks || [];
+    if ((scheduledTasks || []).some((task) => isActionableTask(task, safeTasks))) {
+        return true;
+    }
+
+    const counts = getTaskBucketCounts(safeTasks);
+    return counts.blocked > 0 || counts.skipped > 0 || counts.needs_review > 0;
+}
+
 export function getTaskStatusLabel(state: TaskWorkflowState): string {
     switch (state) {
         case 'not_started':

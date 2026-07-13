@@ -25,6 +25,7 @@ import {
     getTaskLastActiveState,
     getTaskStatusLabel,
     getTaskWorkflowState,
+    hasVisibleTaskSeriesContent,
     isActionableTask,
     isTaskDone,
     sortTaskUpdates,
@@ -263,8 +264,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     }, [allTasks]);
 
     const actionableCount = useMemo(() => allTasks.filter((task) => isActionableTask(task, allTasks)).length, [allTasks]);
-    const hasAnyBucketedTasks = bucketOrder.some((state) => bucketedTasks[state].length > 0);
-    const hasAnyVisibleContent = visibleNodes.length > 0 || hasAnyBucketedTasks;
+    const hasAnyVisibleContent = hasVisibleTaskSeriesContent(scheduledTasks, allTasks);
     const composerTask = composerTaskId ? allTasks.find((task) => task.id === composerTaskId) || null : null;
     const composerTaskCurrentState = composerTask ? getTaskWorkflowState(composerTask) : null;
     const composerTaskIsActionable = composerTask ? isActionableTask(composerTask, allTasks) : false;

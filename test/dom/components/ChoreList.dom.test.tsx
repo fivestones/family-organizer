@@ -358,4 +358,39 @@ describe('ChoreList', () => {
         expect(screen.getByText('Pulled forward')).toBeInTheDocument();
         expect(screen.getByTestId('task-series-checklist')).toBeInTheDocument();
     });
+
+    it('hides a task-series row when only historical done tasks remain', () => {
+        choreListMocks.getTasksForDate.mockReturnValue([]);
+        choreListMocks.isSeriesActiveForDate.mockReturnValue(false);
+
+        renderChoreList({
+            pageMode: 'tasks',
+            chores: [
+                makeChore({
+                    title: 'Finished curriculum',
+                    taskSeries: [
+                        {
+                            id: 'series-done',
+                            name: 'Finished series',
+                            familyMember: [{ id: 'kid-a', name: 'Alex' }],
+                            tasks: [
+                                {
+                                    id: 'task-done',
+                                    text: 'Already finished',
+                                    order: 1,
+                                    isDayBreak: false,
+                                    isCompleted: true,
+                                    workflowState: 'done',
+                                    completedOnDate: '2026-04-01',
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            ],
+        });
+
+        expect(screen.queryByText('Finished curriculum')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('task-series-checklist')).not.toBeInTheDocument();
+    });
 });

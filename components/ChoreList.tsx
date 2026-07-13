@@ -20,7 +20,7 @@ import {
     buildTaskUpdateTransactions,
     type ResponseFieldValueInput,
 } from '@/lib/task-update-mutations';
-import { getTaskBucketCounts, getTaskLastActiveState, isActionableTask, isTaskDone } from '@/lib/task-progress';
+import { getTaskLastActiveState, hasVisibleTaskSeriesContent, isActionableTask, isTaskDone } from '@/lib/task-progress';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import ChoreDetailDialog from './ChoreDetailDialog';
@@ -973,11 +973,10 @@ function ChoreList({
                                     chore.exdates || null,
                                     seriesPullForwardCount
                                 );
-                                const bucketCounts = getTaskBucketCounts(allTasks);
-                                const hasBucketedTasks = Object.values(bucketCounts).some((count) => count > 0);
+                                const hasVisibleContent = hasVisibleTaskSeriesContent(tasks, allTasks);
                                 const isUpForGrabsDisabled = chore.isUpForGrabs && upForGrabsCompletedByOther && ownerId && ownerId !== completerIdActual;
 
-                                if ((!tasks.length && !hasBucketedTasks) || isUpForGrabsDisabled) return null;
+                                if (!hasVisibleContent || isUpForGrabsDisabled) return null;
 
                                 return {
                                     series,
@@ -985,7 +984,6 @@ function ChoreList({
                                     ownerName,
                                     allTasks,
                                     tasks,
-                                    hasBucketedTasks,
                                 };
                             })
                             .filter(Boolean) as Array<{
@@ -994,7 +992,6 @@ function ChoreList({
                             ownerName?: string;
                             allTasks: Task[];
                             tasks: Task[];
-                            hasBucketedTasks: boolean;
                         }>;
 
                         if (renderableSeries.length === 0) return null;
