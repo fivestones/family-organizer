@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: bulk task completion uses one evolving task snapshot (§1.2).** `buildBulkTaskUpdateTransactions` owns a shared cloned task map and feeds it through each child update, so sibling transitions and ancestor rollups accumulate within the same Instant transaction batch. `ChoreList` now uses that helper for “Mark All Done & Complete”; duplicate task IDs are ignored. A three-sibling regression proves the final parent update is `done`, `isCompleted: true`, and `childTasksComplete: true`. Verification: all 7 task-update mutation tests and `tsc --noEmit` pass.
 - **2026-07-14 — Completed and deployed: chore-completion ownership and payout-field isolation (§2.1).** Member-scoped kids can create completion rows only with `allowanceAwarded: false`, link `completedBy`/`markedBy` only to their authenticated family member, and update only their own `completed`, `notDone`, and `dateCompleted` fields. They cannot update a sibling's row, change `dateDue`, re-arm `allowanceAwarded`, delete/unlink completions, or create rows from the shared kid principal; parents retain the administrative paths. The rules were pushed to the configured Instant app. Verification: 7 local permission-contract tests, the focused shared-principal unit test, `tsc --noEmit`, and the hosted anonymous/shared-kid/member-kid/parent matrix pass using the same multi-step transaction shape as `ChoresTracker`.
 - **2026-07-14 — Completed: up-for-grabs claims converge and legacy duplicates cannot double-credit (§1.1).** A shared UUIDv5 helper derives the completion row ID from `(choreId, dateDue)` for up-for-grabs chores, so concurrent web, countdown/sequence, and mobile claims update/link the same Instant row instead of creating two rewards. Normal assigned chores retain random IDs. Existing duplicate rows are canonicalized by earliest `dateCompleted`: XP credits only that winner, and allowance preprocessing suppresses losing rows while expanding the winner's award-mark set to close every duplicate. Verification: 37 focused shared-core/chore-utils/ChoresTracker tests pass; `tsc --noEmit` passes.
 - **2026-07-13 — Completed: second-precision `after_chore` countdown anchoring (§5.2).** Completion-anchored chores now use the anchor chore's exact completion timestamp rather than its minute-truncated schedule offset, and the packing pass no longer pushes the dependent chore behind the already-completed anchor's old slot window. The focused countdown-engine suite passes all 37 scenarios, including a completion at `08:03:45` that starts the dependent chore exactly five minutes later.
@@ -20,7 +21,7 @@
 |---|----------|---------|
 | 1 | **Completed 2026-07-14** | Up-for-grabs claims now converge on a deterministic row; legacy duplicates are canonicalized for XP and payout |
 | 2 | **Completed 2026-07-14** | Kid completion writes are member-scoped; payout/date fields and administrative delete/unlink paths are parent-only |
-| 3 | **Medium (Confirmed)** | "Mark all & complete" builds every task transaction from the same stale snapshot — parent tasks end up in wrong states |
+| 3 | **Completed 2026-07-14** | Bulk completion now shares evolving task state, so final ancestor workflow/child-completion fields are correct |
 | 4 | **Medium (Confirmed)** | Chore assignment/XP logic exists in two diverging copies; the dashboard and the chores page use different ones |
 | 5 | **Medium** | Rotation assignment is recomputed from the entire occurrence history — O(years) work in every render loop, and retroactively unstable |
 | 6 | **Medium (Confirmed)** | Deleting a chore orphans completions/assignments and silently un-schedules linked task series |
@@ -40,11 +41,11 @@
 
 **Completed:** `createChoreCompletionRecordId` uses UUIDv5 over `(choreId, dateDue)` for up-for-grabs completions and is used by every current web/countdown/sequence/mobile create path. Concurrent claims therefore target one valid Instant UUID and the has-one `completedBy` relationship converges on a single winner. For pre-fix duplicate rows, the earliest completion is canonical: both XP implementations credit only it, while allowance preprocessing pays only its member and includes every duplicate ID in the award-mark transaction. The loser device receives the converged row through Instant's subscription and the existing "already completed" UI takes over.
 
-### 1.2 Bulk "Mark all & complete" corrupts parent-task state — **Medium, Confirmed**
+### 1.2 Bulk "Mark all & complete" corrupts parent-task state — **Completed 2026-07-14**
 
 `confirmMarkAllAndComplete` flat-maps one `buildTaskUpdateTransactions` call per incomplete task ([ChoreList.tsx:526-540](components/ChoreList.tsx:526)). Each call clones the *same* `allTasks` snapshot, so each transaction's ancestor-sync (`syncAncestorChildCompletionState`) sees all *other* siblings as still incomplete. Completing the last 3 children of a parent this way leaves the parent `in_progress` with `childTasksComplete: false` even though every child is now `done` in the database.
 
-**Fix:** thread one shared, mutated `taskMap` through the batch (apply each task's state change to the map before building the next transaction), or add a `buildBulkTaskUpdateTransactions` helper that marks all targets first and syncs ancestors once.
+**Completed:** `buildBulkTaskUpdateTransactions` clones the full task list once, passes the same mutable map through each existing task-update build, and appends each result to one transaction array. The existing builder already mutates the target and every rolled-up ancestor in that map, so later sibling updates observe earlier transitions and the final parent write reflects the complete batch. `ChoreList.confirmMarkAllAndComplete` now calls the bulk helper instead of flat-mapping isolated builders. The regression covers three incomplete siblings under one parent and asserts the final parent write is fully done.
 
 ### 1.3 Rotation semantics are retroactively unstable — **Medium**
 
@@ -147,7 +148,7 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 
 ## 7. Fix plan
 
-**Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; ~~2.1 completion permission tightening~~ **completed and deployed 2026-07-14**; 1.2 shared-map bulk completion.
+**Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; ~~2.1 completion permission tightening~~ **completed and deployed 2026-07-14**; ~~1.2 shared-map bulk completion~~ **completed 2026-07-14**.
 **Phase 1 — integrity:** 4.1 chore deletion impact dialog + cascades; 1.4 weightless-chore save fix.
 **Phase 2 — consolidation:** 3.1 single shared-core implementation + contract test; 3.2 dead-code removal; 1.5 resolve/delete legacy occurrence helpers.
 **Phase 3 — performance:** 5.1 occurrence-set memoization + rotation index caching; deduplicate countdown builder calls.

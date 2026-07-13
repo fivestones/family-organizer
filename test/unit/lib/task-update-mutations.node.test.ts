@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { freezeTime } from '@/test/utils/fake-clock';
 import {
+    buildBulkTaskUpdateTransactions,
     buildTaskUpdateTransactions,
     validateUpdateSubmission,
     type TaskUpdateTaskLike,
@@ -235,6 +236,42 @@ describe('task-update-mutations parent rollups', () => {
                     completedAt: null,
                     completedOnDate: null,
                     childTasksComplete: false,
+                }),
+            })
+        );
+    });
+
+    it('rolls ancestors from the evolving state of every task in a bulk completion', () => {
+        const allTasks = [
+            makeTask({ id: 'parent', childTasksComplete: false }),
+            makeTask({ id: 'child-1', parentTask: [{ id: 'parent' }] }),
+            makeTask({ id: 'child-2', parentTask: [{ id: 'parent' }] }),
+            makeTask({ id: 'child-3', parentTask: [{ id: 'parent' }] }),
+        ];
+
+        const { transactions, updateIds } = buildBulkTaskUpdateTransactions({
+            tx,
+            createId,
+            taskIds: ['child-1', 'child-2', 'child-3'],
+            allTasks,
+            nextState: 'done',
+            selectedDateKey: '2026-03-10',
+            actorFamilyMemberId: 'parent-user',
+            affectedFamilyMemberId: 'child-user',
+        });
+
+        const parentUpdates = transactions.filter(
+            (entry) => entry.op === 'update' && entry.entity === 'tasks' && entry.id === 'parent'
+        );
+
+        expect(updateIds).toHaveLength(3);
+        expect(parentUpdates.at(-1)).toEqual(
+            expect.objectContaining({
+                payload: expect.objectContaining({
+                    workflowState: 'done',
+                    isCompleted: true,
+                    childTasksComplete: true,
+                    completedOnDate: '2026-03-10',
                 }),
             })
         );

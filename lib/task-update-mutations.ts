@@ -93,6 +93,13 @@ export interface BuildTaskUpdateTransactionsParams {
     choreId?: string | null;
     /** Link this update as a reply to a specific prior update (for parent feedback on a child's submission). */
     replyToUpdateId?: string | null;
+    /** Shared mutable task state used only while composing a batch. */
+    taskStateMap?: Map<string, TaskUpdateTaskLike>;
+}
+
+export interface BuildBulkTaskUpdateTransactionsParams
+    extends Omit<BuildTaskUpdateTransactionsParams, 'taskId' | 'taskStateMap'> {
+    taskIds: string[];
 }
 
 export interface TaskUpdateValidationResult {
@@ -294,10 +301,12 @@ export function buildTaskUpdateTransactions(params: BuildTaskUpdateTransactionsP
         return { transactions: [], updateId: '' };
     }
 
-    const taskMap = new Map<string, TaskUpdateTaskLike>();
-    params.allTasks.forEach((task) => {
-        taskMap.set(task.id, { ...task });
-    });
+    const taskMap = params.taskStateMap || new Map<string, TaskUpdateTaskLike>();
+    if (!params.taskStateMap) {
+        params.allTasks.forEach((task) => {
+            taskMap.set(task.id, { ...task });
+        });
+    }
 
     const targetTask = taskMap.get(params.taskId);
     if (!targetTask) return { transactions: [], updateId: '' };
@@ -502,6 +511,36 @@ export function buildTaskUpdateTransactions(params: BuildTaskUpdateTransactionsP
     });
 
     return { transactions, updateId };
+}
+
+/**
+ * Builds a batch of task updates against one evolving task snapshot.
+ *
+ * Parent rollups from each task become visible to the next task in the batch,
+ * so the final ancestor transaction reflects the whole batch rather than the
+ * same stale pre-batch state for every child.
+ */
+export function buildBulkTaskUpdateTransactions(params: BuildBulkTaskUpdateTransactionsParams) {
+    const taskStateMap = new Map<string, TaskUpdateTaskLike>();
+    params.allTasks.forEach((task) => {
+        taskStateMap.set(task.id, { ...task });
+    });
+
+    const transactions: any[] = [];
+    const updateIds: string[] = [];
+    const { taskIds, ...singleTaskParams } = params;
+
+    for (const taskId of Array.from(new Set(taskIds))) {
+        const result = buildTaskUpdateTransactions({
+            ...singleTaskParams,
+            taskId,
+            taskStateMap,
+        });
+        transactions.push(...result.transactions);
+        if (result.updateId) updateIds.push(result.updateId);
+    }
+
+    return { transactions, updateIds };
 }
 
 // ---------------------------------------------------------------------------

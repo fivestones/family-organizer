@@ -15,7 +15,11 @@ import { TaskSeriesChecklist } from './TaskSeriesChecklist';
 import { useToast } from '@/components/ui/use-toast';
 import { getTaskSeriesProgress, hasScheduledChildren } from '@/lib/task-series-progress';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
-import { buildTaskUpdateTransactions, type ResponseFieldValueInput } from '@/lib/task-update-mutations';
+import {
+    buildBulkTaskUpdateTransactions,
+    buildTaskUpdateTransactions,
+    type ResponseFieldValueInput,
+} from '@/lib/task-update-mutations';
 import { getTaskBucketCounts, getTaskLastActiveState, isActionableTask, isTaskDone } from '@/lib/task-progress';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -523,26 +527,24 @@ function ChoreList({
             return requiredFields.length === 0;
         });
 
-        const transactions = completableTaskIds.flatMap((taskId) =>
-            buildTaskUpdateTransactions({
-                tx,
-                createId: id,
-                taskId,
-                allTasks,
-                nextState: 'done',
-                selectedDateKey: formattedSelectedDate,
-                actorFamilyMemberId: currentUser.id,
-                affectedFamilyMemberId: memberId || currentUser.id,
-                taskSeriesId: targetSeries?.id || null,
-                choreId,
-                schedule: {
-                    startDate: chore.startDate,
-                    rrule: chore.rrule || null,
-                    exdates: chore.exdates || null,
-                },
-                referenceDate: safeSelectedDate,
-            }).transactions
-        );
+        const { transactions } = buildBulkTaskUpdateTransactions({
+            tx,
+            createId: id,
+            taskIds: completableTaskIds,
+            allTasks,
+            nextState: 'done',
+            selectedDateKey: formattedSelectedDate,
+            actorFamilyMemberId: currentUser.id,
+            affectedFamilyMemberId: memberId || currentUser.id,
+            taskSeriesId: targetSeries?.id || null,
+            choreId,
+            schedule: {
+                startDate: chore.startDate,
+                rrule: chore.rrule || null,
+                exdates: chore.exdates || null,
+            },
+            referenceDate: safeSelectedDate,
+        });
 
         db.transact(transactions);
 
