@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: removed schema-invalid and unresolved chore helpers (§1.5, §3.2).** Deleted the unused `getNextOccurrence`/`getOccurrences` wrappers with unresolved local-vs-UTC behavior, the unused async assignment/grid helpers that queried nonexistent `choreCompletions.date`, and the empty hardcoded family-member UUID branch. Live allowance callers of `createRRuleWithStartDate` remain intact. Verification: repository search finds no remaining references or flagged literals, 32 chore/shared-core tests pass, and `tsc --noEmit` passes.
 - **2026-07-14 — Completed: weightless chores remain editable (§1.4).** A blank weight is now a valid explicit weightless value and saves as `null`; invalid non-empty numeric input is still rejected. The form no longer marks weight required or disables the save/update button solely because the field is blank, and its helper text explains blank/zero exclusion. Verification: all 5 `DetailedChoreForm` DOM tests pass, including editing an existing null-weight chore, and `tsc --noEmit` passes.
 - **2026-07-14 — Completed: bulk task completion uses one evolving task snapshot (§1.2).** `buildBulkTaskUpdateTransactions` owns a shared cloned task map and feeds it through each child update, so sibling transitions and ancestor rollups accumulate within the same Instant transaction batch. `ChoreList` now uses that helper for “Mark All Done & Complete”; duplicate task IDs are ignored. A three-sibling regression proves the final parent update is `done`, `isCompleted: true`, and `childTasksComplete: true`. Verification: all 7 task-update mutation tests and `tsc --noEmit` pass.
 - **2026-07-14 — Completed and deployed: chore-completion ownership and payout-field isolation (§2.1).** Member-scoped kids can create completion rows only with `allowanceAwarded: false`, link `completedBy`/`markedBy` only to their authenticated family member, and update only their own `completed`, `notDone`, and `dateCompleted` fields. They cannot update a sibling's row, change `dateDue`, re-arm `allowanceAwarded`, delete/unlink completions, or create rows from the shared kid principal; parents retain the administrative paths. The rules were pushed to the configured Instant app. Verification: 7 local permission-contract tests, the focused shared-principal unit test, `tsc --noEmit`, and the hosted anonymous/shared-kid/member-kid/parent matrix pass using the same multi-step transaction shape as `ChoresTracker`.
@@ -26,7 +27,7 @@
 | 4 | **Medium (Confirmed)** | Chore assignment/XP logic exists in two diverging copies; the dashboard and the chores page use different ones |
 | 5 | **Medium** | Rotation assignment is recomputed from the entire occurrence history — O(years) work in every render loop, and retroactively unstable |
 | 6 | **Medium (Confirmed)** | Deleting a chore orphans completions/assignments and silently un-schedules linked task series |
-| 7 | **Low** | Dead/broken helpers, leftover debug code, unresolved "gemini thinks" UTC questions in occurrence helpers |
+| 7 | **Completed 2026-07-14** | Schema-invalid dead helpers, the hardcoded debug branch, and unresolved occurrence wrappers were removed |
 
 ---
 
@@ -64,9 +65,11 @@ On edit, a null weight hydrates the input as `''` ([DetailedChoreForm.tsx:196](c
 
 **Completed:** `handleSave` distinguishes blank input from malformed non-empty input and persists blank as `null`. The HTML required marker and button-level `!weight` gate were removed, while numeric values—including zero and negatives—continue through the existing path. Native validation alerts remain a separate form-polish cleanup.
 
-### 1.5 Unresolved UTC questions in occurrence helpers — **Low**
+### 1.5 Unresolved UTC questions in occurrence helpers — **Completed 2026-07-14**
 
 `getNextOccurrence` / `getOccurrences` ([chore-utils.ts:133-147](lib/chore-utils.ts:133)) pass raw local `Date`s to `rrule.after/between` and carry literal "gemini thinks we need…" comments in place of a decision. Everything on the hot paths now goes through `lib/chore-schedule.ts` (which does this correctly), so audit the remaining callers of these two, migrate them, and delete the helpers.
+
+**Completed:** repository-wide search found no callers, so both wrappers and their unresolved comments were deleted. `createRRuleWithStartDate` remains because allowance distribution and period calculation still call it directly.
 
 ---
 
@@ -100,10 +103,10 @@ On edit, a null weight hydrates the input as `''` ([DetailedChoreForm.tsx:196](c
 
 They are *near*-identical today (the shared-core copy skips `normalizeRrule`, drops assignee `color`, and its `getRotationIndex` takes an extra param). Any future tweak — joint-chore XP, negative-weight capping, rrule normalization fixes — lands in one copy and the dashboard's XP quietly disagrees with the sidebar's. **Fix:** make `shared-core` the single source (it's the one mobile uses), re-export from `lib/chore-utils.ts` for compatibility, and delete the web-only copies. Add one contract test asserting both entry points return identical results for a fixture set until the merge completes.
 
-### 3.2 Dead and debug code
+### 3.2 Dead and debug code — **Completed 2026-07-14**
 
-- [chore-utils.ts:463-464](lib/chore-utils.ts:463): `if (memberId == 'c72238c8-…') { }` — an empty block with a hardcoded family-member UUID. Delete.
-- `isChoreAssignedForPersonOnDate` and `getChoreAssignmentGrid` ([chore-utils.ts:151-264](lib/chore-utils.ts:151)) are unused, self-annotated with `TODO`, and query a `date` field that doesn't exist on `choreCompletions` (schema has `dateDue`/`dateCompleted`) — they would throw if ever called. Delete.
+- **Completed:** removed the empty `if (memberId == 'c72238c8-…') { }` branch with its hardcoded family-member UUID.
+- **Completed:** removed `isChoreAssignedForPersonOnDate` and `getChoreAssignmentGrid`; both were unused, self-annotated `TODO`s and queried a `date` field that does not exist on `choreCompletions` (`dateDue`/`dateCompleted` are the live fields).
 
 ---
 
@@ -153,6 +156,6 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 
 **Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; ~~2.1 completion permission tightening~~ **completed and deployed 2026-07-14**; ~~1.2 shared-map bulk completion~~ **completed 2026-07-14**.
 **Phase 1 — integrity:** 4.1 chore deletion impact dialog + cascades; ~~1.4 weightless-chore save fix~~ **completed 2026-07-14**.
-**Phase 2 — consolidation:** 3.1 single shared-core implementation + contract test; 3.2 dead-code removal; 1.5 resolve/delete legacy occurrence helpers.
+**Phase 2 — consolidation:** 3.1 single shared-core implementation + contract test; ~~3.2 dead-code removal~~ **completed 2026-07-14**; ~~1.5 delete unused legacy occurrence wrappers~~ **completed 2026-07-14**.
 **Phase 3 — performance:** 5.1 occurrence-set memoization + rotation index caching; deduplicate countdown builder calls.
 **Phase 4 — polish:** rotation transparency, claim flow, backfill, joint-chore XP decision, countdown scenario tests (5.2).
