@@ -1396,13 +1396,13 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
             currentIds.add(taskId);
             const existingTaskInDb = dbTasks.find((t) => t.id === taskId);
-            if (
+            const structureChanged =
                 !existingTaskInDb ||
                 String(existingTaskInDb.text || '') !== textContent ||
                 (existingTaskInDb.order || 0) !== index ||
                 (existingTaskInDb.indentationLevel || 0) !== currentLevel ||
-                Boolean(existingTaskInDb.isDayBreak) !== isDayBreak
-            ) {
+                Boolean(existingTaskInDb.isDayBreak) !== isDayBreak;
+            if (structureChanged) {
                 taskStructureChanged = true;
             }
 
@@ -1415,30 +1415,33 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             // A node is a parent if the very next node is indented further
             const isParent = nextNode && nextLevel > currentLevel;
 
-            const taskData: any = {
+            const structureData: any = {
                 text: textContent,
                 order: index,
                 indentationLevel: currentLevel,
                 isDayBreak,
                 updatedAt: new Date(),
-                // NEW: Initialize structure logic
-                // If it's a leaf, the subtree is complete (it has no children).
-                // If it's a parent, assume incomplete (wait for children to be checked).
-                childTasksComplete: !isParent,
-                workflowState: existingTaskInDb?.workflowState ?? (existingTaskInDb?.isCompleted ? 'done' : 'not_started'),
-                lastActiveState: existingTaskInDb?.lastActiveState ?? 'not_started',
-                deferredUntilDate: existingTaskInDb?.deferredUntilDate ?? null,
             };
 
-            // Create new task or update existing one
+            // The editor owns task structure only. Existing workflow fields are
+            // deliberately omitted so an autosave cannot replay stale progress
+            // over a concurrent checklist update from another device.
             if (existingTaskInDb) {
-                transactions.push(tx.tasks[taskId].update(taskData));
+                if (structureChanged) {
+                    transactions.push(tx.tasks[taskId].update(structureData));
+                }
             } else {
-                transactions.push(tx.tasks[taskId].create(taskData));
+                transactions.push(
+                    tx.tasks[taskId].create({
+                        ...structureData,
+                        childTasksComplete: !isParent,
+                        workflowState: 'not_started',
+                        lastActiveState: 'not_started',
+                        deferredUntilDate: null,
+                    })
+                );
+                transactions.push(tx.taskSeries[seriesId].link({ tasks: taskId }));
             }
-
-            // Link to series (idempotent)
-            transactions.push(tx.taskSeries[seriesId].link({ tasks: taskId }));
 
             // --- HIERARCHY LOGIC ---
             // 1. Find the parent
@@ -1519,11 +1522,6 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         // 3. Update Series Metadata
         const now = new Date();
 
-        const seriesUpdate: any = {
-            name: taskSeriesName,
-            description,
-            updatedAt: now,
-        };
         const existingFamilyMemberId = getSingleId(seriesDataRef.current?.familyMember);
         const existingScheduledActivityId = getSingleId(seriesDataRef.current?.scheduledActivity);
         const metadataChanged =
@@ -1537,53 +1535,50 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 String(targetEndDate ? startOfDay(targetEndDate).toISOString() : '') ||
             (seriesDataRef.current?.workAheadAllowed === true) !== workAheadAllowed;
 
-        // Dates: InstantDB expects Date objects for i.date()
-        if (startDate) {
-            seriesUpdate.startDate = startDate;
-        }
-        if (targetEndDate) {
-            seriesUpdate.targetEndDate = targetEndDate;
-        } else {
-            seriesUpdate.targetEndDate = null;
-        }
+        if (!hasPersisted || metadataChanged) {
+            const seriesUpdate: any = {
+                name: taskSeriesName,
+                description,
+                updatedAt: now,
+                targetEndDate: targetEndDate || null,
+                workAheadAllowed,
+            };
 
-        seriesUpdate.workAheadAllowed = workAheadAllowed;
+            // Dates: InstantDB expects Date objects for i.date()
+            if (startDate) {
+                seriesUpdate.startDate = startDate;
+            }
 
-        // If this is a brand new series, ensure createdAt is set
-        if (!seriesData?.createdAt && !hasPersisted) {
-            seriesUpdate.createdAt = now;
+            // If this is a brand new series, ensure createdAt is set
+            if (!seriesData?.createdAt && !hasPersisted) {
+                seriesUpdate.createdAt = now;
+            }
+
+            transactions.push(tx.taskSeries[seriesId].update(seriesUpdate));
         }
-
-        transactions.push(tx.taskSeries[seriesId].update(seriesUpdate));
 
         // Manage links to familyMember and scheduledActivity
-        if (familyMemberId) {
+        if (familyMemberId && existingFamilyMemberId !== familyMemberId) {
             transactions.push(tx.taskSeries[seriesId].link({ familyMember: familyMemberId }));
-        } else if (seriesDataRef.current?.familyMember) {
+        } else if (!familyMemberId && existingFamilyMemberId) {
             // FIX: Safely get the ID to unlink, handling possible array structure
-            const idToUnlink = getSingleId(seriesDataRef.current.familyMember);
-            if (idToUnlink) {
-                transactions.push(tx.taskSeries[seriesId].unlink({ familyMember: idToUnlink }));
-            }
+            transactions.push(tx.taskSeries[seriesId].unlink({ familyMember: existingFamilyMemberId }));
         }
 
         // Manage links to scheduledActivity
-        if (scheduledActivityId) {
+        if (scheduledActivityId && existingScheduledActivityId !== scheduledActivityId) {
             transactions.push(
                 tx.taskSeries[seriesId].link({
                     scheduledActivity: scheduledActivityId,
                 })
             );
-        } else if (seriesDataRef.current?.scheduledActivity) {
+        } else if (!scheduledActivityId && existingScheduledActivityId) {
             // FIX: Safely get the ID to unlink, handling possible array structure
-            const idToUnlink = getSingleId(seriesDataRef.current.scheduledActivity);
-            if (idToUnlink) {
-                transactions.push(
-                    tx.taskSeries[seriesId].unlink({
-                        scheduledActivity: idToUnlink,
-                    })
-                );
-            }
+            transactions.push(
+                tx.taskSeries[seriesId].unlink({
+                    scheduledActivity: existingScheduledActivityId,
+                })
+            );
         }
 
         if (currentUser?.id && (taskStructureChanged || metadataChanged)) {
@@ -1687,6 +1682,11 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                     }
                 }
             }
+        }
+
+        if (transactions.length === 0) {
+            setIsSaving(false);
+            return;
         }
 
         try {

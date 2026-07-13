@@ -403,6 +403,11 @@ describe('TaskSeriesEditor', () => {
                 { op: 'link', entity: 'taskSeries', id: 'series-1', payload: { scheduledActivity: 'chore-2' } },
             ])
         );
+        expect(txs).not.toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ op: 'update', entity: 'tasks', id: 'task-1' }),
+            ])
+        );
     });
 
     it('emits unlink operations when clearing existing assignee/chore links and flushes pending saves on unmount', async () => {
@@ -468,9 +473,87 @@ describe('TaskSeriesEditor', () => {
                         createdAt: expect.any(Date),
                     }),
                 }),
+                expect.objectContaining({
+                    op: 'create',
+                    entity: 'tasks',
+                    id: 'task-empty',
+                    payload: expect.objectContaining({
+                        workflowState: 'not_started',
+                        lastActiveState: 'not_started',
+                        deferredUntilDate: null,
+                        childTasksComplete: true,
+                    }),
+                }),
+                { op: 'link', entity: 'taskSeries', id: 'series-new', payload: { tasks: 'task-empty' } },
                 { op: 'link', entity: 'taskSeries', id: 'series-new', payload: { familyMember: 'fm-2' } },
             ])
         );
+    });
+
+    it('updates only structural fields for existing tasks and leaves live workflow state untouched', async () => {
+        seedExistingSeries({
+            tasks: [
+                {
+                    id: 'task-1',
+                    text: 'Existing task',
+                    order: 0,
+                    indentationLevel: 0,
+                    isDayBreak: false,
+                    workflowState: 'done',
+                    lastActiveState: 'in_progress',
+                    deferredUntilDate: '2026-04-20',
+                    childTasksComplete: true,
+                    parentTask: [],
+                },
+            ],
+        });
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+        editorMocks.editor.getJSON.mockReturnValue({
+            type: 'doc',
+            content: [
+                {
+                    type: 'taskItem',
+                    attrs: { id: 'task-1', indentationLevel: 0, isDayBreak: false },
+                    content: [{ type: 'text', text: 'Renamed task' }],
+                },
+            ],
+        });
+
+        act(() => {
+            editorMocks.useEditorOptions.onUpdate({ editor: editorMocks.editor });
+        });
+        await flushDebouncedSave();
+
+        const txs = editorMocks.dbTransact.mock.calls.at(-1)?.[0] as any[];
+        const taskUpdate = txs.find((transaction) => transaction.op === 'update' && transaction.entity === 'tasks' && transaction.id === 'task-1');
+        expect(taskUpdate.payload).toEqual({
+            text: 'Renamed task',
+            order: 0,
+            indentationLevel: 0,
+            isDayBreak: false,
+            updatedAt: expect.any(Date),
+        });
+        expect(taskUpdate.payload).not.toHaveProperty('workflowState');
+        expect(taskUpdate.payload).not.toHaveProperty('lastActiveState');
+        expect(taskUpdate.payload).not.toHaveProperty('deferredUntilDate');
+        expect(taskUpdate.payload).not.toHaveProperty('childTasksComplete');
+        expect(txs).not.toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ op: 'update', entity: 'taskSeries', id: 'series-1' }),
+            ])
+        );
+    });
+
+    it('does not transact when an editor update contains no structural or metadata changes', async () => {
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+
+        act(() => {
+            editorMocks.useEditorOptions.onUpdate({ editor: editorMocks.editor });
+        });
+        await flushDebouncedSave();
+
+        expect(editorMocks.dbTransact).not.toHaveBeenCalled();
     });
 
     it('flushes a pending save before invoking close', async () => {

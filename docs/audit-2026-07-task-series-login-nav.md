@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: task-series autosave no longer replays stale workflow state (§2.1, Phase 0).** Existing-task autosaves now write only changed structural fields (`text`, `order`, indentation, day-break status, and `updatedAt`); workflow state, deferral state, completion flags, and `childTasksComplete` remain owned by checklist mutations. Unchanged tasks are skipped, new tasks alone receive workflow defaults and a series link, unchanged series metadata is not rewritten, and unchanged owner/activity links are not replayed. A completely no-op editor update now avoids `db.transact` altogether. Verification: 10 focused `TaskSeriesEditor` DOM tests pass, including stale-progress preservation, new-task initialization, metadata-only saves, and no-op saves; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: pulled-forward task series remain visible on off-schedule days (§1.1, Phase 0).** `/tasks` now treats a positive pull-forward on the selected family day as an explicit visibility override when the chore is not scheduled: the chore row, owned-series content, and series-name pill all remain eligible, while `getTasksForDate` still decides whether a real block exists. `isSeriesActiveForDate` recognizes the same today-only override and does not leak attention-state fallbacks onto arbitrary off-schedule dates. Verification: 16 scheduler unit tests and 7 `ChoreList` DOM tests pass, including a Mon/Wed series pulled forward on Tuesday; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: interactive principal switches preserve the app tree and header order (§5.2, Part 6).** `signInFamilyMember` now uses `isSwitchingPrincipal` without entering the bootstrap-only `signing-in` screen, so header, main content, subscriptions, and local state stay mounted. `LoginModal` closes before the auth swap starts, allowing Radix portal/focus cleanup to finish; the obsolete body `pointerEvents` patch was removed. `ThemedHeader` also carries `order-first` as flex-layout insurance. Verification: 8 focused modal/session/header DOM tests prove in-flight tree continuity, close-before-sign-in ordering, and header ordering; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: parent login no longer offers a false PIN bypass (§5.1).** The web modal now always requires a PIN for a parent selection, regardless of a cached parent token; the optional-PIN copy and enabling condition were removed. The token route records a parent elevation failure only for `Incorrect PIN`, not for an empty required field or unrelated token-minting error. The unused web `canUseCachedParentPrincipal` context value was removed (mobile has its own independent provider). Verification: 12 focused login-modal/session-provider/token-route tests and `tsc --noEmit` pass.
@@ -22,7 +23,7 @@
 |---|------|----------|---------|
 | 1 | /tasks | **Completed 2026-07-14** | Pulled-forward rows, owned-series content, and pills remain visible today when the chore is off schedule |
 | 2 | Login | **Completed 2026-07-14** | Parent selection always requires a PIN; empty submissions do not consume elevation backoff |
-| 3 | Editor | **High (Confirmed)** | Every autosave rewrites `workflowState`/`lastActiveState` for *all* tasks, racing against kids completing tasks on other devices |
+| 3 | Editor | **Completed 2026-07-14** | Autosave writes changed structure only; live checklist workflow state is no longer replayed from a stale editor snapshot |
 | 4 | Nav bar | **Completed 2026-07-14** | Interactive sign-in keeps the tree mounted, closes the dialog first, and pins the header first in flex order |
 | 5 | /tasks | **Medium (Confirmed)** | Fully-completed series render forever on every future date (the Done bin keeps the section alive) |
 | 6 | Data | **Medium (Confirmed)** | Deleting tasks/series orphans `taskUpdates`, `taskResponseFields`, `taskAttachments` rows and leaks S3 files |
@@ -91,7 +92,7 @@ In Nepal (UTC+5:45), from midnight to 05:44 local the two disagree: the checklis
 
 ## Part 2 — Task Series Editor (`TaskSeriesEditor.tsx`)
 
-### 2.1 Autosave stomps live workflow state — **High, Confirmed**
+### 2.1 Autosave stomps live workflow state — **Completed 2026-07-14**
 
 Every debounced save writes, for **every** node in the document ([TaskSeriesEditor.tsx:1418-1431](components/task-series/TaskSeriesEditor.tsx:1418)):
 
@@ -109,6 +110,8 @@ Problems:
 3. Every keystroke rewrites every task row (text, order, workflow fields) plus the series row — write amplification and needless realtime churn for every subscribed device.
 
 **Fix:** the editor owns *structure* (text, order, indentation, isDayBreak, parent links). It must never write `workflowState` / `lastActiveState` / `deferredUntilDate` / `isCompleted` for existing tasks, and should set them only on `create` for new tasks. Compute `childTasksComplete` from actual child states (or drop it from the editor save entirely). Also: only push `tx.tasks[...].update` for nodes that actually changed (the code already computes the comparison; use it to skip no-op updates), and skip the series `update` when `metadataChanged` is false so `updatedAt` stops churning the manager's sort order.
+
+**Completed:** existing tasks now receive an update only when their editor-owned structure changes, and that payload contains no workflow, completion, deferral, or child-completion fields. New task creation still initializes those fields once. The editor links only new tasks, updates series metadata only when it changed (or when creating a series), and changes owner/activity links only when their targets differ. If structure, hierarchy, metadata, and links are all unchanged, no transaction is sent. Regression tests prove that a stale persisted `done` snapshot cannot enter an existing-task autosave payload and that metadata-only typing does not rewrite task rows.
 
 ### 2.2 Pasting duplicates task IDs — **Medium, Confirmed**
 
@@ -269,7 +272,7 @@ These are real but were not the cause of the captured incident:
 
 1. ~~**Pull-forward visibility** (1.1): bypass owner-assignment check when `pullForwardCount > 0` on today; extend `isSeriesActiveForDate`.~~ **Completed 2026-07-14**, including the earlier chore-row filter and scheduler/DOM regressions.
 2. ~~**PIN-optional lie** (5.1): remove the affordance and stop counting empty-PIN submits as failures.~~ **Completed 2026-07-14.**
-3. **Editor autosave scope** (2.1): stop writing workflow fields for existing tasks; skip no-op task updates and no-op series updates.
+3. ~~**Editor autosave scope** (2.1): stop writing workflow fields for existing tasks; skip no-op task updates and no-op series updates.~~ **Completed 2026-07-14**, including no-op link and transaction suppression.
 4. **Done-forever sections** (4.1): shared visibility predicate; exclude `done` bucket from keep-alive.
 5. ~~**Device-auth WIP guard** (5.4): IP/localhost guard in `getParentDomain` before this branch ships.~~ **Completed 2026-07-13**, including IPv6, multi-part suffix handling, explicit domain configuration, and access-key-bound cookie values.
 
