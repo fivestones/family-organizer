@@ -3,6 +3,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { enableTimeTravel, disableTimeTravel, getTimeOffset, initTimeMachine } from '@/lib/time-machine';
+import { isTimeMachineEnabled } from '@/lib/time-machine-config';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +16,7 @@ const formatForDateTimeLocal = (date: Date) => {
 };
 
 export default function DebugTimeWidget() {
+    const timeMachineEnabled = isTimeMachineEnabled();
     const [mounted, setMounted] = useState(false);
     const [isActive, setIsActive] = useState(false);
     const [simulatedTime, setSimulatedTime] = useState('');
@@ -22,6 +24,8 @@ export default function DebugTimeWidget() {
     const [stepDays, setStepDays] = useState(1); // Default jump step to 1 day
 
     useEffect(() => {
+        if (!timeMachineEnabled) return;
+
         // 1. Initialize the patch immediately on mount
         initTimeMachine();
         setMounted(true);
@@ -35,13 +39,12 @@ export default function DebugTimeWidget() {
         // 3. Initialize the input with the current effective time (Real or Simulated)
         // Since window.Date is patched in layout.tsx, new Date() returns the correct time context.
         setSimulatedTime(formatForDateTimeLocal(new Date()));
-    }, []);
+    }, [timeMachineEnabled]);
+
+    if (!timeMachineEnabled) return null;
 
     // Don't render anything until client-side hydration is done
     if (!mounted) return null;
-
-    // Optional: Safety check to completely hide in production
-    if (process.env.NODE_ENV === 'production') return null;
 
     const handleSetTime = (e: React.FormEvent) => {
         e.preventDefault();

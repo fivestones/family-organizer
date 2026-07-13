@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-13 — Completed: production time-machine gate (§3).** The pre-hydration `Date` patch and the debug widget now share `isTimeMachineEnabled`: development/test remain enabled, production emits neither unless `NEXT_PUBLIC_ENABLE_TIME_MACHINE=true` is explicitly configured. The widget also skips initialization while disabled. Verification: 8 bootstrap/widget tests cover the production default, explicit opt-in, and existing controls; `tsc --noEmit` passes.
 - **2026-07-13 — Completed: safe service-worker caching (§2).** Runtime caching is now limited to `/_next/static/` and the explicit app-shell assets; `/files/*` and arbitrary same-origin extension matches are never intercepted. Both navigation and static strategies cache only successful, same-origin, non-redirected basic responses. Cache version `family-organizer-v2` flushes previously poisoned entries on activation. Verification: 5 cache-policy tests cover signed-file exclusion, error/redirect/CORS rejection, and the valid static path; `tsc --noEmit` passes.
 - **2026-07-13 — Completed: repository TypeScript baseline restored (§8).** Fixed the web/React-Native ambient `FormData` collision at the avatar-upload route boundary and typed browser idle/animation timers with `window.setTimeout` return values instead of `NodeJS.Timeout`. `npx tsc --noEmit` now passes. The focused `AuthProvider` DOM suite passes all 4 tests under the bundled Node 24 runtime; system Node 25's incomplete experimental `localStorage` emitted an environment-only failure before the same suite ran cleanly on the supported runtime.
 - **2026-07-13 — Completed related device-auth WIP.** The cross-cutting web cookie and server request checks now validate an access-key-derived token, LAN/public-suffix hosts no longer receive invalid `Domain` attributes, and an explicit `DEVICE_AUTH_COOKIE_DOMAIN` option covers sibling-subdomain deployments. All 70 focused auth/file/mobile assertions pass. This closes the uncommitted-state caveat in §7; it does not replace the member-level authorization still required for the file actions in §1.1.
@@ -20,7 +21,7 @@
 |---|------|----------|---------|
 | 1 | Files | **High (Confirmed)** | `deleteS3Objects` server action can wipe the entire bucket with only the device cookie — no member/parent auth |
 | 2 | PWA | **Completed 2026-07-13** | Runtime cache narrowed; failed, redirected, cross-origin, and `/files/*` responses are excluded |
-| 3 | Shell | **Medium (Confirmed)** | The time-machine `Date` patch ships in production — any kid can cheat chores/allowance by setting one localStorage key |
+| 3 | Shell | **Completed 2026-07-13** | Production no longer emits or initializes the time machine without an explicit public env opt-in |
 | 4 | Calendar | **Medium** | 4,600-line component; middleware exempts `/api/calendar-sync/*` from device auth — each route must self-enforce (verify) |
 | 5 | History | **Medium** | Append-only, undeletable, written on every toggle — unbounded growth with no retention plan |
 | 6 | Docs/hygiene | **Low (Confirmed)** | CLAUDE.md documents endpoints that no longer exist; `lib/db.js` + `lib/db.ts` coexist; assorted dead files |
@@ -55,7 +56,7 @@ Two compounding problems in the fetch handler:
 
 The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `window.Date` from `localStorage.debug_time_offset` **unconditionally** — only the *widget* hides in production ([DebugTimeWidget.tsx:44](components/debug/DebugTimeWidget.tsx:44)). Any kid who learns one devtools line (`localStorage.debug_time_offset = '86400000'`) time-travels the whole client: tomorrow's chores become completable today, allowance periods shift, countdown timers warp. Since completions store client-derived `dateDue`/`dateCompleted`, the forgery is durable.
 
-**Fix:** gate the inline script on the same condition as the widget (env flag such as `NEXT_PUBLIC_ENABLE_TIME_MACHINE`, enabled for dev/e2e). E2E setup (`e2e/support/time-machine.ts`) runs against dev servers, so nothing breaks.
+**Completed 2026-07-13:** the inline bootstrap and widget share one `isTimeMachineEnabled` policy. Development and tests stay enabled; production emits neither the script nor widget unless `NEXT_PUBLIC_ENABLE_TIME_MACHINE=true` is deliberately set. Existing E2E helpers continue to run against development servers.
 
 ## 4. Calendar & CalDAV sync
 
@@ -98,7 +99,7 @@ The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `wi
 **Phase 0 — real exposure:**
 1. Auth on file server actions (1.1) — parent-gate `deleteS3Objects`, member-gate the rest.
 2. ~~Service worker: `resp.ok` checks + exclude `/files/` + version bump (§2).~~ **Completed 2026-07-13.**
-3. Gate the production time machine (§3).
+3. ~~Gate the production time machine (§3).~~ **Completed 2026-07-13.**
 4. `pinHash` field rule → self-or-parent (§6).
 
 **Phase 1 — verify-and-close:**

@@ -146,6 +146,7 @@ When mocking InstantDB in jsdom tests, mock `@/lib/db` to avoid booting the real
 | `NEXT_PUBLIC_INSTANT_WEBSOCKET_URI` | Override InstantDB WS URL (local dev) |
 | `DEVICE_ACCESS_KEY` | Shared secret for device activation |
 | `DEVICE_AUTH_COOKIE_DOMAIN` | Optional parent domain for activation-cookie SSO across sibling subdomains |
+| `NEXT_PUBLIC_ENABLE_TIME_MACHINE` | Explicitly enable the debug Date patch in production (normally unset) |
 | `S3_ENDPOINT` / `NEXT_PUBLIC_S3_ENDPOINT` | MinIO/S3 endpoints (internal/public) |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET_NAME` | S3 credentials |
 

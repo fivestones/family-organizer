@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next'; // Added Viewport type
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import DebugTimeWidget from '@/components/debug/DebugTimeWidget';
+import { TimeMachineBootstrap } from '@/components/debug/TimeMachineBootstrap';
 // +++ NEW: Imports for Auth and Navigation +++
 import { AuthProvider } from '@/components/AuthProvider';
 import { InstantFamilySessionProvider } from '@/components/InstantFamilySessionProvider';
@@ -77,43 +78,6 @@ export const metadata: Metadata = {
     },
 };
 
-// Inline script to patch Date before hydration starts
-const timeMachineScript = `
-  (function() {
-    try {
-      var key = 'debug_time_offset';
-      var stored = localStorage.getItem(key);
-      var offset = stored ? parseInt(stored, 10) : 0;
-      
-      if (offset === 0 || isNaN(offset)) return;
-
-      var RealDate = window.Date;
-      window.__RealDate = RealDate; // Backup
-
-      class MockDate extends RealDate {
-        constructor(...args) {
-          if (args.length === 0) {
-            super(RealDate.now() + offset);
-          } else {
-            super(...args);
-          }
-        }
-        static now() {
-          return RealDate.now() + offset;
-        }
-      }
-      
-      // Inherit static methods like parse, UTC
-      // (Class extends handles this automatically in modern JS)
-
-      window.Date = MockDate;
-      console.log('[TimeMachine] ⚡ Early patch applied via inline script. Offset:', offset);
-    } catch(e) {
-      console.error('[TimeMachine] Failed to apply early patch:', e);
-    }
-  })();
-`;
-
 export default function RootLayout({
     children,
 }: Readonly<{
@@ -122,8 +86,7 @@ export default function RootLayout({
     return (
         <html lang="en">
             <head>
-                {/* Inject blocking script here */}
-                <script dangerouslySetInnerHTML={{ __html: timeMachineScript }} />
+                <TimeMachineBootstrap />
             </head>
             {/* Added flex column structure to body to support the sticky header behavior */}
             {/* Added 'overscroll-none' to prevent that bouncy "rubber banding" effect at the top/bottom */}

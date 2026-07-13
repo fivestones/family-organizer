@@ -3,7 +3,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const timeMachineMocks = vi.hoisted(() => ({
     initTimeMachine: vi.fn(),
@@ -30,6 +30,10 @@ function getDateTimeInput(): HTMLInputElement {
 }
 
 describe('DebugTimeWidget', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
     beforeEach(() => {
         timeMachineMocks.initTimeMachine.mockReset();
         timeMachineMocks.getTimeOffset.mockReset();
@@ -96,6 +100,16 @@ describe('DebugTimeWidget', () => {
         const { container } = render(<DebugTimeWidget />);
 
         expect(container).toBeEmptyDOMElement();
+        expect(timeMachineMocks.initTimeMachine).not.toHaveBeenCalled();
+    });
+
+    it('can be explicitly enabled in production', async () => {
+        vi.stubEnv('NODE_ENV', 'production');
+        vi.stubEnv('NEXT_PUBLIC_ENABLE_TIME_MACHINE', 'true');
+
+        render(<DebugTimeWidget />);
+
         expect(timeMachineMocks.initTimeMachine).toHaveBeenCalledTimes(1);
+        expect(await screen.findByRole('button', { name: /open time machine/i })).toBeInTheDocument();
     });
 });
