@@ -24,6 +24,7 @@ interface AuthContextType {
     logout: () => void;
     isAuthenticated: boolean;
     isLoading: boolean;
+    sessionError: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -70,6 +71,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             photoUrls: member.photoUrls,
         };
     }, [currentFamilyMemberId, familyMembers]);
+    const isFamilyQueryPending = Boolean(auth.user) && Boolean(
+        familyQuery?.isLoading || (!familyQuery?.data && !familyQuery?.error)
+    );
+    const sessionError = useMemo(() => {
+        if (!auth.user || auth.isLoading || isFamilyQueryPending) return null;
+        if (familyQuery?.error) {
+            return 'We could not load the family roster for this session. Check the connection and try signing in again.';
+        }
+        if (currentFamilyMemberId && familyQuery?.data && !currentUser) {
+            return 'The family profile for this signed-in session is no longer available. Choose another family member to continue.';
+        }
+        return null;
+    }, [auth.isLoading, auth.user, currentFamilyMemberId, currentUser, familyQuery?.data, familyQuery?.error, isFamilyQueryPending]);
 
     useEffect(() => {
         const storedRemember = localStorage.getItem(REMEMBER_KEY);
@@ -150,10 +164,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
     }, [currentUser, logout, rememberMe]);
 
-    const isLoading = auth.isLoading || (Boolean(auth.user) && familyQuery.isLoading);
+    const isLoading = auth.isLoading || isFamilyQueryPending;
 
     return (
-        <AuthContext.Provider value={{ currentUser, login, logout, isAuthenticated: Boolean(currentUser), isLoading }}>
+        <AuthContext.Provider
+            value={{ currentUser, login, logout, isAuthenticated: Boolean(currentUser), isLoading, sessionError }}
+        >
             {children}
         </AuthContext.Provider>
     );

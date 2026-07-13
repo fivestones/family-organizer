@@ -10,7 +10,7 @@ import { LoginModal } from '@/components/auth/LoginModal';
 
 export function FamilyAppGate({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
-    const { isAuthenticated, isLoading } = useAuth();
+    const { isAuthenticated, isLoading, sessionError } = useAuth();
     const [isLoginOpen, setIsLoginOpen] = useState(false);
 
     const isPublicRoute = pathname === '/activate';
@@ -41,9 +41,11 @@ export function FamilyAppGate({ children }: { children: React.ReactNode }) {
                 <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4 px-4 text-center">
                     <LockKeyhole className="h-16 w-16 text-slate-300" />
                     <div className="space-y-2">
-                        <h1 className="text-2xl font-semibold text-slate-900">Choose a family member to continue</h1>
+                        <h1 className="text-2xl font-semibold text-slate-900">
+                            {sessionError ? 'Family profile unavailable' : 'Choose a family member to continue'}
+                        </h1>
                         <p className="max-w-md text-sm text-slate-500">
-                            This device needs an active family member session before the organizer can load live family data.
+                            {sessionError || 'This device needs an active family member session before the organizer can load live family data.'}
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center justify-center gap-3">

@@ -43,6 +43,7 @@ function Probe() {
             <div data-testid="is-authenticated">{String(auth.isAuthenticated)}</div>
             <div data-testid="is-loading">{String(auth.isLoading)}</div>
             <div data-testid="current-user">{auth.currentUser?.id ?? 'none'}</div>
+            <div data-testid="session-error">{auth.sessionError ?? 'none'}</div>
             <button
                 type="button"
                 onClick={() =>
@@ -230,5 +231,34 @@ describe('AuthProvider', () => {
         expect(screen.getByTestId('is-authenticated')).toHaveTextContent('true');
         expect(screen.getByTestId('current-user')).toHaveTextContent('parent-1');
         expect(window.localStorage.getItem('family_organizer_user_id')).toBeNull();
+    });
+
+    it('keeps an authenticated principal loading until its family roster query resolves', () => {
+        mocks.dbUseQuery.mockReturnValue({ data: undefined, error: undefined, isLoading: false });
+
+        renderAuthProvider();
+
+        expect(screen.getByTestId('is-loading')).toHaveTextContent('true');
+        expect(screen.getByTestId('is-authenticated')).toHaveTextContent('false');
+        expect(screen.getByTestId('session-error')).toHaveTextContent('none');
+    });
+
+    it('explains when the signed-in member was removed from the resolved roster', () => {
+        mocks.dbUseQuery.mockReturnValue({ data: { familyMembers: [] }, error: undefined, isLoading: false });
+
+        renderAuthProvider();
+
+        expect(screen.getByTestId('is-loading')).toHaveTextContent('false');
+        expect(screen.getByTestId('is-authenticated')).toHaveTextContent('false');
+        expect(screen.getByTestId('session-error')).toHaveTextContent(/signed-in session is no longer available/i);
+    });
+
+    it('distinguishes a roster query failure from a missing member', () => {
+        mocks.dbUseQuery.mockReturnValue({ data: undefined, error: new Error('offline'), isLoading: false });
+
+        renderAuthProvider();
+
+        expect(screen.getByTestId('is-loading')).toHaveTextContent('false');
+        expect(screen.getByTestId('session-error')).toHaveTextContent(/could not load the family roster/i);
     });
 });
