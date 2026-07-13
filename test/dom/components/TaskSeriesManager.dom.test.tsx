@@ -71,23 +71,34 @@ vi.mock('@/components/ui/checkbox', () => ({
 
 vi.mock('@/components/ui/alert-dialog', async () => {
     const React = await import('react');
-    const Ctx = React.createContext(false);
+    const Ctx = React.createContext({ open: false, onOpenChange: (_open: boolean) => undefined });
 
     return {
-        AlertDialog: ({ open, children }: any) => <Ctx.Provider value={Boolean(open)}>{children}</Ctx.Provider>,
+        AlertDialog: ({ open, onOpenChange, children }: any) => (
+            <Ctx.Provider value={{ open: Boolean(open), onOpenChange }}>{children}</Ctx.Provider>
+        ),
         AlertDialogContent: ({ children }: any) => {
-            const open = React.useContext(Ctx);
-            return open ? <div>{children}</div> : null;
+            const dialog = React.useContext(Ctx);
+            return dialog.open ? <div>{children}</div> : null;
         },
         AlertDialogHeader: ({ children }: any) => <div>{children}</div>,
         AlertDialogTitle: ({ children }: any) => <h2>{children}</h2>,
         AlertDialogDescription: ({ children }: any) => <div>{children}</div>,
         AlertDialogFooter: ({ children }: any) => <div>{children}</div>,
-        AlertDialogCancel: ({ children, onClick }: any) => (
-            <button type="button" onClick={onClick}>
-                {children}
-            </button>
-        ),
+        AlertDialogCancel: ({ children, onClick }: any) => {
+            const dialog = React.useContext(Ctx);
+            return (
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        onClick?.(event);
+                        dialog.onOpenChange?.(false);
+                    }}
+                >
+                    {children}
+                </button>
+            );
+        },
         AlertDialogAction: ({ children, onClick, ...props }: any) => (
             <button type="button" onClick={onClick} {...props}>
                 {children}
@@ -442,6 +453,25 @@ describe('TaskSeriesManager', () => {
                 description: expect.stringMatching(/3 task series/i),
             })
         );
+    });
+
+    it('closes and resets a cancelled single-series delete prompt', async () => {
+        const user = userEvent.setup();
+        renderManagerWithSeries([
+            makeSeries({ id: 's1', name: 'First Series' }),
+            makeSeries({ id: 's2', name: 'Second Series' }),
+        ]);
+
+        const deleteButtons = screen.getAllByRole('button', { name: /trash2/i });
+        await user.click(deleteButtons[0]);
+        expect(screen.getByText(/permanently delete "first series"/i)).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /cancel/i }));
+        expect(screen.queryByRole('heading', { name: /are you sure/i })).not.toBeInTheDocument();
+        expect(taskSeriesManagerMocks.dbTransact).not.toHaveBeenCalled();
+
+        await user.click(deleteButtons[1]);
+        expect(screen.getByText(/permanently delete "second series"/i)).toBeInTheDocument();
     });
 
     it('duplicates a series with reset task completion and navigates to the new copy', async () => {

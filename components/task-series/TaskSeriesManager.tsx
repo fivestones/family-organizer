@@ -786,7 +786,13 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
             )}
 
             {/* Delete Confirmation Dialog */}
-            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+            <AlertDialog
+                open={isDeleteDialogOpen}
+                onOpenChange={(open) => {
+                    setIsDeleteDialogOpen(open);
+                    if (!open) setSeriesToDelete(null);
+                }}
+            >
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Are you sure?</AlertDialogTitle>
