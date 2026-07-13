@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: cyclic task-series dependencies no longer crash the manager (§1.5, Phase 2).** Status evaluation now tracks its active dependency stack, marks every series in a detected cycle, and treats only those cycle edges as non-blocking while normal dependencies retain their existing pending behavior. Both members of a two-series cycle resolve deterministically to their independent schedule/progress status instead of overflowing the stack. Verification: all 6 `TaskSeriesManager` DOM tests pass, including the cycle regression; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: historical Done tasks no longer keep task series visible forever (§4.1, Phase 0).** `ChoreList` and `TaskSeriesChecklist` now share `hasVisibleTaskSeriesContent`: scheduled tasks keep the series visible (including a Done task that the scheduler returned for its completion date), as do blocked/skipped/review items, but unrelated historical Done rows do not. This aligns row and checklist visibility and removes the empty “No active tasks” shells from future dates. Verification: 36 focused task-progress, `ChoreList`, and checklist tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: task-series autosave no longer replays stale workflow state (§2.1, Phase 0).** Existing-task autosaves now write only changed structural fields (`text`, `order`, indentation, day-break status, and `updatedAt`); workflow state, deferral state, completion flags, and `childTasksComplete` remain owned by checklist mutations. Unchanged tasks are skipped, new tasks alone receive workflow defaults and a series link, unchanged series metadata is not rewritten, and unchanged owner/activity links are not replayed. A completely no-op editor update now avoids `db.transact` altogether. Verification: 10 focused `TaskSeriesEditor` DOM tests pass, including stale-progress preservation, new-task initialization, metadata-only saves, and no-op saves; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: pulled-forward task series remain visible on off-schedule days (§1.1, Phase 0).** `/tasks` now treats a positive pull-forward on the selected family day as an explicit visibility override when the chore is not scheduled: the chore row, owned-series content, and series-name pill all remain eligible, while `getTasksForDate` still decides whether a real block exists. `isSeriesActiveForDate` recognizes the same today-only override and does not leak attention-state fallbacks onto arbitrary off-schedule dates. Verification: 16 scheduler unit tests and 7 `ChoreList` DOM tests pass, including a Mon/Wed series pulled forward on Tuesday; `tsc --noEmit` passes.
@@ -79,11 +80,13 @@ In Nepal (UTC+5:45), from midnight to 05:44 local the two disagree: the checklis
 
 **Fix:** one `getTodayKey()` in `shared-core` (local-midnight semantics, built on `getNow()` so the time machine keeps working), used by scheduler, bins, checklist (`selectedDateKey`), and MyTaskSeriesOverview.
 
-### 1.5 Dependency status can recurse forever
+### 1.5 Dependency status can recurse forever — **Completed 2026-07-14**
 
 `TaskSeriesManager.computeStatus` ([TaskSeriesManager.tsx:161-208](components/task-series/TaskSeriesManager.tsx:161)) caches only *after* recursing into `dependsOnSeriesId`. A cycle (A depends on B, B on A) is a stack overflow that takes down the page. There is currently no UI that writes `dependsOnSeriesId` (the field is schema-only), which is itself a gap — the feature is half-shipped.
 
 **Fix:** track an in-progress set (`visiting`) and treat cycles as non-blocking; decide whether to build the dependency UI or remove the field.
+
+**Completed:** `computeStatus` now maintains both an in-progress set and ordered dependency stack. Encountering an active ID marks the full cycle segment; while the recursion unwinds, each member ignores its cyclic dependency edge and computes status from its own schedule and progress. Dependencies outside the cycle still block normally, and cached results remain stable regardless of which cycle member appears first in the list. The schema field remains for existing data, but creating a dependency-editing UI is still an explicit product decision rather than part of this crash fix.
 
 ### 1.6 Misleading name
 
@@ -289,7 +292,7 @@ These are real but were not the cause of the captured incident:
 8. Schema cascades for task-owned children + push (2.3); decide S3 cleanup policy (endpoint call vs. sweep script).
 9. Unique-ID enforcement plugin in the editor (2.2).
 10. Faithful series duplication (Part 3 #2).
-11. Cycle guard in `computeStatus` (1.5).
+11. ~~Cycle guard in `computeStatus` (1.5).~~ **Completed 2026-07-14** with deterministic non-blocking cycle edges.
 
 ### Phase 3 — engine consolidation
 

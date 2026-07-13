@@ -157,10 +157,23 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
 
         // --- Second pass: compute status with dependency awareness ---
         const statusCache = new Map<string, Status>();
+        const visiting = new Set<string>();
+        const dependencyStack: string[] = [];
+        const cyclicSeriesIds = new Set<string>();
 
         const computeStatus = (seriesId: string): Status => {
             if (statusCache.has(seriesId)) {
                 return statusCache.get(seriesId)!;
+            }
+
+            if (visiting.has(seriesId)) {
+                const cycleStart = dependencyStack.indexOf(seriesId);
+                const cycleIds = cycleStart >= 0 ? dependencyStack.slice(cycleStart) : [seriesId];
+                cycleIds.forEach((id) => cyclicSeriesIds.add(id));
+                // This sentinel makes the recursive edge non-blocking. Every
+                // member of the detected cycle is ignored below as the stack
+                // unwinds, so status does not depend on traversal order.
+                return 'archived';
             }
 
             const info = baseMap.get(seriesId);
@@ -168,6 +181,9 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                 statusCache.set(seriesId, 'draft');
                 return 'draft';
             }
+
+            visiting.add(seriesId);
+            dependencyStack.push(seriesId);
 
             const { hasAssignee, hasScheduledActivity, totalTasks, completedTasks, effectiveStartDate, lastScheduledDate, dependsOnSeriesId } = info;
 
@@ -182,7 +198,7 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                 let dependencyBlocking = false;
                 if (dependsOnSeriesId) {
                     const depStatus = computeStatus(dependsOnSeriesId);
-                    dependencyBlocking = depStatus !== 'archived';
+                    dependencyBlocking = !cyclicSeriesIds.has(seriesId) && depStatus !== 'archived';
                 }
 
                 if (allCompleted) {
@@ -203,6 +219,8 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                 }
             }
 
+            dependencyStack.pop();
+            visiting.delete(seriesId);
             statusCache.set(seriesId, status);
             return status;
         };

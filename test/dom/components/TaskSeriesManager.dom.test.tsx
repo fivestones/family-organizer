@@ -248,6 +248,30 @@ describe('TaskSeriesManager', () => {
         expect(screen.queryByText('Draft Series')).not.toBeInTheDocument();
     });
 
+    it('treats cyclic series dependencies as non-blocking without recursing forever', () => {
+        renderManagerWithSeries([
+            makeSeries({
+                id: 'cycle-a',
+                name: 'Cycle A',
+                dependsOnSeriesId: 'cycle-b',
+                familyMember: { id: 'kid-a', name: 'Alex' },
+                scheduledActivity: { id: 'chore-a', title: 'A', startDate: '2000-04-01T00:00:00Z' },
+                tasks: [{ id: 'task-a', isDayBreak: false, isCompleted: false }],
+            }),
+            makeSeries({
+                id: 'cycle-b',
+                name: 'Cycle B',
+                dependsOnSeriesId: 'cycle-a',
+                familyMember: { id: 'kid-b', name: 'Blair' },
+                scheduledActivity: { id: 'chore-b', title: 'B', startDate: '2000-04-01T00:00:00Z' },
+                tasks: [{ id: 'task-b', isDayBreak: false, isCompleted: false }],
+            }),
+        ]);
+
+        expect(screen.getByRole('heading', { name: 'Cycle A' }).parentElement).toHaveTextContent('In Progress');
+        expect(screen.getByRole('heading', { name: 'Cycle B' }).parentElement).toHaveTextContent('In Progress');
+    });
+
     it('queries without server-side ordering and sorts by updated date client-side', () => {
         renderManagerWithSeries([
             makeSeries({ id: 'older', name: 'Older Series', updatedAt: '2026-04-01T00:00:00Z' }),
