@@ -42,7 +42,7 @@ async function fetchFamilyMemberRoster() {
 export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     const { login } = useAuth();
     const { toast } = useToast();
-    const { canUseCachedParentPrincipal, isParentSessionSharedDevice, signInFamilyMember } = useInstantPrincipal();
+    const { isParentSessionSharedDevice, signInFamilyMember } = useInstantPrincipal();
     const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
     const [pin, setPin] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
@@ -105,8 +105,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         [familyMembers, selectedMemberId]
     );
     const isParentSelection = selectedMemberData?.role === 'parent';
-    const parentPinCanBeSkipped = Boolean(isParentSelection && canUseCachedParentPrincipal);
-    const loginButtonDisabled = isVerifying || (Boolean(selectedMemberData?.hasPin || isParentSelection) && !pin && !parentPinCanBeSkipped);
+    const loginButtonDisabled = isVerifying || (Boolean(selectedMemberData?.hasPin || isParentSelection) && !pin);
 
     const handleMemberSelect = (id: string) => {
         setSelectedMemberId(id);
@@ -124,7 +123,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
         setIsVerifying(true);
         try {
-            if (member.role === 'parent' && !parentPinCanBeSkipped && typeof navigator !== 'undefined' && navigator.onLine === false) {
+            if (member.role === 'parent' && typeof navigator !== 'undefined' && navigator.onLine === false) {
                 toast({
                     title: 'Internet required for parent mode',
                     description: 'Parent sign-in needs a server check. Try again when this device is back online.',
@@ -170,9 +169,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                     <DialogTitle>{selectedMemberId ? `Welcome, ${selectedMemberData?.name}` : 'Who are you?'}</DialogTitle>
                     <DialogDescription>
                         {selectedMemberId
-                            ? parentPinCanBeSkipped
-                                ? 'Parent mode is already unlocked on this device.'
-                                : 'Enter your PIN to continue.'
+                            ? 'Enter your PIN to continue.'
                             : 'Select your profile to log in.'}
                     </DialogDescription>
                 </DialogHeader>
@@ -235,7 +232,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                                             type="password"
                                             inputMode="numeric"
                                             autoFocus
-                                            placeholder={parentPinCanBeSkipped ? 'PIN optional on this device' : 'Enter PIN'}
+                                            placeholder="Enter PIN"
                                             value={pin}
                                             onChange={(event) => setPin(event.target.value)}
                                             disabled={isVerifying}

@@ -33,7 +33,6 @@ type SignInFamilyMemberParams = {
 type InstantPrincipalContextValue = {
     principalType: InstantPrincipalType;
     isSwitchingPrincipal: boolean;
-    canUseCachedParentPrincipal: boolean;
     isParentSessionSharedDevice: boolean;
     parentSharedDeviceIdleTimeoutMs: number;
     ensureKidPrincipal: (opts?: { clearParentSession?: boolean }) => Promise<void>;
@@ -257,7 +256,6 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
         () => ({
             principalType,
             isSwitchingPrincipal,
-            canUseCachedParentPrincipal: principalType === 'parent' && parentUnlocked && Boolean(getCachedMemberToken()),
             isParentSessionSharedDevice,
             parentSharedDeviceIdleTimeoutMs,
             ensureKidPrincipal,

@@ -102,11 +102,11 @@ export async function POST(request: NextRequest) {
             { headers: { 'Cache-Control': 'no-store' } }
         );
     } catch (error) {
-        if (rateLimitKey) {
+        const message = error instanceof Error ? error.message : 'Failed to create Instant auth token';
+        if (rateLimitKey && message === 'Incorrect PIN') {
             recordParentElevationFailure(rateLimitKey);
         }
 
-        const message = error instanceof Error ? error.message : 'Failed to create Instant auth token';
         const status =
             message === 'Family member not found' ? 404 : message === 'Incorrect PIN' ? 403 : message === 'PIN is required' ? 400 : 500;
         return NextResponse.json({ error: message }, { status, headers: { 'Cache-Control': 'no-store' } });

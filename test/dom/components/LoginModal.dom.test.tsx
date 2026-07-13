@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
     signInFamilyMember: vi.fn(),
     toast: vi.fn(),
     instantPrincipalState: {
-        canUseCachedParentPrincipal: false,
         isParentSessionSharedDevice: true,
     },
 }));
@@ -24,7 +23,6 @@ vi.mock('@/components/AuthProvider', () => ({
 vi.mock('@/components/InstantFamilySessionProvider', () => ({
     useInstantPrincipal: () => ({
         signInFamilyMember: mocks.signInFamilyMember,
-        canUseCachedParentPrincipal: mocks.instantPrincipalState.canUseCachedParentPrincipal,
         isParentSessionSharedDevice: mocks.instantPrincipalState.isParentSessionSharedDevice,
     }),
 }));
@@ -76,11 +74,9 @@ async function flushRoster(members: FamilyMember[]) {
 
 function renderLoginModal(options?: {
     members?: FamilyMember[];
-    canUseCachedParentPrincipal?: boolean;
     isParentSessionSharedDevice?: boolean;
 }) {
     const members = options?.members ?? [];
-    mocks.instantPrincipalState.canUseCachedParentPrincipal = options?.canUseCachedParentPrincipal ?? false;
     mocks.instantPrincipalState.isParentSessionSharedDevice = options?.isParentSessionSharedDevice ?? true;
 
     const onClose = vi.fn();
@@ -101,7 +97,6 @@ describe('LoginModal', () => {
         mocks.signInFamilyMember.mockReset();
         mocks.toast.mockReset();
         mocks.signInFamilyMember.mockResolvedValue(undefined);
-        mocks.instantPrincipalState.canUseCachedParentPrincipal = false;
         mocks.instantPrincipalState.isParentSessionSharedDevice = true;
         setNavigatorOnline(true);
         document.body.style.pointerEvents = '';
@@ -150,9 +145,7 @@ describe('LoginModal', () => {
     it('shows an offline error instead of attempting parent sign-in when a fresh parent PIN check is required', async () => {
         setNavigatorOnline(false);
         await flushRoster([{ id: 'p1', name: 'Pat', role: 'parent', hasPin: true }]);
-        renderLoginModal({
-            canUseCachedParentPrincipal: false,
-        });
+        renderLoginModal();
         const user = userEvent.setup();
 
         await waitFor(() => expect(screen.getByRole('button', { name: /pat/i })).toBeInTheDocument());
@@ -169,21 +162,21 @@ describe('LoginModal', () => {
         );
     });
 
-    it('allows parent login without PIN when cached parent principal can be reused', async () => {
+    it('always requires a parent PIN instead of advertising an unusable cached shortcut', async () => {
         await flushRoster([{ id: 'p1', name: 'Pat', role: 'parent', hasPin: true }]);
-        const { onClose } = renderLoginModal({
-            canUseCachedParentPrincipal: true,
-        });
+        const { onClose } = renderLoginModal();
         const user = userEvent.setup();
 
         await waitFor(() => expect(screen.getByRole('button', { name: /pat/i })).toBeInTheDocument());
         await user.click(screen.getByRole('button', { name: /pat/i }));
-        expect(screen.getByPlaceholderText('PIN optional on this device')).toBeInTheDocument();
+        expect(screen.queryByPlaceholderText('PIN optional on this device')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
+        await user.type(screen.getByPlaceholderText('Enter PIN'), '2468');
         await user.click(screen.getByRole('button', { name: /continue/i }));
 
         expect(mocks.signInFamilyMember).toHaveBeenCalledWith({
             familyMemberId: 'p1',
-            pin: '',
+            pin: '2468',
             sharedDevice: true,
         });
         expect(mocks.authLogin).toHaveBeenCalledWith(

@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: parent login no longer offers a false PIN bypass (§5.1).** The web modal now always requires a PIN for a parent selection, regardless of a cached parent token; the optional-PIN copy and enabling condition were removed. The token route records a parent elevation failure only for `Incorrect PIN`, not for an empty required field or unrelated token-minting error. The unused web `canUseCachedParentPrincipal` context value was removed (mobile has its own independent provider). Verification: 12 focused login-modal/session-provider/token-route tests and `tsc --noEmit` pass.
 - **2026-07-14 — Completed: shared principals discard stale member identity.** Minting a shared kid or parent token now rewrites `$users.familyMemberId` to the explicit empty-string sentinel instead of preserving whichever member ID may have been attached by an older session. Instant permission CEL can compare that sentinel safely, while member-scoped tokens continue to carry a real family-member ID. This prevents a shared-device principal from silently inheriting a previously selected member's write identity. Verification: the focused `instant-admin` unit test and `tsc --noEmit` pass.
 - **2026-07-13 — Completed: device-auth cookie hardening and domain guard (§5.4).** Device cookies now carry a SHA-256 token derived from the configured `DEVICE_ACCESS_KEY` instead of the forgeable literal `true`; rotating the access key therefore invalidates old cookies. Cookie-domain inference now leaves localhost, LAN IPv4/IPv6 hosts, root domains, and common multi-part public suffix roots host-only. Deployments that need sibling-subdomain SSO can set `DEVICE_AUTH_COOKIE_DOMAIN` explicitly. Existing devices must activate once after the cookie migration from `family_device_auth` to `activation_token`. Verification: 70 focused unit/integration assertions pass across middleware, activation, server actions, calendar auth, and mobile/file routes; `tsc --noEmit` reaches only three unrelated pre-existing errors recorded for follow-up.
 
@@ -18,7 +19,7 @@
 | # | Area | Severity | Finding |
 |---|------|----------|---------|
 | 1 | /tasks | **High (Confirmed)** | Pulled-forward tasks are invisible on days the chore isn't scheduled — the exact "work ahead on a free day" use case |
-| 2 | Login | **High (Confirmed)** | "PIN optional on this device" is false — submitting without a PIN always fails server-side and burns parent rate-limit budget |
+| 2 | Login | **Completed 2026-07-14** | Parent selection always requires a PIN; empty submissions do not consume elevation backoff |
 | 3 | Editor | **High (Confirmed)** | Every autosave rewrites `workflowState`/`lastActiveState` for *all* tasks, racing against kids completing tasks on other devices |
 | 4 | Nav bar | **High (Confirmed — DOM captured)** | The sign-in full-tree remount re-inserts `<header>` *after* `<main>` in the body — the nav is literally last in document flow. Fix the remount (5.2) + one-line CSS hardening |
 | 5 | /tasks | **Medium (Confirmed)** | Fully-completed series render forever on every future date (the Done bin keeps the section alive) |
@@ -183,7 +184,7 @@ Active rows render `<Checkbox checked={false}>` ([TaskSeriesChecklist.tsx:651-65
 
 ## Part 5 — Login / auth
 
-### 5.1 "PIN optional on this device" is a lie — **High, Confirmed**
+### 5.1 "PIN optional on this device" is a lie — **Completed 2026-07-14**
 
 - `LoginModal` shows "Parent mode is already unlocked on this device / PIN optional" and enables Continue with an empty PIN when `canUseCachedParentPrincipal` is true ([LoginModal.tsx:108-109](components/auth/LoginModal.tsx:108), [LoginModal.tsx:238](components/auth/LoginModal.tsx:238)).
 - But `signInFamilyMember` *always* requests a fresh token with the typed PIN ([InstantFamilySessionProvider.tsx:118-150](components/InstantFamilySessionProvider.tsx:118)) — the cached token is never reused for an explicit login.
@@ -195,6 +196,8 @@ a. Honest UI: drop `canUseCachedParentPrincipal` from the modal; always require 
 b. Real skip: when the current Instant session is already this parent (`auth.user.familyMemberId === member.id && principalType === 'parent'`), skip the token fetch entirely and just run the local `login()` bookkeeping. No server change needed; do *not* count it as an elevation.
 
 Also stop counting "PIN is required" (empty submissions) as brute-force failures server-side — only count wrong PINs.
+
+**Completed with option (a):** the modal no longer reads or displays cached-parent reuse state. Parent Continue stays disabled until a PIN is entered, and offline parent selection always explains that server verification is required. The token route now increments backoff only when credential verification returns `Incorrect PIN`; `PIN is required` returns 400 without changing rate-limit state.
 
 ### 5.2 Every login unmounts the whole app — **High, Confirmed (upgraded)**
 
@@ -259,7 +262,7 @@ These are real but were not the cause of the captured incident:
 ### Phase 0 — quick correctness wins (small diffs, high value)
 
 1. **Pull-forward visibility** (1.1): bypass owner-assignment check when `pullForwardCount > 0` on today; extend `isSeriesActiveForDate`. *Tests:* unit for scheduler + dom test for ChoreList.
-2. **PIN-optional lie** (5.1): implement option (b) same-principal skip, or remove the affordance; stop counting empty-PIN submits as failures.
+2. ~~**PIN-optional lie** (5.1): remove the affordance and stop counting empty-PIN submits as failures.~~ **Completed 2026-07-14.**
 3. **Editor autosave scope** (2.1): stop writing workflow fields for existing tasks; skip no-op task updates and no-op series updates.
 4. **Done-forever sections** (4.1): shared visibility predicate; exclude `done` bucket from keep-alive.
 5. ~~**Device-auth WIP guard** (5.4): IP/localhost guard in `getParentDomain` before this branch ships.~~ **Completed 2026-07-13**, including IPv6, multi-part suffix handling, explicit domain configuration, and access-key-bound cookie values.
