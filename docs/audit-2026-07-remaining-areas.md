@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-13 — Completed: repository TypeScript baseline restored (§8).** Fixed the web/React-Native ambient `FormData` collision at the avatar-upload route boundary and typed browser idle/animation timers with `window.setTimeout` return values instead of `NodeJS.Timeout`. `npx tsc --noEmit` now passes. The focused `AuthProvider` DOM suite passes all 4 tests under the bundled Node 24 runtime; system Node 25's incomplete experimental `localStorage` emitted an environment-only failure before the same suite ran cleanly on the supported runtime.
 - **2026-07-13 — Completed related device-auth WIP.** The cross-cutting web cookie and server request checks now validate an access-key-derived token, LAN/public-suffix hosts no longer receive invalid `Domain` attributes, and an explicit `DEVICE_AUTH_COOKIE_DOMAIN` option covers sibling-subdomain deployments. All 70 focused auth/file/mobile assertions pass. This closes the uncommitted-state caveat in §7; it does not replace the member-level authorization still required for the file actions in §1.1.
 
 ---

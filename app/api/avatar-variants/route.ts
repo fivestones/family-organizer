@@ -84,7 +84,10 @@ export async function POST(request: NextRequest) {
 
     let formData: FormData;
     try {
-        formData = await request.formData();
+        // Next runs with the web FormData implementation. The React Native
+        // workspace contributes a narrower ambient FormData type to tsc, so
+        // bridge that type-only collision at the web route boundary.
+        formData = await request.formData() as unknown as FormData;
     } catch {
         return NextResponse.json({ error: 'Invalid multipart body' }, { status: 400 });
     }

@@ -167,7 +167,7 @@ const LightningStorm = ({ coords, onComplete }: { coords: { top: number; left: n
         // Schedule Animation Sequence
         // Randomize 1 to 3 bolts
         const boltCount = Math.floor(Math.random() * 3) + 1;
-        const timeouts: NodeJS.Timeout[] = [];
+        const timeouts: Array<ReturnType<typeof window.setTimeout>> = [];
 
         // Timing Constants
         const FADE_IN_DURATION = 300; // Matches CSS duration-300

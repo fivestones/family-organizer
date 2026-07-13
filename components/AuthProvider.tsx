@@ -126,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (!currentUser || rememberMe) return;
 
-        let timeoutId: NodeJS.Timeout;
+        let timeoutId: ReturnType<typeof window.setTimeout>;
 
         const resetTimer = () => {
             clearTimeout(timeoutId);
