@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -270,6 +270,30 @@ describe('TaskSeriesManager', () => {
 
         expect(screen.getByRole('heading', { name: 'Cycle A' }).parentElement).toHaveTextContent('In Progress');
         expect(screen.getByRole('heading', { name: 'Cycle B' }).parentElement).toHaveTextContent('In Progress');
+    });
+
+    it('refreshes date-based status after local midnight without a reload', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 3, 10, 23, 59, 30));
+
+        renderManagerWithSeries([
+            makeSeries({
+                id: 'midnight-series',
+                name: 'Starts Tomorrow',
+                startDate: '2026-04-11T00:00:00Z',
+                familyMember: { id: 'kid-a', name: 'Alex' },
+                scheduledActivity: { id: 'chore-a', title: 'A', startDate: '2000-04-01T00:00:00Z' },
+                tasks: [{ id: 'task-a', isDayBreak: false, isCompleted: false }],
+            }),
+        ]);
+
+        expect(screen.getByRole('heading', { name: 'Starts Tomorrow' }).parentElement).toHaveTextContent('Pending');
+
+        act(() => {
+            vi.advanceTimersByTime(60_000);
+        });
+
+        expect(screen.getByRole('heading', { name: 'Starts Tomorrow' }).parentElement).toHaveTextContent('In Progress');
     });
 
     it('queries without server-side ordering and sorts by updated date client-side', () => {

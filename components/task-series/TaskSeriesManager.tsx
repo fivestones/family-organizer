@@ -1,7 +1,7 @@
 // components/task-series/TaskSeriesManager.tsx
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { RRule } from 'rrule';
@@ -88,7 +88,22 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
             return bTime - aTime;
         });
     }, [data?.taskSeries]);
-    const todayKey = useMemo(() => getTodayKey(), []);
+    const [todayKey, setTodayKey] = useState(() => getTodayKey());
+    useEffect(() => {
+        const refreshToday = () => {
+            const nextKey = getTodayKey();
+            setTodayKey((currentKey) => (currentKey === nextKey ? currentKey : nextKey));
+        };
+        const intervalId = window.setInterval(refreshToday, 60_000);
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') refreshToday();
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            window.clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, []);
     const today = useMemo(() => new Date(`${todayKey}T00:00:00Z`), [todayKey]);
 
     const enrichedSeries = useMemo(() => {
