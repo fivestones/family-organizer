@@ -8,7 +8,7 @@ import { advanceTimeByAsync, freezeTime } from '@/test/utils/fake-clock';
 const mocks = vi.hoisted(() => ({
     dbUseQuery: vi.fn(),
     dbUseAuth: vi.fn(),
-    ensureKidPrincipal: vi.fn(),
+    signOutPrincipal: vi.fn(),
     authState: {
         isLoading: false,
         user: null as any,
@@ -28,7 +28,7 @@ vi.mock('@/lib/db', () => ({
 
 vi.mock('@/components/InstantFamilySessionProvider', () => ({
     useInstantPrincipal: () => ({
-        ensureKidPrincipal: mocks.ensureKidPrincipal,
+        signOutPrincipal: mocks.signOutPrincipal,
         principalType: mocks.instantPrincipalState.principalType,
     }),
 }));
@@ -109,7 +109,7 @@ describe('AuthProvider', () => {
         freezeTime(new Date('2026-02-26T12:00:00Z'));
         mocks.dbUseQuery.mockReset();
         mocks.dbUseAuth.mockReset();
-        mocks.ensureKidPrincipal.mockReset();
+        mocks.signOutPrincipal.mockReset();
         mocks.instantPrincipalState.principalType = 'kid';
         mocks.authState.isLoading = false;
         mocks.authState.user = {
@@ -125,7 +125,7 @@ describe('AuthProvider', () => {
             user: mocks.authState.user,
             error: mocks.authState.error,
         }));
-        mocks.ensureKidPrincipal.mockImplementation(async () => {
+        mocks.signOutPrincipal.mockImplementation(async () => {
             mocks.authState.user = null;
         });
         mocks.dbUseQuery.mockReturnValue({
@@ -162,7 +162,7 @@ describe('AuthProvider', () => {
         expect(screen.getByTestId('is-authenticated')).toHaveTextContent('false');
         expect(window.localStorage.getItem('family_organizer_user_id')).toBeNull();
         expect(window.localStorage.getItem('family_organizer_remember_me')).toBeNull();
-        expect(mocks.ensureKidPrincipal).toHaveBeenCalledWith({ clearParentSession: true });
+        expect(mocks.signOutPrincipal).toHaveBeenCalledWith();
     });
 
     it('auto-logs out after idle timeout when remember-me is disabled', async () => {
@@ -182,7 +182,7 @@ describe('AuthProvider', () => {
         );
 
         expect(screen.getByTestId('is-authenticated')).toHaveTextContent('false');
-        expect(mocks.ensureKidPrincipal).toHaveBeenCalledWith({ clearParentSession: true });
+        expect(mocks.signOutPrincipal).toHaveBeenCalledWith();
     });
 
     it('does not auto-logout when remember-me is enabled', async () => {

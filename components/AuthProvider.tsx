@@ -34,7 +34,7 @@ export const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 const REMEMBER_KEY = 'family_organizer_remember_me';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const { ensureKidPrincipal, principalType } = useInstantPrincipal();
+    const { signOutPrincipal, principalType } = useInstantPrincipal();
     const auth = db.useAuth();
     const [rememberMe, setRememberMe] = useState(false);
 
@@ -122,10 +122,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(FAMILY_MEMBER_STORAGE_KEY);
         localStorage.removeItem(REMEMBER_KEY);
         setRememberMe(false);
-        void ensureKidPrincipal({ clearParentSession: true }).catch((error) => {
+        void signOutPrincipal().catch((error) => {
             console.error('Failed to clear member auth session', error);
         });
-    }, [ensureKidPrincipal]);
+    }, [signOutPrincipal]);
 
     useEffect(() => {
         if (!currentUser) return;

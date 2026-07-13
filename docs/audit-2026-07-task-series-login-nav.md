@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: shared-parent timeout truly demotes to the previous kid (§5.3, Phase 5).** The web session provider preserves the most recent authenticated kid token while that device session remains active. A 15-minute shared-parent expiry switches Instant back to that exact kid identity; a missing or expired fallback token safely performs a full sign-out. Explicit logout is now a separately named `signOutPrincipal` operation and clears the fallback, so it can never re-authenticate a child. The written policy is now: non-remembered sessions fully log out after 60 minutes, remembered sessions skip that blanket timer, shared-parent elevation always drops after 15 minutes to the previous kid when possible, and token expiry remains the server-side ceiling. Verification: 19 focused session/provider/login/timeout DOM tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: authenticated roster failures now have an explicit state (§5.4).** `AuthProvider` keeps an authenticated principal in loading state until its family-roster query has data or an error, eliminating the transient false-logout path. Once resolved, it distinguishes a query failure from a signed-in member whose row was deleted and exposes a specific session explanation. `FamilyAppGate` renders that explanation under “Family profile unavailable” with a direct login action instead of silently falling back to the generic logged-out prompt. Verification: 13 focused provider/app-gate/parent-gate DOM tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: PIN storage is salted and kid PIN attempts are rate-limited (§5.4, Phase 5).** New and edited PINs now use a versioned scrypt hash with a random 128-bit salt instead of offline-crackable raw SHA-256. Verification accepts existing SHA-256 rows only as a migration path and rewrites them to scrypt immediately after the first successful login. Unused web/mobile client SHA helpers were removed, keeping hashing server-only. The member-token endpoint now applies the existing exponential backoff to any PIN-protected member, including kids, while preserving no-PIN kid sign-in. Verification: 24 focused hash, migration, action-auth, and token-route tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: removed the fake persisted parent-unlocked state (§5.4).** A signed-in parent Instant principal is now the single authorization boundary; the provider no longer stores or restores a separate boolean that was unconditionally forced true. Shared-device expiry gates directly on an authenticated parent principal plus shared-device mode, so stale local UI state cannot disable the 15-minute timeout. Verification: focused provider, timeout-hook, and storage DOM tests pass; `tsc --noEmit` passes.
@@ -251,15 +252,15 @@ Also stop counting "PIN is required" (empty submissions) as brute-force failures
 
 **Completed:** interactive `signInFamilyMember` calls no longer set the provider's bootstrap `signing-in` status. The context's `isSwitchingPrincipal` flag still reports progress without replacing children, and the modal is closed immediately before the switch begins. A deferred-token DOM regression holds the request open and proves the existing child tree remains rendered with no “Connecting to family data...” screen.
 
-### 5.3 Idle-logout layering is confusing — **Medium**
+### 5.3 Idle-logout layering is confusing — **Completed 2026-07-14**
 
 Three timers/flows sign people out in different ways:
 
 1. `AuthProvider` logs out any non-remembered user after 60 min idle ([AuthProvider.tsx:31](components/AuthProvider.tsx:31), [AuthProvider.tsx:126-151](components/AuthProvider.tsx:126)) — full Instant sign-out.
-2. Parent shared-device mode demotes after 15 min idle (`useParentSharedDeviceTimeout`) — but `ensureKidPrincipal` doesn't demote to a kid at all: it **signs out completely** ([InstantFamilySessionProvider.tsx:79-85](components/InstantFamilySessionProvider.tsx:79)), so the kitchen tablet lands on the lock screen, not a kid view.
+2. Parent shared-device mode demotes after 15 min idle (`useParentSharedDeviceTimeout`). It now preserves and restores the exact most recently authenticated kid token; a missing or rejected token safely falls back to full sign-out.
 3. Parent tokens themselves expire server-side.
 
-Net effect: the family sees "the app keeps logging me out" with different timings depending on who/where. Recommend one written policy, e.g.: kids never idle out on trusted devices (remember-me default ON in the modal), parent elevation always drops to the *previous kid selection* (true demotion — keep a kid token cached and `signInWithToken` back to it), and the 60-min blanket logout applies only when no remember-me. Also rename `ensureKidPrincipal` to what it does today (`signOutPrincipal`) until real demotion exists.
+**Completed policy:** the existing Remember me choice is the explicit boundary for the blanket timer: non-remembered member sessions fully log out after 60 minutes and remembered sessions do not. Shared-device parent access is a shorter elevation layered on top: after 15 minutes it restores the previous kid identity without returning to the lock screen. If there is no valid kid fallback, it signs out safely. Server token expiry remains the hard authentication ceiling. The misleading `ensureKidPrincipal` API was replaced with `signOutPrincipal`; true demotion is a separate internal operation and explicit logout clears the fallback token.
 
 ### 5.4 Smaller auth findings
 
@@ -337,7 +338,7 @@ These are real but were not the cause of the captured incident:
 ### Phase 5 — UX & hardening polish
 
 17. In-place completion feedback + Done-bin deferral (4.2).
-18. One idle/lock policy; true kid demotion; rename `ensureKidPrincipal` (5.3).
+18. ~~One idle/lock policy; true kid demotion; rename `ensureKidPrincipal` (5.3).~~ **Completed 2026-07-14** with previous-kid token restoration, safe full-sign-out fallback, explicit logout semantics, and a documented 60-minute/15-minute policy.
 19. ~~HMAC/scrypt PINs + kid rate limiting (5.4).~~ **Completed 2026-07-14** with salted scrypt, successful-login migration of legacy SHA-256 rows, server-only hashing, and shared member backoff.
 20. ~~Sanitize response-field HTML (4.4).~~ **Completed 2026-07-14** through the shared DOMPurify renderer used by checklist and review/update surfaces.
 21. ~~Delete `useInstantPrincipalSwitching.ts`; resolve `/my-tasks` (link it or remove it).~~ **Completed 2026-07-14:** dead hook removed and the existing member overview linked as “My Tasks.”

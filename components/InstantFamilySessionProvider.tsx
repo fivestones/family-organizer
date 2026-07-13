@@ -5,15 +5,18 @@ import { db } from '@/lib/db';
 import {
     clearCachedMemberId,
     clearCachedMemberToken,
+    clearCachedToken,
     clearParentLastActivityAt,
     clearParentSharedDeviceMode,
     DEFAULT_PARENT_SHARED_DEVICE,
     getCachedMemberToken,
+    getCachedToken,
     getParentSharedDeviceIdleTimeoutMs,
     getParentSharedDeviceMode,
     isBrowser,
     setCachedMemberId,
     setCachedMemberToken,
+    setCachedToken,
     setParentLastActivityAt,
     setParentSharedDeviceMode,
 } from '@/lib/instant-principal-storage';
@@ -33,7 +36,7 @@ type InstantPrincipalContextValue = {
     isSwitchingPrincipal: boolean;
     isParentSessionSharedDevice: boolean;
     parentSharedDeviceIdleTimeoutMs: number;
-    ensureKidPrincipal: (opts?: { clearParentSession?: boolean }) => Promise<void>;
+    signOutPrincipal: () => Promise<void>;
     elevateParentPrincipal: (params: ElevateParentParams) => Promise<void>;
     signInFamilyMember: (params: SignInFamilyMemberParams) => Promise<void>;
 };
@@ -103,6 +106,9 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
             }
             if (typeof nextUser.refresh_token === 'string' && nextUser.refresh_token) {
                 setCachedMemberToken(nextUser.refresh_token);
+                if (nextPrincipalType === 'kid') {
+                    setCachedToken('kid', nextUser.refresh_token);
+                }
             }
 
         },
@@ -125,6 +131,7 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
             if (nextPrincipalType === 'parent') {
                 setParentLastActivityAt(Date.now());
             } else {
+                setCachedToken('kid', payload.token);
                 clearParentLastActivityAt();
             }
 
@@ -138,25 +145,48 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
         }
     }, []);
 
-    const ensureKidPrincipal = useCallback(async (opts?: { clearParentSession?: boolean }) => {
-        if (!opts?.clearParentSession && (user as any)?.type === 'kid') {
-            setPrincipalType('kid');
+    const signOutPrincipal = useCallback(async () => {
+        setIsSwitchingPrincipal(true);
+        try {
+            clearCachedToken('kid');
+            await clearCurrentSession();
+            setPrincipalType('unknown');
+            setStatus('ready');
+            clearParentSharedDeviceMode();
+            setIsParentSessionSharedDevice(DEFAULT_PARENT_SHARED_DEVICE);
+        } finally {
+            setIsSwitchingPrincipal(false);
+        }
+    }, []);
+
+    const demoteToPreviousKidPrincipal = useCallback(async () => {
+        const kidToken = getCachedToken('kid');
+        if (!kidToken) {
+            await signOutPrincipal();
             return;
         }
 
         setIsSwitchingPrincipal(true);
         try {
+            await db.auth.signInWithToken(kidToken);
+            setCachedMemberToken(kidToken);
+            setPrincipalType('kid');
+            setStatus('ready');
+            clearParentLastActivityAt();
+            clearParentSharedDeviceMode();
+            setIsParentSessionSharedDevice(DEFAULT_PARENT_SHARED_DEVICE);
+        } catch (demotionError) {
+            console.warn('Cached kid session failed during parent-mode expiry; signing out.', demotionError);
+            clearCachedToken('kid');
             await clearCurrentSession();
             setPrincipalType('unknown');
             setStatus('ready');
-            if (opts?.clearParentSession) {
-                clearParentSharedDeviceMode();
-                setIsParentSessionSharedDevice(DEFAULT_PARENT_SHARED_DEVICE);
-            }
+            clearParentSharedDeviceMode();
+            setIsParentSessionSharedDevice(DEFAULT_PARENT_SHARED_DEVICE);
         } finally {
             setIsSwitchingPrincipal(false);
         }
-    }, [user]);
+    }, [signOutPrincipal]);
 
     const elevateParentPrincipal = useCallback(async (params: ElevateParentParams) => {
         await signInFamilyMember({
@@ -222,10 +252,10 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
     }, [isLoading, syncPrincipalFromUser, user]);
 
     const expireParentSharedDeviceMode = useCallback(() => {
-        void ensureKidPrincipal({ clearParentSession: true }).catch((timeoutError) => {
+        void demoteToPreviousKidPrincipal().catch((timeoutError) => {
             console.error('Failed to expire parent shared-device mode', timeoutError);
         });
-    }, [ensureKidPrincipal]);
+    }, [demoteToPreviousKidPrincipal]);
 
     useParentSharedDeviceTimeout({
         principalType,
@@ -240,17 +270,17 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
             isSwitchingPrincipal,
             isParentSessionSharedDevice,
             parentSharedDeviceIdleTimeoutMs,
-            ensureKidPrincipal,
+            signOutPrincipal,
             elevateParentPrincipal,
             signInFamilyMember,
         }),
         [
             elevateParentPrincipal,
-            ensureKidPrincipal,
             isParentSessionSharedDevice,
             isSwitchingPrincipal,
             parentSharedDeviceIdleTimeoutMs,
             principalType,
+            signOutPrincipal,
             signInFamilyMember,
         ]
     );
