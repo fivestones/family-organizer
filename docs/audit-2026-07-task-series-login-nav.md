@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: task-series duplication preserves hierarchy and task-owned definitions (Part 3 #2, Phase 2).** Duplicate now preallocates an old→new task ID map, creates reset task rows with weights and correct parent/leaf completion defaults, then restores parent links in a second pass. Response-field definitions are recreated with fresh IDs, and task attachments receive fresh metadata rows linked to the copied task while sharing the immutable stored-object URL. The copy still intentionally starts unassigned, unscheduled, dependency-free, and with all workflow progress reset. Verification: all 6 `TaskSeriesManager` DOM tests pass with hierarchy/weight/field/attachment assertions; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: cyclic task-series dependencies no longer crash the manager (§1.5, Phase 2).** Status evaluation now tracks its active dependency stack, marks every series in a detected cycle, and treats only those cycle edges as non-blocking while normal dependencies retain their existing pending behavior. Both members of a two-series cycle resolve deterministically to their independent schedule/progress status instead of overflowing the stack. Verification: all 6 `TaskSeriesManager` DOM tests pass, including the cycle regression; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: historical Done tasks no longer keep task series visible forever (§4.1, Phase 0).** `ChoreList` and `TaskSeriesChecklist` now share `hasVisibleTaskSeriesContent`: scheduled tasks keep the series visible (including a Done task that the scheduler returned for its completion date), as do blocked/skipped/review items, but unrelated historical Done rows do not. This aligns row and checklist visibility and removes the empty “No active tasks” shells from future dates. Verification: 36 focused task-progress, `ChoreList`, and checklist tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: task-series autosave no longer replays stale workflow state (§2.1, Phase 0).** Existing-task autosaves now write only changed structural fields (`text`, `order`, indentation, day-break status, and `updatedAt`); workflow state, deferral state, completion flags, and `childTasksComplete` remain owned by checklist mutations. Unchanged tasks are skipped, new tasks alone receive workflow defaults and a series link, unchanged series metadata is not rewritten, and unchanged owner/activity links are not replayed. A completely no-op editor update now avoids `db.transact` altogether. Verification: 10 focused `TaskSeriesEditor` DOM tests pass, including stale-progress preservation, new-task initialization, metadata-only saves, and no-op saves; `tsc --noEmit` passes.
@@ -30,7 +31,7 @@
 | 5 | /tasks | **Completed 2026-07-14** | Done-only history no longer keeps a row alive; same-day completions remain available in the Done bin |
 | 6 | Data | **Medium (Confirmed)** | Deleting tasks/series orphans `taskUpdates`, `taskResponseFields`, `taskAttachments` rows and leaks S3 files |
 | 7 | Editor | **Medium (Confirmed)** | Copy-paste inside the bulk editor duplicates task IDs → silent data loss on save |
-| 8 | Manager | **Medium (Confirmed)** | "Duplicate" flattens hierarchy and drops response fields, weights, attachments |
+| 8 | Manager | **Completed 2026-07-14** | Duplicate preserves hierarchy, weights, response fields, and attachment metadata while resetting workflow progress |
 | 9 | Login | **Completed 2026-07-14** | The blocking screen is bootstrap-only; interactive switches preserve app state and subscriptions |
 | 10 | Perf | **Medium** | Unbounded queries fetch the entire task/update/completion history on list pages |
 | 11 | Device auth | **Completed 2026-07-13** | Access-key-bound cookie shipped; invalid LAN/public-suffix domain inference fixed |
@@ -158,7 +159,7 @@ When unconfirmed data-tasks disappear from the doc through a path the guard didn
 ## Part 3 — Manager list (`/task-series`)
 
 1. **Over-fetch:** the list query ([TaskSeriesManager.tsx:62-77](components/task-series/TaskSeriesManager.tsx:62)) pulls the complete update/reply/attachment/response tree for every task of every series just to render progress bars and a grade chip. This page will get slower every month of use. Fetch tasks with only the fields needed for counting (`isDayBreak`, `order`, `workflowState`, `isCompleted`, `parentTask`), and compute grades from a narrower projection.
-2. **Duplicate is lossy** ([TaskSeriesManager.tsx:452-482](components/task-series/TaskSeriesManager.tsx:452)): copies `indentationLevel` but not `parentTask` links, `responseFields`, `weight`, or task attachments. Until the copy is opened and re-saved in the editor (which rebuilds links from indentation), every task counts as actionable — progress percentages and header rendering are wrong; response fields are permanently lost. Fix: two-pass duplicate (create all tasks, then link parents by mapping old→new IDs; recreate response fields).
+2. **Duplicate is lossy — Completed 2026-07-14.** The old path copied `indentationLevel` but not `parentTask` links, `responseFields`, `weight`, or task attachments. Duplicate now preallocates every copied task ID, creates reset task definitions, then restores parent links from the old→new map. It recreates response fields and attachment metadata with fresh IDs; attachment rows intentionally reuse the immutable object URL so files are not uploaded again. Assignee, scheduled activity, dependency, and progress remain intentionally reset for the new copy.
 3. **`today` frozen at mount** ([TaskSeriesManager.tsx:88](components/task-series/TaskSeriesManager.tsx:88)) — status/drift go stale on a long-lived tab; refresh on a minute interval or on visibilitychange.
 4. `handleCatchUp` has no error handling ([TaskSeriesManager.tsx:375-403](components/task-series/TaskSeriesManager.tsx:375)) — a failed transact is an unhandled rejection with no toast.
 5. Cancelling the delete dialog leaves `seriesToDelete` populated (harmless today, but clear it in `onOpenChange(false)`).
@@ -291,7 +292,7 @@ These are real but were not the cause of the captured incident:
 
 8. Schema cascades for task-owned children + push (2.3); decide S3 cleanup policy (endpoint call vs. sweep script).
 9. Unique-ID enforcement plugin in the editor (2.2).
-10. Faithful series duplication (Part 3 #2).
+10. ~~Faithful series duplication (Part 3 #2).~~ **Completed 2026-07-14** for hierarchy, weights, response fields, and attachment metadata.
 11. ~~Cycle guard in `computeStatus` (1.5).~~ **Completed 2026-07-14** with deterministic non-blocking cycle edges.
 
 ### Phase 3 — engine consolidation

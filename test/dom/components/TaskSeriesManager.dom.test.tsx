@@ -282,6 +282,8 @@ describe('TaskSeriesManager', () => {
         expect(taskSeriesManagerMocks.dbUseQuery).toHaveBeenCalledWith({
             taskSeries: {
                 tasks: {
+                    parentTask: {},
+                    attachments: {},
                     responseFields: {},
                     updates: {
                         actor: {},
@@ -378,7 +380,7 @@ describe('TaskSeriesManager', () => {
 
     it('duplicates a series with reset task completion and navigates to the new copy', async () => {
         const user = userEvent.setup();
-        taskSeriesManagerMocks.nextIdValues = ['series-copy', 'task-copy-1', 'task-copy-2'];
+        taskSeriesManagerMocks.nextIdValues = ['series-copy', 'task-copy-1', 'task-copy-2', 'field-copy-1', 'attachment-copy-1'];
 
         const { db } = renderManagerWithSeries([
             makeSeries({
@@ -398,7 +400,29 @@ describe('TaskSeriesManager', () => {
                         isCompleted: true,
                         completedAt: '2026-04-09T07:00:00Z',
                         notes: '2 minutes',
+                        weight: 3,
                         indentationLevel: 0,
+                        parentTask: [],
+                        responseFields: [
+                            {
+                                id: 'field-a',
+                                type: 'rich_text',
+                                label: 'Explain your work',
+                                description: 'A short reflection',
+                                weight: 2,
+                                required: true,
+                                order: 0,
+                            },
+                        ],
+                        attachments: [
+                            {
+                                id: 'attachment-a',
+                                name: 'instructions.pdf',
+                                type: 'application/pdf',
+                                url: 'tasks/instructions.pdf',
+                                sizeBytes: 1234,
+                            },
+                        ],
                     },
                     {
                         id: 'task-b',
@@ -407,6 +431,7 @@ describe('TaskSeriesManager', () => {
                         isDayBreak: false,
                         isCompleted: false,
                         indentationLevel: 1,
+                        parentTask: [{ id: 'task-a' }],
                     },
                 ],
             }),
@@ -441,6 +466,8 @@ describe('TaskSeriesManager', () => {
                         isCompleted: false,
                         completedAt: null,
                         indentationLevel: 0,
+                        weight: 3,
+                        childTasksComplete: false,
                     }),
                 }),
                 expect.objectContaining({
@@ -453,10 +480,37 @@ describe('TaskSeriesManager', () => {
                         isCompleted: false,
                         completedAt: null,
                         indentationLevel: 1,
+                        childTasksComplete: true,
                     }),
                 }),
                 { op: 'link', entity: 'taskSeries', id: 'series-copy', payload: { tasks: 'task-copy-1' } },
                 { op: 'link', entity: 'taskSeries', id: 'series-copy', payload: { tasks: 'task-copy-2' } },
+                { op: 'link', entity: 'tasks', id: 'task-copy-2', payload: { parentTask: 'task-copy-1' } },
+                expect.objectContaining({
+                    op: 'update',
+                    entity: 'taskResponseFields',
+                    id: 'field-copy-1',
+                    payload: expect.objectContaining({
+                        type: 'rich_text',
+                        label: 'Explain your work',
+                        description: 'A short reflection',
+                        weight: 2,
+                        required: true,
+                    }),
+                }),
+                { op: 'link', entity: 'taskResponseFields', id: 'field-copy-1', payload: { task: 'task-copy-1' } },
+                expect.objectContaining({
+                    op: 'update',
+                    entity: 'taskAttachments',
+                    id: 'attachment-copy-1',
+                    payload: expect.objectContaining({
+                        name: 'instructions.pdf',
+                        type: 'application/pdf',
+                        url: 'tasks/instructions.pdf',
+                        sizeBytes: 1234,
+                    }),
+                }),
+                { op: 'link', entity: 'tasks', id: 'task-copy-1', payload: { attachments: 'attachment-copy-1' } },
             ])
         );
 

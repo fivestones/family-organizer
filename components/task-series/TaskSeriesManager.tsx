@@ -62,6 +62,8 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
     const { data, isLoading, error } = db.useQuery({
         taskSeries: {
             tasks: {
+                parentTask: {},
+                attachments: {},
                 responseFields: {},
                 updates: {
                     actor: {},
@@ -468,9 +470,18 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
 
             // Duplicate tasks (reset completion, keep structure)
             const originalTasks = (s.tasks || []).slice().sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+            const taskIdMap = new Map<string, string>(originalTasks.map((task: any) => [task.id, id()]));
+            const parentTaskIds = new Set(
+                originalTasks
+                    .map((task: any) => {
+                        const parent = Array.isArray(task.parentTask) ? task.parentTask[0] : task.parentTask;
+                        return parent?.id as string | undefined;
+                    })
+                    .filter(Boolean) as string[]
+            );
 
             for (const t of originalTasks) {
-                const newTaskId = id();
+                const newTaskId = taskIdMap.get(t.id)!;
 
                 const taskData: any = {
                     text: t.text,
@@ -479,6 +490,8 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
                     overrideWorkAhead: t.overrideWorkAhead ?? undefined,
                     notes: t.notes ?? undefined,
                     specificTime: t.specificTime ?? undefined,
+                    weight: t.weight ?? undefined,
+                    childTasksComplete: !parentTaskIds.has(t.id),
                     // Reset completion
                     isCompleted: false,
                     completedAt: null,
@@ -497,6 +510,60 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
 
                 transactions.push(tx.tasks[newTaskId].update(taskData));
                 transactions.push(tx.taskSeries[newSeriesId].link({ tasks: newTaskId }));
+            }
+
+            // Restore hierarchy only after every new task ID is known.
+            for (const t of originalTasks) {
+                const newTaskId = taskIdMap.get(t.id)!;
+                const parent = Array.isArray(t.parentTask) ? t.parentTask[0] : t.parentTask;
+                const newParentId = parent?.id ? taskIdMap.get(parent.id) : null;
+                if (newParentId) {
+                    transactions.push(tx.tasks[newTaskId].link({ parentTask: newParentId }));
+                }
+
+                for (const field of t.responseFields || []) {
+                    const newFieldId = id();
+                    const nowMs = now.getTime();
+                    transactions.push(
+                        tx.taskResponseFields[newFieldId].update({
+                            type: field.type,
+                            label: field.label,
+                            description: field.description ?? null,
+                            weight: field.weight ?? 0,
+                            required: field.required === true,
+                            order: field.order ?? 0,
+                            createdAt: nowMs,
+                            updatedAt: nowMs,
+                        })
+                    );
+                    transactions.push(tx.taskResponseFields[newFieldId].link({ task: newTaskId }));
+                }
+
+                // Attachment metadata gets a new row linked to the copied task;
+                // the immutable stored object URL is intentionally shared.
+                for (const attachment of t.attachments || []) {
+                    const newAttachmentId = id();
+                    transactions.push(
+                        tx.taskAttachments[newAttachmentId].update({
+                            blurhash: attachment.blurhash ?? null,
+                            createdAt: now,
+                            durationSec: attachment.durationSec ?? null,
+                            height: attachment.height ?? null,
+                            kind: attachment.kind ?? null,
+                            name: attachment.name,
+                            sizeBytes: attachment.sizeBytes ?? null,
+                            thumbnailHeight: attachment.thumbnailHeight ?? null,
+                            thumbnailUrl: attachment.thumbnailUrl ?? null,
+                            thumbnailWidth: attachment.thumbnailWidth ?? null,
+                            type: attachment.type,
+                            updatedAt: now,
+                            url: attachment.url,
+                            waveformPeaks: attachment.waveformPeaks ?? null,
+                            width: attachment.width ?? null,
+                        })
+                    );
+                    transactions.push(tx.tasks[newTaskId].link({ attachments: newAttachmentId }));
+                }
             }
 
             await db.transact(transactions);
