@@ -153,6 +153,8 @@ function ChoreList({
     const localToday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     const isToday = isSameDay(safeSelectedDate, localToday);
     const isPastDate = safeSelectedDate.getTime() < localToday.getTime();
+    const formattedSelectedDate = selectedDateKey || safeSelectedDate.toISOString().slice(0, 10);
+    const selectedDateIsToday = todayDateKey ? formattedSelectedDate === todayDateKey : isToday;
 
     const shouldShowChore = (chore) => {
         try {
@@ -163,8 +165,21 @@ function ChoreList({
         }
     };
 
+    const isSeriesPulledForwardToday = (chore: any, series: any) =>
+        pageMode === 'tasks' &&
+        selectedDateIsToday &&
+        (series?.pullForwardCount || 0) > 0 &&
+        !shouldShowChore(chore);
+
     const filteredChores = chores.filter((chore) => {
-        if (!shouldShowChore(chore)) return false;
+        const occursOnSelectedDate = shouldShowChore(chore);
+        if (!occursOnSelectedDate) {
+            return (chore.taskSeries || []).some((series: any) => {
+                if (!isSeriesPulledForwardToday(chore, series)) return false;
+                const rawOwner = series.familyMember?.[0] || series.familyMember;
+                return selectedMember === 'All' || rawOwner?.id === selectedMember;
+            });
+        }
 
         // Get the assigned members for the chore on the selected date
         const assignedMembers = getAssignedMembersForChoreOnDate(chore, safeSelectedDate);
@@ -178,7 +193,6 @@ function ChoreList({
         }
     });
 
-    const formattedSelectedDate = selectedDateKey || safeSelectedDate.toISOString().slice(0, 10); // Use safeSelectedDate
     const markerStatusesByKey = React.useMemo(() => {
         const map = new Map<string, any>();
         (routineMarkerStatuses || []).forEach((status: any) => {
@@ -885,7 +899,7 @@ function ChoreList({
                                     // (e.g. Rotation has moved to someone else)
                                     if (selectedMember === 'All' && ownerId) {
                                         const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
-                                        if (!isOwnerAssignedToday) return null;
+                                        if (!isOwnerAssignedToday && !isSeriesPulledForwardToday(chore, series)) return null;
                                     }
 
                                     // 3. Time Activity Check
@@ -941,7 +955,7 @@ function ChoreList({
 
                                 if (ownerId) {
                                     const isOwnerAssignedToday = assignedMembers.some((m) => m.id === ownerId);
-                                    if (!isOwnerAssignedToday) return null;
+                                    if (!isOwnerAssignedToday && !isSeriesPulledForwardToday(chore, series)) return null;
                                 }
 
                                 if (selectedMember !== 'All' && ownerId && ownerId !== selectedMember) {

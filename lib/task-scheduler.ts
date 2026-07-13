@@ -234,19 +234,33 @@ export function isSeriesActiveForDate(
         exdates: exdates || [],
     };
 
-    // 1. Basic Schedule Check
+    // 1. Basic Schedule Check. A pull-forward deliberately makes the current
+    // queue block visible today even when today is not a scheduled occurrence.
+    // Future off-schedule dates still remain hidden.
+    let isScheduled = true;
     if (!rruleString && toUTCDate(new Date(choreStartDateString)).getTime() !== utcViewDate.getTime()) {
-        return false;
+        isScheduled = false;
     }
     if (rruleString) {
-        const isScheduled = choreOccursOnDate(schedule, utcViewDate);
-        if (!isScheduled) return false;
+        isScheduled = choreOccursOnDate(schedule, utcViewDate);
+    }
+
+    const isPulledForwardToday =
+        !isScheduled &&
+        (pullForwardCount || 0) > 0 &&
+        utcViewDate.getTime() === toLocalMidnight(new Date()).getTime();
+    if (!isScheduled && !isPulledForwardToday) {
+        return false;
     }
 
     const visibleTasks = getTasksForDate(allTasks, rruleString, choreStartDateString, viewDate, seriesStartDateString, exdates, pullForwardCount);
     if (visibleTasks.length > 0) {
         return true;
     }
+
+    // Attention-state fallbacks only apply to real schedule occurrences. On an
+    // off-schedule pull-forward day, an exhausted block should hide the series.
+    if (!isScheduled) return false;
 
     return allTasks.some((task) => isActionableTask(task, allTasks) && ['blocked', 'skipped', 'needs_review'].includes(getTaskWorkflowState(task)));
 }

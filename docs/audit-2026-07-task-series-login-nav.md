@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: pulled-forward task series remain visible on off-schedule days (§1.1, Phase 0).** `/tasks` now treats a positive pull-forward on the selected family day as an explicit visibility override when the chore is not scheduled: the chore row, owned-series content, and series-name pill all remain eligible, while `getTasksForDate` still decides whether a real block exists. `isSeriesActiveForDate` recognizes the same today-only override and does not leak attention-state fallbacks onto arbitrary off-schedule dates. Verification: 16 scheduler unit tests and 7 `ChoreList` DOM tests pass, including a Mon/Wed series pulled forward on Tuesday; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: interactive principal switches preserve the app tree and header order (§5.2, Part 6).** `signInFamilyMember` now uses `isSwitchingPrincipal` without entering the bootstrap-only `signing-in` screen, so header, main content, subscriptions, and local state stay mounted. `LoginModal` closes before the auth swap starts, allowing Radix portal/focus cleanup to finish; the obsolete body `pointerEvents` patch was removed. `ThemedHeader` also carries `order-first` as flex-layout insurance. Verification: 8 focused modal/session/header DOM tests prove in-flight tree continuity, close-before-sign-in ordering, and header ordering; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: parent login no longer offers a false PIN bypass (§5.1).** The web modal now always requires a PIN for a parent selection, regardless of a cached parent token; the optional-PIN copy and enabling condition were removed. The token route records a parent elevation failure only for `Incorrect PIN`, not for an empty required field or unrelated token-minting error. The unused web `canUseCachedParentPrincipal` context value was removed (mobile has its own independent provider). Verification: 12 focused login-modal/session-provider/token-route tests and `tsc --noEmit` pass.
 - **2026-07-14 — Completed: shared principals discard stale member identity.** Minting a shared kid or parent token now rewrites `$users.familyMemberId` to the explicit empty-string sentinel instead of preserving whichever member ID may have been attached by an older session. Instant permission CEL can compare that sentinel safely, while member-scoped tokens continue to carry a real family-member ID. This prevents a shared-device principal from silently inheriting a previously selected member's write identity. Verification: the focused `instant-admin` unit test and `tsc --noEmit` pass.
@@ -19,7 +20,7 @@
 
 | # | Area | Severity | Finding |
 |---|------|----------|---------|
-| 1 | /tasks | **High (Confirmed)** | Pulled-forward tasks are invisible on days the chore isn't scheduled — the exact "work ahead on a free day" use case |
+| 1 | /tasks | **Completed 2026-07-14** | Pulled-forward rows, owned-series content, and pills remain visible today when the chore is off schedule |
 | 2 | Login | **Completed 2026-07-14** | Parent selection always requires a PIN; empty submissions do not consume elevation backoff |
 | 3 | Editor | **High (Confirmed)** | Every autosave rewrites `workflowState`/`lastActiveState` for *all* tasks, racing against kids completing tasks on other devices |
 | 4 | Nav bar | **Completed 2026-07-14** | Interactive sign-in keeps the tree mounted, closes the dialog first, and pins the header first in flex order |
@@ -37,7 +38,7 @@ Details, evidence, and the fix plan follow.
 
 ## Part 1 — Task series engine (`lib/`)
 
-### 1.1 Pulled-forward work is invisible on off-schedule days — **High, Confirmed**
+### 1.1 Pulled-forward work is invisible on off-schedule days — **Completed 2026-07-14**
 
 The whole point of `pullForwardCount` is doing tomorrow's block on a day the chore isn't scheduled. The scheduler supports this: on the anchor date (today), [task-scheduler.ts:160](lib/task-scheduler.ts:160) returns `normalizedBlocks[blockOffset]` regardless of whether today is a scheduled occurrence. `ChoresTracker` also explicitly includes chores with an active pull-forward in [ChoresTracker.tsx:1194](components/ChoresTracker.tsx:1194).
 
@@ -50,6 +51,8 @@ But `ChoreList.renderTaskSeries` then kills it:
 The "Pulled forward" banner at [ChoreList.tsx:1079](components/ChoreList.tsx:1079) was written for exactly this scenario and is unreachable for any owned series. `isSeriesActiveForDate` ([task-scheduler.ts:241](lib/task-scheduler.ts:241)) has the same blind spot — it returns false on unscheduled dates without considering pull-forward, so the series name pill hides too.
 
 **Fix:** in `renderTaskSeries` (and the pill logic), when `series.pullForwardCount > 0` and the selected date is today, bypass the `isOwnerAssignedToday` check (owner assignment is meaningless on an unscheduled day) and let `getTasksForDate` decide. Add a unit test: chore scheduled Mon/Wed, today Tue, pullForwardCount 1 → block visible Tue.
+
+**Completed:** `ChoreList` now recognizes a today-only, off-schedule pull-forward before its chore-level assignment filter and applies the same exception to the owned-series body and name pill. The exception remains scoped to `/tasks`, the selected family-day key, and a positive `pullForwardCount`; selected-member ownership is still enforced. `isSeriesActiveForDate` now permits that same current-day exception only when `getTasksForDate` returns a visible block, so exhausted pull-forwards and future off-schedule dates stay hidden. Regression coverage proves the scheduler and full rendered-row path for a Mon/Wed series viewed on Tuesday.
 
 ### 1.2 Block-splitting logic is internally inconsistent — **Medium**
 
@@ -264,7 +267,7 @@ These are real but were not the cause of the captured incident:
 
 ### Phase 0 — quick correctness wins (small diffs, high value)
 
-1. **Pull-forward visibility** (1.1): bypass owner-assignment check when `pullForwardCount > 0` on today; extend `isSeriesActiveForDate`. *Tests:* unit for scheduler + dom test for ChoreList.
+1. ~~**Pull-forward visibility** (1.1): bypass owner-assignment check when `pullForwardCount > 0` on today; extend `isSeriesActiveForDate`.~~ **Completed 2026-07-14**, including the earlier chore-row filter and scheduler/DOM regressions.
 2. ~~**PIN-optional lie** (5.1): remove the affordance and stop counting empty-PIN submits as failures.~~ **Completed 2026-07-14.**
 3. **Editor autosave scope** (2.1): stop writing workflow fields for existing tasks; skip no-op task updates and no-op series updates.
 4. **Done-forever sections** (4.1): shared visibility predicate; exclude `done` bucket from keep-alive.

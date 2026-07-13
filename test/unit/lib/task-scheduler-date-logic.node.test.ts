@@ -370,6 +370,38 @@ describe('task-scheduler date logic', () => {
         expect(pulled2.map((t) => t.id)).toEqual(['c']);
     });
 
+    it('keeps a pulled-forward block active today when today is off schedule', () => {
+        freezeTime(new Date(2026, 2, 10, 12, 0, 0)); // Tuesday
+        const tasks: Task[] = [
+            makeTask({ id: 'a', text: 'Monday block', order: 1 }),
+            makeTask({ id: 'break', text: 'Break', order: 2, isDayBreak: true }),
+            makeTask({ id: 'b', text: 'Wednesday block', order: 3 }),
+        ];
+
+        const visible = getTasksForDate(
+            tasks,
+            'FREQ=WEEKLY;BYDAY=MO,WE',
+            '2026-03-02',
+            new Date(2026, 2, 10, 12, 0, 0),
+            null,
+            null,
+            1
+        );
+
+        expect(visible.map((task) => task.id)).toEqual(['b']);
+        expect(
+            isSeriesActiveForDate(
+                tasks,
+                'FREQ=WEEKLY;BYDAY=MO,WE',
+                '2026-03-02',
+                new Date(2026, 2, 10, 12, 0, 0),
+                null,
+                null,
+                1
+            )
+        ).toBe(true);
+    });
+
     it('shifts blocks forward on future dates too', () => {
         const tasks: Task[] = [
             makeTask({ id: 'a', text: 'Block A', order: 1 }),

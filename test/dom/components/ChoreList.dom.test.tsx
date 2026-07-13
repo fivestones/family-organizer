@@ -324,4 +324,38 @@ describe('ChoreList', () => {
             '/tasks?date=2026-04-02&member=All&choreId=chore-1#chore-chore-1'
         );
     });
+
+    it('renders an owned pulled-forward series today when the chore is off schedule', () => {
+        choreListMocks.getTasksForDate.mockReturnValue([
+            { id: 'task-2', text: 'Work ahead', order: 2, isDayBreak: false, isCompleted: false },
+        ]);
+        choreListMocks.isSeriesActiveForDate.mockReturnValue(true);
+
+        renderChoreList({
+            pageMode: 'tasks',
+            selectedDateKey: '2026-04-02',
+            todayDateKey: '2026-04-02',
+            chores: [
+                makeChore({
+                    title: 'Off-day curriculum',
+                    rrule: 'FREQ=WEEKLY;BYDAY=MO,WE',
+                    assignees: [],
+                    taskSeries: [
+                        {
+                            id: 'series-pulled',
+                            name: 'Pulled curriculum',
+                            pullForwardCount: 1,
+                            familyMember: [{ id: 'kid-a', name: 'Alex' }],
+                            tasks: [{ id: 'task-2', text: 'Work ahead', order: 2, isDayBreak: false, isCompleted: false }],
+                        },
+                    ],
+                }),
+            ],
+        });
+
+        expect(screen.getAllByText('Off-day curriculum').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Pulled curriculum').length).toBeGreaterThan(0);
+        expect(screen.getByText('Pulled forward')).toBeInTheDocument();
+        expect(screen.getByTestId('task-series-checklist')).toBeInTheDocument();
+    });
 });
