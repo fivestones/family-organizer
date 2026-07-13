@@ -957,6 +957,7 @@ const rules = {
             isKid: "'kid' in auth.ref('$user.type')",
             isParent: "'parent' in auth.ref('$user.type')",
             isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+            authFamilyMemberIds: "auth.ref('$user.familyMemberId')",
             kidSafeFamilyMemberUpdate:
                 "request.modifiedFields.all(field, field in ['lastDisplayCurrency', 'viewShowChoreDescriptions', 'viewShowTaskDetails', 'messageQuietHoursEnabled', 'messageQuietHoursStart', 'messageQuietHoursEnd', 'messageDigestMode', 'messageDigestWindowMinutes'])",
         },
@@ -970,10 +971,10 @@ const rules = {
             unlink: {
                 $default: 'isFamilyPrincipal',
             },
-            update: 'isParent || (isKid && kidSafeFamilyMemberUpdate)',
+            update: 'isParent || (isKid && data.id in authFamilyMemberIds && kidSafeFamilyMemberUpdate)',
         },
         fields: {
-            pinHash: "isParent || data.role != 'parent'",
+            pinHash: 'isParent || data.id in authFamilyMemberIds',
         },
     },
     shortcutTokens: {

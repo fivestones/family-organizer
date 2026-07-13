@@ -1,12 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { id as instantId, init as initCore } from '@instantdb/core';
+import {
+    id as instantId,
+    init as initCore,
+    InstantCoreDatabase,
+    Reactor,
+    StoreInterface,
+} from '@instantdb/core';
 import schema from '@/instant.schema';
 import {
     getInstantAdminDb,
     getKidPrincipalAuthEmail,
     getParentPrincipalAuthEmail,
+    mintFamilyMemberToken,
     mintPrincipalToken,
 } from '@/lib/instant-admin';
 
@@ -37,6 +44,36 @@ function loadLocalEnvFile(fileName: string) {
 
 type ClientDb = ReturnType<typeof initCore>;
 
+class MemoryStorage extends StoreInterface {
+    private values = new Map<string, unknown>();
+
+    async getItem(key: string) {
+        return this.values.get(key) ?? null;
+    }
+
+    async removeItem(key: string) {
+        this.values.delete(key);
+    }
+
+    async multiSet(entries: Array<[string, unknown]>) {
+        for (const [key, value] of entries) this.values.set(key, value);
+    }
+
+    async getAllKeys() {
+        return Array.from(this.values.keys());
+    }
+}
+
+class AlwaysOnlineNetworkListener {
+    static async getIsOnline() {
+        return true;
+    }
+
+    static listen() {
+        return () => undefined;
+    }
+}
+
 function requiredEnv(name: string) {
     const value = process.env[name];
     if (!value) {
@@ -59,11 +96,32 @@ function createClient(): ClientDb {
               }
             : {};
 
-    return initCore({
-        appId,
-        schema,
-        ...connectionConfig,
-    });
+    // `init` intentionally returns one global client per app/config, which is
+    // correct in an app but wrong for a permission matrix that needs isolated
+    // anonymous, kid, and parent sessions. Build independent clients with the
+    // public core primitives and in-memory storage instead.
+    if (typeof window === 'undefined') {
+        (globalThis as any).window = { location: { href: 'https://instant-perms.test/' } };
+    }
+
+    const apiURI = connectionConfig.apiURI || 'https://api.instantdb.com';
+    const websocketURI = connectionConfig.websocketURI || 'wss://api.instantdb.com/runtime/session';
+    const reactor = new Reactor(
+        {
+            appId,
+            schema,
+            apiURI,
+            websocketURI,
+            useDateObjects: false,
+            cardinalityInference: true,
+        },
+        MemoryStorage as any,
+        AlwaysOnlineNetworkListener as any,
+        { '@instantdb/core': 'live-perms-test' },
+        undefined
+    );
+
+    return new InstantCoreDatabase(reactor) as ClientDb;
 }
 
 async function expectRejected(promise: Promise<unknown>, label: string) {
@@ -144,16 +202,60 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
     it(
         'enforces a basic anonymous/kid/parent allow-deny matrix',
         async () => {
-            // Anonymous should not be able to read app data now that perms require family principals.
-            await expectRejected(anonDb.queryOnce({ familyMembers: {} }), 'anonymous familyMembers query');
+            // View rules filter unauthorized rows rather than rejecting a
+            // valid query, so anonymous access must resolve to an empty roster.
+            const anonymousFamilyMembersResp = await anonDb.queryOnce({ familyMembers: {} });
+            expect((anonymousFamilyMembersResp.data.familyMembers as any[]) || []).toHaveLength(0);
 
-            // Kid principal can read family members, but parent pin hashes should be hidden.
+            // The shared kid principal can read the roster but has no member identity,
+            // so every PIN hash must be hidden (not only parent hashes).
             const kidFamilyMembersResp = await kidDb.queryOnce({ familyMembers: {} });
             const kidFamilyMembers = (kidFamilyMembersResp.data.familyMembers as any[]) || [];
             expect(kidFamilyMembers.length).toBeGreaterThan(0);
             const parentRows = kidFamilyMembers.filter((m) => m.role === 'parent');
-            if (parentRows.length > 0) {
-                expect(parentRows.some((m) => typeof m.pinHash === 'string' && m.pinHash.length > 0)).toBe(false);
+            expect(kidFamilyMembers.some((m) => typeof m.pinHash === 'string' && m.pinHash.length > 0)).toBe(false);
+
+            // A member-scoped kid principal may update only its own safe
+            // preferences and may never see a sibling's PIN hash.
+            const kidMember = kidFamilyMembers.find((member) => member.role !== 'parent');
+            const siblingMember = kidFamilyMembers.find((member) => member.id !== kidMember?.id);
+            expect(kidMember?.id).toBeTruthy();
+            expect(siblingMember?.id).toBeTruthy();
+
+            const memberKidDb = createClient();
+            const memberSession = await mintFamilyMemberToken(kidMember.id);
+            await memberKidDb.auth.signInWithToken(memberSession.token);
+            const originalShowTaskDetails = Boolean(kidMember.viewShowTaskDetails);
+
+            try {
+                const memberRosterResp = await memberKidDb.queryOnce({ familyMembers: {} });
+                const memberRoster = (memberRosterResp.data.familyMembers as any[]) || [];
+                expect(
+                    memberRoster
+                        .filter((member) => member.id !== kidMember.id)
+                        .some((member) => typeof member.pinHash === 'string' && member.pinHash.length > 0)
+                ).toBe(false);
+
+                await memberKidDb.transact(
+                    memberKidDb.tx.familyMembers[kidMember.id].update({
+                        viewShowTaskDetails: !originalShowTaskDetails,
+                    })
+                );
+                await expectRejected(
+                    memberKidDb.transact(
+                        memberKidDb.tx.familyMembers[siblingMember.id].update({
+                            viewShowTaskDetails: true,
+                        })
+                    ),
+                    'kid familyMembers safe update on sibling row'
+                );
+            } finally {
+                await adminDb.transact(
+                    adminDb.tx.familyMembers[kidMember.id].update({
+                        viewShowTaskDetails: originalShowTaskDetails,
+                    })
+                );
+                memberKidDb.shutdown?.();
             }
 
             // Kid principal cannot create parent-managed calendar items.

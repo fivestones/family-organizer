@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed and deployed: family-member row/field permission isolation (§6, fix plan 4/8/11).** A kid principal can update the safe preference allowlist only on the family-member row named by its authenticated `$user.familyMemberId`; shared kid principals cannot update any member row. `pinHash` is now visible only to parents or that same authenticated member, so siblings' hashes are no longer readable. The CEL uses the list-safe `data.id in auth.ref(...)` form so principals without a linked member do not throw. Permissions were pushed to the configured Instant app. The live matrix now creates isolated anonymous/shared-kid/member-kid/parent clients, verifies empty anonymous reads, sibling hash redaction, own safe updates, and sibling update rejection, and cleans up mutations. Verification: 5 local contract tests, `tsc --noEmit`, and the live hosted permission matrix all pass.
 - **2026-07-13 — Completed: production time-machine gate (§3).** The pre-hydration `Date` patch and the debug widget now share `isTimeMachineEnabled`: development/test remain enabled, production emits neither unless `NEXT_PUBLIC_ENABLE_TIME_MACHINE=true` is explicitly configured. The widget also skips initialization while disabled. Verification: 8 bootstrap/widget tests cover the production default, explicit opt-in, and existing controls; `tsc --noEmit` passes.
 - **2026-07-13 — Completed: safe service-worker caching (§2).** Runtime caching is now limited to `/_next/static/` and the explicit app-shell assets; `/files/*` and arbitrary same-origin extension matches are never intercepted. Both navigation and static strategies cache only successful, same-origin, non-redirected basic responses. Cache version `family-organizer-v2` flushes previously poisoned entries on activation. Verification: 5 cache-policy tests cover signed-file exclusion, error/redirect/CORS rejection, and the valid static path; `tsc --noEmit` passes.
 - **2026-07-13 — Completed: repository TypeScript baseline restored (§8).** Fixed the web/React-Native ambient `FormData` collision at the avatar-upload route boundary and typed browser idle/animation timers with `window.setTimeout` return values instead of `NodeJS.Timeout`. `npx tsc --noEmit` now passes. The focused `AuthProvider` DOM suite passes all 4 tests under the bundled Node 24 runtime; system Node 25's incomplete experimental `localStorage` emitted an environment-only failure before the same suite ran cleanly on the supported runtime.
@@ -75,8 +76,8 @@ The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `wi
 
 - **Messaging is the best-architected subsystem in the app:** all writes go through server routes with real token verification (`requireRequestFamilyMember`), CEL views are membership-scoped with proper `data.ref` traversals, reactions/acks/attachments are locked down. Two nits: `jsonRouteError` derives HTTP status by substring-matching error messages ([message-route.ts:29-40](lib/message-route.ts:29)) — brittle; and there's no message retention policy (same growth story as history).
 - Content queue routes and perms (parent-write, family-view) look consistent; nothing alarming on read.
-- `familyMembers` kid-safe update rule ([instant.perms.ts:960-961](instant.perms.ts:960)) restricts *fields* but not *rows* — a kid can set a sibling's `lastDisplayCurrency`, quiet hours, or digest mode. Add `authFamilyMemberId == data.id` to the kid branch.
-- **`pinHash` is readable by kids for non-parent rows** ([instant.perms.ts:976](instant.perms.ts:976)): `isParent || data.role != 'parent'` exposes every kid's PIN hash to every kid principal, and the hash is unsalted SHA-256 of (typically) a 4-digit PIN — crackable on paper in milliseconds. Siblings can unlock each other's profiles. Fix the rule to self-or-parent, and see the login audit (5.4) for the hashing upgrade.
+- **Completed 2026-07-14 — family-member safe updates are row-scoped.** The kid branch now requires `data.id in auth.ref('$user.familyMemberId')` in addition to the existing modified-field allowlist. Shared kid principals have an empty member-id list and cannot update roster rows; a member-scoped kid can update only its own preferences.
+- **Completed 2026-07-14 — `pinHash` is self-or-parent only.** The former `isParent || data.role != 'parent'` rule was replaced with the same list-safe member identity check and deployed. Sibling hashes are redacted in the live hosted matrix. The unsalted hashing weakness remains a separate login-audit §5.4 item.
 
 ## 7. Mobile API surface
 
@@ -100,17 +101,17 @@ The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `wi
 1. Auth on file server actions (1.1) — parent-gate `deleteS3Objects`, member-gate the rest.
 2. ~~Service worker: `resp.ok` checks + exclude `/files/` + version bump (§2).~~ **Completed 2026-07-13.**
 3. ~~Gate the production time machine (§3).~~ **Completed 2026-07-13.**
-4. `pinHash` field rule → self-or-parent (§6).
+4. ~~`pinHash` field rule → self-or-parent (§6).~~ **Completed and deployed 2026-07-14.**
 
 **Phase 1 — verify-and-close:**
 5. Confirm every `/api/calendar-sync/*` route self-enforces auth; add the 401 integration test (§4).
 6. Check what `calendarSyncAccounts` stores; relocate secrets if present (§4).
 7. Kid drag-and-drop gating on the calendar (§4).
-8. Kid-safe `familyMembers` update: restrict to own row (§6).
+8. ~~Kid-safe `familyMembers` update: restrict to own row (§6).~~ **Completed and deployed 2026-07-14.**
 
 **Phase 2 — hygiene:**
 9. CLAUDE.md architecture refresh; delete `lib/db.js` (or `.ts` — whichever is dead), `calendar-tags.js`, `todos`, and the dead helpers list (§8).
 10. History/messages retention decision + pagination (§5).
 
 **Phase 3 — testing:**
-11. Kid-principal permission matrix in the live-perms suite; money-path unit tests; block-splitting table tests (§8) — these lock in the fixes from all four audits.
+11. Kid-principal permission matrix in the live-perms suite (**family-member row/field cases completed 2026-07-14**); money-path unit tests; block-splitting table tests (§8) — continue expanding the matrix as the remaining permission fixes land.

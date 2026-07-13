@@ -35,9 +35,12 @@ describe('instant.perms contract', () => {
         expect(perms.allowanceTransactions.allow.update).toBe('false');
     });
 
-    it('protects family member PIN hashes from the kid principal for parent rows', () => {
+    it('limits kid family-member preferences and PIN hashes to the authenticated member row', () => {
         const perms = rules as any;
-        expect(perms.familyMembers.fields.pinHash).toContain("data.role != 'parent'");
+        expect(perms.familyMembers.bind.authFamilyMemberIds).toBe("auth.ref('$user.familyMemberId')");
+        expect(perms.familyMembers.allow.update).toContain('data.id in authFamilyMemberIds');
+        expect(perms.familyMembers.allow.update).toContain('kidSafeFamilyMemberUpdate');
+        expect(perms.familyMembers.fields.pinHash).toBe('isParent || data.id in authFamilyMemberIds');
     });
 
     it('lets family principals link chore completions without opening broader chore writes', () => {
