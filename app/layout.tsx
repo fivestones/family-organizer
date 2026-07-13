@@ -61,6 +61,7 @@ export const viewport: Viewport = {
     initialScale: 1,
     maximumScale: 1, // Disables auto-zoom on inputs, making it feel like a native app
     userScalable: false, // Prevents pinch-to-zoom
+    viewportFit: 'cover',
 };
 
 // +++ MODIFIED: Metadata for iOS PWA support +++
@@ -88,9 +89,7 @@ export default function RootLayout({
             <head>
                 <TimeMachineBootstrap />
             </head>
-            {/* Added flex column structure to body to support the sticky header behavior */}
-            {/* Added 'overscroll-none' to prevent that bouncy "rubber banding" effect at the top/bottom */}
-            <body className={`${inter.className} min-h-screen flex flex-col bg-background text-foreground overscroll-none`}>
+            <body className={`${inter.className} flex h-dvh flex-col overflow-hidden bg-background text-foreground overscroll-none`}>
                 <InstantFamilySessionProvider>
                     <AuthProvider>
                       <DashboardThemeProvider>

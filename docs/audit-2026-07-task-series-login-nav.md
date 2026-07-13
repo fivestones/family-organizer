@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — App-shell hardening implemented; iPad PWA pass still pending (Part 6 secondary, Phase 1).** The body now owns a fixed `h-dvh overflow-hidden` viewport, the header is a non-sticky `shrink-0` flex child with safe-area top padding, and `main` is the sole `overflow-y-auto` scroll container with bottom safe-area scroll padding. `viewportFit: 'cover'` is declared, and dashboard theming now changes backgrounds only instead of conditionally mutating body height/overflow. Verification: 9 focused shell/login/session DOM tests and `tsc --noEmit` pass. A physical iPad home-screen keyboard/backgrounding pass remains device-unverified.
 - **2026-07-14 — Completed: the editor restores protected tasks that bypass the delete prompt (§2.4).** If autosave sees a missing task with progress, responses, attachments, or other guarded data and no recorded confirmation, it now reinserts that task at its persisted order/indentation, updates the editor/card/date state without emitting a second editor update, warns the user, and requeues autosave from the repaired document. The incomplete document is never transacted, so sibling orders cannot be persisted in their temporarily shifted positions. Verification: 1 document-restoration unit test, all 11 editor DOM tests, and `tsc --noEmit` pass.
 - **2026-07-14 — Completed: task completion helper now states its real scope (§1.6).** `getRecursiveTaskCompletionTransactions` was renamed to `buildTaskCompletionTransactions`: it builds one task transition and ancestor rollups, but does not imply descendant completion. Stale unused `ChoreList` test mocks and the feature-test matrix name were updated with the API. Verification: 17 scheduler tests and 8 `ChoreList` tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed: stored task-response HTML is sanitized before rendering (§4.4, Phase 5).** Checklist summaries, composer response values, update threads, and the Task Bins review path now render through a shared `SanitizedRichText` component backed by DOMPurify. Existing authored formatting remains intact while scripts and executable attributes are removed. Verification: 15 focused sanitizer/checklist DOM tests pass, including `<script>` and `onerror` stripping; `tsc --noEmit` passes.
@@ -290,8 +291,8 @@ The trigger is finding **5.2**: `signInFamilyMember` sets `status='signing-in'`,
 
 These are real but were not the cause of the captured incident:
 
-- With `overflow-hidden` on `main` ([ThemedAppShell.tsx:99](components/ThemedAppShell.tsx:99)), `main` is a scroll container the user can't operate. I verified in a synthetic repro that focusing an element below the fold scrolls it internally (`scrollTop=1258`, no scrollbar, no way to scroll back) — content can appear cut off/shifted, especially while the dashboard body-lock ([ThemedAppShell.tsx:62-95](components/ThemedAppShell.tsx:62)) is active.
-- The app runs as an iOS home-screen PWA with a `sticky` header and `min-h-screen`; iOS keyboard/visual-viewport panning can transiently displace sticky chrome. Converting to a single app-shell regime (body `h-dvh overflow-hidden`, header normal-flow, `main` as the only scroll container with `overflow-y-auto`, `viewportFit: 'cover'` + safe-area padding) removes the sticky dependency, fixes the focus-scroll trap, and deletes the dashboard's special body-locking effect. Worth doing as hardening after the primary fix lands.
+- **Implemented 2026-07-14:** `main` no longer clips overflow; it is the shell's sole vertical scroller, so browser focus scrolling remains user-operable. Dashboard theming no longer changes body height/overflow.
+- **Implemented 2026-07-14; physical-device verification pending:** the iOS home-screen shell uses body `h-dvh overflow-hidden`, a normal-flow non-sticky header, `main` `overflow-y-auto`, `viewportFit: 'cover'`, and safe-area-aware header/scroll padding. DOM contracts cover ownership and header flow, but keyboard open/close and background/foreground behavior still need a real iPad PWA pass.
 
 ---
 
@@ -308,7 +309,7 @@ These are real but were not the cause of the captured incident:
 ### Phase 1 — app shell / nav bar
 
 6. ~~**Nav bar fix** (Part 6): keep the app mounted during sign-in (5.2), close the login dialog before switching principals, and add `order-first` to the header as CSS insurance.~~ **Completed 2026-07-14.**
-7. App-shell hardening (Part 6 secondary): convert to the fixed layout (body `h-dvh overflow-hidden`, non-sticky header, `main` as sole scroll container). One PR touching `layout.tsx` + `ThemedAppShell.tsx`; manual pass on iPad PWA (keyboard open/close, backgrounding).
+7. **Implementation completed 2026-07-14:** ~~convert to the fixed layout (body `h-dvh overflow-hidden`, non-sticky header, `main` as sole scroll container, cover viewport, safe areas).~~ Manual iPad PWA keyboard/backgrounding verification remains open.
 
 ### Phase 2 — data integrity
 

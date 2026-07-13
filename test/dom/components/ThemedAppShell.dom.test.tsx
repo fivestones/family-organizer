@@ -8,12 +8,25 @@ vi.mock('@/lib/freeform-dashboard/DashboardThemeContext', () => ({
     useActiveDashboardTheme: () => ({ activeTheme: null }),
 }));
 
-import { ThemedHeader } from '@/components/ThemedAppShell';
+import { ThemedHeader, ThemedMain } from '@/components/ThemedAppShell';
 
 describe('ThemedHeader', () => {
     it('stays first in the flex app shell even if portal cleanup disturbs DOM insertion order', () => {
         render(<ThemedHeader>Family navigation</ThemedHeader>);
 
         expect(screen.getByRole('banner')).toHaveClass('order-first');
+        expect(screen.getByRole('banner')).toHaveClass('shrink-0');
+        expect(screen.getByRole('banner')).not.toHaveClass('sticky');
+        expect(screen.getByRole('banner')).toHaveStyle({
+            paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+        });
+    });
+
+    it('makes main the shell scroll container instead of clipping focused content', () => {
+        render(<ThemedMain>Scrollable content</ThemedMain>);
+
+        expect(screen.getByRole('main')).toHaveClass('overflow-y-auto');
+        expect(screen.getByRole('main')).toHaveClass('min-h-0');
+        expect(screen.getByRole('main')).not.toHaveClass('overflow-hidden');
     });
 });

@@ -28,16 +28,17 @@ export function ThemedHeader({ children }: { children: React.ReactNode }) {
 
     return (
         <header
-            className={`order-first sticky top-0 z-40 flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 transition-colors duration-200 ${activeTheme ? themeClass : 'bg-card'}`}
-            style={
-                activeTheme
+            className={`order-first z-40 flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 transition-colors duration-200 ${activeTheme ? themeClass : 'bg-card'}`}
+            style={{
+                paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+                ...(activeTheme
                     ? {
                           backgroundColor: 'var(--fd-panel)',
                           borderColor: 'var(--fd-line)',
                           color: 'var(--fd-ink)',
                       }
-                    : undefined
-            }
+                    : {}),
+            }}
             data-dashboard-theme={activeTheme ?? undefined}
         >
             {children}
@@ -57,8 +58,9 @@ export function ThemedMain({ children }: { children: React.ReactNode }) {
     const { activeTheme } = useActiveDashboardTheme();
     const themeClass = activeTheme ? `fd-${activeTheme}` : '';
 
-    // Sync <html> and <body> background + lock body to viewport so the
-    // dashboard never scrolls and no white bleeds through window corners.
+    // Sync <html> and <body> backgrounds so no white bleeds through window
+    // corners. Viewport sizing and scrolling are owned by the global shell,
+    // independent of which route/theme is active.
     useEffect(() => {
         if (!activeTheme) return;
 
@@ -69,8 +71,6 @@ export function ThemedMain({ children }: { children: React.ReactNode }) {
         const prev = {
             htmlBg: html.style.backgroundColor,
             bodyBg: body.style.backgroundColor,
-            bodyHeight: body.style.height,
-            bodyOverflow: body.style.overflow,
         };
 
         // Use the panel color (header bg) for html so OS window rounded
@@ -81,27 +81,19 @@ export function ThemedMain({ children }: { children: React.ReactNode }) {
         const canvasColor = getCanvasColor(activeTheme);
         body.style.backgroundColor = canvasColor;
 
-        // Lock body to exact viewport height — prevents the 1-2px scroll
-        // caused by min-h-screen + borders/padding accumulating beyond 100vh
-        body.style.height = '100dvh';
-        body.style.overflow = 'hidden';
-
         return () => {
             html.style.backgroundColor = prev.htmlBg;
             body.style.backgroundColor = prev.bodyBg;
-            body.style.height = prev.bodyHeight;
-            body.style.overflow = prev.bodyOverflow;
         };
     }, [activeTheme]);
 
     return (
         <main
-            className={`flex-1 min-h-0 relative overflow-hidden ${themeClass}`}
-            style={
-                activeTheme
-                    ? { backgroundColor: 'var(--fd-canvas)' }
-                    : undefined
-            }
+            className={`relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain ${themeClass}`}
+            style={{
+                scrollPaddingBottom: 'env(safe-area-inset-bottom)',
+                ...(activeTheme ? { backgroundColor: 'var(--fd-canvas)' } : {}),
+            }}
         >
             {children}
         </main>
