@@ -83,11 +83,12 @@ const editorMocks = vi.hoisted(() => {
         monitorForElements: vi.fn(),
         nextIdValues: [] as string[],
         debounceState,
+        toast: vi.fn(),
     };
 });
 
 vi.mock('@/components/ui/use-toast', () => ({
-    useToast: () => ({ toast: vi.fn() }),
+    useToast: () => ({ toast: editorMocks.toast }),
 }));
 
 vi.mock('@/components/AuthProvider', () => ({
@@ -297,6 +298,7 @@ describe('TaskSeriesEditor', () => {
 
         editorMocks.dbUseQuery.mockClear();
         editorMocks.dbTransact.mockClear();
+        editorMocks.toast.mockClear();
         editorMocks.editor.commands.setContent.mockClear();
         editorMocks.editor.commands.blur.mockClear();
         editorMocks.editor.chain.mockClear();
@@ -553,6 +555,48 @@ describe('TaskSeriesEditor', () => {
         });
         await flushDebouncedSave();
 
+        expect(editorMocks.dbTransact).not.toHaveBeenCalled();
+    });
+
+    it('restores a data-bearing task that reaches autosave without delete confirmation', async () => {
+        seedExistingSeries({
+            tasks: [
+                {
+                    id: 'task-1',
+                    text: 'Protected task',
+                    order: 0,
+                    indentationLevel: 1,
+                    isDayBreak: false,
+                    parentTask: [],
+                    updates: [{ id: 'update-1', toState: 'in_progress', note: 'Work saved' }],
+                },
+            ],
+        });
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+        editorMocks.editor.getJSON.mockReturnValue({ type: 'doc', content: [] });
+
+        act(() => {
+            editorMocks.useEditorOptions.onUpdate({ editor: editorMocks.editor });
+        });
+        await flushDebouncedSave();
+
+        expect(editorMocks.editor.commands.setContent).toHaveBeenLastCalledWith(
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'taskItem',
+                        attrs: { id: 'task-1', indentationLevel: 1, isDayBreak: false },
+                        content: [{ type: 'text', text: 'Protected task' }],
+                    },
+                ],
+            },
+            { emitUpdate: false }
+        );
+        expect(editorMocks.toast).toHaveBeenCalledWith(
+            expect.objectContaining({ title: 'Task restored' })
+        );
         expect(editorMocks.dbTransact).not.toHaveBeenCalled();
     });
 

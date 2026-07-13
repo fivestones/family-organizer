@@ -33,6 +33,7 @@ import type { Task as SchedulerTask } from '@/lib/task-scheduler';
 import { computeDeletionImpact, taskHasData, type TaskLikeForGuard } from '@/lib/task-data-guard';
 import { TaskDeleteConfirmDialog } from './TaskDeleteConfirmDialog';
 import { buildTaskIdRepairPlan, type TaskNodeIdentity } from '@/lib/task-editor-ids';
+import { restorePersistedTaskNodes } from '@/lib/task-editor-document';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
 interface Task {
@@ -1511,19 +1512,22 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         );
 
         if (unconfirmedWithData.length > 0) {
-            // Re-add these tasks back into the editor so they don't get
-            // silently lost. For now, just skip deleting them from DB.
-            // The user needs to explicitly confirm via the dialog.
-            const safeToDelete = tasksToDelete.filter(
-                (t) => confirmedDeleteIds.current.has(t.id) || !taskHasData(t as TaskLikeForGuard)
-            );
-            if (safeToDelete.length > 0) {
-                taskStructureChanged = true;
+            const restoredDocument = restorePersistedTaskNodes(json as any, unconfirmedWithData);
+            if (editor && !editor.isDestroyed) {
+                editor.commands.setContent(restoredDocument, { emitUpdate: false });
+                setEditorDocument(restoredDocument);
+                calculateDates(restoredDocument);
             }
-            safeToDelete.forEach((t) => {
-                transactions.push(tx.tasks[t.id].delete());
-                transactions.push(tx.taskSeries[seriesId].unlink({ tasks: t.id }));
+            toast({
+                title: unconfirmedWithData.length === 1 ? 'Task restored' : 'Tasks restored',
+                description: 'Tasks with saved progress or responses require explicit delete confirmation.',
             });
+            setIsSaving(false);
+            // Re-run autosave from the restored document. Any safe deletions
+            // in the same edit can proceed without persisting shifted orders
+            // from the temporarily incomplete document.
+            debouncedSave(restoredDocument);
+            return;
         } else {
             if (tasksToDelete.length > 0) {
                 taskStructureChanged = true;
