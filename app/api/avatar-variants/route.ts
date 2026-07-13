@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DeleteObjectsCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
-import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
+import { requireRequestFamilyMember } from '@/lib/request-family-member';
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
 const AVATAR_SIZES = ['64', '320', '1200'] as const;
@@ -76,10 +76,12 @@ function getAvatarFile(formData: FormData, size: AvatarSize): File {
 }
 
 export async function POST(request: NextRequest) {
-    const deviceAuth = getDeviceAuthContextFromNextRequest(request);
-    if (!deviceAuth.authorized) {
-        const reason = 'reason' in deviceAuth ? deviceAuth.reason : 'unknown';
-        return NextResponse.json({ error: 'Unauthorized device', reason }, { status: 401 });
+    const authContext = await requireRequestFamilyMember(request, { requireParent: true });
+    if ('error' in authContext) {
+        return NextResponse.json(
+            { error: authContext.error, ...('reason' in authContext && authContext.reason ? { reason: authContext.reason } : {}) },
+            { status: authContext.status }
+        );
     }
 
     let formData: FormData;

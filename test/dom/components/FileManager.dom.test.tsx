@@ -6,22 +6,32 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fileManagerMocks = vi.hoisted(() => ({
+    getFiles: vi.fn(),
     getPresignedUploadUrl: vi.fn(),
     refreshFiles: vi.fn(),
+    requireCachedMemberToken: vi.fn(() => 'parent-token'),
 }));
 
 vi.mock('@/app/actions', () => ({
+    getFiles: fileManagerMocks.getFiles,
     getPresignedUploadUrl: fileManagerMocks.getPresignedUploadUrl,
     refreshFiles: fileManagerMocks.refreshFiles,
+}));
+
+vi.mock('@/lib/instant-principal-storage', () => ({
+    requireCachedMemberToken: fileManagerMocks.requireCachedMemberToken,
 }));
 
 import FileManager from '@/components/FileManager';
 
 describe('FileManager', () => {
     beforeEach(() => {
+        fileManagerMocks.getFiles.mockReset();
+        fileManagerMocks.getFiles.mockResolvedValue([]);
         fileManagerMocks.getPresignedUploadUrl.mockReset();
         fileManagerMocks.refreshFiles.mockReset();
         fileManagerMocks.refreshFiles.mockResolvedValue(undefined);
+        fileManagerMocks.requireCachedMemberToken.mockClear();
 
         vi.stubGlobal('fetch', vi.fn());
         vi.stubGlobal('alert', vi.fn());
@@ -55,7 +65,7 @@ describe('FileManager', () => {
         fireEvent.submit(form);
 
         await waitFor(() => {
-            expect(fileManagerMocks.getPresignedUploadUrl).toHaveBeenCalledWith('image/png', 'photo.png');
+            expect(fileManagerMocks.getPresignedUploadUrl).toHaveBeenCalledWith('image/png', 'photo.png', 'parent-token');
         });
 
         await waitFor(() => {
@@ -75,7 +85,7 @@ describe('FileManager', () => {
         expect(body.get('file')).toBe(file);
 
         await waitFor(() => {
-            expect(fileManagerMocks.refreshFiles).toHaveBeenCalledTimes(1);
+            expect(fileManagerMocks.refreshFiles).toHaveBeenCalledWith('parent-token');
         });
 
         expect(alert).not.toHaveBeenCalled();
@@ -129,6 +139,18 @@ describe('FileManager', () => {
         const photoImages = screen.getAllByAltText('photo.jpg');
         expect(photoImages).toHaveLength(2);
         expect(photoImages[1]).toHaveAttribute('src', '/files/photo.jpg');
+    });
+
+    it('loads the parent-gated file list on the client when no server list is provided', async () => {
+        fileManagerMocks.getFiles.mockResolvedValue([
+            { key: 'parent-only.pdf', size: 42, lastModified: new Date('2026-01-03T00:00:00Z') },
+        ]);
+
+        render(<FileManager />);
+
+        expect(await screen.findByRole('heading', { name: /files \(1\)/i })).toBeInTheDocument();
+        expect(fileManagerMocks.getFiles).toHaveBeenCalledWith('parent-token');
+        expect(screen.getByText('parent-only.pdf')).toBeInTheDocument();
     });
 
     it('opens non-image files in the modal with a download link', async () => {

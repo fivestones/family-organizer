@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: member/parent authorization for file operations (§1, fix plan 1).** Every file server action now requires both the activated-device credential and a server-verified Instant family-member token. Generic upload/finalization is member-gated; bucket listing, object deletion, avatar mutation, file-list refresh, and PIN hashing are parent-only. The `/files` page loads its listing on the client only after `ParentGate` establishes the active principal, and the multipart avatar fallback sends the same token and rejects non-parents before parsing the request or touching S3. Uploads now use sanitized basenames, an explicit safe content-type allowlist, and an exact signed `Content-Type` condition. Verification: 34 focused action/component/auth/route tests pass, including invalid, unlinked, deleted-member, and kid-token cases; `tsc --noEmit` passes.
 - **2026-07-14 — Completed and deployed: family-member row/field permission isolation (§6, fix plan 4/8/11).** A kid principal can update the safe preference allowlist only on the family-member row named by its authenticated `$user.familyMemberId`; shared kid principals cannot update any member row. `pinHash` is now visible only to parents or that same authenticated member, so siblings' hashes are no longer readable. The CEL uses the list-safe `data.id in auth.ref(...)` form so principals without a linked member do not throw. Permissions were pushed to the configured Instant app. The live matrix now creates isolated anonymous/shared-kid/member-kid/parent clients, verifies empty anonymous reads, sibling hash redaction, own safe updates, and sibling update rejection, and cleans up mutations. Verification: 5 local contract tests, `tsc --noEmit`, and the live hosted permission matrix all pass.
 - **2026-07-13 — Completed: production time-machine gate (§3).** The pre-hydration `Date` patch and the debug widget now share `isTimeMachineEnabled`: development/test remain enabled, production emits neither unless `NEXT_PUBLIC_ENABLE_TIME_MACHINE=true` is explicitly configured. The widget also skips initialization while disabled. Verification: 8 bootstrap/widget tests cover the production default, explicit opt-in, and existing controls; `tsc --noEmit` passes.
 - **2026-07-13 — Completed: safe service-worker caching (§2).** Runtime caching is now limited to `/_next/static/` and the explicit app-shell assets; `/files/*` and arbitrary same-origin extension matches are never intercepted. Both navigation and static strategies cache only successful, same-origin, non-redirected basic responses. Cache version `family-organizer-v2` flushes previously poisoned entries on activation. Verification: 5 cache-policy tests cover signed-file exclusion, error/redirect/CORS rejection, and the valid static path; `tsc --noEmit` passes.
@@ -20,7 +21,7 @@
 
 | # | Area | Severity | Finding |
 |---|------|----------|---------|
-| 1 | Files | **High (Confirmed)** | `deleteS3Objects` server action can wipe the entire bucket with only the device cookie — no member/parent auth |
+| 1 | Files | **Completed 2026-07-14** | File actions now verify an active member token; bucket enumeration/deletion and other administrative operations require a parent |
 | 2 | PWA | **Completed 2026-07-13** | Runtime cache narrowed; failed, redirected, cross-origin, and `/files/*` responses are excluded |
 | 3 | Shell | **Completed 2026-07-13** | Production no longer emits or initializes the time machine without an explicit public env opt-in |
 | 4 | Calendar | **Medium** | 4,600-line component; middleware exempts `/api/calendar-sync/*` from device auth — each route must self-enforce (verify) |
@@ -31,17 +32,17 @@
 
 ## 1. File storage & server actions (`app/actions.ts`)
 
-### 1.1 Bucket-wide delete behind device-cookie auth only — **High, Confirmed**
+### 1.1 Bucket-wide delete behind device-cookie auth only — **Completed 2026-07-14**
 
 Every server action in [actions.ts](app/actions.ts) — including `deleteS3Objects(keys[])` ([actions.ts:216](app/actions.ts:216)) and bucket-wide `getFiles()` ([actions.ts:99](app/actions.ts:99)) — authenticates with `requireDeviceAuth()` alone: possession of the device cookie. Every activated kitchen tablet and kid device has that cookie. Server actions are plain POST endpoints, so anyone on an activated device can enumerate and permanently delete **every object in the bucket** (profile photos, task evidence, message attachments) without selecting a family member, let alone being a parent. The Files page UI is parent-gated; the action — the actual boundary — is not.
 
-**Fix:** destructive and enumerating file operations need member-level auth. The messaging routes already solve this exact problem: `requireRequestFamilyMember(request, { requireParent: true })` verifies the Instant token server-side ([request-family-member.ts:42](lib/request-family-member.ts:42)). Server actions can't read the localStorage-held Instant token, so either (a) convert these to API routes that receive `x-instant-auth-token` like the message routes, or (b) have the client pass the token as an action argument and verify it with `adminDb.auth.verifyToken`. Scope `getFiles` by prefix while you're there.
+**Completed:** the client now passes its cached Instant refresh token into each server action, and the server verifies it with the Admin SDK before resolving the linked, still-active family-member row. Upload and attachment finalization require any authenticated family member; listing, deletion, avatar changes, refresh, and PIN hashing require a parent. Device authentication remains a second, independent requirement. `/files` no longer performs an unauthenticated server render of the bucket: it is parent-gated, then loads through the verified action. The avatar API route applies the same parent check before parsing multipart data or constructing an S3 client.
 
 ### 1.2 Smaller file findings
 
-- Upload keys embed the raw client filename (`${randomUUID()}-${fileName}`, [actions.ts:138](app/actions.ts:138)) — slashes and unicode go straight into the key. Not a traversal risk in S3's flat keyspace, but it produces surprise "directories" and complicates the `/files/[filename]` route's decoding. Sanitize like `sanitizePathSegment` already does for avatars.
-- `getPresignedUploadUrl` accepts any content type (`starts-with` condition on a client-supplied prefix) — uploading `text/html` yields S3-served HTML. It's on the MinIO origin, not the app origin, so impact is low; restrict to an allowlist (`image/`, `video/`, `audio/`, `application/pdf`, …) anyway.
-- `hashPin` server action ([actions.ts:261](app/actions.ts:261)) duplicates hashing that already happens inside the token routes — remove the extra surface if nothing calls it.
+- **Completed 2026-07-14:** upload keys use a sanitized basename, so client-supplied path separators and unsupported characters no longer create surprising key prefixes.
+- **Completed 2026-07-14:** uploads use a safe content-type allowlist (images except SVG, audio, video, PDF, plain text, and common office documents) and the presigned policy requires an exact matching `Content-Type`; active content such as `text/html` is rejected.
+- `hashPin` is still called when parents create or edit family members, so it was not removed. It is now parent-only at the server boundary; a future migration can consolidate hashing without reopening the unauthenticated surface.
 - The deletion-side integration is missing: task/update/response-field attachment deletions never call `deleteS3Objects` (flagged in the task-series audit 2.3) — once 1.1 is fixed, wire the cleanup through the same authorized path.
 
 ## 2. Service worker (`public/sw.js`) — **Medium, Confirmed**
@@ -98,7 +99,7 @@ The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `wi
 ## 9. Fix plan
 
 **Phase 0 — real exposure:**
-1. Auth on file server actions (1.1) — parent-gate `deleteS3Objects`, member-gate the rest.
+1. ~~Auth on file server actions (1.1) — parent-gate `deleteS3Objects`, member-gate the rest.~~ **Completed 2026-07-14.**
 2. ~~Service worker: `resp.ok` checks + exclude `/files/` + version bump (§2).~~ **Completed 2026-07-13.**
 3. ~~Gate the production time machine (§3).~~ **Completed 2026-07-13.**
 4. ~~`pinHash` field rule → self-or-parent (§6).~~ **Completed and deployed 2026-07-14.**

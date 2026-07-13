@@ -1,16 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Upload, File as FileIcon, X, Loader2 } from 'lucide-react';
-import { S3File, getPresignedUploadUrl, refreshFiles } from '@/app/actions';
+import { S3File, getFiles, getPresignedUploadUrl, refreshFiles } from '@/app/actions';
+import { requireCachedMemberToken } from '@/lib/instant-principal-storage';
 
 interface FileManagerProps {
-    initialFiles: S3File[];
+    initialFiles?: S3File[];
 }
 
 export default function FileManager({ initialFiles }: FileManagerProps) {
+    const [files, setFiles] = useState<S3File[]>(initialFiles ?? []);
     const [selectedFile, setSelectedFile] = useState<S3File | null>(null);
     const [uploading, setUploading] = useState(false);
+    const [loadingFiles, setLoadingFiles] = useState(initialFiles === undefined);
+
+    const loadFiles = useCallback(async () => {
+        setLoadingFiles(true);
+        try {
+            setFiles(await getFiles(requireCachedMemberToken()));
+        } catch (error) {
+            console.error('Failed to load files', error);
+            alert('Could not load files. Parent access is required.');
+        } finally {
+            setLoadingFiles(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (initialFiles !== undefined) return;
+        void loadFiles();
+    }, [initialFiles, loadFiles]);
 
     const isImage = (key: string) => /\.(jpg|jpeg|png|webp|gif)$/i.test(key);
 
@@ -28,7 +48,8 @@ export default function FileManager({ initialFiles }: FileManagerProps) {
         setUploading(true);
 
         try {
-            const { url, fields } = await getPresignedUploadUrl(file.type, file.name);
+            const instantAuthToken = requireCachedMemberToken();
+            const { url, fields } = await getPresignedUploadUrl(file.type, file.name, instantAuthToken);
 
             const formData = new FormData();
             Object.entries(fields).forEach(([key, value]) => {
@@ -45,7 +66,10 @@ export default function FileManager({ initialFiles }: FileManagerProps) {
             // Only treat 4xx/5xx as failures.
             if (response.status >= 400) throw new Error('Upload failed');
 
-            await refreshFiles();
+            await refreshFiles(instantAuthToken);
+            if (initialFiles === undefined) {
+                await loadFiles();
+            }
             form.reset();
         } catch (error) {
             console.error(error);
@@ -83,10 +107,12 @@ export default function FileManager({ initialFiles }: FileManagerProps) {
             </div>
 
             {/* File Grid */}
-            <h2 className="text-xl font-bold mb-4 text-gray-800">Files ({initialFiles.length})</h2>
+            <h2 className="text-xl font-bold mb-4 text-gray-800">Files ({files.length})</h2>
+
+            {loadingFiles && <p className="mb-4 text-sm text-gray-500">Loading files…</p>}
 
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {initialFiles.map((file) => (
+                {files.map((file) => (
                     <div
                         key={file.key}
                         onClick={() => setSelectedFile(file)}

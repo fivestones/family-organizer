@@ -36,6 +36,14 @@ export function getCachedMemberToken() {
     return localStorage.getItem(ACTIVE_MEMBER_TOKEN_CACHE_KEY);
 }
 
+export function requireCachedMemberToken() {
+    const token = getCachedMemberToken();
+    if (!token) {
+        throw new Error('Family member auth required');
+    }
+    return token;
+}
+
 export function setCachedMemberToken(token: string) {
     if (!isBrowser()) return;
     localStorage.setItem(ACTIVE_MEMBER_TOKEN_CACHE_KEY, token);

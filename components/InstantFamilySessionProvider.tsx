@@ -107,6 +107,9 @@ export function InstantFamilySessionProvider({ children }: { children: ReactNode
             if (typeof nextUser.familyMemberId === 'string' && nextUser.familyMemberId) {
                 setCachedMemberId(nextUser.familyMemberId);
             }
+            if (typeof nextUser.refresh_token === 'string' && nextUser.refresh_token) {
+                setCachedMemberToken(nextUser.refresh_token);
+            }
 
             const unlocked = nextPrincipalType === 'parent' ? getParentUnlocked() || true : false;
             setParentUnlockedState(unlocked);

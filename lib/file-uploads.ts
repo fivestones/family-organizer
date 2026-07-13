@@ -2,6 +2,7 @@
 
 import { getAttachmentKind, type AppAttachment } from '@family-organizer/shared-core';
 import { finalizeUploadedAttachmentAction, getPresignedUploadUrl } from '@/app/actions';
+import { requireCachedMemberToken } from '@/lib/instant-principal-storage';
 
 export interface UploadedFileAttachment extends AppAttachment {
     id: string;
@@ -28,7 +29,12 @@ function revokeObjectUrl(url: string | null) {
 }
 
 async function uploadBlobToS3(blob: Blob, fileName: string, contentType: string) {
-    const { url, fields, key } = await getPresignedUploadUrl(contentType || 'application/octet-stream', fileName);
+    const instantAuthToken = requireCachedMemberToken();
+    const { url, fields, key } = await getPresignedUploadUrl(
+        contentType || 'application/octet-stream',
+        fileName,
+        instantAuthToken
+    );
     const formData = new FormData();
     Object.entries(fields).forEach(([fieldKey, fieldValue]) => {
         formData.append(fieldKey, fieldValue as string);
@@ -265,18 +271,21 @@ export async function uploadFilesToS3(files: File[], createId: () => string): Pr
         }
 
         const finalized = await withTimeout(
-            finalizeUploadedAttachmentAction({
-                objectKey,
-                fileName: file.name,
-                contentType,
-                width: localMetadata.width ?? null,
-                height: localMetadata.height ?? null,
-                durationSec: localMetadata.durationSec ?? null,
-                thumbnailUrl: thumbnailKey,
-                thumbnailWidth: localMetadata.thumbnailWidth ?? null,
-                thumbnailHeight: localMetadata.thumbnailHeight ?? null,
-                waveformPeaks: localMetadata.waveformPeaks ?? null,
-            }),
+            finalizeUploadedAttachmentAction(
+                {
+                    objectKey,
+                    fileName: file.name,
+                    contentType,
+                    width: localMetadata.width ?? null,
+                    height: localMetadata.height ?? null,
+                    durationSec: localMetadata.durationSec ?? null,
+                    thumbnailUrl: thumbnailKey,
+                    thumbnailWidth: localMetadata.thumbnailWidth ?? null,
+                    thumbnailHeight: localMetadata.thumbnailHeight ?? null,
+                    waveformPeaks: localMetadata.waveformPeaks ?? null,
+                },
+                requireCachedMemberToken()
+            ),
             30_000,
             `Finalize attachment "${file.name}"`
         );

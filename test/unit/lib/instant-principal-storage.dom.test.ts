@@ -5,6 +5,8 @@ import {
     DEFAULT_PARENT_SHARED_DEVICE,
     DEFAULT_PARENT_SHARED_DEVICE_IDLE_TIMEOUT_MS,
     clearCachedToken,
+    clearCachedMemberToken,
+    getCachedMemberToken,
     clearParentLastActivityAt,
     clearParentSharedDeviceMode,
     getCachedToken,
@@ -13,6 +15,8 @@ import {
     getParentSharedDeviceMode,
     getParentUnlocked,
     getPreferredPrincipal,
+    requireCachedMemberToken,
+    setCachedMemberToken,
     setCachedToken,
     setParentLastActivityAt,
     setParentSharedDeviceMode,
@@ -42,6 +46,17 @@ describe('instant principal storage helpers', () => {
 
         clearCachedToken('parent');
         expect(getCachedToken('parent')).toBeNull();
+    });
+
+    it('requires the active member token for authenticated server actions', () => {
+        expect(() => requireCachedMemberToken()).toThrow('Family member auth required');
+
+        setCachedMemberToken('member-token');
+        expect(getCachedMemberToken()).toBe('member-token');
+        expect(requireCachedMemberToken()).toBe('member-token');
+
+        clearCachedMemberToken();
+        expect(getCachedMemberToken()).toBeNull();
     });
 
     it('manages parent unlocked and shared-device flags with sensible defaults', () => {

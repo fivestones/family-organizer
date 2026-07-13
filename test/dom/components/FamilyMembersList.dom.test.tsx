@@ -9,6 +9,7 @@ const familyMemberMocks = vi.hoisted(() => ({
     toast: vi.fn(),
     hashPin: vi.fn(),
     deleteS3Objects: vi.fn(),
+    requireCachedMemberToken: vi.fn(() => 'parent-token'),
     currentUser: { id: 'parent-1', role: 'parent' } as any,
     monitorForElements: vi.fn(),
     monitorCleanup: vi.fn(),
@@ -33,6 +34,10 @@ vi.mock('@/components/ui/use-toast', () => ({
 vi.mock('@/app/actions', () => ({
     hashPin: familyMemberMocks.hashPin,
     deleteS3Objects: familyMemberMocks.deleteS3Objects,
+}));
+
+vi.mock('@/lib/instant-principal-storage', () => ({
+    requireCachedMemberToken: familyMemberMocks.requireCachedMemberToken,
 }));
 
 vi.mock('@/components/AuthProvider', () => ({
@@ -253,6 +258,7 @@ describe('FamilyMembersList', () => {
         familyMemberMocks.hashPin.mockResolvedValue('hashed-pin');
         familyMemberMocks.deleteS3Objects.mockReset();
         familyMemberMocks.deleteS3Objects.mockResolvedValue({ deleted: 0 });
+        familyMemberMocks.requireCachedMemberToken.mockClear();
         familyMemberMocks.currentUser = { id: 'parent-1', role: 'parent' };
         familyMemberMocks.monitorForElements.mockReset();
         familyMemberMocks.monitorCleanup.mockReset();
@@ -287,7 +293,7 @@ describe('FamilyMembersList', () => {
         await user.click(screen.getByRole('button', { name: /^add member$/i }));
 
         await waitFor(() => {
-            expect(familyMemberMocks.hashPin).toHaveBeenCalledWith('1234');
+            expect(familyMemberMocks.hashPin).toHaveBeenCalledWith('1234', 'parent-token');
         });
 
         await waitFor(() => {
@@ -381,7 +387,7 @@ describe('FamilyMembersList', () => {
         await user.click(screen.getByRole('button', { name: /save member/i }));
 
         await waitFor(() => {
-            expect(familyMemberMocks.hashPin).toHaveBeenCalledWith('7777');
+            expect(familyMemberMocks.hashPin).toHaveBeenCalledWith('7777', 'parent-token');
         });
         await waitFor(() => {
             expect(db.transact).toHaveBeenCalledTimes(1);
@@ -427,7 +433,10 @@ describe('FamilyMembersList', () => {
         await user.click(screen.getByRole('button', { name: /save member/i }));
 
         await waitFor(() => {
-            expect(familyMemberMocks.deleteS3Objects).toHaveBeenCalledWith(['alex-64.png', 'alex-320.png', 'alex-1200.png']);
+            expect(familyMemberMocks.deleteS3Objects).toHaveBeenCalledWith(
+                ['alex-64.png', 'alex-320.png', 'alex-1200.png'],
+                'parent-token'
+            );
         });
         await waitFor(() => {
             expect(db.transact).toHaveBeenCalledTimes(1);

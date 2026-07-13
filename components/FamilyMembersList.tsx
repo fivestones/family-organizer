@@ -24,6 +24,7 @@ import {
 } from '@/lib/family-member-colors';
 import { getPhotoKeys, getPhotoUrl, type PhotoUrls } from '@/lib/photo-urls';
 import { cn } from '@/lib/utils';
+import { requireCachedMemberToken } from '@/lib/instant-principal-storage';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -561,7 +562,7 @@ function FamilyMembersList({
         async (keys: string[], warningMessage: string) => {
             if (!keys.length) return;
             try {
-                await deleteS3Objects(keys);
+                await deleteS3Objects(keys, requireCachedMemberToken());
             } catch (error) {
                 console.error('Photo cleanup failed:', error);
                 showPhotoCleanupWarning(warningMessage);
@@ -589,6 +590,9 @@ function FamilyMembersList({
 
             const fallbackResponse = await fetch('/api/avatar-variants', {
                 method: 'POST',
+                headers: {
+                    'x-instant-auth-token': requireCachedMemberToken(),
+                },
                 body: formData,
             });
 
@@ -621,10 +625,13 @@ function FamilyMembersList({
         const uploadedKeys: string[] = [];
 
         try {
-            presigned = (await getAvatarVariantUploadUrls({
-                scope: options.scope,
-                memberId: options.memberId ?? null,
-            })) as {
+            presigned = (await getAvatarVariantUploadUrls(
+                {
+                    scope: options.scope,
+                    memberId: options.memberId ?? null,
+                },
+                requireCachedMemberToken()
+            )) as {
                 uploads: AvatarUploadTarget[];
                 photoUrls: PhotoUrls;
             };
@@ -657,7 +664,7 @@ function FamilyMembersList({
         } catch (error) {
             if (uploadedKeys.length > 0) {
                 try {
-                    await deleteS3Objects(uploadedKeys);
+                    await deleteS3Objects(uploadedKeys, requireCachedMemberToken());
                 } catch (cleanupError) {
                     console.error('Failed to clean up partial avatar upload:', cleanupError);
                 }
@@ -725,7 +732,7 @@ function FamilyMembersList({
 
         // +++ NEW: Hash PIN if provided +++
         if (newMemberPin) {
-            memberData.pinHash = await hashPin(newMemberPin);
+            memberData.pinHash = await hashPin(newMemberPin, requireCachedMemberToken());
         }
 
         // Only add photoUrls if it is not null (i.e., a photo was uploaded)
@@ -937,7 +944,7 @@ function FamilyMembersList({
 
             // +++ Update PIN only if user typed something +++
             if (editMemberPin.trim() !== '') {
-                updates.pinHash = await hashPin(editMemberPin);
+                updates.pinHash = await hashPin(editMemberPin, requireCachedMemberToken());
             }
 
             if (removePhoto) {
