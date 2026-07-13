@@ -491,8 +491,9 @@ function DetailedChoreForm({
 
         // Use weight from state if not Up for Grabs or if type is weight
         if (!isUpForGrabs || rewardType === 'weight') {
-            finalWeight = parseFloat(weight);
-            if (isNaN(finalWeight)) {
+            const trimmedWeight = weight.trim();
+            finalWeight = trimmedWeight === '' ? null : parseFloat(trimmedWeight);
+            if (finalWeight !== null && isNaN(finalWeight)) {
                 alert('Invalid weight. Please enter a valid number.');
                 return;
             }
@@ -884,7 +885,7 @@ function DetailedChoreForm({
             {!isUpForGrabs || rewardType === 'weight' ? (
                 <div className="space-y-2 pt-3 border-t">
                     <Label htmlFor="weight">
-                        Weight <span className="text-destructive">*</span>
+                        Weight
                     </Label>
                     <Input
                         id="weight"
@@ -893,10 +894,9 @@ function DetailedChoreForm({
                         placeholder="e.g., 1, 0.5, -2 (0=exclude)"
                         value={weight}
                         onChange={(e) => setWeight(e.target.value)}
-                        required // <-- Make the input required
                     />
                     <p className="text-xs text-muted-foreground">
-                        Enter a number (positive or negative). Chores with 0 weight are excluded from allowance calculation.
+                        Enter a number (positive or negative). Leave blank or use 0 to exclude this chore from allowance calculation.
                     </p>
                 </div>
             ) : null}
@@ -1319,7 +1319,6 @@ function DetailedChoreForm({
                     disabled={
                         !title ||
                         assignees.length === 0 ||
-                        (rewardType === 'weight' && !weight) ||
                         (rewardType === 'fixed' && isUpForGrabs && (!rewardAmount || !rewardCurrency || rewardCurrency === '__DEFINE_NEW__'))
                     }
                 >

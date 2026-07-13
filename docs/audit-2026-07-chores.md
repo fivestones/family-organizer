@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: weightless chores remain editable (§1.4).** A blank weight is now a valid explicit weightless value and saves as `null`; invalid non-empty numeric input is still rejected. The form no longer marks weight required or disables the save/update button solely because the field is blank, and its helper text explains blank/zero exclusion. Verification: all 5 `DetailedChoreForm` DOM tests pass, including editing an existing null-weight chore, and `tsc --noEmit` passes.
 - **2026-07-14 — Completed: bulk task completion uses one evolving task snapshot (§1.2).** `buildBulkTaskUpdateTransactions` owns a shared cloned task map and feeds it through each child update, so sibling transitions and ancestor rollups accumulate within the same Instant transaction batch. `ChoreList` now uses that helper for “Mark All Done & Complete”; duplicate task IDs are ignored. A three-sibling regression proves the final parent update is `done`, `isCompleted: true`, and `childTasksComplete: true`. Verification: all 7 task-update mutation tests and `tsc --noEmit` pass.
 - **2026-07-14 — Completed and deployed: chore-completion ownership and payout-field isolation (§2.1).** Member-scoped kids can create completion rows only with `allowanceAwarded: false`, link `completedBy`/`markedBy` only to their authenticated family member, and update only their own `completed`, `notDone`, and `dateCompleted` fields. They cannot update a sibling's row, change `dateDue`, re-arm `allowanceAwarded`, delete/unlink completions, or create rows from the shared kid principal; parents retain the administrative paths. The rules were pushed to the configured Instant app. Verification: 7 local permission-contract tests, the focused shared-principal unit test, `tsc --noEmit`, and the hosted anonymous/shared-kid/member-kid/parent matrix pass using the same multi-step transaction shape as `ChoresTracker`.
 - **2026-07-14 — Completed: up-for-grabs claims converge and legacy duplicates cannot double-credit (§1.1).** A shared UUIDv5 helper derives the completion row ID from `(choreId, dateDue)` for up-for-grabs chores, so concurrent web, countdown/sequence, and mobile claims update/link the same Instant row instead of creating two rewards. Normal assigned chores retain random IDs. Existing duplicate rows are canonicalized by earliest `dateCompleted`: XP credits only that winner, and allowance preprocessing suppresses losing rows while expanding the winner's award-mark set to close every duplicate. Verification: 37 focused shared-core/chore-utils/ChoresTracker tests pass; `tsc --noEmit` passes.
@@ -57,9 +58,11 @@
 
 **Fix:** document the intended invariants and add unit tests pairing rotation with `createChorePausePatch` / exdates. If retroactive stability matters (it does for allowance recalcs), snapshot the assignee onto the completion row at completion time (`assignedTo` link) and use the stored value for anything historical.
 
-### 1.4 Editing a chore that has no weight can't be saved — **Low, Confirmed**
+### 1.4 Editing a chore that has no weight can't be saved — **Completed 2026-07-14**
 
 On edit, a null weight hydrates the input as `''` ([DetailedChoreForm.tsx:196](components/DetailedChoreForm.tsx:196)), and `handleSave` rejects `parseFloat('') = NaN` with an alert ([DetailedChoreForm.tsx:493-498](components/DetailedChoreForm.tsx:493)) — so saving *any* edit to a weightless chore demands entering a number. Treat empty as null (weightless) instead. While in there: the form's ~10 validation paths use native `alert()`; the rest of the app uses toasts.
+
+**Completed:** `handleSave` distinguishes blank input from malformed non-empty input and persists blank as `null`. The HTML required marker and button-level `!weight` gate were removed, while numeric values—including zero and negatives—continue through the existing path. Native validation alerts remain a separate form-polish cleanup.
 
 ### 1.5 Unresolved UTC questions in occurrence helpers — **Low**
 
@@ -149,7 +152,7 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 ## 7. Fix plan
 
 **Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; ~~2.1 completion permission tightening~~ **completed and deployed 2026-07-14**; ~~1.2 shared-map bulk completion~~ **completed 2026-07-14**.
-**Phase 1 — integrity:** 4.1 chore deletion impact dialog + cascades; 1.4 weightless-chore save fix.
+**Phase 1 — integrity:** 4.1 chore deletion impact dialog + cascades; ~~1.4 weightless-chore save fix~~ **completed 2026-07-14**.
 **Phase 2 — consolidation:** 3.1 single shared-core implementation + contract test; 3.2 dead-code removal; 1.5 resolve/delete legacy occurrence helpers.
 **Phase 3 — performance:** 5.1 occurrence-set memoization + rotation index caching; deduplicate countdown builder calls.
 **Phase 4 — polish:** rotation transparency, claim flow, backfill, joint-chore XP decision, countdown scenario tests (5.2).

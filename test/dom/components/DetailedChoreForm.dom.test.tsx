@@ -167,6 +167,34 @@ describe('DetailedChoreForm', () => {
         );
     });
 
+    it('saves edits to a weightless chore without forcing a numeric weight', async () => {
+        const { onSave } = renderForm({
+            initialChore: {
+                id: 'weightless-chore',
+                title: 'Put Shoes Away',
+                description: '',
+                startDate: '2026-01-15T00:00:00.000Z',
+                rrule: null,
+                rotationType: 'none',
+                assignees: [{ id: 'm1' }],
+                weight: null,
+                estimatedDurationSecs: null,
+                isUpForGrabs: false,
+                isJoint: false,
+            } as any,
+        });
+        const user = userEvent.setup();
+
+        const weightInput = screen.getByLabelText(/^Weight$/);
+        expect(weightInput).toHaveValue(null);
+
+        await user.click(screen.getByRole('button', { name: /update chore/i }));
+
+        expect(onSave).toHaveBeenCalledTimes(1);
+        expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ weight: null }));
+        expect(alert).not.toHaveBeenCalled();
+    });
+
     it('saves rotation order in assignment order and assignee order when rotation is enabled', async () => {
         const { onSave } = renderForm();
         const user = userEvent.setup();
