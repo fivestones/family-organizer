@@ -1040,6 +1040,7 @@ const Calendar = ({
     // add displayOfficialNepaliMonthNames = false, when false will give the short month names everybody uses
     // and displayMonthNumber = false, to display the month number as well as the name.
     const currentUser = useOptionalAuth()?.currentUser || null;
+    const canMutateCalendar = currentUser?.role === 'parent';
     const { theme: dashboardTheme } = useDashboardTheme();
     const { setActiveTheme } = useActiveDashboardTheme();
 
@@ -4260,6 +4261,13 @@ const Calendar = ({
     }, [getDayViewDominantDayKeyFromPointer, getDayViewTimedDropFromPointer]);
 
     useEffect(() => {
+        if (!canMutateCalendar) {
+            activeDragMetricsRef.current = null;
+            setDragRecurrenceIndicator(null);
+            setDayViewDragPreview(null);
+            return;
+        }
+
         const cleanup = monitorForElements({
             onDragStart: ({ source, location }) => {
                 if (source.data.type !== 'calendar-event') {
@@ -4337,7 +4345,7 @@ const Calendar = ({
         });
 
         return cleanup;
-    }, [applyCalendarMoveUpdate, buildCalendarMoveTargetFromDrop, syncDragRecurrenceIndicator]);
+    }, [applyCalendarMoveUpdate, buildCalendarMoveTargetFromDrop, canMutateCalendar, syncDragRecurrenceIndicator]);
 
     useLayoutEffect(() => {
         const pendingAdjust = pendingTopScrollAdjustRef.current;
@@ -5925,6 +5933,7 @@ const Calendar = ({
                     eventFontScale={effectiveYearFontScale}
                     showGregorianDays={effectiveShowGregorianCalendar}
                     showBsDays={effectiveShowBsCalendar}
+                    mutationEnabled={canMutateCalendar}
                     onDayClick={handleDayClick}
                     onDayDoubleClick={handleDayDoubleClick}
                     onEventClick={handleEventClick}
@@ -5981,6 +5990,7 @@ const Calendar = ({
                                         showGregorianCalendar={effectiveShowGregorianCalendar}
                                         showBsCalendar={effectiveShowBsCalendar}
                                         items={dayViewItems}
+                                        mutationEnabled={canMutateCalendar}
                                         dragPreview={dayViewDragPreview}
                                         verticalResetKey={dayViewVerticalResetKey}
                                         scrollRequest={dayViewScrollRequest}
@@ -6015,6 +6025,7 @@ const Calendar = ({
                                         showGregorianCalendar={effectiveShowGregorianCalendar}
                                         showBsCalendar={effectiveShowBsCalendar}
                                         showInlineNonBasisMonthBreaks={effectiveShowInlineNonBasisMonthBreaks}
+                                        mutationEnabled={canMutateCalendar}
                                         scrollContainerRef={scrollContainerRef}
                                         onShiftAnimationComplete={handleYearShiftAnimationComplete}
                                         onDayClick={handleDayClick}
@@ -6140,6 +6151,7 @@ const Calendar = ({
                                                                                     weekSpanLanes={weekSpanLanes}
                                                                                     onEventClick={handleEventClick}
                                                                                     onEventDoubleClick={handleEventDoubleClick}
+                                                                                    mutationEnabled={canMutateCalendar}
                                                                                     isEventSelected={isEventSelected}
                                                                                 />
                                                                             ) : null}
@@ -6184,7 +6196,7 @@ const Calendar = ({
                                                                                             item={item}
                                                                                             index={index}
                                                                                             selected={isEventSelected(item)}
-                                                                                            draggableEnabled={item.calendarItemKind !== 'chore'}
+                                                                                            draggableEnabled={canMutateCalendar && item.calendarItemKind !== 'chore'}
                                                                                             onClick={(e) => handleEventClick(e, item)}
                                                                                             onDoubleClick={(e) => handleEventDoubleClick(e, item)}
                                                                                         />

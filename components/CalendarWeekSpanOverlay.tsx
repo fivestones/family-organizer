@@ -58,6 +58,7 @@ interface CalendarWeekSpanOverlayProps {
     eventScale?: number;
     memberIndicatorStyle?: 'badge' | 'dot';
     interactive?: boolean;
+    mutationEnabled?: boolean;
     eventTestIds?: boolean;
     isEventSelected?: (item: CalendarItem) => boolean;
 }
@@ -73,6 +74,7 @@ export default function CalendarWeekSpanOverlay({
     eventScale,
     memberIndicatorStyle = 'badge',
     interactive = true,
+    mutationEnabled = true,
     eventTestIds = true,
     isEventSelected,
 }: CalendarWeekSpanOverlayProps) {
@@ -114,7 +116,7 @@ export default function CalendarWeekSpanOverlay({
                                 className={segment.className}
                                 continuesBefore={segment.continuesBefore}
                                 continuesAfter={segment.continuesAfter}
-                                draggableEnabled={interactive}
+                                draggableEnabled={interactive && mutationEnabled}
                                 testId={eventTestIds ? undefined : null}
                                 onClick={interactive && onEventClick ? (event) => onEventClick(event, segment.item) : undefined}
                                 onDoubleClick={

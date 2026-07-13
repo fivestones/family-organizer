@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     monitorConfig: null as any,
     dropTargetForElements: vi.fn(),
     dropCleanup: vi.fn(),
+    currentUser: { id: '', role: 'parent' } as { id: string; role: string } | null,
 }));
 
 vi.mock('next/font/local', () => ({
@@ -87,7 +88,7 @@ vi.mock('@/components/DroppableDayCell', () => ({
 }));
 
 vi.mock('@/components/DraggableCalendarEvent', () => ({
-    DraggableCalendarEvent: ({ item, onClick, onDoubleClick, memberIndicatorStyle, layout, selected }: any) => {
+    DraggableCalendarEvent: ({ item, onClick, onDoubleClick, memberIndicatorStyle, layout, selected, draggableEnabled }: any) => {
         const usesChipChrome = (item.calendarItemKind || 'event') === 'event' && (item.isAllDay || layout === 'span');
 
         return (
@@ -97,6 +98,7 @@ vi.mock('@/components/DraggableCalendarEvent', () => ({
                 data-calendar-item-kind={item.calendarItemKind || 'event'}
                 data-calendar-chip-surface={usesChipChrome ? 'chip' : 'plain'}
                 data-calendar-selected={selected ? 'true' : 'false'}
+                data-calendar-draggable={draggableEnabled ? 'true' : 'false'}
                 data-calendar-search-state={item.__liveSearchState || 'normal'}
                 data-member-colors={(item.pertainsTo || []).map((member: any) => member?.color || '').join(',')}
                 data-member-indicator-style={memberIndicatorStyle || 'badge'}
@@ -109,6 +111,10 @@ vi.mock('@/components/DraggableCalendarEvent', () => ({
             </button>
         );
     },
+}));
+
+vi.mock('@/components/AuthProvider', () => ({
+    useOptionalAuth: () => ({ currentUser: mocks.currentUser }),
 }));
 
 vi.mock('@/components/AddEvent', () => ({
@@ -233,6 +239,7 @@ describe('Calendar', () => {
         mocks.monitorConfig = null;
         mocks.dropTargetForElements.mockReset();
         mocks.dropCleanup.mockReset();
+        mocks.currentUser = { id: '', role: 'parent' };
         window.localStorage.clear();
         // jsdom doesn't implement scrollIntoView
         if (!Element.prototype.scrollIntoView) {
@@ -335,6 +342,23 @@ describe('Calendar', () => {
 
         fireEvent.click(screen.getByTestId('day-cell-2026-03-16'));
         expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-calendar-selected', 'false');
+    });
+
+    it('does not register event dragging or expose draggable chips for kid members', () => {
+        mocks.currentUser = { id: 'kid-1', role: 'child' };
+        renderCalendarWithItems([
+            {
+                id: 'evt-1',
+                title: 'Family Lunch',
+                description: '',
+                startDate: '2026-03-15',
+                endDate: '2026-03-16',
+                isAllDay: true,
+            },
+        ]);
+
+        expect(screen.getByTestId('calendar-event-evt-1')).toHaveAttribute('data-calendar-draggable', 'false');
+        expect(mocks.monitorForElements).not.toHaveBeenCalled();
     });
 
     it('resolves member colors for regular events and chores before rendering event chips', () => {

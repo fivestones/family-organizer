@@ -53,6 +53,7 @@ interface YearCalendarViewProps {
     showGregorianCalendar: boolean;
     showBsCalendar: boolean;
     showInlineNonBasisMonthBreaks: boolean;
+    mutationEnabled: boolean;
     scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
     onShiftAnimationComplete?: (shift: { key: number; direction: 'left' | 'right' }) => void;
     onDayClick: (day: Date) => void;
@@ -282,6 +283,7 @@ export default function YearCalendarView({
     showGregorianCalendar,
     showBsCalendar,
     showInlineNonBasisMonthBreaks,
+    mutationEnabled,
     scrollContainerRef,
     onShiftAnimationComplete,
     onDayClick,
@@ -647,6 +649,7 @@ export default function YearCalendarView({
                                                         eventScale={effectiveEventFontScale}
                                                         memberIndicatorStyle="dot"
                                                         interactive={interactive}
+                                                        mutationEnabled={mutationEnabled}
                                                         eventTestIds={interactive}
                                                         isEventSelected={isEventSelected}
                                                         onEventClick={interactive ? onEventClick : undefined}
@@ -697,7 +700,7 @@ export default function YearCalendarView({
                                                                 selected={isEventSelected(item)}
                                                                 testId={interactive ? undefined : null}
                                                                 className={!inMonth ? styles.calendarItemCarryover : undefined}
-                                                                draggableEnabled={interactive && item.calendarItemKind !== 'chore'}
+                                                                draggableEnabled={mutationEnabled && interactive && item.calendarItemKind !== 'chore'}
                                                                 onClick={
                                                                     interactive && item.calendarItemKind !== 'chore'
                                                                         ? (event) => onEventClick(event, item)

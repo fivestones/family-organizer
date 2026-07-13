@@ -31,6 +31,7 @@ interface MiniInfiniteCalendarViewProps {
     eventFontScale: number;
     showGregorianDays: boolean;
     showBsDays: boolean;
+    mutationEnabled: boolean;
     onDayClick: (day: Date) => void;
     onDayDoubleClick: (day: Date) => void;
     onEventClick: (event: React.MouseEvent, item: CalendarItem) => void;
@@ -167,6 +168,7 @@ export default function MiniInfiniteCalendarView({
     eventFontScale,
     showGregorianDays,
     showBsDays,
+    mutationEnabled,
     onDayClick,
     onDayDoubleClick,
     onEventClick,
@@ -453,6 +455,7 @@ export default function MiniInfiniteCalendarView({
                                                         laneGapPx={spanLaneGapPx}
                                                         eventScale={effectiveEventScale}
                                                         memberIndicatorStyle="dot"
+                                                        mutationEnabled={mutationEnabled}
                                                         isEventSelected={isEventSelected}
                                                         onEventClick={onEventClick}
                                                         onEventDoubleClick={onEventDoubleClick}
@@ -489,7 +492,7 @@ export default function MiniInfiniteCalendarView({
                                                                 memberIndicatorStyle="dot"
                                                                 scale={effectiveEventScale}
                                                                 selected={isEventSelected(item)}
-                                                                draggableEnabled={item.calendarItemKind !== 'chore'}
+                                                                draggableEnabled={mutationEnabled && item.calendarItemKind !== 'chore'}
                                                                 onClick={
                                                                     item.calendarItemKind === 'chore'
                                                                         ? undefined

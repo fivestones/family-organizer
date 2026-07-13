@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-14 — Completed: kid calendar drag/resize affordances are disabled (§4, fix plan 7).** Calendar mutation capability is derived from the selected member role. Non-parent sessions do not register the global event drag monitor, every event chip/span in monthly, mini, year, and day views receives a disabled drag adapter, and timed-day resize handles are omitted. Event selection and detail viewing remain available; Instant's parent-only `calendarItems` rules remain the authoritative write boundary. Verification: all 54 Calendar DOM tests pass, including a kid-session regression assertion; `tsc --noEmit` passes.
 - **2026-07-14 — Verified and covered: every calendar-sync route self-enforces auth (§4, fix plan 5).** The middleware intentionally leaves `/api/calendar-sync/*` public for cron access, but each of the five Apple endpoints (`calendars`, `connect`, `run`, `settings`, and `status`) calls `requireCalendarSyncRouteAuth` before parsing or invoking sync work. A route-level table test now locks that boundary down and proves every endpoint returns `401` with no device, parent, or cron credential. Verification: 14 focused calendar-auth route/helper tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed and deployed: Apple Calendar account credentials are parent-only (§4, fix plan 6).** `calendarSyncAccounts` stores the encrypted app-specific password plus account identity and sync metadata, so its entity-level view rule now requires a parent instead of any family principal. The repository and sync worker already use the Admin SDK, and the parent settings UI goes through authenticated API routes, so kid reads were unnecessary. Verification: the local permission contract, `tsc --noEmit`, and the hosted live matrix pass; the live kid client receives zero account rows while a parent can query the namespace.
 - **2026-07-14 — Completed: member/parent authorization for file operations (§1, fix plan 1).** Every file server action now requires both the activated-device credential and a server-verified Instant family-member token. Generic upload/finalization is member-gated; bucket listing, object deletion, avatar mutation, file-list refresh, and PIN hashing are parent-only. The `/files` page loads its listing on the client only after `ParentGate` establishes the active principal, and the multipart avatar fallback sends the same token and rejects non-parents before parsing the request or touching S3. Uploads now use sanitized basenames, an explicit safe content-type allowlist, and an exact signed `Content-Type` condition. Verification: 34 focused action/component/auth/route tests pass, including invalid, unlinked, deleted-member, and kid-token cases; `tsc --noEmit` passes.
@@ -26,7 +27,7 @@
 | 1 | Files | **Completed 2026-07-14** | File actions now verify an active member token; bucket enumeration/deletion and other administrative operations require a parent |
 | 2 | PWA | **Completed 2026-07-13** | Runtime cache narrowed; failed, redirected, cross-origin, and `/files/*` responses are excluded |
 | 3 | Shell | **Completed 2026-07-13** | Production no longer emits or initializes the time machine without an explicit public env opt-in |
-| 4 | Calendar | **Medium** | 4,600-line component; middleware exempts `/api/calendar-sync/*` from device auth — each route must self-enforce (verify) |
+| 4 | Calendar | **Completed 2026-07-14** | Public sync routes are covered by their own auth matrix, credential rows are parent-only, and kid drag/resize affordances are disabled |
 | 5 | History | **Medium** | Append-only, undeletable, written on every toggle — unbounded growth with no retention plan |
 | 6 | Docs/hygiene | **Low (Confirmed)** | CLAUDE.md documents endpoints that no longer exist; `lib/db.js` + `lib/db.ts` coexist; assorted dead files |
 
@@ -65,7 +66,7 @@ The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `wi
 ## 4. Calendar & CalDAV sync
 
 - **`components/Calendar.tsx` is ~4,600 lines** — day/week/year views, infinite scroll bookkeeping, drag-and-drop, search, Nepali calendar, and theme broadcasting in one file. It works, but it's where future regressions will hide. Extract per-view modules next time it's touched; don't do a big-bang rewrite.
-- **Kid drag-and-drop vs. parent-only perms — verify.** `calendarItems` writes are parent-only ([instant.perms.ts:663-681](instant.perms.ts:663)), while `DraggableCalendarEvent` drags whenever `draggableEnabled` is passed. If the calendar page doesn't gate that prop on `isParentMode`, a kid's drag optimistically moves the event, then the write is rejected and it snaps back (or worse, appears moved until reload). Confirm callers pass the parent flag; add it if not.
+- **Completed 2026-07-14 — kid drag and timed resize are gated.** The calendar derives mutation capability from the active family-member role, does not register its global drag monitor for non-parents, disables drag adapters on monthly/mini/year/day event surfaces, and omits timed resize handles. Kids retain read-only selection and detail access; parent-only Instant permissions remain the write boundary.
 - **Verified 2026-07-14 — every public calendar-sync route self-enforces.** Middleware exempts `/api/calendar-sync/*` so cron calls can reach it, but all five Apple route handlers call `requireCalendarSyncRouteAuth` before request parsing or sync work. A route-table integration test asserts that `calendars`, `connect`, `run`, `settings`, and `status` each return `401` without credentials.
 - **Completed and deployed 2026-07-14 — CalDAV account credentials are parent-only.** The entity does store `passwordCiphertext`, `passwordKeyVersion`, and `username`. Because only the Admin-SDK repository and the parent sync settings need these rows, `calendarSyncAccounts.view` now requires `isParent`; the hosted kid principal sees no rows.
 
@@ -109,7 +110,7 @@ The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `wi
 **Phase 1 — verify-and-close:**
 5. ~~Confirm every `/api/calendar-sync/*` route self-enforces auth; add the 401 integration test (§4).~~ **Verified and covered 2026-07-14.**
 6. ~~Check what `calendarSyncAccounts` stores; relocate secrets if present (§4).~~ **Completed and deployed 2026-07-14: the credential-bearing rows are parent-only.**
-7. Kid drag-and-drop gating on the calendar (§4).
+7. ~~Kid drag-and-drop gating on the calendar (§4).~~ **Completed 2026-07-14, including timed resize.**
 8. ~~Kid-safe `familyMembers` update: restrict to own row (§6).~~ **Completed and deployed 2026-07-14.**
 
 **Phase 2 — hygiene:**

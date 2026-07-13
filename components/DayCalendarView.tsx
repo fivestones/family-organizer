@@ -30,6 +30,7 @@ interface DayCalendarViewProps {
     showGregorianCalendar: boolean;
     showBsCalendar: boolean;
     items: CalendarItem[];
+    mutationEnabled: boolean;
     dragPreview?: {
         item: CalendarItem;
         startDate: string;
@@ -581,6 +582,7 @@ export default function DayCalendarView({
     showGregorianCalendar,
     showBsCalendar,
     items,
+    mutationEnabled,
     dragPreview = null,
     verticalResetKey,
     scrollRequest,
@@ -1247,7 +1249,7 @@ export default function DayCalendarView({
                                                                         selected={isEventSelected(segment.item)}
                                                                         continuesBefore={segment.continuesBefore || segment.startCol < rowOffset}
                                                                         continuesAfter={segment.continuesAfter || segment.endCol > visibleRowEndCol}
-                                                                        draggableEnabled={segment.item.calendarItemKind !== 'chore'}
+                                                                        draggableEnabled={mutationEnabled && segment.item.calendarItemKind !== 'chore'}
                                                                         onClick={(event) => onEventClick(event, segment.item)}
                                                                         onDoubleClick={(event) => onEventDoubleClick(event, segment.item)}
                                                                     />
@@ -1447,7 +1449,7 @@ export default function DayCalendarView({
                                                                 height: `${Math.max(18, ((displayEndMinute - displayStartMinute) / 60) * effectiveHourHeight)}px`,
                                                             }}
                                                         >
-                                                            {!segment.continuesBefore && !segment.continuesAfter && segment.item.calendarItemKind !== 'chore' ? (
+                                                            {mutationEnabled && !segment.continuesBefore && !segment.continuesAfter && segment.item.calendarItemKind !== 'chore' ? (
                                                                 <button
                                                                     type="button"
                                                                     aria-label={`Resize ${segment.item.title || 'event'} earlier`}
@@ -1483,13 +1485,13 @@ export default function DayCalendarView({
                                                                 index={segment.columnIndex}
                                                                 scale={fontScale}
                                                                 selected={isEventSelected(segment.item)}
-                                                                draggableEnabled={segment.item.calendarItemKind !== 'chore'}
+                                                                draggableEnabled={mutationEnabled && segment.item.calendarItemKind !== 'chore'}
                                                                 className={styles.dayViewTimedEventCard}
                                                                 onClick={(event) => onEventClick(event, segment.item)}
                                                                 onDoubleClick={(event) => onEventDoubleClick(event, segment.item)}
                                                             />
 
-                                                            {!segment.continuesBefore && !segment.continuesAfter && segment.item.calendarItemKind !== 'chore' ? (
+                                                            {mutationEnabled && !segment.continuesBefore && !segment.continuesAfter && segment.item.calendarItemKind !== 'chore' ? (
                                                                 <button
                                                                     type="button"
                                                                     aria-label={`Resize ${segment.item.title || 'event'} later`}
