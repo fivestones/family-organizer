@@ -10,6 +10,7 @@ import {
     type ChoreScheduleInfo,
 } from '@/lib/task-series-schedule';
 import type { Task } from '@/lib/task-scheduler';
+import { buildTaskSchedulePreview } from '@/lib/task-series-preview';
 
 // Helper to build minimal tasks for testing
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
@@ -27,6 +28,45 @@ function makeDayBreak(id: string, order: number): Task {
 }
 
 describe('task-series-schedule', () => {
+    describe('buildTaskSchedulePreview', () => {
+        it('separates original plan dates from the live rolling queue', () => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date('2026-04-03T12:00:00Z'));
+            const schedule: ChoreScheduleInfo = {
+                startDate: '2026-04-01',
+                rruleString: 'RRULE:FREQ=DAILY',
+                seriesStartDate: '2026-04-01',
+                exdates: [],
+            };
+            const tasks = [
+                makeTask({ id: 'done', order: 0, workflowState: 'done', isCompleted: true, completedOnDate: '2026-04-01' }),
+                makeDayBreak('break-1', 1),
+                makeTask({ id: 'current', order: 2, workflowState: 'in_progress' }),
+                makeDayBreak('break-2', 3),
+                makeTask({ id: 'next', order: 4 }),
+            ];
+
+            const preview = buildTaskSchedulePreview(schedule, tasks);
+
+            expect(preview.done).toEqual({
+                plannedDateKey: '2026-04-01',
+                projectedDateKey: null,
+                completedDateKey: '2026-04-01',
+            });
+            expect(preview.current).toEqual({
+                plannedDateKey: '2026-04-02',
+                projectedDateKey: '2026-04-03',
+                completedDateKey: null,
+            });
+            expect(preview.next).toEqual({
+                plannedDateKey: '2026-04-03',
+                projectedDateKey: '2026-04-04',
+                completedDateKey: null,
+            });
+            vi.useRealTimers();
+        });
+    });
+
     describe('countTaskDayBlocks', () => {
         it('returns 1 for tasks with no day-breaks', () => {
             const tasks = [

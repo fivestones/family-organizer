@@ -8,7 +8,6 @@ import StarterKit from '@tiptap/starter-kit';
 import { Plugin } from 'prosemirror-state';
 import { id, tx } from '@instantdb/react';
 import { startOfDay, format, parseISO, addDays, isSameDay } from 'date-fns';
-import { RRule } from 'rrule';
 import { Loader2 } from 'lucide-react';
 import { useDebouncedCallback } from 'use-debounce';
 import { SlashCommand, slashCommandSuggestion } from './SlashCommand';
@@ -34,6 +33,7 @@ import { computeDeletionImpact, taskHasData, type TaskLikeForGuard } from '@/lib
 import { TaskDeleteConfirmDialog } from './TaskDeleteConfirmDialog';
 import { buildTaskIdRepairPlan, type TaskNodeIdentity } from '@/lib/task-editor-ids';
 import { buildSchedulerTasksFromEditorDocument, restorePersistedTaskNodes } from '@/lib/task-editor-document';
+import { buildTaskSchedulePreview } from '@/lib/task-series-preview';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
 interface Task {
@@ -725,28 +725,64 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
             // 1. Determine Logic Strategy
             // Do we use a Chores RRule? Or Manual Relative Days?
             const chore = scheduledActivityId ? data?.chores?.find((c: any) => c.id === scheduledActivityId) : null;
-            const useRRule = chore && chore.rrule;
+            const useRRule = Boolean(chore?.rrule);
 
             try {
-                let rruleObj: RRule | null = null;
                 let currentDate: Date = startDate || startOfDay(new Date());
                 let dayCounter = 1; // 1-based index for "Day 1", "Day 2", etc.
 
                 if (useRRule) {
-                    // --- RRULE STRATEGY ---
-                    const rruleOptions = RRule.parseString(chore.rrule);
-                    rruleOptions.dtstart = startDate; // Override start date
-                    rruleObj = new RRule(rruleOptions);
+                    const schedulerTasks = buildSchedulerTasksFromEditorDocument(
+                        json,
+                        seriesDataRef.current?.tasks || []
+                    ) as SchedulerTask[];
+                    const schedule: ChoreScheduleInfo = {
+                        startDate: chore.startDate
+                            ? new Date(chore.startDate).toISOString().slice(0, 10)
+                            : format(startDate, 'yyyy-MM-dd'),
+                        rruleString: chore.rrule,
+                        seriesStartDate: startDate ? format(startDate, 'yyyy-MM-dd') : null,
+                        exdates: Array.isArray(chore.exdates) ? chore.exdates : [],
+                    };
+                    const previewByTaskId = buildTaskSchedulePreview(
+                        schedule,
+                        schedulerTasks,
+                        Number(seriesDataRef.current?.pullForwardCount || 0)
+                    );
+                    let lastDisplayedPreview = '';
 
-                    // Get first valid date
-                    const firstDate = rruleObj.after(new Date(startDate.getTime() - 24 * 60 * 60 * 1000), true);
-                    if (firstDate) {
-                        currentDate = firstDate;
+                    for (const node of json.content) {
+                        if (node.type !== 'taskItem' || !node.attrs || node.attrs.isDayBreak) continue;
+                        const id = node.attrs.id;
+                        const preview = previewByTaskId[id];
+                        if (!preview) continue;
+
+                        const displayKey = preview.completedDateKey || preview.projectedDateKey || preview.plannedDateKey;
+                        if (!displayKey) continue;
+                        const displayDate = parseISO(`${displayKey}T12:00:00`);
+                        let dateLabel = '';
+                        if (preview.completedDateKey) {
+                            dateLabel = `Completed ${format(displayDate, 'E, M/d')}`;
+                        } else if (
+                            preview.plannedDateKey &&
+                            preview.projectedDateKey &&
+                            preview.plannedDateKey !== preview.projectedDateKey
+                        ) {
+                            dateLabel = `Plan ${format(parseISO(`${preview.plannedDateKey}T12:00:00`), 'E, M/d')} · now ${format(displayDate, 'E, M/d')}`;
+                        } else {
+                            dateLabel = `Projected ${format(displayDate, 'E, M/d')}`;
+                        }
+
+                        const signature = `${dateLabel}|${displayKey}`;
+                        map[id] = {
+                            label: signature === lastDisplayedPreview ? '' : dateLabel,
+                            date: displayDate,
+                        };
+                        lastDisplayedPreview = signature;
                     }
-                } else {
-                    // --- MANUAL STRATEGY ---
-                    // currentDate defaults to startDate (or today).
-                    // We will increment dayCounter on breaks.
+
+                    setTaskDateMap(map);
+                    return;
                 }
 
                 let lastDisplayedDateLabel = '';
@@ -757,16 +793,8 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
 
                         if (isDayBreak) {
                             // --- HANDLE BREAK ---
-                            if (useRRule && rruleObj) {
-                                // Advance to next scheduled instance
-                                const next = rruleObj.after(currentDate);
-                                if (next) currentDate = next;
-                            } else {
-                                // Advance counter
-                                dayCounter++;
-                                // We increment the date object too, assuming consecutive days for "Day 2", etc.
-                                currentDate = addDays(currentDate, 1);
-                            }
+                            dayCounter++;
+                            currentDate = addDays(currentDate, 1);
 
                             // Breaks get the internal date but no label
                             map[id] = { label: '', date: currentDate };
@@ -774,17 +802,12 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                             // --- STANDARD TASK ---
                             let dateLabel = '';
 
-                            if (useRRule) {
+                            if (dayCounter === 1) {
+                                // First section shows the actual date
                                 dateLabel = format(currentDate, 'E, M/d');
                             } else {
-                                // Manual Strategy
-                                if (dayCounter === 1) {
-                                    // First section shows the actual date
-                                    dateLabel = format(currentDate, 'E, M/d');
-                                } else {
-                                    // Successive sections show "Day X"
-                                    dateLabel = `Day ${dayCounter}`;
-                                }
+                                // Successive sections show "Day X"
+                                dateLabel = `Day ${dayCounter}`;
                             }
 
                             const showLabel = dateLabel !== lastDisplayedDateLabel;

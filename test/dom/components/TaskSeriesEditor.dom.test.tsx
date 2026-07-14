@@ -648,6 +648,82 @@ describe('TaskSeriesEditor', () => {
         expect(screen.getByRole('button', { name: /^history$/i })).toBeInTheDocument();
     });
 
+    it('labels completed, planned, and live-projected dates from the shared scheduler', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-04-03T12:00:00Z'));
+        seedExistingSeries({
+            scheduledActivity: { id: 'chore-1', title: 'Morning Chore' },
+            tasks: [
+                {
+                    id: 'done',
+                    text: 'Finished task',
+                    order: 0,
+                    indentationLevel: 0,
+                    isDayBreak: false,
+                    workflowState: 'done',
+                    isCompleted: true,
+                    completedOnDate: '2026-04-01',
+                    parentTask: [],
+                },
+                { id: 'break-1', text: '', order: 1, indentationLevel: 0, isDayBreak: true, parentTask: [] },
+                {
+                    id: 'current',
+                    text: 'Current task',
+                    order: 2,
+                    indentationLevel: 0,
+                    isDayBreak: false,
+                    workflowState: 'in_progress',
+                    parentTask: [],
+                },
+                { id: 'break-2', text: '', order: 3, indentationLevel: 0, isDayBreak: true, parentTask: [] },
+                {
+                    id: 'next',
+                    text: 'Next task',
+                    order: 4,
+                    indentationLevel: 0,
+                    isDayBreak: false,
+                    workflowState: 'not_started',
+                    parentTask: [],
+                },
+            ],
+        });
+        editorMocks.queryState.data.chores = [
+            { id: 'chore-1', title: 'Morning Chore', startDate: '2026-04-01', rrule: 'RRULE:FREQ=DAILY', exdates: [] },
+        ];
+        editorMocks.editor.getJSON.mockReturnValue({
+            type: 'doc',
+            content: [
+                {
+                    type: 'taskItem',
+                    attrs: { id: 'done', indentationLevel: 0, isDayBreak: false },
+                    content: [{ type: 'text', text: 'Finished task' }],
+                },
+                { type: 'taskItem', attrs: { id: 'break-1', indentationLevel: 0, isDayBreak: true } },
+                {
+                    type: 'taskItem',
+                    attrs: { id: 'current', indentationLevel: 0, isDayBreak: false },
+                    content: [{ type: 'text', text: 'Current task' }],
+                },
+                { type: 'taskItem', attrs: { id: 'break-2', indentationLevel: 0, isDayBreak: true } },
+                {
+                    type: 'taskItem',
+                    attrs: { id: 'next', indentationLevel: 0, isDayBreak: false },
+                    content: [{ type: 'text', text: 'Next task' }],
+                },
+            ],
+        });
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(screen.getByLabelText('Task title for Finished task').closest('article')).toHaveTextContent('Completed Wed, 4/1');
+        expect(screen.getByLabelText('Task title for Current task').closest('article')).toHaveTextContent('Plan Thu, 4/2 · now Fri, 4/3');
+        expect(screen.getByLabelText('Task title for Next task').closest('article')).toHaveTextContent('Plan Fri, 4/3 · now Sat, 4/4');
+    });
+
     it('starts with the bulk editor expanded and lets stacked layouts collapse it', async () => {
         const user = userEvent.setup();
 
