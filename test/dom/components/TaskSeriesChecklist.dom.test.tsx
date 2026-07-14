@@ -60,7 +60,7 @@ vi.mock('@/components/PDFPreview', () => ({
 }));
 
 vi.mock('@/components/ui/fireworks', () => ({
-    Fireworks: () => null,
+    Fireworks: ({ active }: { active: boolean }) => <div data-testid="fireworks" data-active={String(active)} />,
 }));
 
 vi.mock('lucide-react', async (importOriginal) => {
@@ -118,7 +118,7 @@ describe('TaskSeriesChecklist', () => {
         expect(container).toBeEmptyDOMElement();
     });
 
-    it('keeps a done task visible when the scheduler includes it for the viewed date', () => {
+    it('keeps a scheduler-returned done task checked in place for the viewed date', () => {
         const completedTask = task({
             id: 'done-today',
             text: 'Finished today',
@@ -139,8 +139,42 @@ describe('TaskSeriesChecklist', () => {
             />
         );
 
+        expect(screen.getByRole('checkbox')).toBeChecked();
         expect(screen.getByText('Done')).toBeInTheDocument();
-        expect(screen.getByText('1 task')).toBeInTheDocument();
+        expect(screen.queryByText('1 task')).not.toBeInTheDocument();
+    });
+
+    it('checks an active task immediately and starts completion feedback before data returns', async () => {
+        const user = userEvent.setup();
+        const onToggle = vi.fn();
+        const activeTask = task({
+            id: 'active-task',
+            text: 'Put away dishes',
+            order: 1,
+            workflowState: 'not_started',
+        });
+
+        render(
+            <TaskSeriesChecklist
+                tasks={[activeTask] as any}
+                allTasks={[activeTask] as any}
+                onToggle={onToggle}
+                isReadOnly={false}
+                selectedMember="kid-a"
+                showDetails={false}
+            />
+        );
+
+        const checkbox = screen.getByRole('checkbox');
+        expect(checkbox).not.toBeChecked();
+        expect(screen.getByTestId('fireworks')).toHaveAttribute('data-active', 'false');
+
+        await user.click(checkbox);
+
+        expect(onToggle).toHaveBeenCalledWith('active-task', false);
+        expect(checkbox).toBeChecked();
+        expect(screen.getByTestId('fireworks')).toHaveAttribute('data-active', 'true');
+        expect(screen.getByText('Done')).toBeInTheDocument();
     });
 
     it('shows header/context rows without auto-completing them in interactive mode', () => {

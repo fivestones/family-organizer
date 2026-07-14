@@ -16,6 +16,7 @@ import { FocusOverlay } from '@/components/responses/FocusOverlay';
 import type { FocusPanelItem, FocusPanelState, FocusableItem } from '@/components/responses/focus-panel-types';
 import type { GradeTypeLike } from '@/lib/task-response-types';
 import { SanitizedRichText } from '@/components/responses/SanitizedRichText';
+import { Fireworks } from '@/components/ui/fireworks';
 import {
     getTaskChildProgressPercent,
     getBucketedTasks,
@@ -199,6 +200,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const [composerRestoreTiming, setComposerRestoreTiming] = useState<TaskRestoreTiming | null>(null);
     const [isSubmittingComposer, setIsSubmittingComposer] = useState(false);
     const [focusPanelState, setFocusPanelState] = useState<FocusPanelState>({ mode: 'closed' });
+    const [optimisticCompletedIds, setOptimisticCompletedIds] = useState<Set<string>>(new Set());
+    const completionFeedbackTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
     const toggleLocalExpand = (taskId: string) => {
         setLocalExpandedIds((prev) => {
@@ -212,17 +215,24 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         });
     };
 
-    const activeScheduledTasks = useMemo(() => scheduledTasks.filter((task) => !isTaskDone(task)), [scheduledTasks]);
+    // `scheduledTasks` is already the live scheduler's projection for the
+    // viewed date. A done row in this list was completed on that date and stays
+    // in place checked; historical done rows remain available only in the bin.
+    const inPlaceScheduledTasks = scheduledTasks;
+    const inPlaceScheduledTaskIds = useMemo(
+        () => new Set(inPlaceScheduledTasks.map((task) => task.id)),
+        [inPlaceScheduledTasks]
+    );
 
     const visibleNodes: Task[] = useMemo(() => {
-        if (!activeScheduledTasks || activeScheduledTasks.length === 0) return [];
+        if (!inPlaceScheduledTasks || inPlaceScheduledTasks.length === 0) return [];
 
-        const scheduledIds = new Set(activeScheduledTasks.map((t) => t.id));
+        const scheduledIds = new Set(inPlaceScheduledTasks.map((t) => t.id));
         const visibleNodesMap = new Map<string, Task>();
 
-        activeScheduledTasks.forEach((t) => visibleNodesMap.set(t.id, t));
+        inPlaceScheduledTasks.forEach((t) => visibleNodesMap.set(t.id, t));
 
-        activeScheduledTasks.forEach((task) => {
+        inPlaceScheduledTasks.forEach((task) => {
             let current = task;
             let depth = 0;
             let parentId = getParentId(current);
@@ -243,7 +253,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
         });
 
         return Array.from(visibleNodesMap.values()).sort((a, b) => (a.order || 0) - (b.order || 0));
-    }, [activeScheduledTasks, allTasks]);
+    }, [inPlaceScheduledTasks, allTasks]);
 
     const bucketedTasks = useMemo(() => {
         const sorted = (state: TaskBucketState) =>
@@ -260,9 +270,56 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
             blocked: sorted('blocked'),
             skipped: sorted('skipped'),
             needs_review: sorted('needs_review'),
-            done: sorted('done'),
+            done: sorted('done').filter((task) => !inPlaceScheduledTaskIds.has(task.id)),
         };
-    }, [allTasks]);
+    }, [allTasks, inPlaceScheduledTaskIds]);
+
+    useEffect(() => {
+        const timers = completionFeedbackTimersRef.current;
+        return () => {
+            for (const timer of Array.from(timers.values())) clearTimeout(timer);
+            timers.clear();
+        };
+    }, []);
+
+    const setOptimisticCompletion = useCallback((taskId: string, active: boolean) => {
+        const existingTimer = completionFeedbackTimersRef.current.get(taskId);
+        if (existingTimer) clearTimeout(existingTimer);
+        completionFeedbackTimersRef.current.delete(taskId);
+
+        setOptimisticCompletedIds((previous) => {
+            const next = new Set(previous);
+            if (active) next.add(taskId);
+            else next.delete(taskId);
+            return next;
+        });
+
+        if (active) {
+            const timer = setTimeout(() => {
+                completionFeedbackTimersRef.current.delete(taskId);
+                setOptimisticCompletedIds((previous) => {
+                    const next = new Set(previous);
+                    next.delete(taskId);
+                    return next;
+                });
+            }, 1_500);
+            completionFeedbackTimersRef.current.set(taskId, timer);
+        }
+    }, []);
+
+    const toggleTaskCompletion = useCallback(
+        (task: Task) => {
+            const currentlyDone = isTaskDone(task) || optimisticCompletedIds.has(task.id);
+            setOptimisticCompletion(task.id, !currentlyDone);
+            try {
+                onToggle(task.id, currentlyDone);
+            } catch (error) {
+                setOptimisticCompletion(task.id, false);
+                throw error;
+            }
+        },
+        [onToggle, optimisticCompletedIds, setOptimisticCompletion]
+    );
 
     const actionableCount = useMemo(() => allTasks.filter((task) => isActionableTask(task, allTasks)).length, [allTasks]);
     const hasAnyVisibleContent = hasVisibleTaskSeriesContent(scheduledTasks, allTasks);
@@ -279,7 +336,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
 
     if (!hasAnyVisibleContent || actionableCount === 0) return null;
 
-    const scheduledIds = new Set(activeScheduledTasks.map((t) => t.id));
+    const scheduledIds = new Set(inPlaceScheduledTasks.map((t) => t.id));
 
     const toggleBucketSection = (state: TaskBucketState) => {
         setExpandedBuckets((prev) => ({
@@ -608,6 +665,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     const renderActiveTaskRow = (task: Task) => {
         const isHeader = hasScheduledChildren(task.id, scheduledIds, allTasks) || !scheduledIds.has(task.id);
         const currentState = getTaskWorkflowState(task);
+        const isVisuallyDone = isTaskDone(task) || optimisticCompletedIds.has(task.id);
         const canMutate = !isReadOnly;
         const { subtitle, immediateParentLabel } = getTaskContextMeta(task, allTasks);
         const childProgressPercent = isHeader ? getTaskChildProgressPercent(task.id, allTasks) : null;
@@ -647,13 +705,19 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                 className="group relative my-1 flex items-start pr-2"
                 style={{ marginLeft: `${(task.indentationLevel || 0) * 1.5}rem` }}
             >
-                <div className="flex min-w-0 flex-grow flex-col rounded-lg border border-slate-200 bg-white/80 p-3">
+                <div
+                    className={cn(
+                        'relative flex min-w-0 flex-grow flex-col rounded-lg border p-3 transition-colors',
+                        isVisuallyDone ? 'border-emerald-200 bg-emerald-50/80' : 'border-slate-200 bg-white/80'
+                    )}
+                >
+                    <Fireworks active={optimisticCompletedIds.has(task.id)} />
                     <div className="flex items-start gap-3">
                         <Checkbox
                             id={`task-${task.id}`}
-                            checked={false}
+                            checked={isVisuallyDone}
                             disabled={!canMutate}
-                            onCheckedChange={() => onToggle(task.id, isTaskDone(task))}
+                            onCheckedChange={() => toggleTaskCompletion(task)}
                             className="mt-0.5 h-4 w-4 border-muted-foreground/50 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                         />
                         <div className="min-w-0 flex-1">
@@ -665,8 +729,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                                 >
                                     {task.text}
                                 </button>
-                                <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', statusToneClassName[currentState])}>
-                                    {getTaskStatusLabel(currentState)}
+                                <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', statusToneClassName[isVisuallyDone ? 'done' : currentState])}>
+                                    {getTaskStatusLabel(isVisuallyDone ? 'done' : currentState)}
                                 </span>
                             </div>
                             <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
@@ -733,8 +797,8 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                             >
                                 Details
                             </Button>
-                            <Button type="button" size="sm" onClick={() => onToggle(task.id, false)}>
-                                Done
+                            <Button type="button" size="sm" onClick={() => toggleTaskCompletion(task)}>
+                                {isVisuallyDone ? 'Undo' : 'Done'}
                             </Button>
                         </div>
                     ) : null}
@@ -956,7 +1020,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
                     <div className="flex items-center justify-between">
                         <h4 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Active Work</h4>
                         <span className="text-[11px] text-slate-500">
-                            {activeScheduledTasks.length} active item{activeScheduledTasks.length === 1 ? '' : 's'}
+                            {inPlaceScheduledTasks.length} item{inPlaceScheduledTasks.length === 1 ? '' : 's'} for this date
                         </span>
                     </div>
                     {visibleNodes.map((task) => renderActiveTaskRow(task))}
