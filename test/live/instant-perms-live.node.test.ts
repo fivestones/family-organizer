@@ -158,6 +158,7 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         taskResponseFields: new Set<string>(),
         taskResponseFieldValues: new Set<string>(),
         taskAttachments: new Set<string>(),
+        historyEvents: new Set<string>(),
     };
 
     beforeAll(async () => {
@@ -211,6 +212,9 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         }
         for (const entryId of Array.from(cleanup.taskAttachments)) {
             txs.push(adminDb.tx.taskAttachments[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.historyEvents)) {
+            txs.push(adminDb.tx.historyEvents[entryId].delete());
         }
         for (const entryId of Array.from(cleanup.tasks)) {
             txs.push(adminDb.tx.tasks[entryId].delete());
@@ -473,6 +477,80 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
                 await parentDb.transact(
                     parentDb.tx.choreCompletions[ownCompletionId].update({ allowanceAwarded: true })
                 );
+
+                // Immutable history rows must remain self-attributed for kids.
+                // Parents may still record actions on behalf of any family member.
+                const ownHistoryEventId = instantId();
+                await completionKidDb.transact(
+                    completionKidDb.tx.historyEvents[ownHistoryEventId]
+                        .update({
+                            actionType: 'perms_smoke_own_history',
+                            actorFamilyMemberId: kidMember.id,
+                            domain: 'system',
+                            occurredAt: nowIso,
+                            summary: 'Kid can record own immutable history',
+                        })
+                        .link({ actor: kidMember.id })
+                );
+                cleanup.historyEvents.add(ownHistoryEventId);
+
+                const forgedHistoryEventId = instantId();
+                await expectRejected(
+                    completionKidDb.transact(
+                        completionKidDb.tx.historyEvents[forgedHistoryEventId].update({
+                            actionType: 'perms_smoke_forged_history',
+                            actorFamilyMemberId: siblingMember.id,
+                            domain: 'system',
+                            occurredAt: nowIso,
+                            summary: 'Kid cannot impersonate a sibling',
+                        })
+                    ),
+                    'kid historyEvents create with sibling actor stamp'
+                );
+
+                const forgedHistoryLinkId = instantId();
+                await expectRejected(
+                    completionKidDb.transact(
+                        completionKidDb.tx.historyEvents[forgedHistoryLinkId]
+                            .update({
+                                actionType: 'perms_smoke_forged_history_link',
+                                actorFamilyMemberId: kidMember.id,
+                                domain: 'system',
+                                occurredAt: nowIso,
+                                summary: 'Kid cannot link a sibling as actor',
+                            })
+                            .link({ actor: siblingMember.id })
+                    ),
+                    'kid historyEvents sibling actor link'
+                );
+
+                const sharedKidHistoryEventId = instantId();
+                await expectRejected(
+                    kidDb.transact(
+                        kidDb.tx.historyEvents[sharedKidHistoryEventId].update({
+                            actionType: 'perms_smoke_shared_history',
+                            actorFamilyMemberId: kidMember.id,
+                            domain: 'system',
+                            occurredAt: nowIso,
+                            summary: 'Shared kid principal has no actor identity',
+                        })
+                    ),
+                    'shared kid historyEvents create without member identity'
+                );
+
+                const parentHistoryEventId = instantId();
+                await parentDb.transact(
+                    parentDb.tx.historyEvents[parentHistoryEventId]
+                        .update({
+                            actionType: 'perms_smoke_parent_history',
+                            actorFamilyMemberId: siblingMember.id,
+                            domain: 'system',
+                            occurredAt: nowIso,
+                            summary: 'Parent can record delegated history',
+                        })
+                        .link({ actor: siblingMember.id })
+                );
+                cleanup.historyEvents.add(parentHistoryEventId);
             } finally {
                 completionKidDb.shutdown?.();
             }

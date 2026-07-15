@@ -69,6 +69,23 @@ describe('instant.perms contract', () => {
         expect(perms.familyMembers.allow.link.markedCompletions).toContain("data.id in auth.ref('$user.familyMemberId')");
     });
 
+    it('binds immutable kid history events to the authenticated member actor', () => {
+        const perms = rules as any;
+        expect(perms.historyEvents.bind.authFamilyMemberIds).toBe("auth.ref('$user.familyMemberId')");
+        expect(perms.historyEvents.bind.hasAuthFamilyMemberId).toContain('authFamilyMemberIds.exists');
+        expect(perms.historyEvents.bind.kidOwnActor).toBe('data.actorFamilyMemberId in authFamilyMemberIds');
+        expect(perms.historyEvents.allow.create).toContain('hasAuthFamilyMemberId');
+        expect(perms.historyEvents.allow.create).toContain('kidOwnActor');
+        expect(perms.historyEvents.allow.link.actor).toContain(
+            "data.actorFamilyMemberId in auth.ref('$user.familyMemberId')"
+        );
+        expect(perms.historyEvents.allow.update).toBe('false');
+        expect(perms.historyEvents.allow.delete).toBe('false');
+        expect(perms.familyMembers.allow.link.actedHistoryEvents).toContain(
+            "data.id in auth.ref('$user.familyMemberId')"
+        );
+    });
+
     it('lets family principals link chore completions without opening broader chore writes', () => {
         const perms = rules as any;
         expect(perms.chores.allow.create).toBe('isParent');

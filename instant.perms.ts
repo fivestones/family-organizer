@@ -466,13 +466,17 @@ const rules = {
             isKid: "'kid' in auth.ref('$user.type')",
             isParent: "'parent' in auth.ref('$user.type')",
             isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+            authFamilyMemberIds: "auth.ref('$user.familyMemberId')",
+            hasAuthFamilyMemberId: "authFamilyMemberIds.exists(memberId, memberId != '')",
+            kidOwnActor: 'data.actorFamilyMemberId in authFamilyMemberIds',
         },
         allow: {
             link: {
                 $default: 'isFamilyPrincipal',
+                actor: "isParent || (isKid && data.actorFamilyMemberId in auth.ref('$user.familyMemberId'))",
             },
             view: 'isFamilyPrincipal',
-            create: 'isFamilyPrincipal',
+            create: 'isParent || (isKid && hasAuthFamilyMemberId && kidOwnActor)',
             delete: 'false',
             unlink: {
                 $default: 'false',
@@ -972,6 +976,8 @@ const rules = {
                 completedChores:
                     "'parent' in auth.ref('$user.type') || ('kid' in auth.ref('$user.type') && data.id in auth.ref('$user.familyMemberId'))",
                 markedCompletions:
+                    "'parent' in auth.ref('$user.type') || ('kid' in auth.ref('$user.type') && data.id in auth.ref('$user.familyMemberId'))",
+                actedHistoryEvents:
                     "'parent' in auth.ref('$user.type') || ('kid' in auth.ref('$user.type') && data.id in auth.ref('$user.familyMemberId'))",
             },
             view: 'isFamilyPrincipal',
