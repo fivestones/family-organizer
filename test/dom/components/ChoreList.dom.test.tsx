@@ -11,6 +11,7 @@ const choreListMocks = vi.hoisted(() => ({
     createRRuleWithStartDate: vi.fn(),
     getTasksForDate: vi.fn(() => []),
     isSeriesActiveForDate: vi.fn(() => false),
+    taskSeriesChecklist: vi.fn(),
 }));
 
 vi.mock('@/components/ui/use-toast', () => ({
@@ -80,7 +81,10 @@ vi.mock('next/link', () => ({
 }));
 
 vi.mock('@/components/TaskSeriesChecklist', () => ({
-    TaskSeriesChecklist: () => <div data-testid="task-series-checklist" />,
+    TaskSeriesChecklist: (props: any) => {
+        choreListMocks.taskSeriesChecklist(props);
+        return <div data-testid="task-series-checklist" />;
+    },
 }));
 
 vi.mock('@/lib/task-scheduler', () => ({
@@ -177,6 +181,7 @@ describe('ChoreList', () => {
         choreListMocks.createRRuleWithStartDate.mockReset();
         choreListMocks.getTasksForDate.mockReset();
         choreListMocks.isSeriesActiveForDate.mockReset();
+        choreListMocks.taskSeriesChecklist.mockReset();
         choreListMocks.getTasksForDate.mockReturnValue([]);
         choreListMocks.isSeriesActiveForDate.mockReturnValue(false);
     });
@@ -242,6 +247,51 @@ describe('ChoreList', () => {
         expect(screen.queryByText('Blair Today')).not.toBeInTheDocument();
         expect(screen.queryByText('Alex Tomorrow')).not.toBeInTheDocument();
         expect(screen.queryByText('Visible only when descriptions enabled')).not.toBeInTheDocument();
+    });
+
+    it('allows parent backfill on a past task date while keeping child sessions read-only', async () => {
+        const scheduledTask = { id: 'task-1', text: 'Past assignment', order: 1, isDayBreak: false, isCompleted: false };
+        const pastChore = makeChore({
+            startDate: '2026-04-02',
+            taskSeries: [
+                {
+                    id: 'series-1',
+                    name: 'Past series',
+                    familyMember: [{ id: 'kid-a', name: 'Alex' }],
+                    tasks: [scheduledTask],
+                },
+            ],
+        });
+        choreListMocks.getTasksForDate.mockReturnValue([scheduledTask]);
+
+        const parentRender = renderChoreList({
+            pageMode: 'tasks',
+            selectedMember: 'kid-a',
+            chores: [pastChore],
+            canEditChores: true,
+            currentUser: { id: 'parent-1', role: 'parent' },
+        });
+
+        await waitFor(() => expect(choreListMocks.taskSeriesChecklist).toHaveBeenCalled());
+        expect(choreListMocks.taskSeriesChecklist).toHaveBeenLastCalledWith(
+            expect.objectContaining({ isReadOnly: false, isBackfillMode: true })
+        );
+
+        parentRender.unmount();
+        choreListMocks.taskSeriesChecklist.mockReset();
+
+        renderChoreList({
+            pageMode: 'tasks',
+            selectedMember: 'kid-a',
+            chores: [pastChore],
+            canEditChores: false,
+            currentUser: { id: 'kid-a', role: 'child' },
+        });
+
+        await waitFor(() => expect(choreListMocks.taskSeriesChecklist).toHaveBeenCalled());
+        expect(choreListMocks.taskSeriesChecklist).toHaveBeenLastCalledWith(
+            expect.objectContaining({ isReadOnly: true, isBackfillMode: false })
+        );
     });
 
     it('shows chore descriptions only when the global description setting is enabled', () => {

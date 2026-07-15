@@ -195,6 +195,8 @@ function ChoreList({
     const localToday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     const isToday = isSameDay(safeSelectedDate, localToday);
     const isPastDate = safeSelectedDate.getTime() < localToday.getTime();
+    const canBackfillTaskProgress = isPastDate && canEditChores;
+    const isTaskProgressReadOnly = isPastDate && !canEditChores;
     const formattedSelectedDate = selectedDateKey || safeSelectedDate.toISOString().slice(0, 10);
     const selectedDateIsToday = todayDateKey ? formattedSelectedDate === todayDateKey : isToday;
 
@@ -1097,7 +1099,7 @@ function ChoreList({
                                                                     <input
                                                                         type="checkbox"
                                                                         checked={isTaskDone(task)}
-                                                                        disabled={isPastDate}
+                                                                        disabled={isTaskProgressReadOnly}
                                                                         onChange={() => {
                                                                             void handleTaskPreviewToggle(task, allTasks, chore, { id: series.id, ownerId });
                                                                         }}
@@ -1160,7 +1162,8 @@ function ChoreList({
                                                     })
                                                 }
                                                 familyMemberNamesById={familyMemberNamesById}
-                                                isReadOnly={isPastDate}
+                                                isReadOnly={isTaskProgressReadOnly}
+                                                isBackfillMode={canBackfillTaskProgress}
                                                 selectedMember={selectedMember}
                                                 currentMemberId={currentUser?.id || null}
                                                 currentMemberName={currentUser?.id ? familyMemberNamesById[currentUser.id] : undefined}

@@ -55,6 +55,7 @@ interface Props {
     onRequireTaskAuth?: () => void;
     familyMemberNamesById?: Record<string, string>;
     isReadOnly?: boolean;
+    isBackfillMode?: boolean;
     selectedMember: string | null | 'All';
     /** The logged-in family member's ID (independent of the sidebar filter). */
     currentMemberId?: string | null;
@@ -170,6 +171,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
     onRequireTaskAuth,
     familyMemberNamesById,
     isReadOnly,
+    isBackfillMode,
     selectedMember,
     currentMemberId,
     currentMemberName,
@@ -1015,6 +1017,15 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
 
     return (
         <div className="relative mb-2 mt-3 space-y-3">
+            {isBackfillMode ? (
+                <div
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                    role="status"
+                >
+                    <span className="font-semibold">Parent backfill:</span>{' '}
+                    updates here are saved to {detailContext?.selectedDateLabel || selectedDateKey || 'the selected date'}.
+                </div>
+            ) : null}
             {visibleNodes.length > 0 ? (
                 <div className="space-y-2">
                     <div className="flex items-center justify-between">

@@ -221,6 +221,28 @@ describe('TaskSeriesChecklist', () => {
         expect(screen.getByRole('checkbox')).toBeDisabled();
     });
 
+    it('labels parent backfill mode while leaving the selected-date task interactive', () => {
+        const activeTask = task({ id: 'past-task', text: 'Forgotten checkmark', order: 1 });
+
+        render(
+            <TaskSeriesChecklist
+                tasks={[activeTask] as any}
+                allTasks={[activeTask] as any}
+                onToggle={vi.fn()}
+                isReadOnly={false}
+                isBackfillMode={true}
+                selectedDateKey="2026-04-02"
+                detailContext={{ selectedDateLabel: 'Thu, Apr 2, 2026' }}
+                selectedMember="kid-a"
+                showDetails={false}
+            />
+        );
+
+        expect(screen.getByRole('status')).toHaveTextContent('Parent backfill');
+        expect(screen.getByRole('status')).toHaveTextContent('Thu, Apr 2, 2026');
+        expect(screen.getByRole('checkbox')).toBeEnabled();
+    });
+
     it('shows a rounded percent-complete marker next to parent header rows', () => {
         const onToggle = vi.fn();
         const allTasks = [
