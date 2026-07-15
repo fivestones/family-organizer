@@ -251,7 +251,7 @@ export const getAllowancePeriodForDate = (
         } else if (rule.options.until && periodStartDate >= rule.options.until) {
             // If the start date is on or after the UNTIL date
             periodEndDate = new Date(rule.options.until);
-        } else if (rule.options.count && rule.all().length <= 1) {
+        } else if (rule.options.count === 1) {
             // If count=1, period is just the start date? Or handle based on freq?
             // Let's assume a minimum period length based on frequency for count=1
             periodEndDate = new Date(periodStartDate);

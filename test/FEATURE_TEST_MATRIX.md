@@ -160,7 +160,7 @@ Use fake time for:
 - `FIN-018` `P0` `Planned` E2E: Allowance distribution page computes pending periods and distributes payouts.
 - `FIN-019` `P0` `Planned` Integration: Allowance distribution write path prevents duplicate payout for same period.
 - `FIN-020` `P1` `Planned` Unit: `getAllowancePeriodForDate` weekly/monthly boundary calculations.
-- `FIN-021` `P1` `New (added)` Unit: `getAllowancePeriodForDate` weekly period boundary and pre-start null case.
+- `FIN-021` `P1` `New (added)` Unit: `getAllowancePeriodForDate` weekly period boundary, pre-start null case, and bounded handling of count-limited rules without full recurrence expansion.
 - `FIN-022` `P1` `New (added)` Unit: `calculatePeriodDetails` weighted completion + fixed reward accumulation + up-for-grabs contribution across array- and object-shaped Instant has-one links.
 - `FIN-023` `P2` `Planned` E2E: Child self-service actions allowed/blocked per product rules (withdraw/transfer/view history).
 - `FIN-024` `P2` `New (added)` Unit: `deleteEnvelope` validates source/target/default preconditions and migrates every non-zero balance, including debt, with paired transaction records.

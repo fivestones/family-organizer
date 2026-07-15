@@ -231,6 +231,17 @@ describe('chore-utils date logic', () => {
         expect(period).toBeNull();
     });
 
+    it('does not expand every occurrence in a count-limited allowance rule', () => {
+        const allSpy = vi.spyOn(RRule.prototype, 'all');
+
+        const period = getAllowancePeriodForDate(new Date('2026-03-11T12:00:00Z'), 'FREQ=DAILY;COUNT=10', '2026-03-02');
+
+        expect(period?.startDate.toISOString().slice(0, 10)).toBe('2026-03-11');
+        expect(period?.endDate.toISOString().slice(0, 10)).toBe('2026-03-11');
+        expect(allSpy).not.toHaveBeenCalled();
+        allSpy.mockRestore();
+    });
+
     it('returns only occurrences assigned to the requested member within a period', () => {
         const chore = makeRotatingChore();
         const occurrences = getChoreOccurrencesForMemberInPeriod(
