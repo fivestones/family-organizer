@@ -843,10 +843,11 @@ export const deleteEnvelope = async (
     const targetBalances = targetEnvelope.balances || {};
     const updatedTargetBalances = { ...targetBalances };
 
-    // Transfer funds logic
+    // Move every non-zero balance, including debt, so deleting an envelope
+    // cannot change the member's net position.
     for (const currency in balancesToDelete) {
         const amount = balancesToDelete[currency];
-        if (amount > 0) {
+        if (amount !== 0) {
             const upperCaseCurrency = currency.toUpperCase();
             updatedTargetBalances[upperCaseCurrency] = (updatedTargetBalances[upperCaseCurrency] || 0) + amount;
 

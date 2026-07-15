@@ -163,7 +163,7 @@ Use fake time for:
 - `FIN-021` `P1` `New (added)` Unit: `getAllowancePeriodForDate` weekly period boundary and pre-start null case.
 - `FIN-022` `P1` `New (added)` Unit: `calculatePeriodDetails` weighted completion + fixed reward accumulation + up-for-grabs contribution.
 - `FIN-023` `P2` `Planned` E2E: Child self-service actions allowed/blocked per product rules (withdraw/transfer/view history).
-- `FIN-024` `P2` `New (added)` Unit: `deleteEnvelope` validates source/target/default preconditions and transfers only positive balances with paired transaction records.
+- `FIN-024` `P2` `New (added)` Unit: `deleteEnvelope` validates source/target/default preconditions and migrates every non-zero balance, including debt, with paired transaction records.
 - `FIN-025` `P1` `New (added)` Unit: `setDefaultEnvelope` and `findOrDefaultEnvelope` default selection/repair paths (existing default, Savings, first envelope, create initial Savings).
 - `FIN-026` `P1` `New (added)` Unit: `executeAllowanceTransaction` zero-amount skip and default-envelope deposit/withdraw routing.
 - `FIN-027` `P2` `New (added)` Unit: `calculateEnvelopeProgress` cached/identity conversions with non-monetary balance exclusion.

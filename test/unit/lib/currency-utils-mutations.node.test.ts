@@ -477,12 +477,14 @@ describe('currency-utils mutation helpers', () => {
             );
         });
 
-        it('deletes an envelope, transfers only positive balances, updates default, and records paired transfer transactions', async () => {
+        it('deletes an envelope, migrates assets and debt, updates default, and records paired transfer transactions', async () => {
             currencyMocks.id
                 .mockReturnValueOnce('tx-out-usd')
                 .mockReturnValueOnce('tx-in-usd')
                 .mockReturnValueOnce('tx-out-pts')
-                .mockReturnValueOnce('tx-in-pts');
+                .mockReturnValueOnce('tx-in-pts')
+                .mockReturnValueOnce('tx-out-neg')
+                .mockReturnValueOnce('tx-in-neg');
 
             const db = { transact: vi.fn().mockResolvedValue(undefined) };
             const envelopes: Envelope[] = [
@@ -505,6 +507,7 @@ describe('currency-utils mutation helpers', () => {
             expect(targetBalanceUpdate?.payload?.balances).toEqual({
                 USD: 6,
                 PTS: 3,
+                NEG: -2,
             });
 
             expect(
@@ -513,14 +516,23 @@ describe('currency-utils mutation helpers', () => {
             expect(txs[txs.length - 1]).toEqual({ op: 'delete', entity: 'allowanceEnvelopes', id: 'env-delete' });
 
             const txUpdates = txs.filter((tx) => tx.entity === 'allowanceTransactions' && tx.op === 'update');
-            expect(txUpdates).toHaveLength(4);
-            expect(txUpdates.map((tx: any) => tx.payload.currency).sort()).toEqual(['PTS', 'PTS', 'USD', 'USD']);
-            expect(txUpdates.map((tx: any) => tx.payload.transactionType).sort()).toEqual(['transfer-in', 'transfer-in', 'transfer-out', 'transfer-out']);
+            expect(txUpdates).toHaveLength(6);
+            expect(txUpdates.map((tx: any) => tx.payload.currency).sort()).toEqual(['NEG', 'NEG', 'PTS', 'PTS', 'USD', 'USD']);
+            expect(txUpdates.map((tx: any) => tx.payload.transactionType).sort()).toEqual([
+                'transfer-in',
+                'transfer-in',
+                'transfer-in',
+                'transfer-out',
+                'transfer-out',
+                'transfer-out',
+            ]);
+            expect(txUpdates.find((tx: any) => tx.id === 'tx-out-neg')?.payload.amount).toBe(2);
+            expect(txUpdates.find((tx: any) => tx.id === 'tx-in-neg')?.payload.amount).toBe(-2);
 
             const incomingLinks = txs.filter(
                 (tx) => tx.entity === 'allowanceEnvelopes' && tx.id === 'env-target' && tx.op === 'link' && tx.payload?.incomingTransfers
             );
-            expect(incomingLinks).toHaveLength(2);
+            expect(incomingLinks).toHaveLength(3);
         });
     });
 

@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed: envelope deletion preserves debt (§5; fix plan 6 partial).** Deletion now migrates every non-zero currency balance to the selected target envelope, including negative balances. A debt produces the inverse outgoing entry on the deleted envelope and a negative incoming entry on the retained envelope, so the net position and replayable ledger both remain intact. Zero balances remain omitted. Verification: all 30 focused currency mutation/audit tests, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-15 — Completed: transaction relationships use Instant links only (§5; fix plan 5).** Money mutations no longer write the undeclared scalar attributes `envelope`, `sourceEnvelope`, or `destinationEnvelope`. Ledger rows carry only declared entity attributes, while envelope membership and transfer direction continue through the schema-backed `transactions`, `outgoingTransfers`, and `incomingTransfers` links used by queries and reconciliation. Verification: all 49 focused currency utility tests, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-15 — Completed and deployed: minimum finance permission hardening (§3; fix plan 7).** Envelope deletion is parent-only. Exchange-rate link/create/update/delete/unlink and calculated-period link/create/update/delete/unlink are parent-only while family principals retain read access. The server exchange-rate route writes through admin, so this does not regress client refreshes. Verification: 14 permission/schema contract tests, `tsc --noEmit`, and the full 3-test hosted matrix pass; the live matrix explicitly exercises kid denials and parent success. Envelope create/update remain family-principal operations because current kid transfers mutate both source and recipient envelopes; moving those mutations server-side remains the durable closure.
 - **2026-07-15 — Completed in code and hosted schema: exchange-rate access is server-only (§4; fix plan 8 partial).** The committed fallback credential is removed. Authenticated family clients now call `/api/exchange-rates`; the server reads a two-hour Instant cache, coalesces concurrent stale refreshes, calls OpenExchangeRates with `OPEN_EXCHANGE_RATES_APP_ID`, and admin-upserts deterministic unique `pairKey` rows. Clients no longer write fetched or derived rates. Missing configuration returns a clear 503. The hosted schema has the unique indexed optional `exchangeRates.pairKey`. Verification: 4 service tests, 3 route tests, 19 currency-core tests, 13 schema/permission contract tests, and `tsc --noEmit` pass. External follow-up: revoke/rotate the previously committed provider key and configure its replacement in server runtime secrets.
@@ -29,7 +30,7 @@
 | 4 | **High (Partially fixed)** | Exchange rates, calculated periods, and envelope deletion are closed; direct envelope balance updates await server-mediated transfers |
 | 5 | **Completed 2026-07-15** | Ledger reconciliation now audits finance detail loads and pre-distribution state |
 | 6 | **Completed in code 2026-07-15** | Provider access and caching are server-only; external key rotation/configuration remains |
-| 7 | **Medium (Partially fixed)** | Deleting an envelope silently discards negative balances and float money math remains; undeclared transaction attributes are removed |
+| 7 | **Medium (Partially fixed)** | Debt preservation and undeclared transaction attributes are fixed; float money math and hard-delete ledger continuity remain |
 
 The theme: the **ledger** (`allowanceTransactions`, append-only, well-audited) and the **balances** (a mutable JSON blob on each envelope) are maintained in parallel with nothing enforcing that they agree.
 
@@ -127,7 +128,7 @@ The client previously selected a `NEXT_PUBLIC` value or a committed fallback and
 ## 5. Data-model hygiene
 
 - **Undeclared transaction attributes — Completed 2026-07-15.** All writes of scalar `envelope`, `sourceEnvelope`, and `destinationEnvelope` fields have been removed from allowance transaction payloads. Mutations retain the real schema relationships: ordinary ledger membership uses the envelope's `transactions` link, transfer debits use `outgoingTransfers`, and transfer credits use `incomingTransfers`. Relationship filters such as reconciliation's `where: { envelope: envelopeId }` therefore have one unambiguous source of truth.
-- **Negative balances vanish on envelope deletion.** `deleteEnvelope` migrates only `amount > 0` per currency ([currency-utils.ts:826-828](lib/currency-utils.ts:826)); a negative balance (debt) is erased with no ledger record. Migrate all non-zero balances.
+- **Negative balances on envelope deletion — Completed 2026-07-15.** `deleteEnvelope` now migrates all non-zero balances. For a `-2` debt it adds `-2` to the retained envelope, records a `+2` transfer-out that clears the deleted envelope, and records a `-2` transfer-in on the retained envelope. The two-envelope total and ledger replay therefore remain unchanged.
 - **Deleted envelopes strand their ledger.** The delete removes the envelope row; its transactions keep pointing at a dead ID. `TransactionHistoryView` and reconciliation must tolerate that today. Consider an `archivedAt` soft-delete for envelopes instead — the UI hides them, the ledger stays coherent.
 - **Legacy `i.any()` fields** on envelopes (`amount`, `currency` — [instant.schema.ts:28-30](instant.schema.ts:28)) predate the `balances` JSON. Migrate/remove.
 - **Float money math throughout.** Balances, rewards, and the reconcile epsilon (`0.001`) all ride IEEE doubles; repeated allowance percentages (`(percentage/100) * amount`) plus `toFixed(2)` round-trips will drift by cents over years. Standard fix: integer minor units per currency (`unitDefinitions.decimalPlaces` already exists to drive this). Big migration — schedule it consciously or accept and document cent-level drift.
@@ -158,7 +159,7 @@ The client previously selected a `NEXT_PUBLIC` value or a committed fallback and
 **Phase 1 — trust the ledger:**
 4. ~~Wire `reconcileEnvelope` into finance-page load + pre-distribution (1.2).~~ **Completed 2026-07-15, including ledgerless-legacy preservation.**
 5. ~~Declare or drop the undeclared transaction attributes (§5).~~ **Completed 2026-07-15; schema-backed Instant links are now the only relationship representation.**
-6. Migrate negative balances on envelope delete; consider soft-delete (§5).
+6. **Debt migration completed 2026-07-15:** all non-zero balances move on delete. Soft-delete remains a separate ledger-continuity improvement (§5).
 
 **Phase 2 — permissions & secrets:**
 7. ~~Envelope `delete: isParent`; `exchangeRates` writes parent/server-only; calculated periods parent-only; `allowanceAwarded` kid-write closure (§3).~~ **Completed and deployed (completion state 2026-07-14; remaining minimum finance rules 2026-07-15).** Direct envelope updates move to Phase 3's server-mediated boundary.
