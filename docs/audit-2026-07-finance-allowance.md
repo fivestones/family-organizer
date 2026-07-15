@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed: new fixed rewards pay out in every earned currency (§1.4; fix plan 2).** Each period now passes its non-primary `fixedRewardsEarned` amounts into the atomic payout boundary. That boundary updates every currency bucket in one envelope write and creates one deterministic, unique, immutable ledger/history pair per period/currency before marking completions awarded in the same transaction. Foreign-only periods are actionable in both single-period and bulk controls, and success messages enumerate the currencies actually moved. A partial retry pays only a missing currency leg. Verification: all 7 focused atomic-payout tests and `tsc --noEmit` pass.
 - **2026-07-15 — Completed and deployed: allowance payouts are atomic and idempotent (§1.3; fix plan 1).** Distribution now re-reads the member's latest envelope state, assigns one deterministic immutable transaction ID and unique `distributionKey` per member/period/currency, and submits the balance update, ledger rows, finance history, default-envelope creation/linking, and every `allowanceAwarded` completion update in one Instant transaction. Single-period and bulk actions use the same path; bulk retries skip only previously committed periods. A concurrent duplicate collides on deterministic IDs/unique keys, so Instant rejects the entire second transaction without a second balance write. The hosted schema now has the unique indexed optional `allowanceTransactions.distributionKey`. Verification: 5 focused payout tests, 12 permission/schema contract tests, `tsc --noEmit`, and the 3-test hosted permission/cascade matrix pass; the live matrix explicitly proved duplicate-key rejection.
 - **2026-07-14 — Completed and deployed upstream: kids cannot tamper with payout state (§3; fix plan 7 partial).** `choreCompletions.allowanceAwarded` and `dateDue` are no longer kid-updatable. A member kid may update only completion-state fields on a row linked to that same member, cannot create/link a sibling completion, and the shared kid principal cannot create a completion row. Parent payout writes remain supported. Verification: the permission contract, `tsc --noEmit`, and the hosted identity/field matrix pass.
 - **2026-07-14 — Completed upstream: duplicate up-for-grabs claims no longer double-pay (§2; fix plan 3).** All claim entry points now use one UUIDv5 completion ID per `(choreId, dateDue)`, causing concurrent Instant transactions to converge. Allowance preprocessing also canonicalizes legacy duplicate rows by earliest completion, excludes losing rows from every member's calculation, and expands the winner's `completionsToMark` to mark the entire duplicate group awarded. XP follows the same canonical winner. Verification: 37 focused shared-core/chore-utils/ChoresTracker tests pass; `tsc --noEmit` passes.
@@ -19,7 +20,7 @@
 | # | Severity | Finding |
 |---|----------|---------|
 | 1 | **High (Confirmed)** | Every balance mutation is a client-side read-modify-write of the whole `balances` JSON — concurrent operations lose money silently |
-| 2 | **High (Confirmed)** | Fixed rewards earned in a non-primary currency are never paid out, but their completions are marked awarded — the money is permanently lost |
+| 2 | **Completed 2026-07-15** | New fixed rewards now pay out atomically in every earned currency |
 | 3 | **Completed 2026-07-15** | Payout, history, and award marking now commit atomically with per-period idempotency |
 | 4 | **High (Confirmed)** | Permissions let any kid principal edit any envelope's `balances` JSON directly (and exchange rates, and calculated periods) |
 | 5 | **Medium (Confirmed)** | `reconcileEnvelope` — the one tool that could catch ledger/balance drift — exists but is never called |
@@ -58,11 +59,13 @@ Both payout paths previously ran two awaited steps: `executeAllowanceTransaction
 
 **Implemented:** [allowance-payout.ts](../lib/allowance-payout.ts) is now the shared single-period/bulk distribution boundary. It re-queries the current envelope and existing deterministic period rows immediately before building one `db.transact` containing the balance update, one immutable ledger row per pending period, the envelope/ledger links, finance history, optional default-envelope creation, and deduplicated `allowanceAwarded: true` writes. `allowanceTransactions.distributionKey` is unique and indexed, while the transaction/history/default-envelope IDs are UUIDv5 values derived from stable period identity. A normal retry skips rows already present; two concurrent clients build the same IDs and key, so only one entire transaction can commit. This closes the payout/mark failure window. It deliberately does **not** claim to solve the broader stale-JSON balance race in §1.1 for unrelated simultaneous money operations.
 
-### 1.4 Foreign-currency fixed rewards are never paid — **Confirmed**
+### 1.4 Foreign-currency fixed rewards are never paid — **Completed for new payouts 2026-07-15**
 
-`calculatePeriodDetails` accumulates `fixedRewardsEarned` per currency ([chore-utils.ts:563-567](lib/chore-utils.ts:563)), but both payout handlers deposit **only the member's primary allowance currency**, with the code admitting it: *"Fixed rewards in other currencies are ignored for this primary currency transaction"* ([allowance-distribution/page.tsx:506-507](app/allowance-distribution/page.tsx:506)). The completions backing those rewards are still in `completionsToMark`, so they get flagged `allowanceAwarded: true` — a kid who did a chore with a 500-NPR fixed reward while their allowance currency is USD **silently never receives it**, and the period can never be re-run.
+`calculatePeriodDetails` accumulated `fixedRewardsEarned` per currency, but both payout handlers deposited only the member's primary allowance currency. The completions backing those rewards were still flagged `allowanceAwarded: true`, so (for example) a 500-NPR fixed reward could disappear when a member's allowance currency was USD.
 
-**Fix:** in the payout transact, loop `period.fixedRewardsEarned` and issue one deposit per currency (envelopes already support multi-currency balances). Until then, at least exclude those completions from `completionsToMark`.
+**Implemented for all future distribution actions:** each period carries primary and additional currency amounts to `executeAtomicAllowancePayout`. The helper folds pending currency legs into one balance update, then writes a deterministic ledger row and finance history event for each period/currency in the same transaction as completion award marks. Single-period and bulk buttons stay enabled when the primary amount is zero but another earned currency is non-zero, and their result toast lists every currency moved. Retry detection is per currency, so a primary row already present does not suppress a missing foreign leg.
+
+**Historical-data boundary:** this prevents new loss, but it does not automatically credit foreign rewards that the old code already marked awarded. Those rows need a guarded recovery report/backfill that proves no matching ledger credit exists before creating money. That is tracked as a separate follow-up rather than silently inferring credits during normal payout.
 
 ---
 
@@ -137,7 +140,7 @@ This is a family app — the "attacker" is a bored twelve-year-old — but that 
 
 **Phase 0 — stop losing money:**
 1. ~~Atomic payout: single transact for deposit + balance + `allowanceAwarded` marks, with per-period idempotency (1.3).~~ **Completed and hosted schema deployed 2026-07-15.**
-2. Pay `fixedRewardsEarned` per currency in that same transact (1.4).
+2. ~~Pay `fixedRewardsEarned` per currency in that same transact (1.4).~~ **Completed for new payouts 2026-07-15; historical recovery remains explicitly tracked in §1.4.**
 3. ~~Deterministic up-for-grabs completion IDs (chores audit 1.1 — double-pay source).~~ **Completed 2026-07-14, including legacy payout deduplication.**
 
 **Phase 1 — trust the ledger:**

@@ -512,6 +512,11 @@ export default function AllowanceDistributionPage() {
         // Calculate total for this period including fixed rewards in primary currency
         const fixedRewardThisPeriodPrimary = period.fixedRewardsEarned?.[primaryCurrency.toUpperCase()] || 0;
         const finalPeriodTotal = editableAmount + fixedRewardThisPeriodPrimary;
+        const additionalAmountsByCurrency = Object.fromEntries(
+            Object.entries(period.fixedRewardsEarned || {}).filter(
+                ([currency, amount]) => currency.toUpperCase() !== primaryCurrency.toUpperCase() && amount !== 0
+            )
+        );
 
         const description = `Allowance distribution for period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}`;
 
@@ -529,6 +534,7 @@ export default function AllowanceDistributionPage() {
                         periodStartDate: period.periodStartDate,
                         periodEndDate: period.periodEndDate,
                         amount: finalPeriodTotal,
+                        additionalAmountsByCurrency,
                         completionsToMark: period.completionsToMark,
                         description,
                     },
@@ -543,9 +549,12 @@ export default function AllowanceDistributionPage() {
                 return;
             }
 
+            const processedAmounts = Object.fromEntries(
+                Object.entries(result.amountsByCurrency).map(([currency, amount]) => [currency, Math.abs(amount)])
+            );
             toast({
-                title: finalPeriodTotal >= 0 ? 'Period Deposited' : 'Period Withdrawn',
-                description: `${formatBalances({ [primaryCurrency]: Math.abs(finalPeriodTotal) }, typedData?.unitDefinitions || [])} for period ending ${format(
+                title: Object.values(result.amountsByCurrency).some((amount) => amount < 0) ? 'Period Processed' : 'Period Deposited',
+                description: `${formatBalances(processedAmounts, typedData?.unitDefinitions || [])} for period ending ${format(
                     period.periodEndDate,
                     'yyyy-MM-dd'
                 )} processed.`,
@@ -627,11 +636,17 @@ export default function AllowanceDistributionPage() {
                         throw new Error(`Enter a valid amount for the period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}.`);
                     }
                     const primaryFixedReward = period.fixedRewardsEarned?.[currency.toUpperCase()] || 0;
+                    const additionalAmountsByCurrency = Object.fromEntries(
+                        Object.entries(period.fixedRewardsEarned || {}).filter(
+                            ([rewardCurrency, amount]) => rewardCurrency.toUpperCase() !== currency.toUpperCase() && amount !== 0
+                        )
+                    );
                     return {
                         id: period.id,
                         periodStartDate: period.periodStartDate,
                         periodEndDate: period.periodEndDate,
                         amount: editableAmount + primaryFixedReward,
+                        additionalAmountsByCurrency,
                         completionsToMark: period.completionsToMark,
                         description,
                     };
@@ -653,13 +668,14 @@ export default function AllowanceDistributionPage() {
                 return;
             }
 
-            const processedAmount = result.amountsByCurrency[currency.toUpperCase()] || 0;
+            const processedAmounts = Object.fromEntries(
+                Object.entries(result.amountsByCurrency).map(([processedCurrency, amount]) => [processedCurrency, Math.abs(amount)])
+            );
             toast({
-                title: processedAmount >= 0 ? 'Allowance Deposited' : 'Allowance Withdrawn',
-                description: `${formatBalances(
-                    { [currency]: Math.abs(processedAmount) },
-                    typedData?.unitDefinitions || []
-                )} processed successfully.`,
+                title: Object.values(result.amountsByCurrency).some((amount) => amount < 0)
+                    ? 'Allowance Processed'
+                    : 'Allowance Deposited',
+                description: `${formatBalances(processedAmounts, typedData?.unitDefinitions || [])} processed successfully.`,
             });
 
             // await processAllowanceData(simulatedDate); // This was causing a race condition I think
@@ -730,6 +746,9 @@ export default function AllowanceDistributionPage() {
                             // Use totalDue from allowanceInfo which now includes primary fixed rewards
                             const currentTotalDue = allowanceInfo?.totalDue ?? 0;
                             const displayEditableAmount = editableAmounts[member.id] ?? String(currentTotalDue.toFixed(2)); // Footer total display
+                            const hasOtherCurrencyRewards = Object.values(
+                                allowanceInfo?.totalFixedRewardsInOtherCurrencies || {}
+                            ).some((amount) => amount !== 0);
 
                             const memberBaseAllowanceText =
                                 member.allowanceAmount && member.allowanceCurrency
@@ -788,6 +807,7 @@ export default function AllowanceDistributionPage() {
                                                 };
                                                 if (allowanceInfo.member.allowanceCurrency)
                                                     delete periodFixedOther[allowanceInfo.member.allowanceCurrency.toUpperCase()];
+                                                const hasOtherCurrencyReward = Object.values(periodFixedOther).some((amount) => amount !== 0);
 
                                                 return (
                                                     <div
@@ -883,7 +903,10 @@ export default function AllowanceDistributionPage() {
                                                                         // Deposit button considers editable amount + fixed primary amount for enabling/styling
                                                                         disabled={
                                                                             processingMemberId === member.id ||
-                                                                            parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary === 0
+                                                                            (parseFloat(editablePeriodAmounts[period.id] || '0') +
+                                                                                periodFixedPrimary ===
+                                                                                0 &&
+                                                                                !hasOtherCurrencyReward)
                                                                         }
                                                                         variant={
                                                                             parseFloat(editablePeriodAmounts[period.id] || '0') + periodFixedPrimary < 0
@@ -1045,7 +1068,10 @@ export default function AllowanceDistributionPage() {
                                             <Button
                                                 onClick={() => handleDepositWithdraw(member.id)} // Pass memberId only
                                                 // Disable button based on the PARSED value of the editable amount
-                                                disabled={processingMemberId === member.id || parseFloat(displayEditableAmount || '0') === 0}
+                                                disabled={
+                                                    processingMemberId === member.id ||
+                                                    (parseFloat(displayEditableAmount || '0') === 0 && !hasOtherCurrencyRewards)
+                                                }
                                                 variant={parseFloat(displayEditableAmount || '0') < 0 ? 'destructive' : 'default'}
                                                 size="lg"
                                             >

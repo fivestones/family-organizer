@@ -159,6 +159,123 @@ describe('atomic allowance payouts', () => {
         ).toBe(true);
     });
 
+    it('deposits fixed rewards in every currency and records one ledger row per currency', async () => {
+        const db = {
+            queryOnce: vi.fn().mockResolvedValue({
+                data: {
+                    familyMembers: [
+                        {
+                            id: 'member-1',
+                            allowanceEnvelopes: [
+                                { id: 'envelope-1', name: 'Savings', balances: { USD: 10, NPR: 100 }, isDefault: true },
+                            ],
+                        },
+                    ],
+                    allowanceTransactions: [],
+                },
+            }),
+            transact: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const result = await executeAtomicAllowancePayout({
+            db,
+            memberId: 'member-1',
+            primaryCurrency: 'USD',
+            periods: [{ ...period('period-1', 12.5), additionalAmountsByCurrency: { npr: 500, EUR: 3 } }],
+        });
+
+        expect(result.amountsByCurrency).toEqual({ USD: 12.5, NPR: 500, EUR: 3 });
+        const transactions = db.transact.mock.calls[0][0] as any[];
+        expect(transactions).toContainEqual({
+            op: 'update',
+            entity: 'allowanceEnvelopes',
+            id: 'envelope-1',
+            payload: { balances: { USD: 22.5, NPR: 600, EUR: 3 } },
+        });
+
+        for (const [currency, amount] of Object.entries({ USD: 12.5, NPR: 500, EUR: 3 })) {
+            const transactionId = createAllowanceDistributionTransactionId(
+                'member-1',
+                '2026-02-01',
+                '2026-02-14',
+                currency
+            );
+            expect(transactions).toContainEqual(
+                expect.objectContaining({
+                    op: 'update',
+                    entity: 'allowanceTransactions',
+                    id: transactionId,
+                    payload: expect.objectContaining({
+                        amount,
+                        currency,
+                        distributionKey: createAllowanceDistributionKey(
+                            'member-1',
+                            '2026-02-01',
+                            '2026-02-14',
+                            currency
+                        ),
+                    }),
+                })
+            );
+        }
+        expect(
+            transactions.filter(
+                (transaction) => transaction.entity === 'choreCompletions' && transaction.id === 'completion-period-1'
+            )
+        ).toHaveLength(1);
+    });
+
+    it('pays only a missing foreign-currency leg when the primary period row already exists', async () => {
+        const primaryTransactionId = createAllowanceDistributionTransactionId(
+            'member-1',
+            '2026-02-01',
+            '2026-02-14',
+            'USD'
+        );
+        const db = {
+            queryOnce: vi.fn().mockResolvedValue({
+                data: {
+                    familyMembers: [
+                        {
+                            id: 'member-1',
+                            allowanceEnvelopes: [
+                                { id: 'envelope-1', name: 'Savings', balances: { USD: 22.5, NPR: 100 }, isDefault: true },
+                            ],
+                        },
+                    ],
+                    allowanceTransactions: [{ id: primaryTransactionId }],
+                },
+            }),
+            transact: vi.fn().mockResolvedValue(undefined),
+        };
+
+        const result = await executeAtomicAllowancePayout({
+            db,
+            memberId: 'member-1',
+            primaryCurrency: 'USD',
+            periods: [{ ...period('period-1', 12.5), additionalAmountsByCurrency: { NPR: 500 } }],
+        });
+
+        expect(result).toMatchObject({
+            processedPeriodIds: ['period-1'],
+            skippedPeriodIds: [],
+            amountsByCurrency: { NPR: 500 },
+        });
+        const transactions = db.transact.mock.calls[0][0] as any[];
+        expect(transactions).toContainEqual({
+            op: 'update',
+            entity: 'allowanceEnvelopes',
+            id: 'envelope-1',
+            payload: { balances: { USD: 22.5, NPR: 600 } },
+        });
+        expect(transactions).not.toContainEqual(
+            expect.objectContaining({ entity: 'allowanceTransactions', id: primaryTransactionId })
+        );
+        expect(transactions).toContainEqual(
+            expect.objectContaining({ entity: 'choreCompletions', id: 'completion-period-1' })
+        );
+    });
+
     it('does nothing when the deterministic period transaction already exists', async () => {
         const transactionId = createAllowanceDistributionTransactionId(
             'member-1',

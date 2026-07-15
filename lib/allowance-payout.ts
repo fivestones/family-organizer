@@ -14,6 +14,7 @@ export interface AllowancePayoutPeriodInput {
     periodStartDate: Date | string;
     periodEndDate: Date | string;
     amount: number;
+    additionalAmountsByCurrency?: Record<string, number>;
     completionsToMark: string[];
     description?: string;
 }
@@ -123,29 +124,57 @@ export async function executeAtomicAllowancePayout({
     if (periods.length === 0) throw new Error('At least one allowance period is required.');
 
     const currency = normalizeCurrency(primaryCurrency);
-    const seenDistributionKeys = new Set<string>();
+    const seenPeriodKeys = new Set<string>();
     const preparedPeriods = periods.map((period) => {
         if (!period.id) throw new Error('Allowance payout period ID is required.');
         if (!Number.isFinite(period.amount)) throw new Error('Allowance payout amount must be a finite number.');
 
         const periodStartKey = toDateKey(period.periodStartDate);
         const periodEndKey = toDateKey(period.periodEndDate);
-        const distributionKey = createAllowanceDistributionKey(memberId, periodStartKey, periodEndKey, currency);
-        const transactionId = createAllowanceDistributionTransactionId(memberId, periodStartKey, periodEndKey, currency);
-        if (seenDistributionKeys.has(distributionKey)) {
+        const periodKey = `${memberId}:${periodStartKey}:${periodEndKey}`;
+        if (seenPeriodKeys.has(periodKey)) {
             throw new Error(`Allowance payout contains the same period more than once: ${periodStartKey} to ${periodEndKey}.`);
         }
-        seenDistributionKeys.add(distributionKey);
+        seenPeriodKeys.add(periodKey);
+
+        const amountsByCurrency: Record<string, number> = { [currency]: period.amount };
+        for (const [additionalCurrency, rawAmount] of Object.entries(period.additionalAmountsByCurrency || {})) {
+            const normalizedAdditionalCurrency = normalizeCurrency(additionalCurrency);
+            const amount = Number(rawAmount);
+            if (!Number.isFinite(amount)) {
+                throw new Error(`Allowance payout amount for ${normalizedAdditionalCurrency} must be a finite number.`);
+            }
+            amountsByCurrency[normalizedAdditionalCurrency] = (amountsByCurrency[normalizedAdditionalCurrency] || 0) + amount;
+        }
+
+        let payouts = Object.entries(amountsByCurrency)
+            .filter(([, amount]) => amount !== 0)
+            .map(([payoutCurrency, amount]) => ({
+                amount,
+                currency: payoutCurrency,
+                distributionKey: createAllowanceDistributionKey(memberId, periodStartKey, periodEndKey, payoutCurrency),
+                transactionId: createAllowanceDistributionTransactionId(memberId, periodStartKey, periodEndKey, payoutCurrency),
+            }));
+        if (payouts.length === 0) {
+            payouts = [
+                {
+                    amount: 0,
+                    currency,
+                    distributionKey: createAllowanceDistributionKey(memberId, periodStartKey, periodEndKey, currency),
+                    transactionId: createAllowanceDistributionTransactionId(memberId, periodStartKey, periodEndKey, currency),
+                },
+            ];
+        }
 
         return {
             ...period,
             periodStartKey,
             periodEndKey,
-            distributionKey,
-            transactionId,
+            payouts,
             completionsToMark: Array.from(new Set(period.completionsToMark.filter(Boolean))),
         };
     });
+    const expectedTransactionIds = preparedPeriods.flatMap((period) => period.payouts.map((payout) => payout.transactionId));
 
     let envelopes = memberEnvelopes;
     let existingTransactionIds = new Set<string>();
@@ -156,7 +185,7 @@ export async function executeAtomicAllowancePayout({
                 allowanceEnvelopes: {},
             },
             allowanceTransactions: {
-                $: { where: { id: { $in: preparedPeriods.map((period) => period.transactionId) } } },
+                $: { where: { id: { $in: expectedTransactionIds } } },
             },
         });
         const familyMember = response.data?.familyMembers?.[0];
@@ -169,9 +198,14 @@ export async function executeAtomicAllowancePayout({
         );
     }
 
-    const pendingPeriods = preparedPeriods.filter((period) => !existingTransactionIds.has(period.transactionId));
+    const pendingPeriods = preparedPeriods
+        .map((period) => ({
+            ...period,
+            payouts: period.payouts.filter((payout) => !existingTransactionIds.has(payout.transactionId)),
+        }))
+        .filter((period) => period.payouts.length > 0);
     const skippedPeriodIds = preparedPeriods
-        .filter((period) => existingTransactionIds.has(period.transactionId))
+        .filter((period) => period.payouts.every((payout) => existingTransactionIds.has(payout.transactionId)))
         .map((period) => period.id);
 
     if (pendingPeriods.length === 0) {
@@ -188,16 +222,20 @@ export async function executeAtomicAllowancePayout({
     let envelope = chooseEnvelope(envelopes);
     const envelopeId = envelope?.id || createDefaultEnvelopeId(memberId);
     const balances = normalizeBalances(envelope?.balances);
-    const totalAmount = pendingPeriods.reduce((sum, period) => sum + period.amount, 0);
-    const nextBalance = (balances[currency] || 0) + totalAmount;
-
-    if (nextBalance < 0) {
-        throw new Error(`Insufficient funds. Available: ${balances[currency] || 0} ${currency}.`);
+    const amountsByCurrency: Record<string, number> = {};
+    for (const payout of pendingPeriods.flatMap((period) => period.payouts)) {
+        amountsByCurrency[payout.currency] = (amountsByCurrency[payout.currency] || 0) + payout.amount;
     }
-    if (Math.abs(nextBalance) < Number.EPSILON) {
-        delete balances[currency];
-    } else {
-        balances[currency] = nextBalance;
+    for (const [payoutCurrency, totalAmount] of Object.entries(amountsByCurrency)) {
+        const nextBalance = (balances[payoutCurrency] || 0) + totalAmount;
+        if (nextBalance < 0) {
+            throw new Error(`Insufficient funds. Available: ${balances[payoutCurrency] || 0} ${payoutCurrency}.`);
+        }
+        if (Math.abs(nextBalance) < Number.EPSILON) {
+            delete balances[payoutCurrency];
+        } else {
+            balances[payoutCurrency] = nextBalance;
+        }
     }
 
     const transactions: any[] = [];
@@ -224,46 +262,48 @@ export async function executeAtomicAllowancePayout({
 
     const completionIds = new Set<string>();
     for (const period of pendingPeriods) {
-        const transactionType = period.amount < 0 ? 'allowance-withdrawal' : 'allowance-distribution';
         const description = period.description || `Allowance distribution for period ending ${period.periodEndKey}`;
-        transactions.push(
-            tx.allowanceTransactions[period.transactionId].update({
-                ...auditFields,
-                amount: period.amount,
-                currency,
-                description,
-                distributionKey: period.distributionKey,
-                transactionType,
-                createdAt: now,
-                updatedAt: now,
-            }),
-            tx.allowanceEnvelopes[envelopeId].link({ transactions: period.transactionId })
-        );
+        for (const payout of period.payouts) {
+            const transactionType = payout.amount < 0 ? 'allowance-withdrawal' : 'allowance-distribution';
+            transactions.push(
+                tx.allowanceTransactions[payout.transactionId].update({
+                    ...auditFields,
+                    amount: payout.amount,
+                    currency: payout.currency,
+                    description,
+                    distributionKey: payout.distributionKey,
+                    transactionType,
+                    createdAt: now,
+                    updatedAt: now,
+                }),
+                tx.allowanceEnvelopes[envelopeId].link({ transactions: payout.transactionId })
+            );
 
-        const history = buildHistoryEventTransactions({
-            tx,
-            createId: () => createAllowanceDistributionHistoryId(period.transactionId),
-            occurredAt: now,
-            domain: 'finance',
-            actionType: transactionType,
-            summary: `${period.amount < 0 ? 'Withdrew' : 'Deposited'} ${formatAmount(period.amount, currency)} ${
-                memberName ? `for ${memberName}` : 'for allowance'
-            }`,
-            source: 'manual',
-            actorFamilyMemberId: auditFields.createdByFamilyMemberId,
-            affectedFamilyMemberIds: [memberId],
-            allowanceTransactionId: period.transactionId,
-            metadata: {
-                distributionKey: period.distributionKey,
-                envelopeId,
-                periodId: period.id,
-                periodStartDate: period.periodStartKey,
-                periodEndDate: period.periodEndKey,
-                amount: period.amount,
-                currency,
-            },
-        });
-        transactions.push(...history.transactions);
+            const history = buildHistoryEventTransactions({
+                tx,
+                createId: () => createAllowanceDistributionHistoryId(payout.transactionId),
+                occurredAt: now,
+                domain: 'finance',
+                actionType: transactionType,
+                summary: `${payout.amount < 0 ? 'Withdrew' : 'Deposited'} ${formatAmount(payout.amount, payout.currency)} ${
+                    memberName ? `for ${memberName}` : 'for allowance'
+                }`,
+                source: 'manual',
+                actorFamilyMemberId: auditFields.createdByFamilyMemberId,
+                affectedFamilyMemberIds: [memberId],
+                allowanceTransactionId: payout.transactionId,
+                metadata: {
+                    distributionKey: payout.distributionKey,
+                    envelopeId,
+                    periodId: period.id,
+                    periodStartDate: period.periodStartKey,
+                    periodEndDate: period.periodEndKey,
+                    amount: payout.amount,
+                    currency: payout.currency,
+                },
+            });
+            transactions.push(...history.transactions);
+        }
         period.completionsToMark.forEach((completionId) => completionIds.add(completionId));
     }
 
@@ -276,7 +316,7 @@ export async function executeAtomicAllowancePayout({
     return {
         processedPeriodIds: pendingPeriods.map((period) => period.id),
         skippedPeriodIds,
-        amountsByCurrency: { [currency]: totalAmount },
+        amountsByCurrency,
         envelopeId,
     };
 }
