@@ -147,6 +147,7 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
     let kidDb: ClientDb;
     let parentDb: ClientDb;
     let kidPrincipalUserId: string;
+    let parentPrincipalUserId: string;
     const cleanup = {
         calendarItems: new Set<string>(),
         allowanceTransactions: new Set<string>(),
@@ -180,8 +181,9 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         await Promise.all([kidDb.auth.signInWithToken(kidToken), parentDb.auth.signInWithToken(parentToken)]);
 
         const kidUser = await adminDb.auth.getUser({ email: getKidPrincipalAuthEmail() });
-        await adminDb.auth.getUser({ email: getParentPrincipalAuthEmail() });
+        const parentUser = await adminDb.auth.getUser({ email: getParentPrincipalAuthEmail() });
         kidPrincipalUserId = kidUser.id;
+        parentPrincipalUserId = parentUser.id;
     });
 
     afterAll(async () => {
@@ -329,6 +331,8 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             await parentDb.transact(parentDb.tx.calendarItems[parentCalendarId].delete());
             cleanup.calendarItems.delete(parentCalendarId);
 
+            const nowIso = new Date().toISOString();
+
             // Kid must stamp allowance transaction audit with the trusted DB principal id.
             const deniedAuditTxId = instantId();
             await expectRejected(
@@ -368,6 +372,40 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             await parentDb.transact(parentDb.tx.allowanceTransactions[validKidTxId].delete());
             cleanup.allowanceTransactions.delete(validKidTxId);
 
+            // Distribution keys are unique in the hosted schema, so two
+            // clients racing the same period cannot both commit payout state.
+            const firstDistributionTxId = instantId();
+            const duplicateDistributionTxId = instantId();
+            const distributionKey = `perms-smoke-${instantId()}`;
+            await parentDb.transact(
+                parentDb.tx.allowanceTransactions[firstDistributionTxId].create({
+                    amount: 5,
+                    createdAt: nowIso,
+                    createdBy: parentPrincipalUserId,
+                    currency: 'USD',
+                    description: 'first idempotent payout',
+                    distributionKey,
+                    transactionType: 'allowance-distribution',
+                    updatedAt: nowIso,
+                })
+            );
+            cleanup.allowanceTransactions.add(firstDistributionTxId);
+            await expectRejected(
+                parentDb.transact(
+                    parentDb.tx.allowanceTransactions[duplicateDistributionTxId].create({
+                        amount: 5,
+                        createdAt: nowIso,
+                        createdBy: parentPrincipalUserId,
+                        currency: 'USD',
+                        description: 'duplicate idempotent payout',
+                        distributionKey,
+                        transactionType: 'allowance-distribution',
+                        updatedAt: nowIso,
+                    })
+                ),
+                'duplicate allowance distributionKey'
+            );
+
             // Completion ownership is identity-scoped: a member kid can create
             // and safely toggle their own row, but cannot create/update a
             // sibling row or mutate payout/date fields.
@@ -375,7 +413,6 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             expect(targetFamilyMember?.id).toBeTruthy();
 
             const choreId = instantId();
-            const nowIso = new Date().toISOString();
 
             await parentDb.transact([
                 parentDb.tx.chores[choreId].update({

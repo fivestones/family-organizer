@@ -41,6 +41,7 @@ const _schema = i.schema({
             createdByFamilyMemberId: i.string().indexed().optional(),
             currency: i.string(),
             description: i.string(),
+            distributionKey: i.string().unique().indexed().optional(),
             transactionType: i.string(),
             updatedAt: i.string(),
         }),

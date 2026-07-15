@@ -2,12 +2,13 @@
 
 **Date:** 2026-07-12
 **Scope:** `lib/currency-utils.ts` (all money mutations), `app/allowance-distribution/page.tsx`, `components/allowance/*`, allowance math in `lib/chore-utils.ts` (`calculatePeriodDetails`, `getAllowancePeriodForDate`), finance entities/permissions in `instant.schema.ts` / `instant.perms.ts`.
-**Method:** Static code-path tracing.
+**Method:** Static code-path tracing, focused unit/contract tests, TypeScript validation, and hosted Instant schema/permission smoke tests.
 
 ---
 
 ## Implementation progress
 
+- **2026-07-15 — Completed and deployed: allowance payouts are atomic and idempotent (§1.3; fix plan 1).** Distribution now re-reads the member's latest envelope state, assigns one deterministic immutable transaction ID and unique `distributionKey` per member/period/currency, and submits the balance update, ledger rows, finance history, default-envelope creation/linking, and every `allowanceAwarded` completion update in one Instant transaction. Single-period and bulk actions use the same path; bulk retries skip only previously committed periods. A concurrent duplicate collides on deterministic IDs/unique keys, so Instant rejects the entire second transaction without a second balance write. The hosted schema now has the unique indexed optional `allowanceTransactions.distributionKey`. Verification: 5 focused payout tests, 12 permission/schema contract tests, `tsc --noEmit`, and the 3-test hosted permission/cascade matrix pass; the live matrix explicitly proved duplicate-key rejection.
 - **2026-07-14 — Completed and deployed upstream: kids cannot tamper with payout state (§3; fix plan 7 partial).** `choreCompletions.allowanceAwarded` and `dateDue` are no longer kid-updatable. A member kid may update only completion-state fields on a row linked to that same member, cannot create/link a sibling completion, and the shared kid principal cannot create a completion row. Parent payout writes remain supported. Verification: the permission contract, `tsc --noEmit`, and the hosted identity/field matrix pass.
 - **2026-07-14 — Completed upstream: duplicate up-for-grabs claims no longer double-pay (§2; fix plan 3).** All claim entry points now use one UUIDv5 completion ID per `(choreId, dateDue)`, causing concurrent Instant transactions to converge. Allowance preprocessing also canonicalizes legacy duplicate rows by earliest completion, excludes losing rows from every member's calculation, and expands the winner's `completionsToMark` to mark the entire duplicate group awarded. XP follows the same canonical winner. Verification: 37 focused shared-core/chore-utils/ChoresTracker tests pass; `tsc --noEmit` passes.
 
@@ -19,7 +20,7 @@
 |---|----------|---------|
 | 1 | **High (Confirmed)** | Every balance mutation is a client-side read-modify-write of the whole `balances` JSON — concurrent operations lose money silently |
 | 2 | **High (Confirmed)** | Fixed rewards earned in a non-primary currency are never paid out, but their completions are marked awarded — the money is permanently lost |
-| 3 | **High (Confirmed)** | Payout is two separate transactions (deposit, then mark-awarded) — a failure in between double-pays on retry |
+| 3 | **Completed 2026-07-15** | Payout, history, and award marking now commit atomically with per-period idempotency |
 | 4 | **High (Confirmed)** | Permissions let any kid principal edit any envelope's `balances` JSON directly (and exchange rates, and calculated periods) |
 | 5 | **Medium (Confirmed)** | `reconcileEnvelope` — the one tool that could catch ledger/balance drift — exists but is never called |
 | 6 | **Medium (Confirmed)** | An OpenExchangeRates API key is hardcoded as a fallback in the client bundle |
@@ -51,11 +52,11 @@ There is no optimistic-concurrency check and InstantDB `update` on a `json` colu
 
 `reconcileEnvelope` ([currency-utils.ts:258-295](lib/currency-utils.ts:258)) replays an envelope's ledger and repairs `balances` on mismatch — exactly the right safety net — and **no code path calls it**. Wire it to run (a) when opening a member's finance page per envelope, and (b) before allowance distribution executes. Note its replay assumes every balance change has a ledger row, which is true for all current mutation paths — one more reason to close the direct-`balances`-edit hole (section 3).
 
-### 1.3 Non-atomic payout → double pay — **Confirmed**
+### 1.3 Non-atomic payout → double pay — **Completed 2026-07-15**
 
-Both payout paths run two awaited steps: `executeAllowanceTransaction(...)` then `markCompletionsAwarded(...)` ([allowance-distribution/page.tsx:516-517](app/allowance-distribution/page.tsx:516) and [602-603](app/allowance-distribution/page.tsx:602)). If the deposit lands and the marking fails (tab closed, network drop, permission hiccup), every completion in the period remains unawarded — the next distribution recalculates and pays the same period again.
+Both payout paths previously ran two awaited steps: `executeAllowanceTransaction(...)` then `markCompletionsAwarded(...)`. If the deposit landed and marking failed (tab closed, network drop, permission hiccup), every completion in the period remained unawarded and the next distribution could pay it again.
 
-**Fix:** build one combined `db.transact` (deposit + balance update + all `allowanceAwarded: true` updates + history event). For idempotency, stamp the period identity (`memberId-periodStart`) on the transaction row and skip execution if a transaction for that period already exists.
+**Implemented:** [allowance-payout.ts](../lib/allowance-payout.ts) is now the shared single-period/bulk distribution boundary. It re-queries the current envelope and existing deterministic period rows immediately before building one `db.transact` containing the balance update, one immutable ledger row per pending period, the envelope/ledger links, finance history, optional default-envelope creation, and deduplicated `allowanceAwarded: true` writes. `allowanceTransactions.distributionKey` is unique and indexed, while the transaction/history/default-envelope IDs are UUIDv5 values derived from stable period identity. A normal retry skips rows already present; two concurrent clients build the same IDs and key, so only one entire transaction can commit. This closes the payout/mark failure window. It deliberately does **not** claim to solve the broader stale-JSON balance race in §1.1 for unrelated simultaneous money operations.
 
 ### 1.4 Foreign-currency fixed rewards are never paid — **Confirmed**
 
@@ -135,7 +136,7 @@ This is a family app — the "attacker" is a bored twelve-year-old — but that 
 ## 8. Fix plan
 
 **Phase 0 — stop losing money:**
-1. Atomic payout: single transact for deposit + balance + `allowanceAwarded` marks, with per-period idempotency (1.3).
+1. ~~Atomic payout: single transact for deposit + balance + `allowanceAwarded` marks, with per-period idempotency (1.3).~~ **Completed and hosted schema deployed 2026-07-15.**
 2. Pay `fixedRewardsEarned` per currency in that same transact (1.4).
 3. ~~Deterministic up-for-grabs completion IDs (chores audit 1.1 — double-pay source).~~ **Completed 2026-07-14, including legacy payout deduplication.**
 

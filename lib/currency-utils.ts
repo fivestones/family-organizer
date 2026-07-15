@@ -4,7 +4,7 @@ import { buildHistoryEventTransactions } from '@/lib/history-events';
 
 const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 
-async function getAllowanceTransactionAuditFields(): Promise<{ createdBy: string; createdByFamilyMemberId?: string }> {
+export async function getAllowanceTransactionAuditFields(): Promise<{ createdBy: string; createdByFamilyMemberId?: string }> {
     const authUser = await instantDb.getAuth();
     if (!authUser?.id) {
         throw new Error('Instant auth is required to create allowance transactions');

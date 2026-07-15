@@ -35,6 +35,16 @@ describe('instant.perms contract', () => {
         expect(perms.allowanceTransactions.allow.update).toBe('false');
     });
 
+    it('keeps allowance distribution keys unique and indexed for retry safety', async () => {
+        const schemaSource = await fs.readFile(path.join(process.cwd(), 'instant.schema.ts'), 'utf8');
+        const allowanceTransactions = schemaSource.slice(
+            schemaSource.indexOf('allowanceTransactions: i.entity({'),
+            schemaSource.indexOf('announcements: i.entity({')
+        );
+
+        expect(allowanceTransactions).toContain('distributionKey: i.string().unique().indexed().optional()');
+    });
+
     it('limits kid family-member preferences and PIN hashes to the authenticated member row', () => {
         const perms = rules as any;
         expect(perms.familyMembers.bind.authFamilyMemberIds).toBe("auth.ref('$user.familyMemberId')");

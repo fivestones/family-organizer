@@ -2,7 +2,6 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { tx, id } from '@instantdb/react';
 import { RRule, RRuleSet } from 'rrule'; // Keep RRule import if needed for other logic
 import { format, startOfDay, endOfDay, isBefore, isEqual, addDays } from 'date-fns'; // For formatting dates
 
@@ -12,7 +11,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Loader2, CheckCircle, XCircle, DollarSign, TrendingDown, Edit, Info, CalendarIcon } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { formatBalances, UnitDefinition, Envelope, findOrDefaultEnvelope, executeAllowanceTransaction } from '@/lib/currency-utils';
+import { formatBalances, UnitDefinition, Envelope } from '@/lib/currency-utils';
+import { executeAtomicAllowancePayout } from '@/lib/allowance-payout';
 import {
     createRRuleWithStartDate,
     getAllowancePeriodForDate,
@@ -513,18 +513,35 @@ export default function AllowanceDistributionPage() {
         const fixedRewardThisPeriodPrimary = period.fixedRewardsEarned?.[primaryCurrency.toUpperCase()] || 0;
         const finalPeriodTotal = editableAmount + fixedRewardThisPeriodPrimary;
 
-        // Note: Fixed rewards in other currencies are ignored for this primary currency transaction.
-        // They are displayed separately but not included in the main deposit/withdraw action here.
-
-        // Only mark completions for THIS specific period
-        const completionIdsToMark = period.completionsToMark;
         const description = `Allowance distribution for period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}`;
 
         try {
             const memberEnvelopes = typedData?.allowanceEnvelopes?.filter((e) => e.familyMember?.[0]?.id === memberId) || [];
-            // Use the calculated finalPeriodTotal for the transaction
-            await executeAllowanceTransaction(db, memberId, memberEnvelopes, finalPeriodTotal, primaryCurrency, description);
-            await markCompletionsAwarded(db, completionIdsToMark); // Mark only this period's completions
+            const result = await executeAtomicAllowancePayout({
+                db,
+                memberId,
+                memberName: member.name,
+                primaryCurrency,
+                memberEnvelopes,
+                periods: [
+                    {
+                        id: period.id,
+                        periodStartDate: period.periodStartDate,
+                        periodEndDate: period.periodEndDate,
+                        amount: finalPeriodTotal,
+                        completionsToMark: period.completionsToMark,
+                        description,
+                    },
+                ],
+            });
+
+            if (result.processedPeriodIds.length === 0) {
+                toast({
+                    title: 'Period Already Processed',
+                    description: `The period ending ${format(period.periodEndDate, 'yyyy-MM-dd')} was already recorded. No money moved.`,
+                });
+                return;
+            }
 
             toast({
                 title: finalPeriodTotal >= 0 ? 'Period Deposited' : 'Period Withdrawn',
@@ -573,11 +590,6 @@ export default function AllowanceDistributionPage() {
         // Add the total fixed rewards in the primary currency
         const finalAmount = totalEditableAmount + allowanceInfo.totalFixedRewardsInPrimaryCurrency;
 
-        // Ensure calculated finalAmount is used instead of relying solely on editableAmounts[memberId]
-        // editableAmounts[memberId] should reflect this sum already if handlePeriodAmountChange worked correctly,
-        // but recalculating here ensures accuracy at the time of deposit.
-        const finalAmountString = String(finalAmount.toFixed(2)); // Use the recalculated sum
-
         if (isNaN(finalAmount)) {
             toast({
                 title: 'Invalid Amount',
@@ -599,9 +611,6 @@ export default function AllowanceDistributionPage() {
             return;
         }
 
-        // Filter completions only for 'pending' periods being paid out
-        const completionIdsToMark = allowanceInfo.pendingPeriods.filter((p) => p.status === 'pending').flatMap((p) => p.completionsToMark);
-
         const description = `Allowance distribution covering periods up to ${format(
             allowanceInfo.pendingPeriods[allowanceInfo.pendingPeriods.length - 1].periodEndDate,
             'yyyy-MM-dd'
@@ -609,12 +618,48 @@ export default function AllowanceDistributionPage() {
 
         try {
             const memberEnvelopes = typedData?.allowanceEnvelopes?.filter((e) => e.familyMember?.[0]?.id === memberId) || [];
-            await executeAllowanceTransaction(db, memberId, memberEnvelopes, finalAmount, currency, description);
-            await markCompletionsAwarded(db, completionIdsToMark); // Mark only paid-out completions
+            const periods = allowanceInfo.pendingPeriods
+                .filter((period) => period.status === 'pending')
+                .map((period) => {
+                    const amountString = editablePeriodAmounts[period.id];
+                    const editableAmount = parseFloat(amountString || '0');
+                    if (!Number.isFinite(editableAmount)) {
+                        throw new Error(`Enter a valid amount for the period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}.`);
+                    }
+                    const primaryFixedReward = period.fixedRewardsEarned?.[currency.toUpperCase()] || 0;
+                    return {
+                        id: period.id,
+                        periodStartDate: period.periodStartDate,
+                        periodEndDate: period.periodEndDate,
+                        amount: editableAmount + primaryFixedReward,
+                        completionsToMark: period.completionsToMark,
+                        description,
+                    };
+                });
+            const result = await executeAtomicAllowancePayout({
+                db,
+                memberId,
+                memberName: allowanceInfo.member.name,
+                primaryCurrency: currency,
+                memberEnvelopes,
+                periods,
+            });
 
+            if (result.processedPeriodIds.length === 0) {
+                toast({
+                    title: 'Allowance Already Processed',
+                    description: 'Every selected period was already recorded. No money moved.',
+                });
+                return;
+            }
+
+            const processedAmount = result.amountsByCurrency[currency.toUpperCase()] || 0;
             toast({
-                title: finalAmount >= 0 ? 'Allowance Deposited' : 'Allowance Withdrawn',
-                description: `${formatBalances({ [currency]: Math.abs(finalAmount) }, typedData?.unitDefinitions || [])} processed successfully.`,
+                title: processedAmount >= 0 ? 'Allowance Deposited' : 'Allowance Withdrawn',
+                description: `${formatBalances(
+                    { [currency]: Math.abs(processedAmount) },
+                    typedData?.unitDefinitions || []
+                )} processed successfully.`,
             });
 
             // await processAllowanceData(simulatedDate); // This was causing a race condition I think
