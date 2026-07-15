@@ -51,6 +51,7 @@ import {
     GoalProgressResult, // Ensure this is imported if used elsewhere
     reconcileEnvelopes,
 } from '@/lib/currency-utils';
+import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 
 // +++ NEW IMPORTS +++
 import { useAuth } from '@/components/AuthProvider';
@@ -176,7 +177,7 @@ export default function MemberAllowanceDetail({
     } = db.useQuery({
         familyMembers: {
             $: { where: { id: memberId! } },
-            allowanceEnvelopes: {}, // Include envelopes for balance calculation
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery, // Include active envelopes for balance calculation
             // Allowance fields are implicitly included by querying the member
         },
         exchangeRates: {}, // Fetch all cached rates
@@ -184,7 +185,7 @@ export default function MemberAllowanceDetail({
 
     // --- Derived Data ---
     const member: FamilyMemberData | undefined = data?.familyMembers?.[0];
-    const envelopes: Envelope[] = useMemo(() => member?.allowanceEnvelopes || [], [member]);
+    const envelopes: Envelope[] = useMemo(() => filterActiveAllowanceEnvelopes(member?.allowanceEnvelopes), [member]);
     const allCachedRates: CachedExchangeRate[] = useMemo(() => {
         if (!data?.exchangeRates) return [];
         return data.exchangeRates

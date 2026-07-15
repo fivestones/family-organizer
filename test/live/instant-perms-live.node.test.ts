@@ -399,6 +399,11 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
                 kidDb.transact(kidDb.tx.allowanceEnvelopes[protectedEnvelopeId].delete()),
                 'kid allowanceEnvelopes delete'
             );
+            await expectRejected(
+                kidDb.transact(kidDb.tx.allowanceEnvelopes[protectedEnvelopeId].update({ archivedAt: nowIso })),
+                'kid allowanceEnvelopes archive'
+            );
+            await parentDb.transact(parentDb.tx.allowanceEnvelopes[protectedEnvelopeId].update({ archivedAt: nowIso }));
             await parentDb.transact(parentDb.tx.allowanceEnvelopes[protectedEnvelopeId].delete());
             cleanup.allowanceEnvelopes.delete(protectedEnvelopeId);
 

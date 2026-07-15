@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import CalendarEventDetailDialog from '@/components/CalendarEventDetailDialog';
 import { useWidgetScale } from '@/lib/freeform-dashboard/widget-scale';
 import { buildMemberColorMap, hexToRgbaString } from '@/lib/family-member-colors';
+import { activeAllowanceEnvelopesQuery } from '@/lib/allowance-envelopes';
 
 type ColorAccentStyle = 'border' | 'glow' | 'combo';
 const ACCENT_STYLES: ColorAccentStyle[] = ['border', 'glow', 'combo'];
@@ -35,7 +36,7 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
     const { data } = db.useQuery({
         familyMembers: {
             $: { order: { order: 'asc' } },
-            allowanceEnvelopes: {},
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery,
         },
         unitDefinitions: {},
         chores: {

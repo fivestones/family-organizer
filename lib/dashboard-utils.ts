@@ -1,7 +1,9 @@
 import { formatBalances, type UnitDefinition } from '@/lib/currency-utils';
+import { filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import { localDateToUTC } from '@family-organizer/shared-core';
 
 export type EnvelopeLike = {
+    archivedAt?: string | null;
     balances?: Record<string, number> | null;
     currency?: string | null;
     amount?: number | null;
@@ -96,7 +98,7 @@ export function normalizeEnvelopeBalances(envelope: EnvelopeLike): Record<string
 }
 
 export function buildMemberBalanceLabel(member: DashboardFamilyMember, unitDefinitions: UnitDefinition[]): string {
-    const totalBalances = (member.allowanceEnvelopes || []).reduce<Record<string, number>>((acc, envelope) => {
+    const totalBalances = filterActiveAllowanceEnvelopes(member.allowanceEnvelopes).reduce<Record<string, number>>((acc, envelope) => {
         const normalized = normalizeEnvelopeBalances(envelope);
         Object.entries(normalized).forEach(([currencyCode, amount]) => {
             acc[currencyCode] = (acc[currencyCode] || 0) + amount;
@@ -108,7 +110,7 @@ export function buildMemberBalanceLabel(member: DashboardFamilyMember, unitDefin
 }
 
 export function buildMemberTotalBalances(member: DashboardFamilyMember): Record<string, number> {
-    return (member.allowanceEnvelopes || []).reduce<Record<string, number>>((acc, envelope) => {
+    return filterActiveAllowanceEnvelopes(member.allowanceEnvelopes).reduce<Record<string, number>>((acc, envelope) => {
         const normalized = normalizeEnvelopeBalances(envelope);
         Object.entries(normalized).forEach(([currencyCode, amount]) => {
             acc[currencyCode] = (acc[currencyCode] || 0) + amount;

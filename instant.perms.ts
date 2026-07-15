@@ -396,12 +396,12 @@ const rules = {
                 $default: 'isFamilyPrincipal',
             },
             view: 'isFamilyPrincipal',
-            create: 'isFamilyPrincipal',
+            create: "isFamilyPrincipal && (isParent || !('archivedAt' in request.modifiedFields))",
             delete: 'isParent',
             unlink: {
                 $default: 'isFamilyPrincipal',
             },
-            update: 'isFamilyPrincipal',
+            update: "isFamilyPrincipal && (isParent || !('archivedAt' in request.modifiedFields))",
         },
     },
     taskResponseFields: {

@@ -88,6 +88,7 @@ describe('FamilyAllowanceView', () => {
             allowanceEnvelopes: [
                 { id: 'env-1', balances: { USD: 10 } },
                 { id: 'env-2', balances: { EUR: 3 } },
+                { id: 'env-archived', balances: { USD: 999 }, archivedAt: '2026-07-15T12:00:00.000Z' },
             ],
             unitDefinitions: [
                 { code: 'USD', isMonetary: true },
@@ -133,7 +134,7 @@ describe('FamilyAllowanceView', () => {
         );
 
         expect(mocks.computeMonetaryCurrencies).toHaveBeenCalledWith(
-            mocks.queryState.data.allowanceEnvelopes,
+            mocks.queryState.data.allowanceEnvelopes.slice(0, 2),
             mocks.queryState.data.unitDefinitions
         );
     });
@@ -164,4 +165,3 @@ describe('FamilyAllowanceView', () => {
         expect(screen.getByText(/select a family member to view their allowance details/i)).toBeInTheDocument();
     });
 });
-

@@ -11,6 +11,7 @@ export interface Envelope {
   id: string;
   name: string;
   balances: { [currency: string]: number };
+  archivedAt?: string | null;
   isDefault?: boolean | null;
   // Add optional goal fields
   goalAmount?: number | null;

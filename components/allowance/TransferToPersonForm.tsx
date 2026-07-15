@@ -21,6 +21,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2 } from "lucide-react";
 import { Envelope, UnitDefinition, formatBalances } from '@/lib/currency-utils';
+import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 
 // Minimal Family Member type needed for props
 interface BasicFamilyMember {
@@ -72,7 +73,7 @@ const TransferToPersonForm: React.FC<TransferToPersonFormProps> = ({
   const { isLoading: isLoadingMemberData, error: errorMemberData, data: memberData } = db.useQuery({
     familyMembers: {
         $: { where: { id: destinationMemberId! } },
-        allowanceEnvelopes: {} // Get linked envelopes (all fields)
+        allowanceEnvelopes: activeAllowanceEnvelopesQuery // Get active linked envelopes
     }
 }, { enabled: !!destinationMemberId && isOpen });
 
@@ -80,7 +81,7 @@ const TransferToPersonForm: React.FC<TransferToPersonFormProps> = ({
 useEffect(() => {
     setDestinationDefaultEnvelope(null); // Reset on id change before data arrives
     if (!isLoadingMemberData && memberData?.familyMembers?.[0]?.allowanceEnvelopes) {
-        const envelopes = memberData.familyMembers[0].allowanceEnvelopes;
+        const envelopes = filterActiveAllowanceEnvelopes(memberData.familyMembers[0].allowanceEnvelopes as Envelope[]);
         // Find the default envelope using standard JS array find
         const defaultEnvelope = envelopes.find((env: any) => env.isDefault === true); // Use 'any' if Envelope type isn't perfectly matching raw data
         setDestinationDefaultEnvelope(defaultEnvelope || null);

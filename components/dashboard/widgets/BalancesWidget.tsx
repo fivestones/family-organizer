@@ -8,12 +8,13 @@ import { buildMemberTotalBalances, type DashboardFamilyMember } from '@/lib/dash
 import type { WidgetProps } from './types';
 import { registerWidget } from './widget-store';
 import WidgetShell from './WidgetShell';
+import { activeAllowanceEnvelopesQuery } from '@/lib/allowance-envelopes';
 
 function BalancesWidget({ memberId }: WidgetProps) {
     const { data } = db.useQuery({
         familyMembers: {
             $: { where: { id: memberId } },
-            allowanceEnvelopes: {},
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery,
         },
         unitDefinitions: {},
     });

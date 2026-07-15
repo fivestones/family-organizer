@@ -513,7 +513,16 @@ describe('currency-utils mutation helpers', () => {
             expect(
                 txs.some((tx) => tx.entity === 'allowanceEnvelopes' && tx.id === 'env-new-default' && tx.op === 'update' && tx.payload?.isDefault === true)
             ).toBe(true);
-            expect(txs[txs.length - 1]).toEqual({ op: 'delete', entity: 'allowanceEnvelopes', id: 'env-delete' });
+            expect(txs[txs.length - 1]).toEqual({
+                op: 'update',
+                entity: 'allowanceEnvelopes',
+                id: 'env-delete',
+                payload: {
+                    archivedAt: '2026-02-26T12:34:56.000Z',
+                    balances: {},
+                    isDefault: false,
+                },
+            });
 
             const txUpdates = txs.filter((tx) => tx.entity === 'allowanceTransactions' && tx.op === 'update');
             expect(txUpdates).toHaveLength(6);
@@ -533,6 +542,10 @@ describe('currency-utils mutation helpers', () => {
                 (tx) => tx.entity === 'allowanceEnvelopes' && tx.id === 'env-target' && tx.op === 'link' && tx.payload?.incomingTransfers
             );
             expect(incomingLinks).toHaveLength(3);
+            const outgoingLinks = txs.filter(
+                (tx) => tx.entity === 'allowanceEnvelopes' && tx.id === 'env-delete' && tx.op === 'link' && tx.payload?.outgoingTransfers
+            );
+            expect(outgoingLinks).toHaveLength(3);
         });
     });
 

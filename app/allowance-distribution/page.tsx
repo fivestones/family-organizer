@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { formatBalances, UnitDefinition, Envelope } from '@/lib/currency-utils';
 import { executeAtomicAllowancePayout } from '@/lib/allowance-payout';
 import { addProcessedPeriodIds, excludeProcessedPeriods } from '@/lib/allowance-distribution-state';
+import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import {
     createRRuleWithStartDate,
     getAllowancePeriodForDate,
@@ -110,7 +111,7 @@ export default function AllowanceDistributionPage() {
         data,
     } = db.useQuery({
         familyMembers: {
-            allowanceEnvelopes: {},
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery,
             completedChores: {
                 $: {
                     where: {
@@ -136,6 +137,7 @@ export default function AllowanceDistributionPage() {
         },
         unitDefinitions: {},
         allowanceEnvelopes: {
+            ...activeAllowanceEnvelopesQuery,
             familyMember: {},
         },
     });
@@ -523,7 +525,9 @@ export default function AllowanceDistributionPage() {
         const description = `Allowance distribution for period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}`;
 
         try {
-            const memberEnvelopes = typedData?.allowanceEnvelopes?.filter((e) => e.familyMember?.[0]?.id === memberId) || [];
+            const memberEnvelopes = filterActiveAllowanceEnvelopes(typedData?.allowanceEnvelopes).filter(
+                (e) => e.familyMember?.[0]?.id === memberId
+            );
             const result = await executeAtomicAllowancePayout({
                 db,
                 memberId,
@@ -629,7 +633,9 @@ export default function AllowanceDistributionPage() {
         )}`;
 
         try {
-            const memberEnvelopes = typedData?.allowanceEnvelopes?.filter((e) => e.familyMember?.[0]?.id === memberId) || [];
+            const memberEnvelopes = filterActiveAllowanceEnvelopes(typedData?.allowanceEnvelopes).filter(
+                (e) => e.familyMember?.[0]?.id === memberId
+            );
             const periods = allowanceInfo.pendingPeriods
                 .filter((period) => period.status === 'pending')
                 .map((period) => {

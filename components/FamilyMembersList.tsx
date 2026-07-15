@@ -11,6 +11,7 @@ import Cropper from 'react-easy-crop';
 import { Checkbox } from '@/components/ui/checkbox';
 import { tx, id } from '@instantdb/react';
 import { UnitDefinition } from '@/lib/currency-utils';
+import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import Link from 'next/link';
 import { deleteS3Objects, getAvatarVariantUploadUrls, hashPin } from '@/app/actions';
 import {
@@ -324,7 +325,7 @@ function FamilyMembersList({
                   },
                   // Fetch Members+Envelopes for Balances
                   familyMembers: {
-                      allowanceEnvelopes: {},
+                      allowanceEnvelopes: activeAllowanceEnvelopesQuery,
                   },
                   // Fetch Units for formatting
                   unitDefinitions: {},
@@ -374,7 +375,7 @@ function FamilyMembersList({
         membersList.forEach((member) => {
             const memberId = member.id;
             balances[memberId] = {};
-            (member.allowanceEnvelopes || []).forEach((envelope: any) => {
+            filterActiveAllowanceEnvelopes(member.allowanceEnvelopes).forEach((envelope: any) => {
                 if (envelope.balances) {
                     Object.entries(envelope.balances).forEach(([currency, amount]) => {
                         const upperCaseCurrency = currency.toUpperCase();

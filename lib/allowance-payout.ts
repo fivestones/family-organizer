@@ -3,6 +3,7 @@ import { v5 as uuidv5 } from 'uuid';
 
 import type { Envelope } from '@/lib/currency-utils';
 import { getAllowanceTransactionAuditFields, reconcileEnvelopes } from '@/lib/currency-utils';
+import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 
 const DISTRIBUTION_TRANSACTION_NAMESPACE = '4b2ecb70-5267-45af-867f-c3297ad0de68';
@@ -124,8 +125,9 @@ export async function executeAtomicAllowancePayout({
     if (periods.length === 0) throw new Error('At least one allowance period is required.');
 
     const currency = normalizeCurrency(primaryCurrency);
-    if (memberEnvelopes.length > 0) {
-        await reconcileEnvelopes(db, memberEnvelopes);
+    const suppliedActiveEnvelopes = filterActiveAllowanceEnvelopes(memberEnvelopes);
+    if (suppliedActiveEnvelopes.length > 0) {
+        await reconcileEnvelopes(db, suppliedActiveEnvelopes);
     }
     const seenPeriodKeys = new Set<string>();
     const preparedPeriods = periods.map((period) => {
@@ -179,13 +181,13 @@ export async function executeAtomicAllowancePayout({
     });
     const expectedTransactionIds = preparedPeriods.flatMap((period) => period.payouts.map((payout) => payout.transactionId));
 
-    let envelopes = memberEnvelopes;
+    let envelopes = suppliedActiveEnvelopes;
     let existingTransactionIds = new Set<string>();
     if (typeof db.queryOnce === 'function') {
         const response = await db.queryOnce({
             familyMembers: {
                 $: { where: { id: memberId } },
-                allowanceEnvelopes: {},
+                allowanceEnvelopes: activeAllowanceEnvelopesQuery,
             },
             allowanceTransactions: {
                 $: { where: { id: { $in: expectedTransactionIds } } },
@@ -195,7 +197,7 @@ export async function executeAtomicAllowancePayout({
         if (!familyMember) {
             throw new Error('Allowance payout member could not be found.');
         }
-        envelopes = familyMember?.allowanceEnvelopes || [];
+        envelopes = filterActiveAllowanceEnvelopes(familyMember?.allowanceEnvelopes || []);
         existingTransactionIds = new Set(
             (response.data?.allowanceTransactions || []).map((transaction: { id: string }) => transaction.id)
         );

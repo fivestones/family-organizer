@@ -3,6 +3,7 @@ import { db as instantDb } from '@/lib/db';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 import { getCachedMemberToken } from '@/lib/instant-principal-storage';
 import { resolveOneLink } from '@/lib/instant-links';
+import { filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 
 const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 
@@ -137,6 +138,7 @@ export interface Envelope {
     id: string;
     name: string;
     balances: { [currency: string]: number };
+    archivedAt?: string | null;
     isDefault?: boolean | null;
     goalAmount?: number | null;
     goalCurrency?: string | null;
@@ -578,11 +580,15 @@ export const createAdditionalEnvelope = async (
  * @param newDefaultEnvelopeId - ID of the envelope to set as default
  */
 export const setDefaultEnvelope = async (db: any, envelopes: Envelope[], newDefaultEnvelopeId: string) => {
-    console.log(`Attempting to set default: ${newDefaultEnvelopeId}. Current envelopes:`, envelopes);
+    if (envelopes.some((envelope) => envelope.id === newDefaultEnvelopeId && envelope.archivedAt)) {
+        throw new Error('Cannot make an archived envelope the default.');
+    }
+    const activeEnvelopes = filterActiveAllowanceEnvelopes(envelopes);
+    console.log(`Attempting to set default: ${newDefaultEnvelopeId}. Current envelopes:`, activeEnvelopes);
     const transactions: any[] = [];
     let newDefaultExists = false;
 
-    envelopes.forEach((env: Envelope) => {
+    activeEnvelopes.forEach((env: Envelope) => {
         // Use Envelope type
         if (env.id === newDefaultEnvelopeId) {
             newDefaultExists = true;
@@ -617,7 +623,7 @@ export const setDefaultEnvelope = async (db: any, envelopes: Envelope[], newDefa
             console.error('Error setting default envelope:', error);
             throw error; // Re-throw
         }
-    } else if (newDefaultExists && envelopes.find((e) => e.id === newDefaultEnvelopeId)?.isDefault) {
+    } else if (newDefaultExists && activeEnvelopes.find((e) => e.id === newDefaultEnvelopeId)?.isDefault) {
         console.log('No changes needed, target envelope is already the default.');
     } else {
         console.warn('Set default called, but no transactions were generated. Target ID:', newDefaultEnvelopeId);
@@ -821,16 +827,17 @@ export const deleteEnvelope = async (
     if (envelopeToDeleteId === transferToEnvelopeId) throw new Error('Cannot transfer funds to the envelope being deleted.');
 
     // Logic uses passed 'allEnvelopes' array instead of querying
-    if (!allEnvelopes || allEnvelopes.length <= 1) throw new Error('Cannot delete the last envelope.');
+    const activeEnvelopes = filterActiveAllowanceEnvelopes(allEnvelopes);
+    if (activeEnvelopes.length <= 1) throw new Error('Cannot delete the last envelope.');
 
-    const envelopeToDelete = allEnvelopes.find((e) => e.id === envelopeToDeleteId);
-    const targetEnvelope = allEnvelopes.find((e) => e.id === transferToEnvelopeId);
+    const envelopeToDelete = activeEnvelopes.find((e) => e.id === envelopeToDeleteId);
+    const targetEnvelope = activeEnvelopes.find((e) => e.id === transferToEnvelopeId);
 
     if (!envelopeToDelete) throw new Error('Envelope to delete not found in provided list.');
     if (!targetEnvelope) throw new Error('Envelope to transfer funds to not found in provided list.');
     if (envelopeToDelete.isDefault && !newDefaultEnvelopeId) throw new Error('Must specify a new default envelope when deleting the default.');
     if (envelopeToDelete.isDefault && newDefaultEnvelopeId === envelopeToDeleteId) throw new Error('New default cannot be the deleted envelope.');
-    if (newDefaultEnvelopeId && !allEnvelopes.some((e) => e.id === newDefaultEnvelopeId))
+    if (newDefaultEnvelopeId && !activeEnvelopes.some((e) => e.id === newDefaultEnvelopeId))
         throw new Error(`Specified new default envelope (${newDefaultEnvelopeId}) not found.`);
 
     const balancesToDelete = envelopeToDelete.balances || {};
@@ -876,7 +883,11 @@ export const deleteEnvelope = async (
                     updatedAt: nowIso,
                 })
             );
-            // Link incoming transaction to target envelope
+            // Keep both ends linked. The source is archived rather than deleted,
+            // so its immutable ledger remains navigable.
+            transactions.push(
+                tx.allowanceEnvelopes[envelopeToDeleteId].link({ outgoingTransfers: transactionIdOut, transactions: transactionIdOut })
+            );
             transactions.push(tx.allowanceEnvelopes[transferToEnvelopeId].link({ incomingTransfers: transactionIdIn, transactions: transactionIdIn }));
         }
     }
@@ -920,8 +931,15 @@ export const deleteEnvelope = async (
         transactions.push(tx.allowanceEnvelopes[newDefaultEnvelopeId].update({ isDefault: true }));
     }
 
-    // Add delete transaction LAST
-    transactions.push(tx.allowanceEnvelopes[envelopeToDeleteId].delete());
+    // Archive LAST so the envelope disappears from active views while its links
+    // and transaction history remain intact.
+    transactions.push(
+        tx.allowanceEnvelopes[envelopeToDeleteId].update({
+            archivedAt: nowIso,
+            balances: {},
+            isDefault: false,
+        })
+    );
 
     await db.transact(transactions);
     console.log(`Deleted envelope ${envelopeToDeleteId}, transferred funds to ${transferToEnvelopeId}`);
@@ -1415,9 +1433,10 @@ export const setLastDisplayCurrencyPref = async (db: any, familyMemberId: string
  */
 export const findOrDefaultEnvelope = async (db: any, memberId: string, memberEnvelopes: Envelope[]): Promise<string | null> => {
     console.log(`Finding default envelope for member ${memberId}...`);
+    const activeEnvelopes = filterActiveAllowanceEnvelopes(memberEnvelopes);
 
     // 1. Check if a default already exists
-    let defaultEnvelope = memberEnvelopes.find((e) => e.isDefault);
+    let defaultEnvelope = activeEnvelopes.find((e) => e.isDefault);
     if (defaultEnvelope) {
         console.log(`Found existing default: ${defaultEnvelope.id} (${defaultEnvelope.name})`);
         return defaultEnvelope.id;
@@ -1425,11 +1444,11 @@ export const findOrDefaultEnvelope = async (db: any, memberId: string, memberEnv
     console.log('No existing default found.');
 
     // 2. Check for "Savings" envelope
-    let savingsEnvelope = memberEnvelopes.find((e) => e.name.toLowerCase() === 'savings');
+    let savingsEnvelope = activeEnvelopes.find((e) => e.name.toLowerCase() === 'savings');
     if (savingsEnvelope) {
         console.log(`Found 'Savings' envelope (${savingsEnvelope.id}), setting as default.`);
         try {
-            await setDefaultEnvelope(db, memberEnvelopes, savingsEnvelope.id);
+            await setDefaultEnvelope(db, activeEnvelopes, savingsEnvelope.id);
             return savingsEnvelope.id;
         } catch (error) {
             console.error(`Failed to set 'Savings' (${savingsEnvelope.id}) as default:`, error);
@@ -1438,11 +1457,11 @@ export const findOrDefaultEnvelope = async (db: any, memberId: string, memberEnv
     }
 
     // 3. Use the first envelope if available
-    if (memberEnvelopes.length > 0) {
-        const firstEnvelope = memberEnvelopes[0];
+    if (activeEnvelopes.length > 0) {
+        const firstEnvelope = activeEnvelopes[0];
         console.log(`Using first envelope (${firstEnvelope.id}) as default.`);
         try {
-            await setDefaultEnvelope(db, memberEnvelopes, firstEnvelope.id);
+            await setDefaultEnvelope(db, activeEnvelopes, firstEnvelope.id);
             return firstEnvelope.id;
         } catch (error) {
             console.error(`Failed to set first envelope (${firstEnvelope.id}) as default:`, error);
@@ -1497,7 +1516,7 @@ export const executeAllowanceTransaction = async (
 
     // Fetch the latest state of the default envelope, especially if it was just created
     // This ensures `balances` is correctly populated.
-    let defaultEnvelope: Envelope | null = memberEnvelopes.find((e) => e.id === defaultEnvelopeId) || null;
+    let defaultEnvelope: Envelope | null = filterActiveAllowanceEnvelopes(memberEnvelopes).find((e) => e.id === defaultEnvelopeId) || null;
     if (!defaultEnvelope) {
         // If not found in the passed list (e.g., just created), fetch it directly
         try {

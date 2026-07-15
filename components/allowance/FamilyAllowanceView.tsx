@@ -12,6 +12,7 @@ import MemberAllowanceDetail from '@/components/allowance/MemberAllowanceDetail'
 
 // **** Import types ****
 import { UnitDefinition, Envelope, computeMonetaryCurrencies } from '@/lib/currency-utils';
+import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 
 // Define FamilyMember type based on query
 interface FamilyMember {
@@ -52,16 +53,19 @@ export default function FamilyAllowanceView() {
 
             // Fetch all fields for members by default
             // We NEED allowanceEnvelopes linked here to calculate balances per member
-            allowanceEnvelopes: {}, // Fetch linked envelopes for calculation later
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery, // Fetch active linked envelopes for calculation later
         },
         // Fetch all envelopes separately to easily get all balances if needed elsewhere (or remove if redundant)
-        allowanceEnvelopes: {}, // Keep this for calculating allMonetaryCurrenciesInUse
+        allowanceEnvelopes: activeAllowanceEnvelopesQuery, // Keep this for calculating allMonetaryCurrenciesInUse
         unitDefinitions: {},
     });
 
     // --- Derived Data ---
     const familyMembers = useMemo(() => (appData?.familyMembers || []) as unknown as FamilyMember[], [appData?.familyMembers]);
-    const allEnvelopes = useMemo(() => (appData?.allowanceEnvelopes || []) as unknown as Envelope[], [appData?.allowanceEnvelopes]);
+    const allEnvelopes = useMemo(
+        () => filterActiveAllowanceEnvelopes((appData?.allowanceEnvelopes || []) as unknown as Envelope[]),
+        [appData?.allowanceEnvelopes]
+    );
     const unitDefinitions = useMemo(() => (appData?.unitDefinitions || []) as unknown as UnitDefinition[], [appData?.unitDefinitions]);
 
     // +++ Use the new utility function +++

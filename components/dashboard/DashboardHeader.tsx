@@ -7,6 +7,7 @@ import { db } from '@/lib/db';
 import { calculateDailyXP } from '@family-organizer/shared-core';
 import { formatBalances, type UnitDefinition } from '@/lib/currency-utils';
 import { buildMemberTotalBalances, getPhotoUrl, toInitials, type DashboardFamilyMember } from '@/lib/dashboard-utils';
+import { activeAllowanceEnvelopesQuery } from '@/lib/allowance-envelopes';
 
 interface DashboardHeaderProps {
     activeMember: DashboardFamilyMember | null;
@@ -50,7 +51,7 @@ export default function DashboardHeader({
     const { data: balData } = db.useQuery({
         familyMembers: {
             ...(activeMemberId ? { $: { where: { id: activeMemberId } } } : {}),
-            allowanceEnvelopes: {},
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery,
         },
         unitDefinitions: {},
     });

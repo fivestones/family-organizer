@@ -58,8 +58,8 @@ describe('instant.perms contract', () => {
     it('keeps destructive and bookkeeping finance mutations parent-only', () => {
         const perms = rules as any;
         expect(perms.allowanceEnvelopes.allow.delete).toBe('isParent');
-        expect(perms.allowanceEnvelopes.allow.create).toBe('isFamilyPrincipal');
-        expect(perms.allowanceEnvelopes.allow.update).toBe('isFamilyPrincipal');
+        expect(perms.allowanceEnvelopes.allow.create).toContain("!('archivedAt' in request.modifiedFields)");
+        expect(perms.allowanceEnvelopes.allow.update).toContain("!('archivedAt' in request.modifiedFields)");
 
         for (const operation of ['create', 'update', 'delete'] as const) {
             expect(perms.exchangeRates.allow[operation]).toBe('isParent');
@@ -67,6 +67,16 @@ describe('instant.perms contract', () => {
         }
         expect(perms.exchangeRates.allow.view).toBe('isFamilyPrincipal');
         expect(perms.calculatedAllowancePeriods.allow.view).toBe('isFamilyPrincipal');
+    });
+
+    it('indexes the envelope archive marker used by every active-envelope query', async () => {
+        const schemaSource = await fs.readFile(path.join(process.cwd(), 'instant.schema.ts'), 'utf8');
+        const allowanceEnvelopes = schemaSource.slice(
+            schemaSource.indexOf('allowanceEnvelopes: i.entity({'),
+            schemaSource.indexOf('allowanceTransactions: i.entity({')
+        );
+
+        expect(allowanceEnvelopes).toContain('archivedAt: i.string().indexed().optional()');
     });
 
     it('limits kid family-member preferences and PIN hashes to the authenticated member row', () => {

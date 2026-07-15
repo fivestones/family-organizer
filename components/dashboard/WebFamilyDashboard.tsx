@@ -16,6 +16,7 @@ import {
 } from '@family-organizer/shared-core';
 import { getTasksForDate, type Task } from '@/lib/task-scheduler';
 import { hasScheduledChildren } from '@/lib/task-series-progress';
+import { activeAllowanceEnvelopesQuery } from '@/lib/allowance-envelopes';
 import {
     addUtcDays,
     buildCalendarLabel,
@@ -150,7 +151,7 @@ function FamilyOverviewDashboard() {
     const { data, isLoading, error } = db.useQuery({
         familyMembers: {
             $: { order: { order: 'asc' } },
-            allowanceEnvelopes: {},
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery,
         },
         unitDefinitions: {},
         chores: {

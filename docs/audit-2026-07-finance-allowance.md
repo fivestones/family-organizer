@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed and deployed: envelope deletion is ledger-preserving archival (§5; fix plan 6).** The delete workflow migrates every non-zero balance, writes and links both sides of each transfer, then clears/default-unsets and timestamps the source envelope instead of deleting it. All active finance, chore-balance, family-list, payout, and dashboard queries filter the indexed `archivedAt` marker; transaction history deliberately retains archived rows and their immutable links. Kids cannot set `archivedAt`, while parents can archive. Verification: 97 cross-surface tests and `tsc --noEmit` pass; the schema/index and permissions are deployed; the full 3-test hosted permission/cascade matrix passes.
 - **2026-07-15 — Completed: count-limited allowance periods no longer expand the full rule (§2).** The terminal-period branch now checks `rule.options.count === 1` directly instead of materializing every recurrence through `rule.all()`. Large finite counts therefore retain bounded period lookup behavior. Verification: all 24 chore date-logic tests, including a prototype spy proving `all()` is never called, plus `tsc --noEmit` pass.
 - **2026-07-15 — Completed: processed periods disappear without a stale-query flash (§6; fix plan 11).** Successful single-period, bulk, and skip actions add only the confirmed period IDs to a local suppression set. That state change reruns the existing calculation immediately, while `excludeProcessedPeriods` prevents an older live-query snapshot from reintroducing committed rows; the normal Instant subscription remains responsible for durable state. Duplicate/no-op payout responses suppress nothing. Verification: 2 focused state regressions plus all 8 atomic-payout tests, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-15 — Completed: has-one link shapes are normalized in allowance math (§2).** A shared `resolveOneLink` helper now accepts either Instant's object or one-item-array representation. `calculatePeriodDetails` uses it before matching completion chores, so object-shaped results no longer silently omit completed weight or fixed rewards. Existing task-bin and finance member-link normalization now use the same primitive. Verification: all 51 focused link/chore/task-bin/currency tests, `tsc --noEmit`, and `git diff --check` pass.
@@ -33,7 +34,7 @@
 | 4 | **High (Partially fixed)** | Exchange rates, calculated periods, and envelope deletion are closed; direct envelope balance updates await server-mediated transfers |
 | 5 | **Completed 2026-07-15** | Ledger reconciliation now audits finance detail loads and pre-distribution state |
 | 6 | **Completed in code 2026-07-15** | Provider access and caching are server-only; external key rotation/configuration remains |
-| 7 | **Medium (Partially fixed)** | Debt preservation and undeclared transaction attributes are fixed; float money math and hard-delete ledger continuity remain |
+| 7 | **Medium (Partially fixed)** | Debt preservation, relationship hygiene, and ledger-preserving archival are fixed; float money math remains |
 
 The theme: the **ledger** (`allowanceTransactions`, append-only, well-audited) and the **balances** (a mutable JSON blob on each envelope) are maintained in parallel with nothing enforcing that they agree.
 
@@ -132,7 +133,7 @@ The client previously selected a `NEXT_PUBLIC` value or a committed fallback and
 
 - **Undeclared transaction attributes — Completed 2026-07-15.** All writes of scalar `envelope`, `sourceEnvelope`, and `destinationEnvelope` fields have been removed from allowance transaction payloads. Mutations retain the real schema relationships: ordinary ledger membership uses the envelope's `transactions` link, transfer debits use `outgoingTransfers`, and transfer credits use `incomingTransfers`. Relationship filters such as reconciliation's `where: { envelope: envelopeId }` therefore have one unambiguous source of truth.
 - **Negative balances on envelope deletion — Completed 2026-07-15.** `deleteEnvelope` now migrates all non-zero balances. For a `-2` debt it adds `-2` to the retained envelope, records a `+2` transfer-out that clears the deleted envelope, and records a `-2` transfer-in on the retained envelope. The two-envelope total and ledger replay therefore remain unchanged.
-- **Deleted envelopes strand their ledger.** The delete removes the envelope row; its transactions keep pointing at a dead ID. `TransactionHistoryView` and reconciliation must tolerate that today. Consider an `archivedAt` soft-delete for envelopes instead — the UI hides them, the ledger stays coherent.
+- **Deleted envelopes strand their ledger — Completed and deployed 2026-07-15.** The user-facing delete action now archives: it migrates balances, links outgoing rows to the source, clears the archived balance cache, unsets default, and writes `archivedAt` in the same transaction. Active-envelope consumers use the indexed null filter plus defensive local filtering, while `TransactionHistoryView` intentionally queries the complete member envelope graph so historical labels and links survive. The permission rule reserves archive-field create/update changes for parents.
 - **Legacy `i.any()` fields** on envelopes (`amount`, `currency` — [instant.schema.ts:28-30](instant.schema.ts:28)) predate the `balances` JSON. Migrate/remove.
 - **Float money math throughout.** Balances, rewards, and the reconcile epsilon (`0.001`) all ride IEEE doubles; repeated allowance percentages (`(percentage/100) * amount`) plus `toFixed(2)` round-trips will drift by cents over years. Standard fix: integer minor units per currency (`unitDefinitions.decimalPlaces` already exists to drive this). Big migration — schedule it consciously or accept and document cent-level drift.
 
@@ -162,7 +163,7 @@ The client previously selected a `NEXT_PUBLIC` value or a committed fallback and
 **Phase 1 — trust the ledger:**
 4. ~~Wire `reconcileEnvelope` into finance-page load + pre-distribution (1.2).~~ **Completed 2026-07-15, including ledgerless-legacy preservation.**
 5. ~~Declare or drop the undeclared transaction attributes (§5).~~ **Completed 2026-07-15; schema-backed Instant links are now the only relationship representation.**
-6. **Debt migration completed 2026-07-15:** all non-zero balances move on delete. Soft-delete remains a separate ledger-continuity improvement (§5).
+6. ~~Migrate all non-zero balances and preserve ledger continuity with soft-delete (§5).~~ **Completed and deployed 2026-07-15.**
 
 **Phase 2 — permissions & secrets:**
 7. ~~Envelope `delete: isParent`; `exchangeRates` writes parent/server-only; calculated periods parent-only; `allowanceAwarded` kid-write closure (§3).~~ **Completed and deployed (completion state 2026-07-14; remaining minimum finance rules 2026-07-15).** Direct envelope updates move to Phase 3's server-mediated boundary.

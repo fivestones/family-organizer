@@ -261,6 +261,17 @@ describe('currency-utils core helpers', () => {
         expect(db.transact).not.toHaveBeenCalled();
     });
 
+    it('does not allow an archived envelope to become the default', async () => {
+        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const envelopes: Envelope[] = [
+            { id: 'env-active', name: 'Active', balances: {}, isDefault: true },
+            { id: 'env-archived', name: 'Archived', balances: {}, archivedAt: '2026-07-15T12:00:00.000Z', isDefault: false },
+        ];
+
+        await expect(setDefaultEnvelope(db as any, envelopes, 'env-archived')).rejects.toThrow('Cannot make an archived envelope the default.');
+        expect(db.transact).not.toHaveBeenCalled();
+    });
+
     it('finds an existing default envelope without mutating data', async () => {
         const db = { transact: vi.fn(), queryOnce: vi.fn() };
         const envelopes: Envelope[] = [

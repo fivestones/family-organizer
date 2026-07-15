@@ -33,6 +33,7 @@ import { getAssignedMembersForChoreOnDate } from '@/lib/chore-utils';
 import type { ChorePauseState, ChoreSchedulePatch } from '@/lib/chore-schedule';
 // **** NEW: Import types and utility ****
 import { UnitDefinition, Envelope, computeAllApplicableCurrencyCodes } from '@/lib/currency-utils'; // Import computeMonetaryCurrencies
+import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 
@@ -249,7 +250,7 @@ function ChoresTracker({
         return {
             familyMembers: {
                 $: { order: { order: 'asc' } },
-                allowanceEnvelopes: {},
+                allowanceEnvelopes: activeAllowanceEnvelopesQuery,
             },
             chores: {
                 assignees: {},
@@ -274,7 +275,7 @@ function ChoresTracker({
                   }
                 : {}),
             unitDefinitions: {},
-            allowanceEnvelopes: {},
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery,
             choreAssignments: {
                 chore: {},
             },
@@ -331,7 +332,10 @@ function ChoresTracker({
     }, [dailyChoreCompletions, data?.chores]);
     const unitDefinitions: UnitDefinition[] = useMemo(() => (data?.unitDefinitions as any) || [], [data?.unitDefinitions]);
     const gradeTypes = useMemo(() => (data?.gradeTypes as any[]) || [], [data?.gradeTypes]);
-    const allEnvelopes: Envelope[] = useMemo(() => (data?.allowanceEnvelopes as any) || [], [data?.allowanceEnvelopes]); // Get all envelopes from data
+    const allEnvelopes: Envelope[] = useMemo(
+        () => filterActiveAllowanceEnvelopes((data?.allowanceEnvelopes as any) || []),
+        [data?.allowanceEnvelopes]
+    );
     const routineMarkerStatuses: RoutineMarkerStatus[] = useMemo(() => (data?.routineMarkerStatuses as any) || [], [data?.routineMarkerStatuses]);
     const scheduleSettings: SharedScheduleSettings = useMemo(
         () => {
@@ -355,7 +359,7 @@ function ChoresTracker({
             const memberId = member.id;
             balances[memberId] = {}; // Initialize balance object for member
             // Iterate through envelopes linked directly to the member in the query result
-            (member.allowanceEnvelopes || []).forEach((envelope) => {
+            filterActiveAllowanceEnvelopes(member.allowanceEnvelopes).forEach((envelope) => {
                 if (envelope.balances) {
                     Object.entries(envelope.balances).forEach(([currency, amount]) => {
                         const upperCaseCurrency = currency.toUpperCase();
