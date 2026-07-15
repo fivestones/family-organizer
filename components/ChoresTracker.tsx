@@ -140,8 +140,8 @@ interface ChoreCompletion {
     completed: boolean;
     dateDue: string;
     notDone?: boolean;
-    chore?: { id: string }; // Link to chore
-    completedBy?: { id: string }; // Link to member
+    chore?: { id: string } | { id: string }[]; // Link to chore
+    completedBy?: { id: string } | { id: string }[]; // Link to member
     // Add other fields from schema if needed
 }
 
@@ -220,97 +220,118 @@ function ChoresTracker({
         }
     }, [initialSelectedDate, viewScope]);
 
-    // **** UPDATED QUERY: Fetch members + linked envelopes, chores, and unit definitions ****
-    const { isLoading, error, data } = db.useQuery({
-        familyMembers: {
-            $: { order: { order: 'asc' } },
+    const selectedDateKey = selectedDate.toISOString().slice(0, 10);
 
-            assignedChores: {
-                completions: {},
+    // Keep the hook unconditional while tailoring the linked update tree to the
+    // route. Chore pages need response-presence checks; task pages also render
+    // feedback, grades, actors, replies, and attachments.
+    const trackerQuery = useMemo<any>(() => {
+        const taskUpdates =
+            pageMode === 'tasks'
+                ? {
+                      attachments: {},
+                      actor: {},
+                      affectedPerson: {},
+                      responseFieldValues: { field: {} },
+                      gradeType: {},
+                      replyTo: {},
+                      replies: {
+                          actor: {},
+                          affectedPerson: {},
+                          attachments: {},
+                          gradeType: {},
+                      },
+                  }
+                : {
+                      responseFieldValues: { field: {} },
+                  };
+
+        return {
+            familyMembers: {
+                $: { order: { order: 'asc' } },
+                allowanceEnvelopes: {},
             },
-            // **** Include allowance envelopes for balance calculation ****
+            chores: {
+                assignees: {},
+                assignments: {
+                    familyMember: {},
+                },
+                taskSeries: {
+                    tasks: {
+                        parentTask: {},
+                        attachments: {},
+                        updates: taskUpdates,
+                        responseFields: {},
+                    },
+                    familyMember: {},
+                },
+            },
+            ...(pageMode === 'tasks'
+                ? {
+                      gradeTypes: {
+                          $: { order: { createdAt: 'asc' } },
+                      },
+                  }
+                : {}),
+            unitDefinitions: {},
             allowanceEnvelopes: {},
-            choreAssignments: {},
-        },
-        chores: {
-            assignees: {},
-            assignments: {
-                familyMember: {},
+            choreAssignments: {
+                chore: {},
             },
-            completions: {
+            choreCompletions: {
+                $: { where: { dateDue: selectedDateKey } },
+                chore: {},
                 completedBy: {},
             },
-            taskSeries: {
-                tasks: {
-                    // Fetch all tasks for the series
-                    parentTask: {},
-                    // +++ NEW: Fetch notes and attachments for metadata display +++
-                    attachments: {},
-                    updates: {
-                        attachments: {},
-                        actor: {},
-                        affectedPerson: {},
-                        responseFieldValues: { field: {} },
-                        gradeType: {},
-                        replyTo: {},
-                        replies: {
-                            actor: {},
-                            affectedPerson: {},
-                            attachments: {},
-                            gradeType: {},
-                        },
+            routineMarkerStatuses: {},
+            settings: {
+                $: {
+                    where: {
+                        or: [
+                            { name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME },
+                            { name: COUNTDOWN_SETTINGS_NAME },
+                        ],
                     },
-                    // Note: notes is a direct field, so it comes automatically with the entity
-                    responseFields: {},
-                },
-                familyMember: {},
-            },
-        },
-        // Fetch grade types for grading panel
-        gradeTypes: {
-            $: { order: { createdAt: 'asc' } },
-        },
-        // **** Fetch unit definitions ****
-        unitDefinitions: {},
-        // **** Fetch all envelopes for currency computation ****
-        allowanceEnvelopes: {}, // Fetch all top-level envelopes
-        // **** Fetch chore assignments and completions if needed for update/delete logic ****
-
-        // +++ FIX: Request 'chore' relation so we can filter by it in updateChore +++
-        choreAssignments: {
-            chore: {}, // Ensure we fetch the parent chore
-        },
-
-        choreCompletions: {
-            // Fetch top-level completions needed for the check
-            chore: {},
-            completedBy: {},
-            // +++ NEW: Fetch markedBy +++
-            markedBy: {},
-        },
-        routineMarkerStatuses: {},
-        settings: {
-            $: {
-                where: {
-                    or: [
-                        { name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME },
-                        { name: COUNTDOWN_SETTINGS_NAME },
-                    ],
                 },
             },
-        },
-    });
+        };
+    }, [pageMode, selectedDateKey]);
+
+    const { isLoading, error, data } = (db.useQuery as any)(trackerQuery) as {
+        isLoading: boolean;
+        error?: { message?: string } | null;
+        data?: any;
+    };
 
     // --- Derived Data ---
     // Use 'as any' casting if strict schema typing conflicts with the generic interface,
     // but typically the global db schema inference should align if the interfaces match.
     const familyMembers: FamilyMember[] = useMemo(() => (data?.familyMembers as any) || [], [data?.familyMembers]);
-    const chores: Chore[] = useMemo(() => (data?.chores as any) || [], [data?.chores]);
+    const dailyChoreCompletions: ChoreCompletion[] = useMemo(
+        () => (data?.choreCompletions as any) || [],
+        [data?.choreCompletions]
+    );
+    const chores: Chore[] = useMemo(() => {
+        const completionsByChoreId = new Map<string, ChoreCompletion[]>();
+        for (const completion of dailyChoreCompletions) {
+            const choreLink = Array.isArray(completion.chore) ? completion.chore[0] : completion.chore;
+            if (!choreLink?.id) continue;
+            const existing = completionsByChoreId.get(choreLink.id) || [];
+            existing.push({
+                ...completion,
+                completedBy: Array.isArray(completion.completedBy) ? completion.completedBy[0] : completion.completedBy,
+            });
+            completionsByChoreId.set(choreLink.id, existing);
+        }
+
+        return (((data?.chores as any[]) || []).map((chore) => ({
+            ...chore,
+            completions: completionsByChoreId.get(chore.id) || [],
+        })) as Chore[]);
+    }, [dailyChoreCompletions, data?.chores]);
     const unitDefinitions: UnitDefinition[] = useMemo(() => (data?.unitDefinitions as any) || [], [data?.unitDefinitions]);
     const gradeTypes = useMemo(() => (data?.gradeTypes as any[]) || [], [data?.gradeTypes]);
     const allEnvelopes: Envelope[] = useMemo(() => (data?.allowanceEnvelopes as any) || [], [data?.allowanceEnvelopes]); // Get all envelopes from data
-    // +++ Get top-level completions for the check +++
-    const allChoreCompletions: ChoreCompletion[] = useMemo(() => (data?.choreCompletions as any) || [], [data?.choreCompletions]);
     const routineMarkerStatuses: RoutineMarkerStatus[] = useMemo(() => (data?.routineMarkerStatuses as any) || [], [data?.routineMarkerStatuses]);
     const scheduleSettings: SharedScheduleSettings = useMemo(
         () => {
@@ -391,7 +412,6 @@ function ChoresTracker({
         ];
     }, [unitDefinitions, allMonetaryCurrenciesInUse]);
 
-    const selectedDateKey = selectedDate.toISOString().slice(0, 10);
     const todayDateKey = getFamilyDayDateUTC(new Date(), scheduleSettings).toISOString().slice(0, 10);
 
     // --- Countdown engine ---
@@ -752,11 +772,7 @@ function ChoresTracker({
 
         // +++ Check if Up for Grabs and already completed by someone else +++
         if (isUpForGrabsChore) {
-            // Query completions for THIS chore on THIS date
-            // Note: This requires `choreCompletions` to be fetched in the main query if not already linked sufficiently
-            // Using `allChoreCompletions` derived from the main query
-
-            const completionsOnDate = allChoreCompletions.filter((c: any) => c.chore?.[0]?.id === choreId && c.dateDue === formattedDate && c.completed);
+            const completionsOnDate = (chore.completions || []).filter((completion) => completion.dateDue === formattedDate && completion.completed);
             if (completionsOnDate.length > 0) {
                 // Check if the current user is trying to mark it complete AGAIN (allow unchecking)
                 const currentUserCompletion = completionsOnDate.find((c: any) => c.completedBy?.id === familyMemberId);

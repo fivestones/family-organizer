@@ -79,6 +79,13 @@ describe('instant.perms contract', () => {
         expect(perms.chores.allow.unlink.$default).toBe('isParent');
     });
 
+    it('indexes completion due dates for bounded day-view queries', async () => {
+        const schemaSource = await fs.readFile(path.join(process.cwd(), 'instant.schema.ts'), 'utf8');
+        const entityStart = schemaSource.indexOf('choreCompletions: i.entity({');
+        expect(entityStart).toBeGreaterThan(-1);
+        expect(schemaSource.slice(entityStart, entityStart + 400)).toContain('dateDue: i.string().indexed()');
+    });
+
     it('cascades task-owned records when their task or response field is deleted', async () => {
         const schemaSource = await fs.readFile(path.join(process.cwd(), 'instant.schema.ts'), 'utf8');
 

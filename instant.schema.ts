@@ -192,7 +192,7 @@ const _schema = i.schema({
             allowanceAwarded: i.boolean().indexed(),
             completed: i.boolean(),
             dateCompleted: i.string().optional(),
-            dateDue: i.string(),
+            dateDue: i.string().indexed(),
             notDone: i.boolean().optional(),
         }),
         choreManualStarts: i.entity({

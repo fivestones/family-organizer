@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed: daily tracker completions are date-bounded and route queries are leaner (§4.3, Phase 4).** `choreCompletions.dateDue` is now indexed in the checked-in and hosted Instant schema. `ChoresTracker` queries only the selected date's completion rows, links them back onto their chores locally, and no longer duplicates the same unbounded history through every chore plus a top-level namespace. `/chores` keeps only response-field-value links needed by its completion guard; `/tasks` alone loads feedback actors, replies, attachments, grades, and grade types. Redundant family-member assigned-chore/assignment subtrees were removed. Verification: 16 focused tracker/schema contract tests and `tsc --noEmit` pass; the hosted schema push completed and a read-only admin query using the new indexed shape returned successfully.
 - **2026-07-15 — Completed: manager list no longer subscribes to task feedback and attachment trees (Part 3 #1, Phase 4).** The live list keeps task attributes, parent links, response-field existence, update grade attributes, and grade types needed for status/progress/day/grade summaries, but drops update actors, affected people, response values, update attachments, and task attachments. Duplicate now performs a one-shot task-series-ID query for definition attachments/fields immediately before building its faithful copy, so that uncommon action no longer bloats every list update. Verification: all 9 manager DOM tests pass, including exact list and duplicate query-shape assertions; `tsc --noEmit` passes.
 - **2026-07-15 — Completed: editor cards skip unrelated keystrokes and history links load on demand (§2.6).** `TaskSeriesCard` now has a field-aware memo comparator, and the parent passes a stable history-toggle callback, so rebuilding the editor document re-renders only a card whose visible item, persisted record, or open state changed. The always-on series query keeps lightweight update attributes for badges and deletion guards but no longer subscribes every task to update actors/attachments; opening one History panel mounts a task-ID-filtered query for its complete display relationships. Verification: all 16 editor DOM tests pass, including comparator and query-boundary regressions; `tsc --noEmit` passes.
 - **2026-07-15 — Completed: card attachment removal uses an accessible destructive dialog (§2.7).** The task-card workflow no longer interrupts the browser with native `confirm()`. It opens the shared styled alert dialog, names the selected file, keeps Cancel write-free, disables both exits while the asynchronous delete is pending, and closes only after the Instant transaction succeeds. Verification: all 14 editor DOM tests pass, including cancel and confirmed-delete assertions; `tsc --noEmit` passes.
@@ -216,11 +217,13 @@ Visibility of the checklist section is `tasks.length > 0 || hasBucketedTasks` ([
 
 The old active-row checkbox was hardcoded false, and the component discarded every Done task from the scheduler projection before rendering, so a tap made the row vanish into a collapsed bin. **Completed:** scheduler-returned rows now stay in the viewed-date list even when Done, render checked with Done/Undo controls, and are removed from the duplicate Done bin. A completion tap applies a bounded optimistic checked/emerald state immediately and toggles the existing `Fireworks`; the database write still starts in the same event. When a later date's scheduler projection no longer includes that completion, the existing historical Done bin becomes its only location.
 
-### 4.3 The giant query — **Medium**
+### 4.3 The giant query — **Completed 2026-07-15**
 
 `ChoresTracker`'s query ([ChoresTracker.tsx:223-301](components/ChoresTracker.tsx:223)) fetches, on every `/`, `/chores`, and `/tasks` load: all chores × all task series × all tasks × all updates **including replies with actors/attachments/grades**, plus **every `choreCompletions` row ever created** (unbounded, grows forever), all envelopes, all assignments. Any write anywhere re-runs this. This is the main scalability cliff in the app.
 
 **Fix plan:** split by page mode — `/tasks` doesn't need envelopes/completions; `/chores` doesn't need task-update trees. Constrain completions with an indexed `where: { dateDue: { $gte: <window> } }` (`dateDue` is already a string date-key; add index if missing). Fetch update replies only inside the composer dialog.
+
+**Completed:** the query is now composed by page mode while still obeying React's unconditional-hook rule. Both day views fetch only `choreCompletions` whose indexed `dateDue` equals the selected day and merge those rows onto chores locally. The chores presentation drops update actors, affected people, replies, attachments, grades, and global grade types, retaining response values only because marking a chore complete must enforce required task responses. The tasks presentation retains its richer tree because the visible checklist/composer renders it. Family-member reverse chore/completion trees were also removed, eliminating duplicate paths to the same growing rows. The index is deployed and the exact hosted query shape has been smoke-tested.
 
 ### 4.4 Smaller presentation issues
 
@@ -339,7 +342,7 @@ These are real but were not the cause of the captured incident:
 
 ### Phase 4 — performance
 
-15. Per-page lean queries: ChoresTracker split by pageMode; completions windowed; manager/bins narrow projections; editor lazy update-history (4.3, Part 3 #1, 2.6).
+15. **Mostly completed 2026-07-15:** ~~ChoresTracker split by page mode with selected-day completion queries; manager narrow subscription; editor lazy update history and memoized cards.~~ Task Bins server-side narrowing remains open.
 16. Memoize `TaskSeriesCard`; virtualize card list for big series.
 
 ### Phase 5 — UX & hardening polish

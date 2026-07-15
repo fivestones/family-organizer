@@ -14,7 +14,7 @@ const choreTrackerMocks = vi.hoisted(() => {
 
     return {
         dbState,
-        dbUseQuery: vi.fn(() => ({
+        dbUseQuery: vi.fn((_query?: any) => ({
             isLoading: dbState.isLoading,
             error: dbState.error,
             data: dbState.data,
@@ -310,6 +310,64 @@ describe('ChoresTracker', () => {
             if (chore.startDate === dateStr) return chore.assignees ?? [];
             return [];
         });
+    });
+
+    it('bounds completion rows to the selected date and tailors task update links by page mode', () => {
+        const { unmount } = render(<ChoresTracker initialSelectedDate="2026-04-03" />);
+
+        const choresQuery = choreTrackerMocks.dbUseQuery.mock.calls[0]?.[0];
+        expect(choresQuery.choreCompletions).toEqual({
+            $: { where: { dateDue: '2026-04-03' } },
+            chore: {},
+            completedBy: {},
+        });
+        expect(choresQuery.chores).not.toHaveProperty('completions');
+        expect(choresQuery.chores.taskSeries.tasks.updates).toEqual({
+            responseFieldValues: { field: {} },
+        });
+        expect(choresQuery).not.toHaveProperty('gradeTypes');
+
+        unmount();
+        choreTrackerMocks.dbUseQuery.mockClear();
+        render(<ChoresTracker pageMode="tasks" initialSelectedDate="2026-04-03" />);
+
+        const tasksQuery = choreTrackerMocks.dbUseQuery.mock.calls[0]?.[0];
+        expect(tasksQuery.chores.taskSeries.tasks.updates).toEqual(
+            expect.objectContaining({
+                actor: {},
+                attachments: {},
+                responseFieldValues: { field: {} },
+                gradeType: {},
+                replies: expect.any(Object),
+            })
+        );
+        expect(tasksQuery.gradeTypes).toEqual({ $: { order: { createdAt: 'asc' } } });
+    });
+
+    it('merges the bounded completion query back onto its chore for daily rendering', () => {
+        choreTrackerMocks.dbState.data = makeData({
+            choreCompletions: [
+                {
+                    id: 'completion-a',
+                    completed: true,
+                    dateDue: '2026-04-03',
+                    chore: [{ id: 'chore-a' }],
+                    completedBy: [{ id: 'kid-a' }],
+                },
+            ],
+        });
+
+        render(<ChoresTracker initialSelectedDate="2026-04-03" />);
+
+        const chore = choreTrackerMocks.lastChoreListProps.chores.find((entry: any) => entry.id === 'chore-a');
+        expect(chore.completions).toEqual([
+            expect.objectContaining({
+                id: 'completion-a',
+                completed: true,
+                dateDue: '2026-04-03',
+                completedBy: { id: 'kid-a' },
+            }),
+        ]);
     });
 
     it('filters chores by selected member and date, and propagates UTC-normalized date selection to ChoreList', async () => {
