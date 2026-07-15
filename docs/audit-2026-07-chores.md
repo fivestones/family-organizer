@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed: pause/rotation and historical-XP semantics are explicit and covered (§1.3).** Exdates, including those produced by a bounded pause, do not consume turns; the next real occurrence continues the prior daily/weekly/monthly sequence. Uncompleted history and allowance periods that have not been distributed intentionally remain projections of the currently edited schedule. Once a completion exists, its `completedBy` link is the durable XP beneficiary, so a later exdate or rotation edit cannot erase that member's earned/possible XP for the completed date. Already-created allowance-period and finance records remain stored records rather than live schedule views. Verification: 41 focused shared-core, schedule, and allowance tests pass, including a bounded-pause rotation sequence and a retroactive-exdate XP regression; `tsc --noEmit` passes.
 - **2026-07-15 — Completed: repeated chore schedule and rotation work is cached (§5.1, Phase 3).** Both the shared-core/mobile assignment engine and the richer web schedule engine now keep bounded content-keyed LRUs for parsed `RRuleSet`s and expanded date ranges; shared rotation indices are additionally cached by normalized schedule, rotation type, and target date. Equivalent object instances with the same RRULE/start/exdates reuse results, while schedule edits naturally produce a new key. The countdown builder now resolves a timed chore's assignment once and carries it into the input instead of repeating the same call in `.filter()` and `.map()`. Verification: 43 focused shared/web/ChoresTracker tests pass, including parser/range invocation counts and the per-render countdown lookup delta; `tsc --noEmit` passes.
 - **2026-07-15 — Completed: shared-core is the single assignment and daily-XP implementation (§3.1, Phase 2).** The web compatibility exports in `lib/chore-utils.ts` now delegate directly to the same `getAssignedMembersForChoreOnDate` and `calculateDailyXP` functions used by dashboard widgets and mobile; the duplicate web rotation index, assignee selection, and XP loops were removed. Shared assignee normalization now preserves the optional color used by web calendar surfaces. Verification: all 33 web/shared chore tests pass, including an explicit cross-entry-point contract covering exdates, rotation, completion XP, and color; `tsc --noEmit` passes.
 - **2026-07-15 — Completed and deployed: chore deletion is impact-aware and preserves scheduled task series (§4.1, Phase 1).** A parent delete request now performs an on-demand chore-ID query for the complete completion, rotation-assignment, and dependent-task-series relationships instead of trusting the selected-day list projection. The dialog reports destructive row counts and blocks deletion while any task series still uses the chore as its scheduled activity, naming those series and linking to the first editor. An allowed confirmation re-reads the impact immediately before deletion and closes only after success. Hosted `choresCompletions` and `choresAssignments` links now cascade from chore deletion. Verification: all 11 `ChoreList` DOM tests and 10 schema/permission contracts pass; `tsc --noEmit` passes; the schema push succeeded and the 3-test hosted Instant matrix proves both child namespaces are empty after deleting only the chore.
@@ -28,7 +29,7 @@
 | 2 | **Completed 2026-07-14** | Kid completion writes are member-scoped; payout/date fields and administrative delete/unlink paths are parent-only |
 | 3 | **Completed 2026-07-14** | Bulk completion now shares evolving task state, so final ancestor workflow/child-completion fields are correct |
 | 4 | **Completed 2026-07-15** | Web compatibility exports, dashboard, and mobile now use one shared-core assignment/XP implementation |
-| 5 | **Performance completed 2026-07-15; semantics tracked in §1.3** | Parsed schedules, occurrence ranges, and rotation indices are cached; countdown no longer resolves the same assignment twice |
+| 5 | **Completed 2026-07-15** | Rotation pauses preserve turns, completed XP is stable after later schedule edits, schedule work is cached, and countdown no longer resolves the same assignment twice |
 | 6 | **Completed 2026-07-15** | Deletion reports/cascades chore-owned rows and is blocked while a task series still depends on the schedule |
 | 7 | **Completed 2026-07-14** | Schema-invalid dead helpers, the hardcoded debug branch, and unresolved occurrence wrappers were removed |
 
@@ -52,7 +53,7 @@
 
 **Completed:** `buildBulkTaskUpdateTransactions` clones the full task list once, passes the same mutable map through each existing task-update build, and appends each result to one transaction array. The existing builder already mutates the target and every rolled-up ancestor in that map, so later sibling updates observe earlier transitions and the final parent write reflects the complete batch. `ChoreList.confirmMarkAllAndComplete` now calls the bulk helper instead of flat-mapping isolated builders. The regression covers three incomplete siblings under one parent and asserts the final parent write is fully done.
 
-### 1.3 Rotation semantics are retroactively unstable — **Medium**
+### 1.3 Rotation semantics are retroactively unstable — **Completed 2026-07-15**
 
 `getRotationIndex` counts *actual occurrences* from the chore's start date to the target date ([chore-utils.ts:266-300](lib/chore-utils.ts:266), duplicated in [shared-core/chores.ts:142-184](packages/shared-core/src/chores.ts:142)). Because the index is derived from the full occurrence history:
 
@@ -60,7 +61,9 @@
 - It also shifts the computed assignee for **past** dates whenever the schedule is edited retroactively, so historical XP, "who was assigned" displays, and allowance `totalWeight` recalculations silently change after a schedule edit.
 - Weekly/monthly bucketing counts *distinct buckets containing occurrences*, so a week with all occurrences excluded doesn't advance the rotation — again arguably intended, but none of this is written down or tested against the pause feature.
 
-**Fix:** document the intended invariants and add unit tests pairing rotation with `createChorePausePatch` / exdates. If retroactive stability matters (it does for allowance recalcs), snapshot the assignee onto the completion row at completion time (`assignedTo` link) and use the stored value for anything historical.
+**Completed:** the schedule-derived invariant is now deliberate: an excluded occurrence does not consume a turn, so a bounded pause resumes with the assignee who would have followed the last actual occurrence. A five-day regression pairs `createChorePausePatch` with the shared assignment engine and proves the sequence `A, B, paused, paused, A`. Uncompleted historical dates remain derived from the current schedule because the application does not materialize assignment rows for untouched occurrences; likewise, an allowance period that has not yet been distributed is intentionally recalculated against the current schedule.
+
+Completed history has a stronger invariant without adding a redundant relation: every completion already stores its durable beneficiary in `completedBy` (while `markedBy` records the actor). Daily XP now includes that beneficiary even if a later exdate or rotation edit makes the occurrence or current derived assignee disappear, and the regression proves the recorded member retains both earned and possible XP. Distributed allowance and finance rows are persisted snapshots and are not rewritten by this calculation path. A separate `assignedTo` snapshot would only add information for unfinished occurrences, which have no completion row to carry it; preserving those would require materializing every scheduled assignment and is intentionally out of scope.
 
 ### 1.4 Editing a chore that has no weight can't be saved — **Completed 2026-07-14**
 
@@ -154,7 +157,7 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 
 - **Claim button for up-for-grabs:** an explicit "Claim" state (claimed → do it → done) instead of instant completion would kill the race at the UX level too, and lets a parent see who committed to what.
 - **Rotation transparency:** show "Next: Judah (Tue), Maya (Wed)" on rotating chores; add a "swap turns" action that writes an explicit override instead of forcing exdate tricks.
-- **Snapshot assignee on completion** (see 1.3) — also unlocks accurate "completed late / completed for someone else" reporting.
+- **Expose completion attribution:** `completedBy` now provides the durable XP beneficiary and `markedBy` the actor; surface both when they differ to make "completed for someone else" reporting explicit.
 - **Backfill affordance:** parents currently can't fix "we forgot to check it yesterday" without the debug time machine; a parent-only complete-for-date action (already have `markedBy` audit) closes that.
 - **Merge the XP heuristics:** `isJoint` exists on chores but XP math ignores it — either split weight among completers or remove the flag from the form until it means something.
 - **`estimatedDurationSecs` + weight double as countdown inputs** — the form warns on timeline overflow only when duration is set; surface "this chore has timing but no duration" as a lint in the inventory view.
@@ -167,4 +170,4 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 **Phase 1 — integrity:** ~~4.1 chore deletion impact dialog + hosted cascades + dependent-series block~~ **completed 2026-07-15**; ~~1.4 weightless-chore save fix~~ **completed 2026-07-14**.
 **Phase 2 — consolidation:** ~~3.1 single shared-core assignment/XP implementation + compatibility contract~~ **completed 2026-07-15**; ~~3.2 dead-code removal~~ **completed 2026-07-14**; ~~1.5 delete unused legacy occurrence wrappers~~ **completed 2026-07-14**.
 **Phase 3 — performance:** ~~5.1 occurrence-set/range memoization + rotation-index caching; deduplicate countdown builder calls~~ **completed 2026-07-15**.
-**Phase 4 — polish:** rotation transparency, claim flow, backfill, joint-chore XP decision, countdown scenario tests (5.2).
+**Phase 4 — polish:** ~~rotation pause/history semantics~~ **completed 2026-07-15**; rotation transparency, claim flow, backfill, joint-chore XP decision, countdown scenario tests (5.2).

@@ -6,6 +6,7 @@ import {
     getChoreScheduleEndCondition,
     resumeChorePatch,
 } from '@/lib/chore-schedule';
+import { getAssignedMembersForChoreOnDate } from '@family-organizer/shared-core';
 
 const DAILY_COUNT_CHORE = {
     id: 'chore-1',
@@ -33,6 +34,30 @@ describe('chore schedule helpers', () => {
             generatedExdates: ['2026-03-03', '2026-03-04'],
             originalEndCondition: { type: 'count', count: 5 },
         });
+    });
+
+    it('does not consume rotation turns on bounded-pause dates', () => {
+        const paused = createChorePausePatch(DAILY_COUNT_CHORE, {
+            pauseStartDate: '2026-03-03',
+            resumeOnDate: '2026-03-05',
+        });
+        const rotatingChore = {
+            ...DAILY_COUNT_CHORE,
+            ...paused,
+            rotationType: 'daily',
+            isUpForGrabs: false,
+            assignees: [{ id: 'kid-a' }, { id: 'kid-b' }],
+            assignments: [
+                { order: 1, familyMember: { id: 'kid-a' } },
+                { order: 2, familyMember: { id: 'kid-b' } },
+            ],
+        };
+
+        expect(getAssignedMembersForChoreOnDate(rotatingChore, new Date('2026-03-01T12:00:00Z')).map((member) => member.id)).toEqual(['kid-a']);
+        expect(getAssignedMembersForChoreOnDate(rotatingChore, new Date('2026-03-02T12:00:00Z')).map((member) => member.id)).toEqual(['kid-b']);
+        expect(getAssignedMembersForChoreOnDate(rotatingChore, new Date('2026-03-03T12:00:00Z'))).toEqual([]);
+        expect(getAssignedMembersForChoreOnDate(rotatingChore, new Date('2026-03-04T12:00:00Z'))).toEqual([]);
+        expect(getAssignedMembersForChoreOnDate(rotatingChore, new Date('2026-03-05T12:00:00Z')).map((member) => member.id)).toEqual(['kid-a']);
     });
 
     it('restores the original COUNT when canceling a bounded pause', () => {

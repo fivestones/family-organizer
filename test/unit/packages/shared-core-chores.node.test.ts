@@ -104,6 +104,30 @@ describe('shared-core chores helpers', () => {
         expect(resumedDay.map((m) => m.id)).toEqual(['kid-b']);
     });
 
+    it('keeps earned XP with the stored completer after a retroactive exdate edit', () => {
+        const chore = makeRotatingChore({
+            exdates: ['2026-03-02'],
+            weight: 3,
+            completions: [
+                {
+                    id: 'completion-before-edit',
+                    completed: true,
+                    dateDue: '2026-03-02',
+                    dateCompleted: '2026-03-02T08:00:00.000Z',
+                    completedBy: { id: 'kid-b' },
+                },
+            ],
+        });
+
+        expect(getAssignedMembersForChoreOnDate(chore, new Date('2026-03-02T12:00:00Z'))).toEqual([]);
+        expect(
+            calculateDailyXP(chore ? [chore] : [], [{ id: 'kid-a' }, { id: 'kid-b' }], new Date('2026-03-02T12:00:00Z'))
+        ).toEqual({
+            'kid-a': { current: 0, possible: 0 },
+            'kid-b': { current: 3, possible: 3 },
+        });
+    });
+
     it('handles one-time chores without RRULE on exact UTC day only', () => {
         const chore: SharedChoreLike = {
             id: 'one-time',

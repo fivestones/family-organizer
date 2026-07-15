@@ -417,10 +417,8 @@ export function calculateDailyXP(
     const weight = Number(chore.weight || 0);
     if (!Number.isFinite(weight) || weight === 0) continue;
 
-    const assignedMembers = getAssignedMembersForChoreOnDate(chore, date);
-    if (assignedMembers.length === 0) continue;
-
     const completionsForDate = getCompletedChoreCompletionsForDate(chore, date);
+    const assignedMembers = getAssignedMembersForChoreOnDate(chore, date);
 
     if (chore.isUpForGrabs) {
       if (completionsForDate.length > 0) {
@@ -438,7 +436,20 @@ export function calculateDailyXP(
       continue;
     }
 
-    for (const assignee of assignedMembers) {
+    // `completedBy` is the durable beneficiary snapshot. If a later schedule
+    // edit adds an exdate or changes rotation, keep historical earned XP with
+    // the member whose completion row was recorded on that due date.
+    const effectiveAssignees = [...assignedMembers];
+    const effectiveAssigneeIds = new Set(effectiveAssignees.map((assignee) => assignee.id));
+    for (const completion of completionsForDate) {
+      const completedById = getCompletionMemberId(completion);
+      if (completedById && !effectiveAssigneeIds.has(completedById)) {
+        effectiveAssigneeIds.add(completedById);
+        effectiveAssignees.push({ id: completedById });
+      }
+    }
+
+    for (const assignee of effectiveAssignees) {
       if (!xpMap[assignee.id]) continue;
       if (weight > 0) xpMap[assignee.id].possible += weight;
       const hasCompleted = completionsForDate.some((completion) => getCompletionMemberId(completion) === assignee.id);
