@@ -170,6 +170,7 @@ Use fake time for:
 - `FIN-028` `P1` `New (added)` Unit: Envelope mutation helpers (`createAdditionalEnvelope`, `updateEnvelope`, `depositToSpecificEnvelope`, `withdrawFromEnvelope`, `transferFunds`, `transferFundsToPerson`, `setLastDisplayCurrencyPref`) validate inputs and emit expected transaction payloads.
 - `FIN-029` `P1` `New (added)` DOM: `FamilyAllowanceView` app-level loading/error/placeholder states, `FamilyMembersList` prop wiring, and `MemberAllowanceDetail` selection prop mapping (`allMonetaryCurrenciesInUse`, `unitDefinitions`, member list).
 - `FIN-030` `P1` `New (added)` E2E (env-gated): Parent finance-page smoke opens member allowance detail and withdraw modal on `/familyMemberDetail`.
+- `FIN-031` `P1` `New (added)` Unit: Allowance distribution retains the union of confirmed processed period IDs and suppresses them while an older live-query snapshot catches up.
 
 ## G. Files and uploads
 

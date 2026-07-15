@@ -13,6 +13,7 @@ import { Loader2, CheckCircle, XCircle, DollarSign, TrendingDown, Edit, Info, Ca
 import { useToast } from '@/components/ui/use-toast';
 import { formatBalances, UnitDefinition, Envelope } from '@/lib/currency-utils';
 import { executeAtomicAllowancePayout } from '@/lib/allowance-payout';
+import { addProcessedPeriodIds, excludeProcessedPeriods } from '@/lib/allowance-distribution-state';
 import {
     createRRuleWithStartDate,
     getAllowancePeriodForDate,
@@ -96,6 +97,7 @@ export default function AllowanceDistributionPage() {
     const [editableAmounts, setEditableAmounts] = useState<EditableAmounts>({});
     const [processingMemberId, setProcessingMemberId] = useState<string | null>(null); // Track processing state for specific member actions
     const [simulatedDate, setSimulatedDate] = useState<Date>(() => startOfDay(new Date()));
+    const [locallyProcessedPeriodIds, setLocallyProcessedPeriodIds] = useState<ReadonlySet<string>>(() => new Set());
 
     // +++ NEW STATE: Add state for editable period amounts +++
     const [editablePeriodAmounts, setEditablePeriodAmounts] = useState<EditablePeriodAmounts>({});
@@ -319,7 +321,7 @@ export default function AllowanceDistributionPage() {
                         // No need to sort again if boundaries were sorted
 
                         // +++ FILTERING STEP: Remove periods that are 'pending' but have no unawarded completions +++
-                        const displayablePeriods = memberPendingPeriods.filter((p) => {
+                        const displayablePeriods = excludeProcessedPeriods(memberPendingPeriods, locallyProcessedPeriodIds).filter((p) => {
                             // Always keep 'in-progress' periods for display
                             if (p.status === 'in-progress') return true;
                             // Keep 'pending' periods ONLY if they still have completions to mark OR fixed rewards earned
@@ -397,7 +399,7 @@ export default function AllowanceDistributionPage() {
                 setIsLoading(false);
             }
         },
-        [isDataLoading, typedData, db, toast]
+        [isDataLoading, typedData, db, locallyProcessedPeriodIds, toast]
     ); // Dependencies
 
     // Trigger processing when fetched data changes OR simulatedDate changes
@@ -420,11 +422,11 @@ export default function AllowanceDistributionPage() {
         setProcessingMemberId(memberId);
         try {
             await markCompletionsAwarded(db, period.completionsToMark);
+            setLocallyProcessedPeriodIds((current) => addProcessedPeriodIds(current, [period.id]));
             toast({
                 title: 'Period Skipped',
                 description: `Allowance period ending ${format(period.periodEndDate, 'yyyy-MM-dd')} marked as skipped.`,
             });
-            //   await processAllowanceData(simulatedDate); // This was causing a race condition I think
         } catch (err: any) {
             console.error('Error skipping period:', err);
             toast({
@@ -549,6 +551,8 @@ export default function AllowanceDistributionPage() {
                 return;
             }
 
+            setLocallyProcessedPeriodIds((current) => addProcessedPeriodIds(current, result.processedPeriodIds));
+
             const processedAmounts = Object.fromEntries(
                 Object.entries(result.amountsByCurrency).map(([currency, amount]) => [currency, Math.abs(amount)])
             );
@@ -559,7 +563,6 @@ export default function AllowanceDistributionPage() {
                     'yyyy-MM-dd'
                 )} processed.`,
             });
-            //  await processAllowanceData(simulatedDate); // Refresh data // This was causing a race condition I think, making an amount show even after a deposit.
         } catch (err: any) {
             console.error('Error processing period deposit/withdrawal:', err);
             toast({
@@ -668,6 +671,8 @@ export default function AllowanceDistributionPage() {
                 return;
             }
 
+            setLocallyProcessedPeriodIds((current) => addProcessedPeriodIds(current, result.processedPeriodIds));
+
             const processedAmounts = Object.fromEntries(
                 Object.entries(result.amountsByCurrency).map(([processedCurrency, amount]) => [processedCurrency, Math.abs(amount)])
             );
@@ -678,7 +683,6 @@ export default function AllowanceDistributionPage() {
                 description: `${formatBalances(processedAmounts, typedData?.unitDefinitions || [])} processed successfully.`,
             });
 
-            // await processAllowanceData(simulatedDate); // This was causing a race condition I think
         } catch (err: any) {
             console.error('Error processing deposit/withdrawal:', err);
             toast({

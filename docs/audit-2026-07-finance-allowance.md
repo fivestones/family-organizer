@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed: processed periods disappear without a stale-query flash (§6; fix plan 11).** Successful single-period, bulk, and skip actions add only the confirmed period IDs to a local suppression set. That state change reruns the existing calculation immediately, while `excludeProcessedPeriods` prevents an older live-query snapshot from reintroducing committed rows; the normal Instant subscription remains responsible for durable state. Duplicate/no-op payout responses suppress nothing. Verification: 2 focused state regressions plus all 8 atomic-payout tests, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-15 — Completed: has-one link shapes are normalized in allowance math (§2).** A shared `resolveOneLink` helper now accepts either Instant's object or one-item-array representation. `calculatePeriodDetails` uses it before matching completion chores, so object-shaped results no longer silently omit completed weight or fixed rewards. Existing task-bin and finance member-link normalization now use the same primitive. Verification: all 51 focused link/chore/task-bin/currency tests, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-15 — Completed: envelope deletion preserves debt (§5; fix plan 6 partial).** Deletion now migrates every non-zero currency balance to the selected target envelope, including negative balances. A debt produces the inverse outgoing entry on the deleted envelope and a negative incoming entry on the retained envelope, so the net position and replayable ledger both remain intact. Zero balances remain omitted. Verification: all 30 focused currency mutation/audit tests, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-15 — Completed: transaction relationships use Instant links only (§5; fix plan 5).** Money mutations no longer write the undeclared scalar attributes `envelope`, `sourceEnvelope`, or `destinationEnvelope`. Ledger rows carry only declared entity attributes, while envelope membership and transfer direction continue through the schema-backed `transactions`, `outgoingTransfers`, and `incomingTransfers` links used by queries and reconciliation. Verification: all 49 focused currency utility tests, `tsc --noEmit`, and `git diff --check` pass.
@@ -138,7 +139,7 @@ The client previously selected a `NEXT_PUBLIC` value or a committed fallback and
 
 ## 6. Distribution page specifics
 
-- The post-payout refresh is commented out due to a suspected race ([allowance-distribution/page.tsx:526](app/allowance-distribution/page.tsx:526), [610](app/allowance-distribution/page.tsx:610)) — after paying, stale "amount due" remains until manual reload. The atomic-payout fix (1.3) plus deriving the view from live queries (instead of the imperative `processAllowanceData` snapshot) removes the race properly.
+- **Post-payout stale state — Completed 2026-07-15.** The page still derives calculations from the live Instant query, but it now records successfully committed period IDs locally. Recalculation excludes those IDs even if the subscription has not delivered its next snapshot yet, so paid or skipped periods disappear immediately without invoking the old imperative refresh race. An idempotent no-op response does not suppress a period.
 - `calculatePeriodDetails` is `async` but performs no awaits — drop the `async` or the pretense; it currently runs sequentially per member per period with rrule expansion inside (`getChoreOccurrencesForMemberInPeriod` × chores × occurrences — same O(history) rotation cost flagged in the chores audit 5.1).
 - Editable period amounts parse with `parseFloat` and no bounds; a typo like `4500` instead of `45.00` deposits happily. Consider a confirm threshold ("this is 10× the calculated amount — proceed?").
 
@@ -169,4 +170,4 @@ The client previously selected a `NEXT_PUBLIC` value or a committed fallback and
 **Phase 3 — structural:**
 9. Ledger-authoritative balances (or server-mediated money ops) — the durable fix for §1 and §3 together.
 10. Integer minor-unit migration decision (§5).
-11. Distribution page: live-query-derived state, drop the imperative snapshot (§6).
+11. ~~Distribution page: eliminate the post-action stale snapshot (§6).~~ **Completed 2026-07-15 with confirmed-ID suppression layered over the existing live query.** A larger calculation extraction remains optional refactoring, not a correctness blocker.
