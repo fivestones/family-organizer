@@ -55,6 +55,20 @@ describe('instant.perms contract', () => {
         expect(exchangeRates).toContain('pairKey: i.string().unique().indexed().optional()');
     });
 
+    it('keeps destructive and bookkeeping finance mutations parent-only', () => {
+        const perms = rules as any;
+        expect(perms.allowanceEnvelopes.allow.delete).toBe('isParent');
+        expect(perms.allowanceEnvelopes.allow.create).toBe('isFamilyPrincipal');
+        expect(perms.allowanceEnvelopes.allow.update).toBe('isFamilyPrincipal');
+
+        for (const operation of ['create', 'update', 'delete'] as const) {
+            expect(perms.exchangeRates.allow[operation]).toBe('isParent');
+            expect(perms.calculatedAllowancePeriods.allow[operation]).toBe('isParent');
+        }
+        expect(perms.exchangeRates.allow.view).toBe('isFamilyPrincipal');
+        expect(perms.calculatedAllowancePeriods.allow.view).toBe('isFamilyPrincipal');
+    });
+
     it('limits kid family-member preferences and PIN hashes to the authenticated member row', () => {
         const perms = rules as any;
         expect(perms.familyMembers.bind.authFamilyMemberIds).toBe("auth.ref('$user.familyMemberId')");

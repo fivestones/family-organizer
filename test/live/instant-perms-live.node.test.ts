@@ -151,6 +151,9 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
     const cleanup = {
         calendarItems: new Set<string>(),
         allowanceTransactions: new Set<string>(),
+        allowanceEnvelopes: new Set<string>(),
+        exchangeRates: new Set<string>(),
+        calculatedAllowancePeriods: new Set<string>(),
         chores: new Set<string>(),
         choreAssignments: new Set<string>(),
         choreCompletions: new Set<string>(),
@@ -202,6 +205,15 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         }
         for (const entryId of Array.from(cleanup.allowanceTransactions)) {
             txs.push(adminDb.tx.allowanceTransactions[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.allowanceEnvelopes)) {
+            txs.push(adminDb.tx.allowanceEnvelopes[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.exchangeRates)) {
+            txs.push(adminDb.tx.exchangeRates[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.calculatedAllowancePeriods)) {
+            txs.push(adminDb.tx.calculatedAllowancePeriods[entryId].delete());
         }
         for (const entryId of Array.from(cleanup.taskResponseFieldValues)) {
             txs.push(adminDb.tx.taskResponseFieldValues[entryId].delete());
@@ -371,6 +383,103 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
 
             await parentDb.transact(parentDb.tx.allowanceTransactions[validKidTxId].delete());
             cleanup.allowanceTransactions.delete(validKidTxId);
+
+            // Kids retain non-destructive envelope operations for transfers,
+            // but cannot delete an envelope and discard its financial state.
+            const protectedEnvelopeId = instantId();
+            await parentDb.transact(
+                parentDb.tx.allowanceEnvelopes[protectedEnvelopeId].create({
+                    balances: {},
+                    isDefault: false,
+                    name: 'Perms smoke protected envelope',
+                })
+            );
+            cleanup.allowanceEnvelopes.add(protectedEnvelopeId);
+            await expectRejected(
+                kidDb.transact(kidDb.tx.allowanceEnvelopes[protectedEnvelopeId].delete()),
+                'kid allowanceEnvelopes delete'
+            );
+            await parentDb.transact(parentDb.tx.allowanceEnvelopes[protectedEnvelopeId].delete());
+            cleanup.allowanceEnvelopes.delete(protectedEnvelopeId);
+
+            // Exchange-rate cache writes now run through the server admin SDK.
+            const exchangeRateId = instantId();
+            const exchangeRatePairKey = `USD:PERMS-${instantId()}`;
+            await parentDb.transact(
+                parentDb.tx.exchangeRates[exchangeRateId].create({
+                    baseCurrency: 'USD',
+                    targetCurrency: 'PERMS',
+                    pairKey: exchangeRatePairKey,
+                    rate: 2,
+                    lastFetchedTimestamp: nowIso,
+                })
+            );
+            cleanup.exchangeRates.add(exchangeRateId);
+            await expectRejected(
+                kidDb.transact(kidDb.tx.exchangeRates[exchangeRateId].update({ rate: 999 })),
+                'kid exchangeRates update'
+            );
+            await expectRejected(
+                kidDb.transact(kidDb.tx.exchangeRates[exchangeRateId].delete()),
+                'kid exchangeRates delete'
+            );
+            await expectRejected(
+                kidDb.transact(
+                    kidDb.tx.exchangeRates[instantId()].create({
+                        baseCurrency: 'USD',
+                        targetCurrency: 'FORGED',
+                        rate: 999,
+                        lastFetchedTimestamp: nowIso,
+                    })
+                ),
+                'kid exchangeRates create'
+            );
+            await parentDb.transact(parentDb.tx.exchangeRates[exchangeRateId].delete());
+            cleanup.exchangeRates.delete(exchangeRateId);
+
+            const calculatedPeriodId = instantId();
+            await parentDb.transact(
+                parentDb.tx.calculatedAllowancePeriods[calculatedPeriodId].create({
+                    calculatedAmount: 10,
+                    completedWeight: 1,
+                    familyMemberId: kidFamilyMembers[0].id,
+                    isStale: false,
+                    lastCalculatedAt: nowIso,
+                    percentage: 100,
+                    periodEndDate: nowIso,
+                    periodStartDate: nowIso,
+                    totalWeight: 1,
+                })
+            );
+            cleanup.calculatedAllowancePeriods.add(calculatedPeriodId);
+            await expectRejected(
+                kidDb.transact(
+                    kidDb.tx.calculatedAllowancePeriods[calculatedPeriodId].update({ calculatedAmount: 999 })
+                ),
+                'kid calculatedAllowancePeriods update'
+            );
+            await expectRejected(
+                kidDb.transact(kidDb.tx.calculatedAllowancePeriods[calculatedPeriodId].delete()),
+                'kid calculatedAllowancePeriods delete'
+            );
+            await expectRejected(
+                kidDb.transact(
+                    kidDb.tx.calculatedAllowancePeriods[instantId()].create({
+                        calculatedAmount: 999,
+                        completedWeight: 1,
+                        familyMemberId: kidFamilyMembers[0].id,
+                        isStale: false,
+                        lastCalculatedAt: nowIso,
+                        percentage: 100,
+                        periodEndDate: nowIso,
+                        periodStartDate: nowIso,
+                        totalWeight: 1,
+                    })
+                ),
+                'kid calculatedAllowancePeriods create'
+            );
+            await parentDb.transact(parentDb.tx.calculatedAllowancePeriods[calculatedPeriodId].delete());
+            cleanup.calculatedAllowancePeriods.delete(calculatedPeriodId);
 
             // Distribution keys are unique in the hosted schema, so two
             // clients racing the same period cannot both commit payout state.

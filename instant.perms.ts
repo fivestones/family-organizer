@@ -397,7 +397,7 @@ const rules = {
             },
             view: 'isFamilyPrincipal',
             create: 'isFamilyPrincipal',
-            delete: 'isFamilyPrincipal',
+            delete: 'isParent',
             unlink: {
                 $default: 'isFamilyPrincipal',
             },
@@ -550,15 +550,15 @@ const rules = {
         },
         allow: {
             link: {
-                $default: 'isFamilyPrincipal',
+                $default: 'isParent',
             },
             view: 'isFamilyPrincipal',
-            create: 'isFamilyPrincipal',
-            delete: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'isParent',
             unlink: {
-                $default: 'isFamilyPrincipal',
+                $default: 'isParent',
             },
-            update: 'isFamilyPrincipal',
+            update: 'isParent',
         },
     },
     calendarSyncCalendars: {
@@ -712,15 +712,15 @@ const rules = {
         },
         allow: {
             link: {
-                $default: 'isFamilyPrincipal',
+                $default: 'isParent',
             },
             view: 'isFamilyPrincipal',
-            create: 'isFamilyPrincipal',
-            delete: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'isParent',
             unlink: {
-                $default: 'isFamilyPrincipal',
+                $default: 'isParent',
             },
-            update: 'isFamilyPrincipal',
+            update: 'isParent',
         },
     },
     unitDefinitions: {

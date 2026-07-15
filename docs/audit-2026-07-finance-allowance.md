@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed and deployed: minimum finance permission hardening (§3; fix plan 7).** Envelope deletion is parent-only. Exchange-rate link/create/update/delete/unlink and calculated-period link/create/update/delete/unlink are parent-only while family principals retain read access. The server exchange-rate route writes through admin, so this does not regress client refreshes. Verification: 14 permission/schema contract tests, `tsc --noEmit`, and the full 3-test hosted matrix pass; the live matrix explicitly exercises kid denials and parent success. Envelope create/update remain family-principal operations because current kid transfers mutate both source and recipient envelopes; moving those mutations server-side remains the durable closure.
 - **2026-07-15 — Completed in code and hosted schema: exchange-rate access is server-only (§4; fix plan 8 partial).** The committed fallback credential is removed. Authenticated family clients now call `/api/exchange-rates`; the server reads a two-hour Instant cache, coalesces concurrent stale refreshes, calls OpenExchangeRates with `OPEN_EXCHANGE_RATES_APP_ID`, and admin-upserts deterministic unique `pairKey` rows. Clients no longer write fetched or derived rates. Missing configuration returns a clear 503. The hosted schema has the unique indexed optional `exchangeRates.pairKey`. Verification: 4 service tests, 3 route tests, 19 currency-core tests, 13 schema/permission contract tests, and `tsc --noEmit` pass. External follow-up: revoke/rotate the previously committed provider key and configure its replacement in server runtime secrets.
 - **2026-07-15 — Completed: ledger reconciliation now runs in live finance flows (§1.2; fix plan 4).** `MemberAllowanceDetail` audits every newly loaded or changed envelope signature and reports repairs; atomic distribution reconciles the member's supplied envelopes before its fresh balance/idempotency query. Currency keys are normalized during replay. The guard is intentionally conservative: a nonzero legacy envelope with no ledger rows is preserved and reported as unverifiable instead of being zeroed. Verification: 24 currency-mutation tests, 8 atomic-payout tests, and `tsc --noEmit` pass.
 - **2026-07-15 — Completed: new fixed rewards pay out in every earned currency (§1.4; fix plan 2).** Each period now passes its non-primary `fixedRewardsEarned` amounts into the atomic payout boundary. That boundary updates every currency bucket in one envelope write and creates one deterministic, unique, immutable ledger/history pair per period/currency before marking completions awarded in the same transaction. Foreign-only periods are actionable in both single-period and bulk controls, and success messages enumerate the currencies actually moved. A partial retry pays only a missing currency leg. Verification: all 7 focused atomic-payout tests and `tsc --noEmit` pass.
@@ -24,7 +25,7 @@
 | 1 | **High (Confirmed)** | Every balance mutation is a client-side read-modify-write of the whole `balances` JSON — concurrent operations lose money silently |
 | 2 | **Completed 2026-07-15** | New fixed rewards now pay out atomically in every earned currency |
 | 3 | **Completed 2026-07-15** | Payout, history, and award marking now commit atomically with per-period idempotency |
-| 4 | **High (Confirmed)** | Permissions let any kid principal edit any envelope's `balances` JSON directly (and exchange rates, and calculated periods) |
+| 4 | **High (Partially fixed)** | Exchange rates, calculated periods, and envelope deletion are closed; direct envelope balance updates await server-mediated transfers |
 | 5 | **Completed 2026-07-15** | Ledger reconciliation now audits finance detail loads and pre-distribution state |
 | 6 | **Completed in code 2026-07-15** | Provider access and caching are server-only; external key rotation/configuration remains |
 | 7 | **Medium** | Deleting an envelope silently discards negative balances; transactions write undeclared attributes; float money math throughout |
@@ -88,9 +89,9 @@ From [instant.perms.ts:388-406](instant.perms.ts:388) and friends, all under a k
 
 | Entity | Rule | Consequence |
 |---|---|---|
-| `allowanceEnvelopes` | create/update/delete `isFamilyPrincipal` | A kid can edit the `balances` JSON directly — self-crediting with no ledger trace — or delete a sibling's envelope |
-| `exchangeRates` | create/update/delete `isFamilyPrincipal` | Kids can rewrite rates used in combined-balance and goal-progress displays |
-| `calculatedAllowancePeriods` | all `isFamilyPrincipal` | Distribution bookkeeping is editable by kids |
+| `allowanceEnvelopes` | **Partially completed 2026-07-15:** delete is parent-only; create/update remain `isFamilyPrincipal` | Kids can no longer delete envelopes, but can still forge a `balances` update until money mutations move server-side |
+| `exchangeRates` | **Completed 2026-07-15:** writes and links are parent-only; refresh uses server admin | Kids cannot rewrite rates used in combined-balance and goal-progress displays |
+| `calculatedAllowancePeriods` | **Completed 2026-07-15:** writes and links are parent-only | Distribution bookkeeping is no longer kid-editable |
 | `allowanceTransactions` | create requires `createdBy == auth.id`, update `false`, delete `isParent` | The ledger itself is well protected — good |
 | `choreCompletions.allowanceAwarded` | **Completed 2026-07-14:** kid updates are ownership-scoped and limited to completion-state fields | Kids cannot set or re-arm payout state; parent distribution can still mark rows awarded |
 
@@ -98,7 +99,9 @@ Kids do legitimately need to deposit/withdraw/transfer (each touches two envelop
 
 1. **Ledger-authoritative model (1.1)** shrinks the blast radius: if balances are derived and reconciled, a forged balance write is detected and reverted; the append-only ledger with `auditMatchesPrincipal` stays the source of truth.
 2. Move kid-initiated money ops to a small server route (admin SDK validates: own envelopes only, sufficient funds, writes ledger + balances atomically). Then envelope `update`/`delete` can become `isParent`.
-3. At minimum now: `delete: isParent` on envelopes and `create/update/delete: isParent` on `exchangeRates` (writes can move server-side, see 4.2). The `allowanceAwarded` kid-write closure was completed and deployed on 2026-07-14.
+3. **Completed and deployed 2026-07-15:** `delete: isParent` on envelopes; parent-only exchange-rate and calculated-period writes/links. The `allowanceAwarded` kid-write closure was completed and deployed on 2026-07-14.
+
+Envelope create/update cannot be identity-scoped without breaking the current kid-to-kid transfer path: the sender's client must update and link both the sender and recipient envelopes. The safe remaining step is the server-mediated money route in Phase 3, followed by parent/admin-only envelope balance writes—not a CEL rule that silently disables transfers.
 
 This is a family app — the "attacker" is a bored twelve-year-old — but that is precisely the audience that discovers the InstantDB devtools.
 
@@ -157,7 +160,7 @@ The client previously selected a `NEXT_PUBLIC` value or a committed fallback and
 6. Migrate negative balances on envelope delete; consider soft-delete (§5).
 
 **Phase 2 — permissions & secrets:**
-7. Envelope `delete: isParent`; `exchangeRates` writes parent/server-only; ~~`allowanceAwarded` kid-write closure~~ **completed and deployed 2026-07-14** (§3).
+7. ~~Envelope `delete: isParent`; `exchangeRates` writes parent/server-only; calculated periods parent-only; `allowanceAwarded` kid-write closure (§3).~~ **Completed and deployed (completion state 2026-07-14; remaining minimum finance rules 2026-07-15).** Direct envelope updates move to Phase 3's server-mediated boundary.
 8. **Server move completed 2026-07-15.** The source fallback is removed and clients are read-only; external credential revocation/rotation plus server-secret configuration remains an operator action (§4).
 
 **Phase 3 — structural:**
