@@ -151,7 +151,7 @@ const TaskMetadataManager = ({
 
         setUploading(true);
         try {
-            const [uploadedAttachment] = await uploadFilesToS3([file], generateId);
+            const [uploadedAttachment] = await uploadFilesToS3([file], generateId, 'task-attachment');
             if (!uploadedAttachment) throw new Error('Upload failed');
 
             const attachmentId = uploadedAttachment.id;

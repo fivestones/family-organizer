@@ -432,7 +432,7 @@ const TaskSeriesCard = React.memo(function TaskSeriesCard({
 
         setUploading(true);
         try {
-            const [uploadedAttachment] = await uploadFilesToS3([file], id);
+            const [uploadedAttachment] = await uploadFilesToS3([file], id, 'task-attachment');
             if (!uploadedAttachment) throw new Error('Upload failed');
 
             const attachmentId = uploadedAttachment.id;

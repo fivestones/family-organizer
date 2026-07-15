@@ -132,6 +132,22 @@ describe('app/actions server auth + file actions', () => {
         );
     });
 
+    it('prefixes managed task uploads and rejects unknown scopes', async () => {
+        setDeviceCookie(EXPECTED_TOKEN);
+        const { getPresignedUploadUrl } = await import('@/app/actions');
+
+        const result = await getPresignedUploadUrl('application/pdf', 'worksheet.pdf', 'member-token', 'task-attachment');
+
+        expect(result.key).toMatch(/^task-attachment\/[0-9a-f-]+-worksheet\.pdf$/);
+        expect(actionMocks.createPresignedPost).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ Key: result.key })
+        );
+        await expect(
+            getPresignedUploadUrl('application/pdf', 'worksheet.pdf', 'member-token', 'unknown' as any)
+        ).rejects.toThrow('Invalid upload scope');
+    });
+
     it('getPresignedUploadUrl wraps signer failures with a stable error message', async () => {
         setDeviceCookie(EXPECTED_TOKEN);
         actionMocks.createPresignedPost.mockRejectedValueOnce(new Error('signer exploded'));

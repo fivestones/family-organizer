@@ -1,7 +1,7 @@
 'use client';
 
 import { getAttachmentKind, type AppAttachment } from '@family-organizer/shared-core';
-import { finalizeUploadedAttachmentAction, getPresignedUploadUrl } from '@/app/actions';
+import { finalizeUploadedAttachmentAction, getPresignedUploadUrl, type ManagedUploadScope } from '@/app/actions';
 import { requireCachedMemberToken } from '@/lib/instant-principal-storage';
 
 export interface UploadedFileAttachment extends AppAttachment {
@@ -28,12 +28,13 @@ function revokeObjectUrl(url: string | null) {
     }
 }
 
-async function uploadBlobToS3(blob: Blob, fileName: string, contentType: string) {
+async function uploadBlobToS3(blob: Blob, fileName: string, contentType: string, scope: ManagedUploadScope) {
     const instantAuthToken = requireCachedMemberToken();
     const { url, fields, key } = await getPresignedUploadUrl(
         contentType || 'application/octet-stream',
         fileName,
-        instantAuthToken
+        instantAuthToken,
+        scope
     );
     const formData = new FormData();
     Object.entries(fields).forEach(([fieldKey, fieldValue]) => {
@@ -250,7 +251,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
     ]);
 }
 
-export async function uploadFilesToS3(files: File[], createId: () => string): Promise<UploadedFileAttachment[]> {
+export async function uploadFilesToS3(
+    files: File[],
+    createId: () => string,
+    scope: ManagedUploadScope = 'general'
+): Promise<UploadedFileAttachment[]> {
     const uploadedAttachments: UploadedFileAttachment[] = [];
 
     for (const file of files) {
@@ -261,12 +266,12 @@ export async function uploadFilesToS3(files: File[], createId: () => string): Pr
             return {};
         });
 
-        const objectKey = await uploadBlobToS3(file, file.name, contentType);
+        const objectKey = await uploadBlobToS3(file, file.name, contentType, scope);
         console.info('[file-uploads] uploaded to S3', { name: file.name, objectKey });
         let thumbnailKey: string | null = null;
 
         if (localMetadata.thumbnailBlob && localMetadata.thumbnailFileName) {
-            thumbnailKey = await uploadBlobToS3(localMetadata.thumbnailBlob, localMetadata.thumbnailFileName, 'image/jpeg');
+            thumbnailKey = await uploadBlobToS3(localMetadata.thumbnailBlob, localMetadata.thumbnailFileName, 'image/jpeg', scope);
             console.info('[file-uploads] uploaded thumbnail', { name: localMetadata.thumbnailFileName, thumbnailKey });
         }
 
@@ -305,10 +310,11 @@ export async function uploadFilesToS3(files: File[], createId: () => string): Pr
  * Used by response field file inputs in TaskUpdatePanel.
  */
 export async function uploadSingleFileToS3(
-    file: File
+    file: File,
+    scope: ManagedUploadScope = 'general'
 ): Promise<{ url: string; fileName: string; fileType: string }> {
     const contentType = file.type || 'application/octet-stream';
-    const objectKey = await uploadBlobToS3(file, file.name, contentType);
+    const objectKey = await uploadBlobToS3(file, file.name, contentType, scope);
     return {
         url: objectKey,
         fileName: file.name,

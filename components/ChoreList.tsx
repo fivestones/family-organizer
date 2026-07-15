@@ -302,7 +302,7 @@ function ChoreList({
         return `/tasks?${params.toString()}#chore-${choreId}`;
     };
 
-    const uploadProgressFiles = async (files: File[]) => uploadFilesToS3(files, id);
+    const uploadProgressFiles = async (files: File[]) => uploadFilesToS3(files, id, 'task-update');
 
     const handleEditChore = (chore) => {
         // +++ CHECK AUTH +++

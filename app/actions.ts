@@ -15,6 +15,8 @@ const AVATAR_SIZES = ['64', '320', '1200'] as const;
 type AvatarSize = (typeof AVATAR_SIZES)[number];
 
 type AvatarUploadScope = 'profile-photo' | 'family-photo';
+export type ManagedUploadScope = 'general' | 'task-attachment' | 'task-update' | 'task-response';
+const MANAGED_UPLOAD_SCOPES = new Set<ManagedUploadScope>(['general', 'task-attachment', 'task-update', 'task-response']);
 
 function getRequiredEnv(name: string): string {
     const value = process.env[name];
@@ -175,7 +177,12 @@ export async function getFiles(instantAuthToken: string): Promise<S3File[]> {
 
 // 2. Generate Upload Signature (UNCHANGED)
 // We still want direct uploads for performance.
-export async function getPresignedUploadUrl(contentType: string, fileName: string, instantAuthToken: string) {
+export async function getPresignedUploadUrl(
+    contentType: string,
+    fileName: string,
+    instantAuthToken: string,
+    scope: ManagedUploadScope = 'general'
+) {
     await requireActionFamilyMember(instantAuthToken);
 
     const normalizedContentType = contentType.trim().toLowerCase();
@@ -185,12 +192,16 @@ export async function getPresignedUploadUrl(contentType: string, fileName: strin
     if (!fileName || fileName.length > 255) {
         throw new Error('Invalid file name');
     }
+    if (!MANAGED_UPLOAD_SCOPES.has(scope)) {
+        throw new Error('Invalid upload scope');
+    }
 
     const sanitizedFileName = sanitizeUploadFileName(fileName);
     if (!sanitizedFileName) {
         throw new Error('Invalid file name');
     }
-    const Key = `${randomUUID()}-${sanitizedFileName}`;
+    const fileKey = `${randomUUID()}-${sanitizedFileName}`;
+    const Key = scope === 'general' ? fileKey : `${scope}/${fileKey}`;
 
     try {
         const { s3Signer, bucketName } = getS3Clients();

@@ -184,7 +184,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
 
     // File upload handler for response field file inputs
     const handleResponseFileUpload = useCallback(
-        async (_fieldId: string, file: File) => uploadSingleFileToS3(file),
+        async (_fieldId: string, file: File) => uploadSingleFileToS3(file, 'task-response'),
         []
     );
     const [localExpandedIds, setLocalExpandedIds] = useState<Set<string>>(new Set());
