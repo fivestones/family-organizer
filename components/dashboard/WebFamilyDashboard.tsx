@@ -29,7 +29,6 @@ import {
     type DashboardCalendarItem,
     type DashboardChoreCompletion,
     type DashboardFamilyMember,
-    type EnvelopeLike,
 } from '@/lib/dashboard-utils';
 import PersonalDashboard from '@/components/dashboard/PersonalDashboard';
 import FreeformDashboard from '@/components/freeform-dashboard/FreeformDashboard';

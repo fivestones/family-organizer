@@ -171,6 +171,7 @@ Use fake time for:
 - `FIN-029` `P1` `New (added)` DOM: `FamilyAllowanceView` app-level loading/error/placeholder states, `FamilyMembersList` prop wiring, and `MemberAllowanceDetail` selection prop mapping (`allMonetaryCurrenciesInUse`, `unitDefinitions`, member list).
 - `FIN-030` `P1` `New (added)` E2E (env-gated): Parent finance-page smoke opens member allowance detail and withdraw modal on `/familyMemberDetail`.
 - `FIN-031` `P1` `New (added)` Unit: Allowance distribution retains the union of confirmed processed period IDs and suppresses them while an older live-query snapshot catches up.
+- `FIN-032` `P2` `New (added)` Unit/contract: Dashboard totals use only canonical envelope `balances`, ignore archived rows, and the schema cannot reintroduce legacy scalar `amount`/`currency` fields.
 
 ## G. Files and uploads
 

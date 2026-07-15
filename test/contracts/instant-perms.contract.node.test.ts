@@ -77,6 +77,7 @@ describe('instant.perms contract', () => {
         );
 
         expect(allowanceEnvelopes).toContain('archivedAt: i.string().indexed().optional()');
+        expect(allowanceEnvelopes).not.toMatch(/\n\s+(amount|currency): i\./);
     });
 
     it('limits kid family-member preferences and PIN hashes to the authenticated member row', () => {

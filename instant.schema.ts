@@ -25,10 +25,8 @@ const _schema = i.schema({
             type: i.string().optional(),
         }),
         allowanceEnvelopes: i.entity({
-            amount: i.any().optional(),
             archivedAt: i.string().indexed().optional(),
             balances: i.json().indexed(),
-            currency: i.any().optional(),
             description: i.string().optional(),
             goalAmount: i.number().optional(),
             goalCurrency: i.string().optional(),

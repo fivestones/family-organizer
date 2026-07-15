@@ -5,8 +5,6 @@ import { localDateToUTC } from '@family-organizer/shared-core';
 export type EnvelopeLike = {
     archivedAt?: string | null;
     balances?: Record<string, number> | null;
-    currency?: string | null;
-    amount?: number | null;
 };
 
 export type DashboardFamilyMember = {
@@ -88,10 +86,6 @@ export function normalizeEnvelopeBalances(envelope: EnvelopeLike): Record<string
                 .map(([currencyCode, amount]) => [currencyCode.toUpperCase(), Number(amount) || 0])
                 .filter(([, amount]) => amount !== 0)
         );
-    }
-
-    if (envelope?.currency && envelope?.amount != null) {
-        return { [String(envelope.currency).toUpperCase()]: Number(envelope.amount) || 0 };
     }
 
     return {};
