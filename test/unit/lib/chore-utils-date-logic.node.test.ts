@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { freezeTime } from '@/test/utils/fake-clock';
+import {
+    calculateDailyXP as calculateSharedDailyXP,
+    getAssignedMembersForChoreOnDate as getSharedAssignedMembersForChoreOnDate,
+} from '@family-organizer/shared-core';
 
 const instantMocks = vi.hoisted(() => ({
     id: vi.fn(() => 'mock-id'),
@@ -75,6 +79,35 @@ function makeRotatingChore(overrides: Partial<Chore> = {}): Chore {
 }
 
 describe('chore-utils date logic', () => {
+    it('keeps the compatibility entry points identical to shared-core', () => {
+        const chore = makeRotatingChore({
+            exdates: ['2026-03-02'],
+            assignments: [
+                { order: 1, familyMember: { id: 'kid-a', name: 'Alex', color: '#123456' } },
+                { order: 2, familyMember: { id: 'kid-b', name: 'Blair', color: '#abcdef' } },
+            ],
+            completions: [
+                {
+                    id: 'completion-1',
+                    completed: true,
+                    dateDue: '2026-03-03',
+                    dateCompleted: '2026-03-03T08:00:00.000Z',
+                    completedBy: { id: 'kid-b' },
+                },
+            ],
+        });
+        const date = new Date('2026-03-03T12:00:00Z');
+        const members = [{ id: 'kid-a' }, { id: 'kid-b' }];
+
+        expect(getAssignedMembersForChoreOnDate(chore, date)).toEqual(
+            getSharedAssignedMembersForChoreOnDate(chore, date)
+        );
+        expect(calculateDailyXP([chore], members, date)).toEqual(
+            calculateSharedDailyXP([chore], members, date)
+        );
+        expect(getAssignedMembersForChoreOnDate(chore, date)[0]?.color).toBe('#abcdef');
+    });
+
     it('returns assignees for a non-recurring chore only on its start date', () => {
         const chore: Chore = {
             id: 'one-off',

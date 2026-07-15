@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed: shared-core is the single assignment and daily-XP implementation (§3.1, Phase 2).** The web compatibility exports in `lib/chore-utils.ts` now delegate directly to the same `getAssignedMembersForChoreOnDate` and `calculateDailyXP` functions used by dashboard widgets and mobile; the duplicate web rotation index, assignee selection, and XP loops were removed. Shared assignee normalization now preserves the optional color used by web calendar surfaces. Verification: all 33 web/shared chore tests pass, including an explicit cross-entry-point contract covering exdates, rotation, completion XP, and color; `tsc --noEmit` passes.
 - **2026-07-15 — Completed and deployed: chore deletion is impact-aware and preserves scheduled task series (§4.1, Phase 1).** A parent delete request now performs an on-demand chore-ID query for the complete completion, rotation-assignment, and dependent-task-series relationships instead of trusting the selected-day list projection. The dialog reports destructive row counts and blocks deletion while any task series still uses the chore as its scheduled activity, naming those series and linking to the first editor. An allowed confirmation re-reads the impact immediately before deletion and closes only after success. Hosted `choresCompletions` and `choresAssignments` links now cascade from chore deletion. Verification: all 11 `ChoreList` DOM tests and 10 schema/permission contracts pass; `tsc --noEmit` passes; the schema push succeeded and the 3-test hosted Instant matrix proves both child namespaces are empty after deleting only the chore.
 - **2026-07-14 — Completed: removed schema-invalid and unresolved chore helpers (§1.5, §3.2).** Deleted the unused `getNextOccurrence`/`getOccurrences` wrappers with unresolved local-vs-UTC behavior, the unused async assignment/grid helpers that queried nonexistent `choreCompletions.date`, and the empty hardcoded family-member UUID branch. Live allowance callers of `createRRuleWithStartDate` remain intact. Verification: repository search finds no remaining references or flagged literals, 32 chore/shared-core tests pass, and `tsc --noEmit` passes.
 - **2026-07-14 — Completed: weightless chores remain editable (§1.4).** A blank weight is now a valid explicit weightless value and saves as `null`; invalid non-empty numeric input is still rejected. The form no longer marks weight required or disables the save/update button solely because the field is blank, and its helper text explains blank/zero exclusion. Verification: all 5 `DetailedChoreForm` DOM tests pass, including editing an existing null-weight chore, and `tsc --noEmit` passes.
@@ -25,7 +26,7 @@
 | 1 | **Completed 2026-07-14** | Up-for-grabs claims now converge on a deterministic row; legacy duplicates are canonicalized for XP and payout |
 | 2 | **Completed 2026-07-14** | Kid completion writes are member-scoped; payout/date fields and administrative delete/unlink paths are parent-only |
 | 3 | **Completed 2026-07-14** | Bulk completion now shares evolving task state, so final ancestor workflow/child-completion fields are correct |
-| 4 | **Medium (Confirmed)** | Chore assignment/XP logic exists in two diverging copies; the dashboard and the chores page use different ones |
+| 4 | **Completed 2026-07-15** | Web compatibility exports, dashboard, and mobile now use one shared-core assignment/XP implementation |
 | 5 | **Medium** | Rotation assignment is recomputed from the entire occurrence history — O(years) work in every render loop, and retroactively unstable |
 | 6 | **Completed 2026-07-15** | Deletion reports/cascades chore-owned rows and is blocked while a task series still depends on the schedule |
 | 7 | **Completed 2026-07-14** | Schema-invalid dead helpers, the hardcoded debug branch, and unresolved occurrence wrappers were removed |
@@ -88,21 +89,23 @@ On edit, a null weight hydrates the input as `''` ([DetailedChoreForm.tsx:196](c
 
 ### 2.2 Related rule gaps
 
-- `chores.update` is parent-only (good), but `routineMarkerStatuses` create/update is parent-only while kids presumably tap routine markers on the countdown page — verify the countdown flows still work under a kid principal; if they write marker statuses, this rule blocks them (or they're being written while the tablet is in parent mode, which is worse).
+- **Routine-marker boundary verified 2026-07-15:** the web list shows controls only when `canEditChores` (parent) and today are both true. Focused countdown and dashboard surfaces only read marker statuses. Mobile's routine-marker screen checks `principalType` before rendering the mutation UI and routes kid sessions through `useParentActionGate`; after elevation it writes as the parent principal. The parent-only rule therefore matches every current mutation path.
 - `historyEvents.create: isFamilyPrincipal` with immutability (update/delete false) is a reasonable trade — kids can forge history entries but not tamper with existing ones. Accept or tighten deliberately.
 
 ---
 
 ## 3. Duplication / architecture
 
-### 3.1 Two implementations of the core assignment/XP logic — **Medium, Confirmed**
+### 3.1 Two implementations of the core assignment/XP logic — **Completed 2026-07-15**
 
 `getAssignedMembersForChoreOnDate`, `getRotationIndex`, occurrence-set construction, exdate parsing, and `calculateDailyXP` all exist twice:
 
 - `lib/chore-utils.ts` (+ `lib/chore-schedule.ts`) — used by ChoresTracker, ChoreList, FamilyMembersList (6 import sites).
 - `packages/shared-core/src/chores.ts` — used by the dashboard widgets (`DashboardHeader`, `TodaysChoresWidget`, `TodaysTasksWidget`, `UpcomingChoresWidget`) and the mobile app.
 
-They are *near*-identical today (the shared-core copy skips `normalizeRrule`, drops assignee `color`, and its `getRotationIndex` takes an extra param). Any future tweak — joint-chore XP, negative-weight capping, rrule normalization fixes — lands in one copy and the dashboard's XP quietly disagrees with the sidebar's. **Fix:** make `shared-core` the single source (it's the one mobile uses), re-export from `lib/chore-utils.ts` for compatibility, and delete the web-only copies. Add one contract test asserting both entry points return identical results for a fixture set until the merge completes.
+They were *near*-identical (the shared-core copy skipped `normalizeRrule`, dropped assignee `color`, and its `getRotationIndex` took an extra param). Any future tweak — joint-chore XP, negative-weight capping, rrule normalization fixes — could land in one copy and make the dashboard's XP quietly disagree with the sidebar's.
+
+**Completed:** `shared-core` now owns assignment occurrence/rotation selection and daily XP. `lib/chore-utils.ts` retains typed compatibility exports for its existing web imports but delegates directly to those shared functions; its duplicate rotation and XP implementations are gone. Shared assignee types/normalization retain `color`, removing the one web-visible data loss. A contract fixture with an exdate, rotating assignees, a completion, and colors asserts that both entry points return identical assignment and XP results. The richer web-only schedule module remains for pause editing and allowance-range operations, not as an alternate assignment/XP engine.
 
 ### 3.2 Dead and debug code — **Completed 2026-07-14**
 
@@ -159,6 +162,6 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 
 **Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; ~~2.1 completion permission tightening~~ **completed and deployed 2026-07-14**; ~~1.2 shared-map bulk completion~~ **completed 2026-07-14**.
 **Phase 1 — integrity:** ~~4.1 chore deletion impact dialog + hosted cascades + dependent-series block~~ **completed 2026-07-15**; ~~1.4 weightless-chore save fix~~ **completed 2026-07-14**.
-**Phase 2 — consolidation:** 3.1 single shared-core implementation + contract test; ~~3.2 dead-code removal~~ **completed 2026-07-14**; ~~1.5 delete unused legacy occurrence wrappers~~ **completed 2026-07-14**.
+**Phase 2 — consolidation:** ~~3.1 single shared-core assignment/XP implementation + compatibility contract~~ **completed 2026-07-15**; ~~3.2 dead-code removal~~ **completed 2026-07-14**; ~~1.5 delete unused legacy occurrence wrappers~~ **completed 2026-07-14**.
 **Phase 3 — performance:** 5.1 occurrence-set memoization + rotation index caching; deduplicate countdown builder calls.
 **Phase 4 — polish:** rotation transparency, claim flow, backfill, joint-chore XP decision, countdown scenario tests (5.2).

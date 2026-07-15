@@ -2,8 +2,12 @@ import { RRule, Frequency } from 'rrule';
 import { tx, id } from '@instantdb/react';
 import { db } from '@/lib/db';
 import type { ChorePauseState } from '@/lib/chore-schedule';
-import { choreOccursOnDate, getChoreOccurrencesInRange, getNextChoreOccurrence } from '@/lib/chore-schedule';
-import { pickCanonicalChoreCompletion } from '@family-organizer/shared-core';
+import { getChoreOccurrencesInRange } from '@/lib/chore-schedule';
+import {
+    calculateDailyXP as calculateSharedDailyXP,
+    getAssignedMembersForChoreOnDate as getSharedAssignedMembersForChoreOnDate,
+    pickCanonicalChoreCompletion,
+} from '@family-organizer/shared-core';
 
 // --- Type Definitions (Refine based on actual schema/data structure) ---
 export interface Chore {
@@ -179,87 +183,11 @@ export function createRRuleWithStartDate(rruleString: string | null | undefined,
     }
 }
 
-const getRotationIndex = (chore: Chore, occurrenceDate: Date): number => {
-    const utcStartDate = toUTCDate(chore.startDate);
-    const utcOccurrenceDate = toUTCDate(occurrenceDate);
-    const actualOccurrences = getChoreOccurrencesInRange(chore, utcStartDate, utcOccurrenceDate).map((entry) => toUTCDate(entry));
-
-    if (actualOccurrences.length === 0) {
-        return 0;
-    }
-
-    switch (chore.rotationType) {
-        case 'daily':
-            return Math.max(0, actualOccurrences.length - 1);
-        case 'weekly': {
-            const weekBuckets = new Set(
-                actualOccurrences.map((entry) => {
-                    const diffDays = Math.floor((entry.getTime() - utcStartDate.getTime()) / 86400000);
-                    return Math.floor(diffDays / 7);
-                })
-            );
-            return Math.max(0, weekBuckets.size - 1);
-        }
-        case 'monthly': {
-            const monthBuckets = new Set(
-                actualOccurrences.map(
-                    (entry) =>
-                        (entry.getUTCFullYear() - utcStartDate.getUTCFullYear()) * 12 +
-                        (entry.getUTCMonth() - utcStartDate.getUTCMonth())
-                )
-            );
-            return Math.max(0, monthBuckets.size - 1);
-        }
-        default:
-            return 0;
-    }
-};
-
-const isSameDay = (date1: Date, date2: Date) => {
-    if (!date1 || !date2) return false;
-    return date1.getUTCFullYear() === date2.getUTCFullYear() && date1.getUTCMonth() === date2.getUTCMonth() && date1.getUTCDate() === date2.getUTCDate();
-};
-
-export const getAssignedMembersForChoreOnDate = (chore: Chore, date: Date): { id: string; name?: string; color?: string | null }[] => {
-    const utcDate = toUTCDate(date);
-    const choreStartDate = toUTCDate(chore.startDate);
-
-    if (!choreOccursOnDate(chore, utcDate)) {
-        return [];
-    }
-
-    try {
-        // Determine assignment based on rotation or direct assignees
-        // +++ Added check for chore.isUpForGrabs +++
-        if (chore.rotationType && chore.rotationType !== 'none' && !chore.isUpForGrabs && chore.assignments && chore.assignments.length > 0) {
-            const rotationIndex = getRotationIndex(chore, utcDate);
-            // Ensure assignments array is not empty before modulo
-            if (chore.assignments.length === 0) return [];
-            const sortedAssignments = [...chore.assignments].sort((a, b) => a.order - b.order);
-            const assignmentIndex = rotationIndex % sortedAssignments.length;
-
-            // const assignedMemberData = sortedAssignments[assignmentIndex]?.familyMember[0];
-            let assignedMemberData = sortedAssignments[assignmentIndex]?.familyMember;
-
-            // Fix: Handle both Array (DB) and Object (Preview) structures
-            if (Array.isArray(assignedMemberData)) {
-                assignedMemberData = assignedMemberData[0];
-            }
-
-            // Now check if the extracted object and its id exist
-            return assignedMemberData && assignedMemberData.id
-                ? [{ id: assignedMemberData.id, name: assignedMemberData.name, color: assignedMemberData.color ?? null }] // Return valid assignee in an array
-                : []; // Return empty array if data is incomplete or missing
-        } else {
-            // Assigned to all direct assignees (for non-rotating or up-for-grabs chores)
-            // Ensure this also returns an array of objects with id/name
-            return (chore.assignees || []).map((a) => ({ id: a.id, name: a.name, color: a.color ?? null }));
-        }
-    } catch (error) {
-        console.error(`Error processing RRULE for chore ${chore.id} on date ${date.toISOString()}:`, error);
-        return []; // Return empty on error
-    }
-};
+export const getAssignedMembersForChoreOnDate = (
+    chore: Chore,
+    date: Date
+): { id: string; name?: string; color?: string | null }[] =>
+    getSharedAssignedMembersForChoreOnDate(chore, date);
 
 // --- NEW/Implemented Functions ---
 
@@ -609,84 +537,9 @@ export const getChoreAssignmentGridFromChore = async (chore: any, startDate: Dat
  * - If unclaimed: Counts to Possible for all assignees.
  * - If claimed by A: Counts to Possible/Current for A. Removed from Possible for others.
  */
-export const calculateDailyXP = (chores: any[], familyMembers: any[], date: Date): { [memberId: string]: { current: number; possible: number } } => {
-    const xpMap: { [memberId: string]: { current: number; possible: number } } = {};
-
-    // Initialize map
-    familyMembers.forEach((m) => {
-        xpMap[m.id] = { current: 0, possible: 0 };
-    });
-
-    const dateStr = date.toISOString().slice(0, 10);
-
-    // Helper to safely extract ID from potential Array or Object relation
-    const getCompleterId = (completion: any) => {
-        const raw = completion?.completedBy;
-        return Array.isArray(raw) ? raw[0]?.id : raw?.id;
-    };
-
-    chores.forEach((chore) => {
-        // 1. Skip if Fixed Reward (Currency) or No Weight
-        if (chore.rewardType === 'fixed') return;
-        const weight = chore.weight || 0;
-        if (weight === 0) return;
-
-        // 2. Determine Assignment
-        const assignedMembers = getAssignedMembersForChoreOnDate(chore, date);
-        if (assignedMembers.length === 0) return;
-
-        // 3. Get ALL completions for this date (Fix: use filter, not find)
-        const completionsForDate = chore.completions?.filter((c: any) => c.dateDue === dateStr && c.completed) || [];
-
-        // 4. Calculate Logic
-        if (chore.isUpForGrabs) {
-            // Logic: Up For Grabs usually has only ONE completion.
-            // If it exists, it counts for that person(s) ONLY.
-            // If it doesn't exist, it is possible for EVERYONE.
-
-            if (completionsForDate.length > 0) {
-                // Case: Claimed
-                const canonicalCompletion = pickCanonicalChoreCompletion(completionsForDate);
-                const completerId = getCompleterId(canonicalCompletion);
-                if (completerId && xpMap[completerId]) {
-                    // +++ CHANGE: Only add to possible if positive +++
-                    if (weight > 0) {
-                        xpMap[completerId].possible += weight;
-                    }
-                    xpMap[completerId].current += weight;
-                }
-            } else {
-                // Case: Unclaimed (Up for Grabs)
-                // Add to 'possible' for ALL assignees
-                assignedMembers.forEach((assignee) => {
-                    if (xpMap[assignee.id]) {
-                        // +++ CHANGE: Only add to possible if positive +++
-                        if (weight > 0) {
-                            xpMap[assignee.id].possible += weight;
-                        }
-                    }
-                });
-            }
-        } else {
-            // Case: Standard Chore (Assigned to multiple people, multiple people can do it)
-            assignedMembers.forEach((assignee) => {
-                if (xpMap[assignee.id]) {
-                    // It is always POSSIBLE for an assignee
-                    // +++ CHANGE: Only add to possible if positive +++
-                    if (weight > 0) {
-                        xpMap[assignee.id].possible += weight;
-                    }
-
-                    // Check if THIS SPECIFIC assignee has a completion record
-                    const hasCompleted = completionsForDate.some((c: any) => getCompleterId(c) === assignee.id);
-
-                    if (hasCompleted) {
-                        xpMap[assignee.id].current += weight;
-                    }
-                }
-            });
-        }
-    });
-
-    return xpMap;
-};
+export const calculateDailyXP = (
+    chores: any[],
+    familyMembers: any[],
+    date: Date
+): { [memberId: string]: { current: number; possible: number } } =>
+    calculateSharedDailyXP(chores, familyMembers, date);

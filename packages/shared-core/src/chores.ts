@@ -38,6 +38,7 @@ export function pickCanonicalChoreCompletion<T extends { id?: string | null; dat
 export interface SharedChoreAssignee {
   id: string;
   name?: string;
+  color?: string | null;
 }
 
 export interface SharedChoreAssignment {
@@ -223,7 +224,7 @@ function normalizeFamilyMember(
   if (!value) return null;
   const candidate = Array.isArray(value) ? value[0] : value;
   if (!candidate?.id) return null;
-  return { id: candidate.id, name: candidate.name };
+  return { id: candidate.id, name: candidate.name, color: candidate.color ?? null };
 }
 
 export function getAssignedMembersForChoreOnDate(chore: SharedChoreLike, date: Date): SharedChoreAssignee[] {
