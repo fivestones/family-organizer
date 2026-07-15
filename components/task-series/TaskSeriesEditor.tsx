@@ -42,7 +42,12 @@ import type { Task as SchedulerTask } from '@/lib/task-scheduler';
 import { computeDeletionImpact, taskHasData, type TaskLikeForGuard } from '@/lib/task-data-guard';
 import { TaskDeleteConfirmDialog } from './TaskDeleteConfirmDialog';
 import { buildTaskIdRepairPlan, type TaskNodeIdentity } from '@/lib/task-editor-ids';
-import { buildSchedulerTasksFromEditorDocument, restorePersistedTaskNodes } from '@/lib/task-editor-document';
+import {
+    buildSchedulerTasksFromEditorDocument,
+    moveTaskSubtreeToAdjacentDay,
+    restorePersistedTaskNodes,
+    type AdjacentTaskDayDirection,
+} from '@/lib/task-editor-document';
 import { buildTaskSchedulePreview } from '@/lib/task-series-preview';
 
 // --- Types (Simplified for brevity, matching your provided types) ---
@@ -236,7 +241,9 @@ const buildTaskCardItems = (
             persistedTask: persistedTaskById.get(taskId) || null,
         });
 
-        if (!isDayBreak) {
+        if (isDayBreak) {
+            stack.length = 0;
+        } else {
             stack.push({ id: taskId, indentationLevel });
         }
     }
@@ -261,11 +268,14 @@ type TaskSeriesCardProps = {
     seriesId: string;
     item: TaskCardItem;
     historyOpen: boolean;
+    canMoveToPreviousDay: boolean;
+    canMoveToNextDay: boolean;
     onToggleHistory: (taskId: string) => void;
     onDeleteTask: (taskId: string) => void;
     onAddTaskBelow: (taskId: string) => void;
     onAddDayBreakBelow: (taskId: string) => void;
     onTitleChange: (taskId: string, value: string) => void;
+    onMoveToAdjacentDay: (taskId: string, direction: AdjacentTaskDayDirection) => void;
 };
 
 export const areTaskSeriesCardPropsEqual = (previous: TaskSeriesCardProps, next: TaskSeriesCardProps) => {
@@ -276,11 +286,14 @@ export const areTaskSeriesCardPropsEqual = (previous: TaskSeriesCardProps, next:
         previous.db === next.db &&
         previous.seriesId === next.seriesId &&
         previous.historyOpen === next.historyOpen &&
+        previous.canMoveToPreviousDay === next.canMoveToPreviousDay &&
+        previous.canMoveToNextDay === next.canMoveToNextDay &&
         previous.onToggleHistory === next.onToggleHistory &&
         previous.onDeleteTask === next.onDeleteTask &&
         previous.onAddTaskBelow === next.onAddTaskBelow &&
         previous.onAddDayBreakBelow === next.onAddDayBreakBelow &&
         previous.onTitleChange === next.onTitleChange &&
+        previous.onMoveToAdjacentDay === next.onMoveToAdjacentDay &&
         previousItem.id === nextItem.id &&
         previousItem.text === nextItem.text &&
         previousItem.indentationLevel === nextItem.indentationLevel &&
@@ -338,11 +351,14 @@ const TaskSeriesCard = React.memo(function TaskSeriesCard({
     seriesId,
     item,
     historyOpen,
+    canMoveToPreviousDay,
+    canMoveToNextDay,
     onToggleHistory,
     onDeleteTask,
     onAddTaskBelow,
     onAddDayBreakBelow,
     onTitleChange,
+    onMoveToAdjacentDay,
 }: TaskSeriesCardProps) {
     const persistedTask = item.persistedTask;
     const metadataReady = Boolean(persistedTask);
@@ -506,6 +522,24 @@ const TaskSeriesCard = React.memo(function TaskSeriesCard({
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                        type="button"
+                        aria-label={`Move ${item.text || 'task'} to previous day`}
+                        onClick={() => onMoveToAdjacentDay(item.id, 'previous')}
+                        disabled={!canMoveToPreviousDay}
+                        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        Previous day
+                    </button>
+                    <button
+                        type="button"
+                        aria-label={`Move ${item.text || 'task'} to next day`}
+                        onClick={() => onMoveToAdjacentDay(item.id, 'next')}
+                        disabled={!canMoveToNextDay}
+                        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        Next day
+                    </button>
                     <button
                         type="button"
                         onClick={() => onAddTaskBelow(item.id)}
@@ -799,6 +833,29 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
     const seriesData = data?.taskSeries?.[0];
     const persistedTaskById = React.useMemo(() => new Map(dbTasks.map((task) => [task.id, task])), [dbTasks]);
     const cardItems = React.useMemo(() => buildTaskCardItems(editorDocument, taskDateMap, persistedTaskById), [editorDocument, persistedTaskById, taskDateMap]);
+    const cardDayMoveAvailability = React.useMemo(() => {
+        const availability = new Map<string, { previous: boolean; next: boolean }>();
+        let hasPreviousBreak = false;
+        for (const item of cardItems) {
+            if (item.isDayBreak) {
+                hasPreviousBreak = true;
+            } else {
+                availability.set(item.id, { previous: hasPreviousBreak, next: false });
+            }
+        }
+
+        let hasNextBreak = false;
+        for (let index = cardItems.length - 1; index >= 0; index -= 1) {
+            const item = cardItems[index];
+            if (item.isDayBreak) {
+                hasNextBreak = true;
+            } else {
+                const current = availability.get(item.id) || { previous: false, next: false };
+                availability.set(item.id, { ...current, next: hasNextBreak });
+            }
+        }
+        return availability;
+    }, [cardItems]);
     const taskCount = cardItems.filter((item) => !item.isDayBreak).length;
     const dayBreakCount = cardItems.filter((item) => item.isDayBreak).length;
 
@@ -2002,6 +2059,20 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         [editor, syncEditorSurface]
     );
 
+    const moveTaskToAdjacentDay = useCallback(
+        (taskId: string, direction: AdjacentTaskDayDirection) => {
+            if (!editor || editor.isDestroyed) return;
+            const nextDocument = moveTaskSubtreeToAdjacentDay(editor.getJSON(), taskId, direction);
+            if (!nextDocument) return;
+
+            editor.commands.setContent(nextDocument, { emitUpdate: false });
+            setEditorDocument(nextDocument);
+            calculateDatesRef.current(nextDocument);
+            debouncedSave(nextDocument);
+        },
+        [debouncedSave, editor]
+    );
+
     const executeRemoveTaskCard = useCallback(
         (taskId: string) => {
             if (!editor || editor.isDestroyed) return;
@@ -2366,18 +2437,26 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                                     </div>
                                 </div>
                             ) : (
-                                <TaskSeriesCard
-                                    key={item.id}
-                                    db={db}
-                                    seriesId={seriesId}
-                                    item={item}
-                                    historyOpen={historyTaskId === item.id}
-                                    onToggleHistory={toggleTaskHistory}
-                                    onDeleteTask={removeTaskCard}
-                                    onAddTaskBelow={insertTaskBelow}
-                                    onAddDayBreakBelow={insertDayBreakBelow}
-                                    onTitleChange={updateTaskTitle}
-                                />
+                                (() => {
+                                    const moveAvailability = cardDayMoveAvailability.get(item.id) || { previous: false, next: false };
+                                    return (
+                                        <TaskSeriesCard
+                                            key={item.id}
+                                            db={db}
+                                            seriesId={seriesId}
+                                            item={item}
+                                            historyOpen={historyTaskId === item.id}
+                                            canMoveToPreviousDay={moveAvailability.previous}
+                                            canMoveToNextDay={moveAvailability.next}
+                                            onToggleHistory={toggleTaskHistory}
+                                            onDeleteTask={removeTaskCard}
+                                            onAddTaskBelow={insertTaskBelow}
+                                            onAddDayBreakBelow={insertDayBreakBelow}
+                                            onTitleChange={updateTaskTitle}
+                                            onMoveToAdjacentDay={moveTaskToAdjacentDay}
+                                        />
+                                    );
+                                })()
                             )
                         )}
                     </div>

@@ -668,11 +668,14 @@ describe('TaskSeriesEditor', () => {
                 persistedTask,
             },
             historyOpen: false,
+            canMoveToPreviousDay: false,
+            canMoveToNextDay: true,
             onToggleHistory: callback,
             onDeleteTask: callback,
             onAddTaskBelow: callback,
             onAddDayBreakBelow: callback,
             onTitleChange: callback,
+            onMoveToAdjacentDay: callback,
         };
 
         expect(
@@ -928,5 +931,50 @@ describe('TaskSeriesEditor', () => {
             ]
         );
         expect(editorMocks.chainObj.setTextSelection).toHaveBeenCalledWith(3);
+    });
+
+    it('moves a task across a day break from the card controls', async () => {
+        const user = userEvent.setup();
+        const document = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'taskItem',
+                    attrs: { id: 'task-1', indentationLevel: 0, isDayBreak: false },
+                    content: [{ type: 'text', text: 'Existing task' }],
+                },
+                { type: 'taskItem', attrs: { id: 'break-1', indentationLevel: 0, isDayBreak: true } },
+                {
+                    type: 'taskItem',
+                    attrs: { id: 'task-2', indentationLevel: 0, isDayBreak: false },
+                    content: [{ type: 'text', text: 'Second-day task' }],
+                },
+            ],
+        };
+        seedExistingSeries({
+            tasks: [
+                { id: 'task-1', text: 'Existing task', order: 0, indentationLevel: 0, isDayBreak: false, parentTask: [] },
+                { id: 'break-1', text: '', order: 1, indentationLevel: 0, isDayBreak: true, parentTask: [] },
+                { id: 'task-2', text: 'Second-day task', order: 2, indentationLevel: 0, isDayBreak: false, parentTask: [] },
+            ],
+        });
+        editorMocks.editor.getJSON.mockReturnValue(document);
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+
+        expect(screen.getByRole('button', { name: /move existing task to previous day/i })).toBeDisabled();
+        expect(screen.getByRole('button', { name: /move existing task to next day/i })).toBeEnabled();
+        expect(screen.getByRole('button', { name: /move second-day task to previous day/i })).toBeEnabled();
+        expect(screen.getByRole('button', { name: /move second-day task to next day/i })).toBeDisabled();
+
+        await user.click(screen.getByRole('button', { name: /move existing task to next day/i }));
+
+        expect(editorMocks.editor.commands.setContent).toHaveBeenLastCalledWith(
+            {
+                type: 'doc',
+                content: [document.content[1], document.content[0], document.content[2]],
+            },
+            { emitUpdate: false }
+        );
     });
 });

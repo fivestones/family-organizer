@@ -20,6 +20,85 @@ interface PersistedSchedulerTask extends PersistedEditorTask {
     completedOnDate?: string | null;
 }
 
+export type AdjacentTaskDayDirection = 'previous' | 'next';
+
+type AdjacentDayMovePlan = {
+    startIndex: number;
+    endIndex: number;
+    breakIndex: number;
+    rootIndentation: number;
+};
+
+const getAdjacentDayMovePlan = (
+    document: EditorDocument,
+    taskId: string,
+    direction: AdjacentTaskDayDirection
+): AdjacentDayMovePlan | null => {
+    const content = document.content || [];
+    const startIndex = content.findIndex(
+        (node) => node?.type === 'taskItem' && node?.attrs?.id === taskId && node?.attrs?.isDayBreak !== true
+    );
+    if (startIndex < 0) return null;
+
+    const rootIndentation = Number(content[startIndex]?.attrs?.indentationLevel || 0);
+    let endIndex = startIndex + 1;
+    while (endIndex < content.length) {
+        const candidate = content[endIndex];
+        if (candidate?.type !== 'taskItem' || candidate?.attrs?.isDayBreak === true) break;
+        if (Number(candidate?.attrs?.indentationLevel || 0) <= rootIndentation) break;
+        endIndex += 1;
+    }
+
+    if (direction === 'previous') {
+        for (let index = startIndex - 1; index >= 0; index -= 1) {
+            if (content[index]?.type === 'taskItem' && content[index]?.attrs?.isDayBreak === true) {
+                return { startIndex, endIndex, breakIndex: index, rootIndentation };
+            }
+        }
+        return null;
+    }
+
+    for (let index = endIndex; index < content.length; index += 1) {
+        if (content[index]?.type === 'taskItem' && content[index]?.attrs?.isDayBreak === true) {
+            return { startIndex, endIndex, breakIndex: index, rootIndentation };
+        }
+    }
+    return null;
+};
+
+/**
+ * Move one task and its descendant nodes across the nearest day break. A nested
+ * task becomes a destination-day root while its descendants retain their
+ * relative indentation, preventing a hidden parent link across day blocks.
+ */
+export function moveTaskSubtreeToAdjacentDay(
+    document: EditorDocument,
+    taskId: string,
+    direction: AdjacentTaskDayDirection
+): EditorDocument | null {
+    const plan = getAdjacentDayMovePlan(document, taskId, direction);
+    if (!plan) return null;
+
+    const content = [...(document.content || [])];
+    const movingNodes = content
+        .slice(plan.startIndex, plan.endIndex)
+        .map((node) => ({
+            ...node,
+            attrs: {
+                ...(node.attrs || {}),
+                indentationLevel: Math.max(0, Number(node.attrs?.indentationLevel || 0) - plan.rootIndentation),
+            },
+        }));
+    const movingCount = plan.endIndex - plan.startIndex;
+    content.splice(plan.startIndex, movingCount);
+
+    let insertionIndex = direction === 'previous' ? plan.breakIndex : plan.breakIndex + 1;
+    if (insertionIndex > plan.startIndex) insertionIndex -= movingCount;
+    content.splice(insertionIndex, 0, ...movingNodes);
+
+    return { ...document, type: document.type || 'doc', content };
+}
+
 /**
  * Project the current editor JSON into scheduler-shaped tasks without reading
  * TipTap/ProseMirror private node arrays. Persisted workflow state is retained,
