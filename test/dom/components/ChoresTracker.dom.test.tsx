@@ -370,6 +370,44 @@ describe('ChoresTracker', () => {
         ]);
     });
 
+    it('adds only one timed-chore assignment lookup per countdown render pass', () => {
+        const baseChore = {
+            id: 'timed-chore',
+            title: 'Timed Chore',
+            startDate: '2026-04-03',
+            done: false,
+            rrule: null,
+            assignees: [{ id: 'kid-a', name: 'Alex' }],
+            rotationType: 'none',
+            completions: [],
+            taskSeries: [],
+        };
+        choreTrackerMocks.dbState.data = makeData({
+            chores: [baseChore],
+        });
+
+        const anytimeRender = render(<ChoresTracker initialSelectedDate="2026-04-03" />);
+        const anytimeAssignmentCalls = choreTrackerMocks.getAssignedMembersForChoreOnDate.mock.calls.length;
+        anytimeRender.unmount();
+        choreTrackerMocks.getAssignedMembersForChoreOnDate.mockClear();
+
+        choreTrackerMocks.dbState.data = makeData({
+            chores: [
+                {
+                    ...baseChore,
+                    timingMode: 'before_time',
+                    timingConfig: { mode: 'before_time', time: '08:00' },
+                },
+            ],
+        });
+        render(<ChoresTracker initialSelectedDate="2026-04-03" />);
+
+        // The test environment performs two render passes. A single countdown
+        // lookup per pass therefore adds two calls over the anytime baseline;
+        // the former filter+map pipeline added four.
+        expect(choreTrackerMocks.getAssignedMembersForChoreOnDate).toHaveBeenCalledTimes(anytimeAssignmentCalls + 2);
+    });
+
     it('filters chores by selected member and date, and propagates UTC-normalized date selection to ChoreList', async () => {
         const user = userEvent.setup();
         render(<ChoresTracker />);

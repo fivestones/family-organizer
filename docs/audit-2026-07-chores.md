@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed: repeated chore schedule and rotation work is cached (§5.1, Phase 3).** Both the shared-core/mobile assignment engine and the richer web schedule engine now keep bounded content-keyed LRUs for parsed `RRuleSet`s and expanded date ranges; shared rotation indices are additionally cached by normalized schedule, rotation type, and target date. Equivalent object instances with the same RRULE/start/exdates reuse results, while schedule edits naturally produce a new key. The countdown builder now resolves a timed chore's assignment once and carries it into the input instead of repeating the same call in `.filter()` and `.map()`. Verification: 43 focused shared/web/ChoresTracker tests pass, including parser/range invocation counts and the per-render countdown lookup delta; `tsc --noEmit` passes.
 - **2026-07-15 — Completed: shared-core is the single assignment and daily-XP implementation (§3.1, Phase 2).** The web compatibility exports in `lib/chore-utils.ts` now delegate directly to the same `getAssignedMembersForChoreOnDate` and `calculateDailyXP` functions used by dashboard widgets and mobile; the duplicate web rotation index, assignee selection, and XP loops were removed. Shared assignee normalization now preserves the optional color used by web calendar surfaces. Verification: all 33 web/shared chore tests pass, including an explicit cross-entry-point contract covering exdates, rotation, completion XP, and color; `tsc --noEmit` passes.
 - **2026-07-15 — Completed and deployed: chore deletion is impact-aware and preserves scheduled task series (§4.1, Phase 1).** A parent delete request now performs an on-demand chore-ID query for the complete completion, rotation-assignment, and dependent-task-series relationships instead of trusting the selected-day list projection. The dialog reports destructive row counts and blocks deletion while any task series still uses the chore as its scheduled activity, naming those series and linking to the first editor. An allowed confirmation re-reads the impact immediately before deletion and closes only after success. Hosted `choresCompletions` and `choresAssignments` links now cascade from chore deletion. Verification: all 11 `ChoreList` DOM tests and 10 schema/permission contracts pass; `tsc --noEmit` passes; the schema push succeeded and the 3-test hosted Instant matrix proves both child namespaces are empty after deleting only the chore.
 - **2026-07-14 — Completed: removed schema-invalid and unresolved chore helpers (§1.5, §3.2).** Deleted the unused `getNextOccurrence`/`getOccurrences` wrappers with unresolved local-vs-UTC behavior, the unused async assignment/grid helpers that queried nonexistent `choreCompletions.date`, and the empty hardcoded family-member UUID branch. Live allowance callers of `createRRuleWithStartDate` remain intact. Verification: repository search finds no remaining references or flagged literals, 32 chore/shared-core tests pass, and `tsc --noEmit` passes.
@@ -27,7 +28,7 @@
 | 2 | **Completed 2026-07-14** | Kid completion writes are member-scoped; payout/date fields and administrative delete/unlink paths are parent-only |
 | 3 | **Completed 2026-07-14** | Bulk completion now shares evolving task state, so final ancestor workflow/child-completion fields are correct |
 | 4 | **Completed 2026-07-15** | Web compatibility exports, dashboard, and mobile now use one shared-core assignment/XP implementation |
-| 5 | **Medium** | Rotation assignment is recomputed from the entire occurrence history — O(years) work in every render loop, and retroactively unstable |
+| 5 | **Performance completed 2026-07-15; semantics tracked in §1.3** | Parsed schedules, occurrence ranges, and rotation indices are cached; countdown no longer resolves the same assignment twice |
 | 6 | **Completed 2026-07-15** | Deletion reports/cascades chore-owned rows and is blocked while a task series still depends on the schedule |
 | 7 | **Completed 2026-07-14** | Schema-invalid dead helpers, the hardcoded debug branch, and unresolved occurrence wrappers were removed |
 
@@ -128,7 +129,7 @@ They were *near*-identical (the shared-core copy skipped `normalizeRrule`, dropp
 
 ## 5. Performance
 
-### 5.1 Rotation/occurrence math is O(history) per call — **Medium**
+### 5.1 Rotation/occurrence math is O(history) per call — **Completed 2026-07-15**
 
 `getRotationIndex` expands **every occurrence since the chore's start date** ([chore-utils.ts:269](lib/chore-utils.ts:269)). A daily rotating chore two years old = ~700 rrule occurrences materialized *per call*. Callers include `getAssignedMembersForChoreOnDate`, which itself runs:
 
@@ -140,6 +141,8 @@ They were *near*-identical (the shared-core copy skipped `normalizeRrule`, dropp
 Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for every single-day check ([chore-schedule.ts:56-80](lib/chore-schedule.ts:56)).
 
 **Fix:** (a) memoize occurrence sets per `(rrule, startDate, exdates)` — a tiny LRU in `chore-schedule.ts` transparently fixes every caller; (b) for rotation, derive the index arithmetically where possible (daily/interval rules don't need materialization) or cache `(choreId → sorted occurrence keys)` per render; (c) deduplicate the double call in the countdown builder.
+
+**Completed:** bounded LRUs now cache parsed occurrence sets and expanded date ranges by normalized RRULE, UTC start date, normalized exdates, and requested range. Shared-core also caches the final rotation index by that schedule key plus rotation type and occurrence date, so repeated list, XP, dashboard, and allowance calls do not re-walk history. Cache values are content-addressed rather than object-identity based, so fresh Instant result objects reuse them and schedule/exdate edits invalidate naturally. Each cache has a fixed eviction limit. `ChoresTracker` uses one `flatMap` pass and carries its single assignment result into the countdown input. Tests spy on `RRule.parseString` and `RRuleSet.between` to prove identical calls hit the caches.
 
 ### 5.2 Countdown engine
 
@@ -163,5 +166,5 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 **Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; ~~2.1 completion permission tightening~~ **completed and deployed 2026-07-14**; ~~1.2 shared-map bulk completion~~ **completed 2026-07-14**.
 **Phase 1 — integrity:** ~~4.1 chore deletion impact dialog + hosted cascades + dependent-series block~~ **completed 2026-07-15**; ~~1.4 weightless-chore save fix~~ **completed 2026-07-14**.
 **Phase 2 — consolidation:** ~~3.1 single shared-core assignment/XP implementation + compatibility contract~~ **completed 2026-07-15**; ~~3.2 dead-code removal~~ **completed 2026-07-14**; ~~1.5 delete unused legacy occurrence wrappers~~ **completed 2026-07-14**.
-**Phase 3 — performance:** 5.1 occurrence-set memoization + rotation index caching; deduplicate countdown builder calls.
+**Phase 3 — performance:** ~~5.1 occurrence-set/range memoization + rotation-index caching; deduplicate countdown builder calls~~ **completed 2026-07-15**.
 **Phase 4 — polish:** rotation transparency, claim flow, backfill, joint-chore XP decision, countdown scenario tests (5.2).

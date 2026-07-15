@@ -44,6 +44,45 @@ interface ResolvedBaseSchedule {
     shouldClearCompletedPauseState: boolean;
 }
 
+const OCCURRENCE_SET_CACHE_LIMIT = 128;
+const OCCURRENCE_RANGE_CACHE_LIMIT = 256;
+const occurrenceSetCache = new Map<string, RRuleSet | null>();
+const occurrenceRangeCache = new Map<string, number[]>();
+
+function readOccurrenceSetCache(key: string): RRuleSet | null | undefined {
+    if (!occurrenceSetCache.has(key)) return undefined;
+    const value = occurrenceSetCache.get(key) ?? null;
+    occurrenceSetCache.delete(key);
+    occurrenceSetCache.set(key, value);
+    return value;
+}
+
+function writeOccurrenceSetCache(key: string, value: RRuleSet | null) {
+    occurrenceSetCache.set(key, value);
+    if (occurrenceSetCache.size > OCCURRENCE_SET_CACHE_LIMIT) {
+        const oldestKey = occurrenceSetCache.keys().next().value;
+        if (oldestKey) occurrenceSetCache.delete(oldestKey);
+    }
+    return value;
+}
+
+function readOccurrenceRangeCache(key: string): Date[] | null {
+    const value = occurrenceRangeCache.get(key);
+    if (!value) return null;
+    occurrenceRangeCache.delete(key);
+    occurrenceRangeCache.set(key, value);
+    return value.map((timestamp) => new Date(timestamp));
+}
+
+function writeOccurrenceRangeCache(key: string, value: Date[]) {
+    occurrenceRangeCache.set(key, value.map((entry) => entry.getTime()));
+    if (occurrenceRangeCache.size > OCCURRENCE_RANGE_CACHE_LIMIT) {
+        const oldestKey = occurrenceRangeCache.keys().next().value;
+        if (oldestKey) occurrenceRangeCache.delete(oldestKey);
+    }
+    return value;
+}
+
 function toUtcDateOnly(value: Date | string): Date {
     const parsed = new Date(value);
     return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
@@ -53,9 +92,24 @@ function formatDateOnly(value: Date | string): string {
     return format(toUtcDateOnly(value), 'yyyy-MM-dd');
 }
 
+function getOccurrenceSetCacheKey(schedule: Pick<ChoreScheduleLike, 'rrule' | 'startDate' | 'exdates'>): string | null {
+    const normalizedRrule = normalizeRrule(String(schedule.rrule || ''));
+    if (!normalizedRrule) return null;
+    return JSON.stringify([
+        normalizedRrule,
+        formatDateOnly(schedule.startDate),
+        normalizeChoreExdates(schedule.exdates),
+    ]);
+}
+
 function createOccurrenceSet(schedule: Pick<ChoreScheduleLike, 'rrule' | 'startDate' | 'exdates'>): RRuleSet | null {
     const normalizedRrule = normalizeRrule(String(schedule.rrule || ''));
     if (!normalizedRrule) return null;
+
+    const normalizedExdates = normalizeChoreExdates(schedule.exdates);
+    const cacheKey = getOccurrenceSetCacheKey(schedule)!;
+    const cached = readOccurrenceSetCache(cacheKey);
+    if (cached !== undefined) return cached;
 
     try {
         const dtstart = toUtcDateOnly(schedule.startDate);
@@ -69,13 +123,13 @@ function createOccurrenceSet(schedule: Pick<ChoreScheduleLike, 'rrule' | 'startD
             }) as any
         );
 
-        for (const exdate of normalizeChoreExdates(schedule.exdates)) {
+        for (const exdate of normalizedExdates) {
             set.exdate(parseISO(`${exdate}T00:00:00Z`));
         }
 
-        return set;
+        return writeOccurrenceSetCache(cacheKey, set);
     } catch {
-        return null;
+        return writeOccurrenceSetCache(cacheKey, null);
     }
 }
 
@@ -243,17 +297,25 @@ export function getChoreOccurrencesInRange(chore: ChoreScheduleLike, start: Date
     const endTime = utcEnd.getTime();
     if (endTime < startTime) return [];
 
+    const scheduleKey = getOccurrenceSetCacheKey(chore);
+    const rangeKey = scheduleKey ? JSON.stringify([scheduleKey, startTime, endTime]) : null;
+    if (rangeKey) {
+        const cached = readOccurrenceRangeCache(rangeKey);
+        if (cached) return cached;
+    }
+
     const occurrenceSet = createOccurrenceSet(chore);
     if (!occurrenceSet) {
         if (normalizeRrule(String(chore.rrule || ''))) {
-            return [];
+            return rangeKey ? writeOccurrenceRangeCache(rangeKey, []) : [];
         }
         const choreDate = toUtcDateOnly(chore.startDate);
         const time = choreDate.getTime();
         return time >= startTime && time <= endTime ? [choreDate] : [];
     }
 
-    return occurrenceSet.between(utcStart, utcEnd, true).map((entry) => toUtcDateOnly(entry));
+    const occurrences = occurrenceSet.between(utcStart, utcEnd, true).map((entry) => toUtcDateOnly(entry));
+    return rangeKey ? writeOccurrenceRangeCache(rangeKey, occurrences) : occurrences;
 }
 
 export function getChoreOccurrenceDateKeysInRange(chore: ChoreScheduleLike, startDate: string, endDate: string): string[] {

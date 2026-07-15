@@ -418,24 +418,20 @@ function ChoresTracker({
     const countdownTimelines: CountdownEngineOutput | null = useMemo(() => {
         if (chores.length === 0) return null;
         try {
-            const choreInputs: CountdownChoreInput[] = chores
-                .filter((c) => {
+            const choreInputs: CountdownChoreInput[] = chores.flatMap((c) => {
                     const mode = getChoreTimingMode(c as any);
-                    if (mode === 'anytime') return false;
+                    if (mode === 'anytime') return [];
                     // Only include chores actually assigned to someone on this date
                     // (handles occurrence check, pause state, rotation, exdates)
                     const assigned = getAssignedMembersForChoreOnDate(c as any, selectedDate);
-                    return assigned.length > 0;
-                })
-                .map((c) => {
-                    const assigned = getAssignedMembersForChoreOnDate(c as any, selectedDate);
+                    if (assigned.length === 0) return [];
                     const memberCompletions: Record<string, string> = {};
                     for (const comp of c.completions || []) {
                         if (comp.completed && comp.dateDue === selectedDateKey && comp.completedBy?.id) {
                             memberCompletions[comp.completedBy.id] = comp.dateCompleted || new Date().toISOString();
                         }
                     }
-                    return {
+                    return [{
                         id: c.id,
                         title: c.title,
                         estimatedDurationSecs: c.estimatedDurationSecs ?? null,
@@ -448,7 +444,7 @@ function ChoresTracker({
                         timeBucket: c.timeBucket || null,
                         completedAt: null,
                         memberCompletions,
-                    };
+                    }];
                 });
 
             if (choreInputs.length === 0) return null;

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { RRule, RRuleSet } from 'rrule';
 import {
     calculateDailyXP,
     createChoreCompletionRecordId,
@@ -33,6 +34,24 @@ function makeRotatingChore(overrides: Partial<SharedChoreLike> = {}): SharedChor
 }
 
 describe('shared-core chores helpers', () => {
+    it('reuses one parsed occurrence set across repeated assignment calculations', () => {
+        const parseSpy = vi.spyOn(RRule, 'parseString');
+        const betweenSpy = vi.spyOn(RRuleSet.prototype, 'between');
+        const chore = makeRotatingChore({
+            startDate: '2026-01-01',
+            rrule: 'FREQ=DAILY;INTERVAL=23',
+            exdates: ['2026-02-16'],
+        });
+
+        getAssignedMembersForChoreOnDate(chore, new Date('2026-04-03T12:00:00Z'));
+        getAssignedMembersForChoreOnDate({ ...chore, exdates: [...(chore.exdates || [])] }, new Date('2026-04-03T12:00:00Z'));
+
+        expect(parseSpy).toHaveBeenCalledTimes(1);
+        expect(betweenSpy).toHaveBeenCalledTimes(2);
+        parseSpy.mockRestore();
+        betweenSpy.mockRestore();
+    });
+
     it('uses one deterministic record id for concurrent up-for-grabs claims', () => {
         const createId = () => 'random-id';
         const first = createChoreCompletionRecordId('chore-1', '2026-03-02', true, createId);

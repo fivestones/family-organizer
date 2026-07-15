@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { RRule, RRuleSet } from 'rrule';
 import { freezeTime } from '@/test/utils/fake-clock';
 import {
     calculateDailyXP as calculateSharedDailyXP,
@@ -58,6 +59,7 @@ import {
     markCompletionsAwarded,
     type Chore,
 } from '@/lib/chore-utils';
+import { choreOccursOnDate } from '@/lib/chore-schedule';
 
 function makeRotatingChore(overrides: Partial<Chore> = {}): Chore {
     return {
@@ -79,6 +81,23 @@ function makeRotatingChore(overrides: Partial<Chore> = {}): Chore {
 }
 
 describe('chore-utils date logic', () => {
+    it('reuses a parsed web occurrence set for identical schedule inputs', () => {
+        const parseSpy = vi.spyOn(RRule, 'parseString');
+        const betweenSpy = vi.spyOn(RRuleSet.prototype, 'between');
+        const schedule = {
+            startDate: '2026-01-01',
+            rrule: 'FREQ=DAILY;INTERVAL=19',
+            exdates: ['2026-02-08'],
+        };
+
+        expect(choreOccursOnDate(schedule, new Date('2026-02-27T12:00:00Z'))).toBe(true);
+        expect(choreOccursOnDate({ ...schedule, exdates: [...schedule.exdates] }, new Date('2026-02-27T12:00:00Z'))).toBe(true);
+        expect(parseSpy).toHaveBeenCalledTimes(1);
+        expect(betweenSpy).toHaveBeenCalledTimes(1);
+        parseSpy.mockRestore();
+        betweenSpy.mockRestore();
+    });
+
     it('keeps the compatibility entry points identical to shared-core', () => {
         const chore = makeRotatingChore({
             exdates: ['2026-03-02'],

@@ -3,6 +3,63 @@ import { v5 as uuidv5 } from 'uuid';
 import { toUTCDate } from './date';
 
 const UP_FOR_GRABS_COMPLETION_NAMESPACE = 'f57d1ba6-d981-4cd3-b3d7-83e2c7349851';
+const OCCURRENCE_SET_CACHE_LIMIT = 128;
+const OCCURRENCE_RANGE_CACHE_LIMIT = 256;
+const ROTATION_INDEX_CACHE_LIMIT = 512;
+const occurrenceSetCache = new Map<string, RRuleSet | null>();
+const occurrenceRangeCache = new Map<string, number[]>();
+const rotationIndexCache = new Map<string, number>();
+
+function readOccurrenceSetCache(key: string): RRuleSet | null | undefined {
+  if (!occurrenceSetCache.has(key)) return undefined;
+  const value = occurrenceSetCache.get(key) ?? null;
+  occurrenceSetCache.delete(key);
+  occurrenceSetCache.set(key, value);
+  return value;
+}
+
+function writeOccurrenceSetCache(key: string, value: RRuleSet | null) {
+  occurrenceSetCache.set(key, value);
+  if (occurrenceSetCache.size > OCCURRENCE_SET_CACHE_LIMIT) {
+    const oldestKey = occurrenceSetCache.keys().next().value;
+    if (oldestKey) occurrenceSetCache.delete(oldestKey);
+  }
+  return value;
+}
+
+function readNumberArrayCache(cache: Map<string, number[]>, key: string): Date[] | null {
+  const value = cache.get(key);
+  if (!value) return null;
+  cache.delete(key);
+  cache.set(key, value);
+  return value.map((timestamp) => new Date(timestamp));
+}
+
+function writeNumberArrayCache(cache: Map<string, number[]>, key: string, value: Date[], limit: number) {
+  cache.set(key, value.map((entry) => entry.getTime()));
+  if (cache.size > limit) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey) cache.delete(oldestKey);
+  }
+  return value;
+}
+
+function readRotationIndexCache(key: string): number | undefined {
+  const value = rotationIndexCache.get(key);
+  if (value === undefined) return undefined;
+  rotationIndexCache.delete(key);
+  rotationIndexCache.set(key, value);
+  return value;
+}
+
+function writeRotationIndexCache(key: string, value: number) {
+  rotationIndexCache.set(key, value);
+  if (rotationIndexCache.size > ROTATION_INDEX_CACHE_LIMIT) {
+    const oldestKey = rotationIndexCache.keys().next().value;
+    if (oldestKey) rotationIndexCache.delete(oldestKey);
+  }
+  return value;
+}
 
 export function createChoreCompletionRecordId(
   choreId: string,
@@ -133,12 +190,27 @@ function normalizeChoreExdates(value: unknown): string[] {
   );
 }
 
+function getOccurrenceSetCacheKey(chore: Pick<SharedChoreLike, 'rrule' | 'startDate' | 'exdates'>): string | null {
+  const normalizedRrule = String(chore.rrule || '').replace(/^RRULE:/i, '').trim();
+  if (!normalizedRrule) return null;
+  return JSON.stringify([
+    normalizedRrule,
+    formatDateKeyUTC(toUTCDate(chore.startDate)),
+    normalizeChoreExdates(chore.exdates),
+  ]);
+}
+
 function createOccurrenceSet(chore: Pick<SharedChoreLike, 'rrule' | 'startDate' | 'exdates'>): RRuleSet | null {
   const normalizedRrule = String(chore.rrule || '').replace(/^RRULE:/i, '').trim();
   if (!normalizedRrule) return null;
 
+  const normalizedExdates = normalizeChoreExdates(chore.exdates);
+  const dtstart = toUTCDate(chore.startDate);
+  const cacheKey = getOccurrenceSetCacheKey(chore)!;
+  const cached = readOccurrenceSetCache(cacheKey);
+  if (cached !== undefined) return cached;
+
   try {
-    const dtstart = toUTCDate(chore.startDate);
     const ruleOptions = RRule.parseString(normalizedRrule);
     const set = new RRuleSet();
     set.rrule(
@@ -148,13 +220,13 @@ function createOccurrenceSet(chore: Pick<SharedChoreLike, 'rrule' | 'startDate' 
       }) as any
     );
 
-    for (const exdate of normalizeChoreExdates(chore.exdates)) {
+    for (const exdate of normalizedExdates) {
       set.exdate(new Date(`${exdate}T00:00:00Z`));
     }
 
-    return set;
+    return writeOccurrenceSetCache(cacheKey, set);
   } catch {
-    return null;
+    return writeOccurrenceSetCache(cacheKey, null);
   }
 }
 
@@ -163,15 +235,29 @@ function getChoreOccurrencesInRange(chore: SharedChoreLike, start: Date, end: Da
   const utcEnd = toUTCDate(end);
   if (utcEnd.getTime() < utcStart.getTime()) return [];
 
+  const scheduleKey = getOccurrenceSetCacheKey(chore);
+  const rangeKey = scheduleKey ? JSON.stringify([scheduleKey, utcStart.getTime(), utcEnd.getTime()]) : null;
+  if (rangeKey) {
+    const cached = readNumberArrayCache(occurrenceRangeCache, rangeKey);
+    if (cached) return cached;
+  }
+
   const occurrenceSet = createOccurrenceSet(chore);
   if (!occurrenceSet) {
-    if (String(chore.rrule || '').trim()) return [];
+    if (String(chore.rrule || '').trim()) {
+      return rangeKey
+        ? writeNumberArrayCache(occurrenceRangeCache, rangeKey, [], OCCURRENCE_RANGE_CACHE_LIMIT)
+        : [];
+    }
     const choreDate = toUTCDate(chore.startDate);
     const time = choreDate.getTime();
     return time >= utcStart.getTime() && time <= utcEnd.getTime() ? [choreDate] : [];
   }
 
-  return occurrenceSet.between(utcStart, utcEnd, true).map((entry) => toUTCDate(entry));
+  const occurrences = occurrenceSet.between(utcStart, utcEnd, true).map((entry) => toUTCDate(entry));
+  return rangeKey
+    ? writeNumberArrayCache(occurrenceRangeCache, rangeKey, occurrences, OCCURRENCE_RANGE_CACHE_LIMIT)
+    : occurrences;
 }
 
 function getRotationIndex(
@@ -183,15 +269,25 @@ function getRotationIndex(
 
   const utcStartDate = toUTCDate(chore.startDate);
   const utcOccurrenceDate = toUTCDate(occurrenceDate);
+  const scheduleKey = getOccurrenceSetCacheKey(chore);
+  const rotationCacheKey = scheduleKey
+    ? JSON.stringify([scheduleKey, rotationType, utcOccurrenceDate.getTime()])
+    : null;
+  if (rotationCacheKey) {
+    const cached = readRotationIndexCache(rotationCacheKey);
+    if (cached !== undefined) return cached;
+  }
   const actualOccurrences = getChoreOccurrencesInRange(chore, utcStartDate, utcOccurrenceDate);
 
   if (actualOccurrences.length === 0) {
-    return 0;
+    return rotationCacheKey ? writeRotationIndexCache(rotationCacheKey, 0) : 0;
   }
 
+  let rotationIndex = 0;
   switch (rotationType) {
     case 'daily': {
-      return Math.max(0, actualOccurrences.length - 1);
+      rotationIndex = Math.max(0, actualOccurrences.length - 1);
+      break;
     }
     case 'weekly': {
       const weekBuckets = new Set(
@@ -200,7 +296,8 @@ function getRotationIndex(
           return Math.floor(diffDays / 7);
         })
       );
-      return Math.max(0, weekBuckets.size - 1);
+      rotationIndex = Math.max(0, weekBuckets.size - 1);
+      break;
     }
     case 'monthly': {
       const monthBuckets = new Set(
@@ -210,12 +307,14 @@ function getRotationIndex(
             (entry.getUTCMonth() - utcStartDate.getUTCMonth())
         )
       );
-      return Math.max(0, monthBuckets.size - 1);
+      rotationIndex = Math.max(0, monthBuckets.size - 1);
+      break;
     }
     default: {
-      return 0;
+      rotationIndex = 0;
     }
   }
+  return rotationCacheKey ? writeRotationIndexCache(rotationCacheKey, rotationIndex) : rotationIndex;
 }
 
 function normalizeFamilyMember(
