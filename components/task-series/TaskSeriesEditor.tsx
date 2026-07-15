@@ -46,6 +46,7 @@ interface Task {
     workflowState?: string | null;
     lastActiveState?: string | null;
     deferredUntilDate?: string | null;
+    weight?: number | null;
     parentTask?: { id: string }[]; // Added to track existing parent
 }
 
@@ -272,6 +273,7 @@ const TaskSeriesCard = ({
     const metadataReady = Boolean(persistedTask);
     const [notes, setNotes] = useState(persistedTask?.notes || '');
     const [specificTime, setSpecificTime] = useState(persistedTask?.specificTime || '');
+    const [weight, setWeight] = useState(String(persistedTask?.weight ?? 0));
     const [overrideWorkAhead, setOverrideWorkAhead] = useState(Boolean(persistedTask?.overrideWorkAhead));
     const [uploading, setUploading] = useState(false);
     const historyEntries = getTaskHistoryEntries(persistedTask?.updates || []);
@@ -279,8 +281,9 @@ const TaskSeriesCard = ({
     useEffect(() => {
         setNotes(persistedTask?.notes || '');
         setSpecificTime(persistedTask?.specificTime || '');
+        setWeight(String(persistedTask?.weight ?? 0));
         setOverrideWorkAhead(Boolean(persistedTask?.overrideWorkAhead));
-    }, [persistedTask?.notes, persistedTask?.overrideWorkAhead, persistedTask?.specificTime]);
+    }, [persistedTask?.notes, persistedTask?.overrideWorkAhead, persistedTask?.specificTime, persistedTask?.weight]);
 
     const saveMetadata = useCallback(
         async (patch: Record<string, unknown>) => {
@@ -311,6 +314,17 @@ const TaskSeriesCard = ({
         if (!metadataReady) return;
         if ((persistedTask?.specificTime || '') === specificTime) return;
         void saveMetadata({ specificTime: specificTime || null });
+    };
+
+    const handleWeightBlur = () => {
+        if (!metadataReady) return;
+        const nextWeight = Number(weight);
+        if (!Number.isFinite(nextWeight) || nextWeight < 0) {
+            setWeight(String(persistedTask?.weight ?? 0));
+            return;
+        }
+        if (Number(persistedTask?.weight ?? 0) === nextWeight) return;
+        void saveMetadata({ weight: nextWeight });
     };
 
     const handleOverrideWorkAheadChange = (checked: boolean) => {
@@ -471,6 +485,25 @@ const TaskSeriesCard = ({
                                     value={specificTime}
                                     onChange={(event) => setSpecificTime(event.target.value)}
                                     onBlur={handleSpecificTimeBlur}
+                                    disabled={!metadataReady}
+                                    className="mt-1 border-slate-200 bg-white"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor={`task-weight-${item.id}`} className="text-xs font-medium text-slate-600">
+                                    Weight
+                                </label>
+                                <p className="mb-1 mt-0.5 text-[10px] text-slate-400">Relative contribution to weighted task-series grades.</p>
+                                <Input
+                                    id={`task-weight-${item.id}`}
+                                    aria-label={`Weight for ${item.text || 'new task'}`}
+                                    type="number"
+                                    min="0"
+                                    step="0.25"
+                                    inputMode="decimal"
+                                    value={weight}
+                                    onChange={(event) => setWeight(event.target.value)}
+                                    onBlur={handleWeightBlur}
                                     disabled={!metadataReady}
                                     className="mt-1 border-slate-200 bg-white"
                                 />

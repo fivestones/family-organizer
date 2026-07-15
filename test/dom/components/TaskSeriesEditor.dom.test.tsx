@@ -646,6 +646,43 @@ describe('TaskSeriesEditor', () => {
         expect(screen.getByRole('button', { name: /add day break below existing task/i })).toBeInTheDocument();
         expect(screen.getByText(/saved when you leave the field/i)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /^history$/i })).toBeInTheDocument();
+        expect(screen.getByRole('spinbutton', { name: /weight for existing task/i })).toHaveValue(0);
+    });
+
+    it('persists task weight from the card metadata surface', async () => {
+        const user = userEvent.setup();
+        seedExistingSeries({
+            tasks: [
+                {
+                    id: 'task-1',
+                    text: 'Existing task',
+                    order: 0,
+                    indentationLevel: 0,
+                    isDayBreak: false,
+                    weight: 1,
+                    parentTask: [],
+                },
+            ],
+        });
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+
+        const weightInput = screen.getByRole('spinbutton', { name: /weight for existing task/i });
+        await user.clear(weightInput);
+        await user.type(weightInput, '2.5');
+        await user.tab();
+
+        await waitFor(() => {
+            expect(editorMocks.dbTransact).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    op: 'update',
+                    entity: 'tasks',
+                    id: 'task-1',
+                    payload: expect.objectContaining({ weight: 2.5, updatedAt: expect.any(Date) }),
+                }),
+                { op: 'link', entity: 'taskSeries', id: 'series-1', payload: { tasks: 'task-1' } },
+            ]);
+        });
     });
 
     it('labels completed, planned, and live-projected dates from the shared scheduler', async () => {
