@@ -63,7 +63,7 @@ const editorMocks = vi.hoisted(() => {
         },
     } as any;
 
-    const dbUseQuery = vi.fn(() => ({ isLoading: queryState.isLoading, data: queryState.data }));
+    const dbUseQuery = vi.fn((_query?: any) => ({ isLoading: queryState.isLoading, data: queryState.data }));
     const dbTransact = vi.fn().mockResolvedValue(undefined);
 
     const debounceState = {
@@ -225,7 +225,7 @@ vi.mock('@instantdb/react', () => ({
     init: vi.fn(() => ({ useQuery: vi.fn(), transact: vi.fn() })),
 }));
 
-import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
+import TaskSeriesEditor, { areTaskSeriesCardPropsEqual } from '@/components/task-series/TaskSeriesEditor';
 
 function makeDb() {
     return {
@@ -647,6 +647,87 @@ describe('TaskSeriesEditor', () => {
         expect(screen.getByText(/saved when you leave the field/i)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /^history$/i })).toBeInTheDocument();
         expect(screen.getByRole('spinbutton', { name: /weight for existing task/i })).toHaveValue(0);
+    });
+
+    it('memoizes unchanged card props while allowing edited and expanded cards to render', () => {
+        const callback = vi.fn();
+        const persistedTask = { id: 'task-1', text: 'Existing task' };
+        const baseProps = {
+            db: makeDb(),
+            seriesId: 'series-1',
+            item: {
+                id: 'task-1',
+                text: 'Existing task',
+                indentationLevel: 0,
+                isDayBreak: false,
+                order: 0,
+                parentId: null,
+                parentText: null,
+                dateLabel: 'Projected Wed, 4/1',
+                dateValue: new Date('2026-04-01T12:00:00'),
+                persistedTask,
+            },
+            historyOpen: false,
+            onToggleHistory: callback,
+            onDeleteTask: callback,
+            onAddTaskBelow: callback,
+            onAddDayBreakBelow: callback,
+            onTitleChange: callback,
+        };
+
+        expect(
+            areTaskSeriesCardPropsEqual(baseProps, {
+                ...baseProps,
+                item: { ...baseProps.item, dateValue: new Date('2026-04-01T12:00:00') },
+            })
+        ).toBe(true);
+        expect(
+            areTaskSeriesCardPropsEqual(baseProps, {
+                ...baseProps,
+                item: { ...baseProps.item, text: 'Edited task' },
+            })
+        ).toBe(false);
+        expect(areTaskSeriesCardPropsEqual(baseProps, { ...baseProps, historyOpen: true })).toBe(false);
+    });
+
+    it('loads linked task history only after its card panel opens', async () => {
+        const user = userEvent.setup();
+        seedExistingSeries({
+            tasks: [
+                {
+                    id: 'task-1',
+                    text: 'Existing task',
+                    order: 0,
+                    indentationLevel: 0,
+                    isDayBreak: false,
+                    updates: [{ id: 'update-1', note: 'Progress', createdAt: '2026-04-02T12:00:00.000Z' }],
+                    parentTask: [],
+                },
+            ],
+        });
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+
+        const mainQuery = editorMocks.dbUseQuery.mock.calls[0]?.[0];
+        expect(mainQuery.taskSeries.tasks.updates).toEqual({});
+        expect(editorMocks.dbUseQuery.mock.calls.some(([query]) => Boolean(query.tasks?.updates))).toBe(false);
+
+        await user.click(screen.getByRole('button', { name: /^history$/i }));
+
+        const historyQuery = editorMocks.dbUseQuery.mock.calls.find(([query]) => Boolean(query.tasks?.updates))?.[0];
+        expect(historyQuery).toEqual(
+            expect.objectContaining({
+                tasks: expect.objectContaining({
+                    $: { where: { id: 'task-1' } },
+                    updates: expect.objectContaining({
+                        actor: {},
+                        attachments: {},
+                        responseFieldValues: { field: {} },
+                        replies: expect.any(Object),
+                    }),
+                }),
+            })
+        );
     });
 
     it('persists task weight from the card metadata surface', async () => {

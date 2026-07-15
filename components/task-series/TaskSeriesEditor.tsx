@@ -268,7 +268,72 @@ type TaskSeriesCardProps = {
     onTitleChange: (taskId: string, value: string) => void;
 };
 
-const TaskSeriesCard = ({
+export const areTaskSeriesCardPropsEqual = (previous: TaskSeriesCardProps, next: TaskSeriesCardProps) => {
+    const previousItem = previous.item;
+    const nextItem = next.item;
+
+    return (
+        previous.db === next.db &&
+        previous.seriesId === next.seriesId &&
+        previous.historyOpen === next.historyOpen &&
+        previous.onToggleHistory === next.onToggleHistory &&
+        previous.onDeleteTask === next.onDeleteTask &&
+        previous.onAddTaskBelow === next.onAddTaskBelow &&
+        previous.onAddDayBreakBelow === next.onAddDayBreakBelow &&
+        previous.onTitleChange === next.onTitleChange &&
+        previousItem.id === nextItem.id &&
+        previousItem.text === nextItem.text &&
+        previousItem.indentationLevel === nextItem.indentationLevel &&
+        previousItem.parentId === nextItem.parentId &&
+        previousItem.parentText === nextItem.parentText &&
+        previousItem.dateLabel === nextItem.dateLabel &&
+        (previousItem.dateValue?.getTime() || 0) === (nextItem.dateValue?.getTime() || 0) &&
+        previousItem.persistedTask === nextItem.persistedTask
+    );
+};
+
+const TaskHistoryPanel = ({ db, taskId }: { db: any; taskId: string }) => {
+    const { data, isLoading, error } = db.useQuery({
+        tasks: {
+            $: { where: { id: taskId } },
+            updates: {
+                actor: {},
+                affectedPerson: {},
+                responseFieldValues: { field: {} },
+                gradeType: {},
+                attachments: {},
+                replyTo: {},
+                replies: {
+                    actor: {},
+                    affectedPerson: {},
+                    attachments: {},
+                    gradeType: {},
+                },
+            },
+        },
+    });
+
+    if (isLoading) {
+        return <div className="mt-3 text-sm text-slate-500">Loading task history…</div>;
+    }
+
+    if (error) {
+        return <div className="mt-3 text-sm text-rose-600">Task history could not be loaded.</div>;
+    }
+
+    const updates = (data?.tasks?.[0]?.updates || []) as TaskUpdateLike[];
+    if (getTaskHistoryEntries(updates).length === 0) {
+        return (
+            <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 py-4 text-sm text-slate-500">
+                No later updates yet. Creation-time notes and attachments stay on the card itself.
+            </div>
+        );
+    }
+
+    return <UpdateHistory updates={updates} className="mt-4" />;
+};
+
+const TaskSeriesCard = React.memo(function TaskSeriesCard({
     db,
     seriesId,
     item,
@@ -278,7 +343,7 @@ const TaskSeriesCard = ({
     onAddTaskBelow,
     onAddDayBreakBelow,
     onTitleChange,
-}: TaskSeriesCardProps) => {
+}: TaskSeriesCardProps) {
     const persistedTask = item.persistedTask;
     const metadataReady = Boolean(persistedTask);
     const [notes, setNotes] = useState(persistedTask?.notes || '');
@@ -610,13 +675,7 @@ const TaskSeriesCard = ({
                         </Link>
                     </div>
 
-                    {historyEntries.length === 0 ? (
-                        <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 py-4 text-sm text-slate-500">
-                            No later updates yet. Creation-time notes and attachments stay on the card itself.
-                        </div>
-                    ) : (
-                        <UpdateHistory updates={persistedTask?.updates || []} className="mt-4" />
-                    )}
+                    <TaskHistoryPanel db={db} taskId={item.id} />
                 </div>
             ) : null}
 
@@ -650,7 +709,7 @@ const TaskSeriesCard = ({
             </AlertDialog>
         </article>
     );
-};
+}, areTaskSeriesCardPropsEqual);
 
 const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId, onClose, className }) => {
     const { toast } = useToast();
@@ -721,10 +780,9 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                 parentTask: {}, // Fetch parentTask so we can unlink if hierarchy changes
                 attachments: {},
                 responseFields: {},
-                updates: {
-                    attachments: {},
-                    actor: {},
-                },
+                // Keep update attributes available for counts and deletion guards.
+                // Heavy linked history data is queried only by an open card panel.
+                updates: {},
             },
             familyMember: {}, // link: taskSeriesOwner
             scheduledActivity: {}, // link: taskSeriesScheduledActivity (chores)
@@ -2004,6 +2062,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
         [persistedTaskById, executeRemoveTaskCard]
     );
 
+    const toggleTaskHistory = useCallback((taskId: string) => {
+        setHistoryTaskId((current) => (current === taskId ? null : taskId));
+    }, []);
+
     const handleClose = useCallback(async () => {
         if (editor) {
             debouncedSave(editor.getJSON());
@@ -2310,7 +2372,7 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                                     seriesId={seriesId}
                                     item={item}
                                     historyOpen={historyTaskId === item.id}
-                                    onToggleHistory={(taskId) => setHistoryTaskId((current) => (current === taskId ? null : taskId))}
+                                    onToggleHistory={toggleTaskHistory}
                                     onDeleteTask={removeTaskCard}
                                     onAddTaskBelow={insertTaskBelow}
                                     onAddDayBreakBelow={insertDayBreakBelow}
