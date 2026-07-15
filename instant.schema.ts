@@ -805,6 +805,7 @@ const _schema = i.schema({
                 on: 'choreAssignments',
                 has: 'one',
                 label: 'chore',
+                onDelete: 'cascade',
             },
         },
         choresCompletions: {
@@ -817,6 +818,7 @@ const _schema = i.schema({
                 on: 'choreCompletions',
                 has: 'one',
                 label: 'chore',
+                onDelete: 'cascade',
             },
         },
         contentQueueItemsAttachments: {

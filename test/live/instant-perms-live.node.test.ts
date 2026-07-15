@@ -151,6 +151,7 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         calendarItems: new Set<string>(),
         allowanceTransactions: new Set<string>(),
         chores: new Set<string>(),
+        choreAssignments: new Set<string>(),
         choreCompletions: new Set<string>(),
         tasks: new Set<string>(),
         taskUpdates: new Set<string>(),
@@ -186,6 +187,9 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         const txs: any[] = [];
         for (const entryId of Array.from(cleanup.choreCompletions)) {
             txs.push(adminDb.tx.choreCompletions[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.choreAssignments)) {
+            txs.push(adminDb.tx.choreAssignments[entryId].delete());
         }
         for (const entryId of Array.from(cleanup.chores)) {
             txs.push(adminDb.tx.chores[entryId].delete());
@@ -472,6 +476,56 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             } finally {
                 completionKidDb.shutdown?.();
             }
+        },
+        120_000
+    );
+
+    it(
+        'cascades chore-owned completion and assignment rows in the hosted schema',
+        async () => {
+            const choreId = instantId();
+            const completionId = instantId();
+            const assignmentId = instantId();
+
+            cleanup.chores.add(choreId);
+            cleanup.choreCompletions.add(completionId);
+            cleanup.choreAssignments.add(assignmentId);
+
+            await adminDb.transact([
+                adminDb.tx.chores[choreId].update({
+                    title: 'Cascade smoke chore',
+                    startDate: '2026-07-15',
+                    rotationType: 'none',
+                    done: false,
+                }),
+                adminDb.tx.choreCompletions[completionId]
+                    .update({
+                        dateDue: '2026-07-15',
+                        dateCompleted: '2026-07-15T12:00:00.000Z',
+                        completed: true,
+                        allowanceAwarded: false,
+                    })
+                    .link({ chore: choreId }),
+                adminDb.tx.choreAssignments[assignmentId]
+                    .update({ order: 0 })
+                    .link({ chore: choreId }),
+            ]);
+
+            await adminDb.transact(adminDb.tx.chores[choreId].delete());
+
+            const result = await adminDb.query({
+                chores: { $: { where: { id: choreId } } },
+                choreCompletions: { $: { where: { id: completionId } } },
+                choreAssignments: { $: { where: { id: assignmentId } } },
+            });
+
+            expect(result.chores || []).toHaveLength(0);
+            expect(result.choreCompletions || []).toHaveLength(0);
+            expect(result.choreAssignments || []).toHaveLength(0);
+
+            cleanup.chores.delete(choreId);
+            cleanup.choreCompletions.delete(completionId);
+            cleanup.choreAssignments.delete(assignmentId);
         },
         120_000
     );

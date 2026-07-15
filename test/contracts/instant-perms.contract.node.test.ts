@@ -96,4 +96,15 @@ describe('instant.perms contract', () => {
             expect(linkSource, `${linkName} must cascade from its has-one task/field relation`).toContain("onDelete: 'cascade'");
         }
     });
+
+    it('cascades chore-owned completion and rotation-assignment rows', async () => {
+        const schemaSource = await fs.readFile(path.join(process.cwd(), 'instant.schema.ts'), 'utf8');
+
+        for (const linkName of ['choresAssignments', 'choresCompletions']) {
+            const linkStart = schemaSource.indexOf(`${linkName}: {`);
+            expect(linkStart, `missing link ${linkName}`).toBeGreaterThan(-1);
+            const linkSource = schemaSource.slice(linkStart, linkStart + 450);
+            expect(linkSource, `${linkName} must cascade from its has-one chore relation`).toContain("onDelete: 'cascade'");
+        }
+    });
 });

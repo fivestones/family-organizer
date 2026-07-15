@@ -1174,21 +1174,19 @@ function ChoresTracker({
         }
     };
 
-    const deleteChore = (choreId: any) => {
-        // Consider implications: Should completions be deleted? Assignments?
-        // Simple delete for now:
-        db.transact([tx.chores[choreId].delete()])
-            .then(() => {
-                toast({ title: 'Chore Deleted' });
-            })
-            .catch((err: any) => {
-                console.error('Error deleting chore:', err);
-                toast({
-                    title: 'Error',
-                    description: 'Failed to delete chore.',
-                    variant: 'destructive',
-                });
+    const deleteChore = async (choreId: any) => {
+        try {
+            await db.transact([tx.chores[choreId].delete()]);
+            toast({ title: 'Chore Deleted' });
+        } catch (err: any) {
+            console.error('Error deleting chore:', err);
+            toast({
+                title: 'Error',
+                description: 'Failed to delete chore.',
+                variant: 'destructive',
             });
+            throw err;
+        }
     };
 
     const handleDateSelect = (date: Date) => {

@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed and deployed: chore deletion is impact-aware and preserves scheduled task series (§4.1, Phase 1).** A parent delete request now performs an on-demand chore-ID query for the complete completion, rotation-assignment, and dependent-task-series relationships instead of trusting the selected-day list projection. The dialog reports destructive row counts and blocks deletion while any task series still uses the chore as its scheduled activity, naming those series and linking to the first editor. An allowed confirmation re-reads the impact immediately before deletion and closes only after success. Hosted `choresCompletions` and `choresAssignments` links now cascade from chore deletion. Verification: all 11 `ChoreList` DOM tests and 10 schema/permission contracts pass; `tsc --noEmit` passes; the schema push succeeded and the 3-test hosted Instant matrix proves both child namespaces are empty after deleting only the chore.
 - **2026-07-14 — Completed: removed schema-invalid and unresolved chore helpers (§1.5, §3.2).** Deleted the unused `getNextOccurrence`/`getOccurrences` wrappers with unresolved local-vs-UTC behavior, the unused async assignment/grid helpers that queried nonexistent `choreCompletions.date`, and the empty hardcoded family-member UUID branch. Live allowance callers of `createRRuleWithStartDate` remain intact. Verification: repository search finds no remaining references or flagged literals, 32 chore/shared-core tests pass, and `tsc --noEmit` passes.
 - **2026-07-14 — Completed: weightless chores remain editable (§1.4).** A blank weight is now a valid explicit weightless value and saves as `null`; invalid non-empty numeric input is still rejected. The form no longer marks weight required or disables the save/update button solely because the field is blank, and its helper text explains blank/zero exclusion. Verification: all 5 `DetailedChoreForm` DOM tests pass, including editing an existing null-weight chore, and `tsc --noEmit` passes.
 - **2026-07-14 — Completed: bulk task completion uses one evolving task snapshot (§1.2).** `buildBulkTaskUpdateTransactions` owns a shared cloned task map and feeds it through each child update, so sibling transitions and ancestor rollups accumulate within the same Instant transaction batch. `ChoreList` now uses that helper for “Mark All Done & Complete”; duplicate task IDs are ignored. A three-sibling regression proves the final parent update is `done`, `isCompleted: true`, and `childTasksComplete: true`. Verification: all 7 task-update mutation tests and `tsc --noEmit` pass.
@@ -26,7 +27,7 @@
 | 3 | **Completed 2026-07-14** | Bulk completion now shares evolving task state, so final ancestor workflow/child-completion fields are correct |
 | 4 | **Medium (Confirmed)** | Chore assignment/XP logic exists in two diverging copies; the dashboard and the chores page use different ones |
 | 5 | **Medium** | Rotation assignment is recomputed from the entire occurrence history — O(years) work in every render loop, and retroactively unstable |
-| 6 | **Medium (Confirmed)** | Deleting a chore orphans completions/assignments and silently un-schedules linked task series |
+| 6 | **Completed 2026-07-15** | Deletion reports/cascades chore-owned rows and is blocked while a task series still depends on the schedule |
 | 7 | **Completed 2026-07-14** | Schema-invalid dead helpers, the hardcoded debug branch, and unresolved occurrence wrappers were removed |
 
 ---
@@ -112,11 +113,13 @@ They are *near*-identical today (the shared-core copy skips `normalizeRrule`, dr
 
 ## 4. Data integrity
 
-### 4.1 `deleteChore` leaves orphans and silently breaks task series — **Medium, Confirmed**
+### 4.1 `deleteChore` leaves orphans and silently breaks task series — **Completed 2026-07-15**
 
 [ChoresTracker.tsx:1160-1175](components/ChoresTracker.tsx:1160) deletes only the chore row (the comment admits the open question). No `onDelete: cascade` exists on `choresCompletions` or the assignments link, so completions and `choreAssignments` rows are orphaned. Worse: any task series linked via `scheduledActivity` loses its schedule — the series silently reverts to draft status and disappears from `/tasks` with no warning.
 
 **Fix:** a confirmation dialog in the same style as `TaskDeleteConfirmDialog` ("this chore has 214 completions and drives the '7th Grade Math' task series"), plus either schema cascades for completions/assignments or explicit cleanup transactions. Blocked deletion (or a prompt to relink) when a task series depends on the chore.
+
+**Completed and deployed:** clicking delete now loads the selected chore alone with its complete `completions`, `assignments`, and reverse `taskSeries` relationships. If a series is present, the dialog cannot delete; it names every dependent series and offers to open the first one for relinking. Otherwise it states the exact child-row impact. Confirm performs the same impact query again immediately before the write, so a series linked while the prompt was open fails closed, and the asynchronous dialog remains open on failure. Both child has-one links carry `onDelete: 'cascade'` in the checked-in and hosted schema. A live smoke test creates one chore plus both child rows, deletes only the chore, and proves all three namespaces are empty.
 
 ---
 
@@ -155,7 +158,7 @@ Likewise `choreOccursOnDate` builds a fresh `RRuleSet` (parse + exdate loop) for
 ## 7. Fix plan
 
 **Phase 0 — money/fairness correctness:** ~~1.1 deterministic up-for-grabs completion IDs + period dedupe~~ **completed 2026-07-14**; ~~2.1 completion permission tightening~~ **completed and deployed 2026-07-14**; ~~1.2 shared-map bulk completion~~ **completed 2026-07-14**.
-**Phase 1 — integrity:** 4.1 chore deletion impact dialog + cascades; ~~1.4 weightless-chore save fix~~ **completed 2026-07-14**.
+**Phase 1 — integrity:** ~~4.1 chore deletion impact dialog + hosted cascades + dependent-series block~~ **completed 2026-07-15**; ~~1.4 weightless-chore save fix~~ **completed 2026-07-14**.
 **Phase 2 — consolidation:** 3.1 single shared-core implementation + contract test; ~~3.2 dead-code removal~~ **completed 2026-07-14**; ~~1.5 delete unused legacy occurrence wrappers~~ **completed 2026-07-14**.
 **Phase 3 — performance:** 5.1 occurrence-set memoization + rotation index caching; deduplicate countdown builder calls.
 **Phase 4 — polish:** rotation transparency, claim flow, backfill, joint-chore XP decision, countdown scenario tests (5.2).

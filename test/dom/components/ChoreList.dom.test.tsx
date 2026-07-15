@@ -55,6 +55,7 @@ vi.mock('@/components/ui/dialog', async () => {
 
 vi.mock('lucide-react', () => ({
     Trash2: () => <span>Trash2</span>,
+    Loader2: () => <span>Loading</span>,
 }));
 
 vi.mock('@/components/ui/ToggleableAvatar', () => ({
@@ -159,7 +160,22 @@ function renderChoreList(overrides: any = {}) {
         toggleChoreDone: vi.fn(),
         updateChore: vi.fn(),
         deleteChore: vi.fn(),
-        db: { transact: vi.fn() },
+        db: {
+            transact: vi.fn(),
+            queryOnce: vi.fn().mockResolvedValue({
+                data: {
+                    chores: [
+                        {
+                            id: 'chore-1',
+                            title: 'Test Chore',
+                            completions: [],
+                            assignments: [],
+                            taskSeries: [],
+                        },
+                    ],
+                },
+            }),
+        },
         unitDefinitions: [],
         currencyOptions: [],
         onEditTaskSeries: vi.fn(),
@@ -330,7 +346,7 @@ describe('ChoreList', () => {
         expect(screen.getByRole('heading', { name: /test chore/i })).toBeInTheDocument();
 
         await user.click(screen.getByRole('button', { name: /edit chore/i }));
-        await user.click(screen.getAllByRole('button', { name: /trash2/i })[0]);
+        await user.click(screen.getAllByRole('button', { name: /delete test chore/i })[0]);
 
         expect(choreListMocks.toast).toHaveBeenCalledTimes(2);
         expect(choreListMocks.toast).toHaveBeenNthCalledWith(
@@ -356,9 +372,23 @@ describe('ChoreList', () => {
 
     it('opens detail metadata, then edit and delete flows for parents', async () => {
         const user = userEvent.setup();
+        const queryOnce = vi.fn().mockResolvedValue({
+            data: {
+                chores: [
+                    {
+                        id: 'chore-parent',
+                        title: 'Parent Editable Chore',
+                        completions: [{ id: 'completion-1' }, { id: 'completion-2' }],
+                        assignments: [{ id: 'assignment-1' }],
+                        taskSeries: [],
+                    },
+                ],
+            },
+        });
         const { props } = renderChoreList({
             chores: [makeChore({ id: 'chore-parent', title: 'Parent Editable Chore' })],
             canEditChores: true,
+            db: { transact: vi.fn(), queryOnce },
         });
 
         await user.click(screen.getAllByRole('button', { name: /parent editable chore/i })[0]);
@@ -370,11 +400,50 @@ describe('ChoreList', () => {
         expect(screen.getByRole('heading', { name: /edit chore/i })).toBeInTheDocument();
         expect(screen.getByTestId('detailed-chore-form')).toHaveTextContent('Editing Parent Editable Chore');
 
-        await user.click(screen.getAllByRole('button', { name: /trash2/i })[0]);
-        expect(screen.getByRole('heading', { name: /delete chore/i })).toBeInTheDocument();
+        await user.click(screen.getAllByRole('button', { name: /delete parent editable chore/i })[0]);
+        expect(await screen.findByRole('heading', { name: /delete chore/i })).toBeInTheDocument();
+        expect(screen.getByText(/2 completion records plus 1 rotation assignment/i)).toBeInTheDocument();
 
         await user.click(screen.getByRole('button', { name: /^delete$/i }));
-        expect(props.deleteChore).toHaveBeenCalledWith('chore-parent');
+        await waitFor(() => expect(props.deleteChore).toHaveBeenCalledWith('chore-parent'));
+        expect(queryOnce).toHaveBeenCalledTimes(2);
+    });
+
+    it('blocks chore deletion when a task series still depends on its schedule', async () => {
+        const user = userEvent.setup();
+        const onEditTaskSeries = vi.fn();
+        const deleteChore = vi.fn();
+        const queryOnce = vi.fn().mockResolvedValue({
+            data: {
+                chores: [
+                    {
+                        id: 'chore-linked',
+                        title: 'Math Block',
+                        completions: [{ id: 'completion-1' }],
+                        assignments: [],
+                        taskSeries: [{ id: 'series-1', name: '7th Grade Math' }],
+                    },
+                ],
+            },
+        });
+
+        renderChoreList({
+            chores: [makeChore({ id: 'chore-linked', title: 'Math Block' })],
+            canEditChores: true,
+            deleteChore,
+            onEditTaskSeries,
+            db: { transact: vi.fn(), queryOnce },
+        });
+
+        await user.click(screen.getAllByRole('button', { name: /delete math block/i })[0]);
+
+        expect(await screen.findByRole('heading', { name: /still scheduling task series/i })).toBeInTheDocument();
+        expect(screen.getByText('7th Grade Math')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /open task series/i }));
+        expect(onEditTaskSeries).toHaveBeenCalledWith('series-1');
+        expect(deleteChore).not.toHaveBeenCalled();
     });
 
     it('shows a simplified task preview in chores mode and links into the tasks page', () => {

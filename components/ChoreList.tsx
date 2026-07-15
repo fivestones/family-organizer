@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Trash2 } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
 import { getAssignedMembersForChoreOnDate, toUTCDate } from '@/lib/chore-utils';
 import { choreOccursOnDate } from '@/lib/chore-schedule';
 import { format } from 'date-fns';
@@ -32,6 +32,14 @@ export const TASK_SERIES_EXPANSION_STORAGE_KEY = 'family-organizer:task-series-e
 type TaskSeriesExpansionState = {
     byMember: Record<string, Record<string, boolean>>;
     allView: Record<string, boolean>;
+};
+
+type ChoreDeletionImpact = {
+    choreId: string;
+    title: string;
+    completionCount: number;
+    assignmentCount: number;
+    taskSeries: Array<{ id: string; name: string }>;
 };
 
 const EMPTY_TASK_SERIES_EXPANSION: TaskSeriesExpansionState = { byMember: {}, allView: {} };
@@ -126,6 +134,9 @@ function ChoreList({
 
     // +++ NEW STATE: Track chore for deletion confirmation +++
     const [choreToDelete, setChoreToDelete] = useState<string | null>(null);
+    const [choreDeletionImpact, setChoreDeletionImpact] = useState<ChoreDeletionImpact | null>(null);
+    const [inspectingChoreId, setInspectingChoreId] = useState<string | null>(null);
+    const [isDeletingChore, setIsDeletingChore] = useState(false);
 
     // --- NEW: Manage expanded state for Task Series details (Show/Hide) ---
     // Key: choreId, Value: boolean (true = visible)
@@ -326,20 +337,68 @@ function ChoreList({
     };
 
     // +++ NEW HELPER +++
-    const handleDeleteChore = (id: string) => {
+    const loadChoreDeletionImpact = async (choreId: string): Promise<ChoreDeletionImpact> => {
+        const result = await db.queryOnce({
+            chores: {
+                $: { where: { id: choreId } },
+                completions: {},
+                assignments: {},
+                taskSeries: {},
+            },
+        });
+        const source = result?.data?.chores?.[0];
+        if (!source) throw new Error('The chore could not be loaded.');
+
+        return {
+            choreId,
+            title: source.title || chores.find((chore) => chore.id === choreId)?.title || 'this chore',
+            completionCount: Array.isArray(source.completions) ? source.completions.length : 0,
+            assignmentCount: Array.isArray(source.assignments) ? source.assignments.length : 0,
+            taskSeries: (Array.isArray(source.taskSeries) ? source.taskSeries : [])
+                .filter((series: any) => series?.id)
+                .map((series: any) => ({ id: series.id, name: series.name || 'Untitled task series' })),
+        };
+    };
+
+    const handleDeleteChore = async (id: string) => {
         if (!canEditChores) {
             toast({ title: 'Access Denied', description: 'Only parents can delete chores.', variant: 'destructive' });
             return;
         }
-        // +++ CHANGE: Set state for confirmation instead of deleting immediately +++
-        setChoreToDelete(id);
+        setInspectingChoreId(id);
+        try {
+            const impact = await loadChoreDeletionImpact(id);
+            setChoreDeletionImpact(impact);
+            setChoreToDelete(id);
+        } catch (error: any) {
+            toast({
+                title: 'Could not inspect chore',
+                description: error?.message || 'Deletion was not started. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setInspectingChoreId(null);
+        }
     };
 
     // +++ CONFIRM DELETE HANDLER +++
-    const confirmDeleteChore = () => {
-        if (choreToDelete) {
-            deleteChore(choreToDelete);
+    const confirmDeleteChore = async () => {
+        if (!choreToDelete || isDeletingChore) return;
+        setIsDeletingChore(true);
+        try {
+            // Recheck immediately before deletion so a task-series link created
+            // while the prompt was open fails closed instead of being detached.
+            const refreshedImpact = await loadChoreDeletionImpact(choreToDelete);
+            setChoreDeletionImpact(refreshedImpact);
+            if (refreshedImpact.taskSeries.length > 0) return;
+
+            await deleteChore(choreToDelete);
             setChoreToDelete(null);
+            setChoreDeletionImpact(null);
+        } catch (error) {
+            console.error('Chore deletion did not complete', error);
+        } finally {
+            setIsDeletingChore(false);
         }
     };
 
@@ -983,8 +1042,15 @@ function ChoreList({
                     // --- COMPONENT EXTRACTION: Render Buttons ---
                     const renderButtons = () => (
                         <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => handleDeleteChore(chore.id)} className={!canEditChores ? 'opacity-50' : ''}>
-                                <Trash2 className="h-4 w-4" />
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Delete ${chore.title}`}
+                                disabled={inspectingChoreId === chore.id}
+                                onClick={() => void handleDeleteChore(chore.id)}
+                                className={!canEditChores ? 'opacity-50' : ''}
+                            >
+                                {inspectingChoreId === chore.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                             </Button>
                         </div>
                     );
@@ -1349,19 +1415,58 @@ function ChoreList({
                 </DialogContent>
             </Dialog>
             {/* +++ Delete Confirmation Dialog +++ */}
-            <Dialog open={!!choreToDelete} onOpenChange={(open) => !open && setChoreToDelete(null)}>
+            <Dialog
+                open={!!choreToDelete}
+                onOpenChange={(open) => {
+                    if (!open && !isDeletingChore) {
+                        setChoreToDelete(null);
+                        setChoreDeletionImpact(null);
+                    }
+                }}
+            >
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Delete Chore</DialogTitle>
-                        <DialogDescription>Are you sure you want to delete this chore? This action cannot be undone.</DialogDescription>
+                        <DialogTitle>
+                            {choreDeletionImpact?.taskSeries.length ? 'Chore is still scheduling task series' : 'Delete Chore'}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {choreDeletionImpact?.taskSeries.length
+                                ? `“${choreDeletionImpact.title}” cannot be deleted until every dependent task series is moved to another scheduled activity.`
+                                : `Delete “${choreDeletionImpact?.title || 'this chore'}” and its ${choreDeletionImpact?.completionCount || 0} completion record${choreDeletionImpact?.completionCount === 1 ? '' : 's'} plus ${choreDeletionImpact?.assignmentCount || 0} rotation assignment${choreDeletionImpact?.assignmentCount === 1 ? '' : 's'}? This cannot be undone.`}
+                        </DialogDescription>
                     </DialogHeader>
+                    {choreDeletionImpact?.taskSeries.length ? (
+                        <div className="space-y-2">
+                            {choreDeletionImpact.taskSeries.map((series) => (
+                                <div key={series.id} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+                                    {series.name}
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setChoreToDelete(null)}>
-                            Cancel
+                        <Button variant="outline" disabled={isDeletingChore} onClick={() => {
+                            setChoreToDelete(null);
+                            setChoreDeletionImpact(null);
+                        }}>
+                            {choreDeletionImpact?.taskSeries.length ? 'Close' : 'Cancel'}
                         </Button>
-                        <Button variant="destructive" onClick={confirmDeleteChore}>
-                            Delete
-                        </Button>
+                        {choreDeletionImpact?.taskSeries.length ? (
+                            <Button
+                                onClick={() => {
+                                    const seriesId = choreDeletionImpact.taskSeries[0]?.id;
+                                    setChoreToDelete(null);
+                                    setChoreDeletionImpact(null);
+                                    if (seriesId) onEditTaskSeries?.(seriesId);
+                                }}
+                            >
+                                Open task series
+                            </Button>
+                        ) : (
+                            <Button variant="destructive" disabled={isDeletingChore} onClick={() => void confirmDeleteChore()}>
+                                {isDeletingChore ? 'Deleting…' : 'Delete'}
+                            </Button>
+                        )}
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
