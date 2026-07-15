@@ -65,7 +65,7 @@
 | 7 | Editor | **Completed 2026-07-14** | Paste and confirmed paste replay preserve old IDs once and assign fresh IDs to every inserted task/day break |
 | 8 | Manager | **Completed 2026-07-14** | Duplicate preserves hierarchy, weights, response fields, and attachment metadata while resetting workflow progress |
 | 9 | Login | **Completed 2026-07-14** | The blocking screen is bootstrap-only; interactive switches preserve app state and subscriptions |
-| 10 | Perf | **Medium** | Unbounded queries fetch the entire task/update/completion history on list pages |
+| 10 | Perf | **Completed 2026-07-15** | Daily completions are bounded; manager/editor/bin relationship trees are narrowed or loaded on demand; editor cards are memoized |
 | 11 | Device auth | **Completed 2026-07-13** | Access-key-bound cookie shipped; invalid LAN/public-suffix domain inference fixed |
 
 Details, evidence, and the fix plan follow.
@@ -352,7 +352,7 @@ These are real but were not the cause of the captured incident:
 ### Phase 4 — performance
 
 15. **Completed 2026-07-15:** ChoresTracker is split by page mode with selected-day completion queries; manager uses a narrow subscription and one-shot duplication fetch; editor history is lazy and cards are memoized; Task Bins keeps its semantically required all-state list but loads complete response/history relationships only for the expanded task.
-16. Memoize `TaskSeriesCard`; virtualize card list for big series.
+16. ~~Memoize `TaskSeriesCard`.~~ **Completed 2026-07-15.** Virtualization is not retained as an open defect: the measured code-path problem was cross-card render fan-out and always-live history relationships, both now removed. A windowed rich-text/drag surface would add keyboard, focus, drag, and accessibility risk without an established production size threshold; revisit only if profiling identifies a remaining list-size bottleneck.
 
 ### Phase 5 — UX & hardening polish
 
@@ -361,7 +361,7 @@ These are real but were not the cause of the captured incident:
 19. ~~HMAC/scrypt PINs + kid rate limiting (5.4).~~ **Completed 2026-07-14** with salted scrypt, successful-login migration of legacy SHA-256 rows, server-only hashing, and shared member backoff.
 20. ~~Sanitize response-field HTML (4.4).~~ **Completed 2026-07-14** through the shared DOMPurify renderer used by checklist and review/update surfaces.
 21. ~~Delete `useInstantPrincipalSwitching.ts`; resolve `/my-tasks` (link it or remove it).~~ **Completed 2026-07-14:** dead hook removed and the existing member overview linked as “My Tasks.”
-22. Retire the LoginModal pointer-events hack once Phase 1 items 6 have soaked.
+22. ~~Retire the LoginModal pointer-events hack once Phase 1 item 6 has soaked.~~ **Completed 2026-07-14:** the dialog closes before principal switching and no auth component mutates `document.body.style.pointerEvents`.
 23. ~~Allow parents—but not child sessions—to backfill task progress for a selected past date (4.4), with explicit historical-date context.~~ **Completed 2026-07-15.**
 
 ---
