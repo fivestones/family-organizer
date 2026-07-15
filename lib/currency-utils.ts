@@ -1,6 +1,7 @@
 import { tx, id } from '@instantdb/react';
 import { db as instantDb } from '@/lib/db';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
+import { getCachedMemberToken } from '@/lib/instant-principal-storage';
 
 const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 
@@ -173,7 +174,6 @@ export interface GoalProgressResult {
 }
 
 // --- Constants ---
-const OPEN_EXCHANGE_RATES_APP_ID = process.env.NEXT_PUBLIC_OPEN_EXCHANGE_RATES_APP_ID || 'a6175466a16c4ce3b3cdbf9fbb50cb7e';
 const EXCHANGE_RATE_CACHE_DURATION_MS = 2 * 60 * 60 * 1000; // 2 hours; this should cause a maximum of 360 or so api calls per month to openexchangerates.org's api; we have 1000/month in the free tier
 const BASE_CURRENCY = 'USD'; // API Base
 
@@ -1244,22 +1244,23 @@ export const transferFundsToPerson = async (
  * @returns The API response containing rates.
  */
 export const fetchExternalExchangeRates = async () => {
-    const url = `https://openexchangerates.org/api/latest.json?app_id=${OPEN_EXCHANGE_RATES_APP_ID}&base=${BASE_CURRENCY}`;
     try {
-        console.log(`Workspaceing exchange rates from: ${url}`);
-        const response = await fetch(url);
+        const token = getCachedMemberToken();
+        const response = await fetch('/api/exchange-rates', {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'same-origin',
+            headers: token ? { 'x-instant-auth-token': token } : {},
+        });
         if (!response.ok) {
-            throw new Error(`API Error (${response.status}): ${response.statusText}`);
+            const payload = await response.json().catch(() => null);
+            throw new Error(payload?.error || `Exchange-rate refresh failed (${response.status}).`);
         }
         const data = await response.json();
-        if (data.error) {
-            /* handle error */ throw new Error(`API Error (${data.status}): ${data.description}`);
-        }
         if (!data.rates || typeof data.rates !== 'object') {
-            throw new Error('Invalid rates data received from API.');
+            throw new Error('Invalid rates data received from the exchange-rate service.');
         }
-        console.log('API Response:', data);
-        return data; // Contains { base: "USD", rates: { ... }, timestamp: ... }
+        return data;
     } catch (error) {
         console.error('Failed to fetch external exchange rates:', error);
         throw error; // Re-throw to be caught by calling function
@@ -1381,21 +1382,6 @@ export const getExchangeRate = async (db: any, fromCurrency: string, toCurrency:
             const calcTimestampSource1 = usdToFromRateCached!.lastFetchedTimestamp;
             const calcTimestampSource2 = toCurrency === BASE_CURRENCY ? calcTimestampSource1 : usdToToRateCached!.lastFetchedTimestamp; // Use first timestamp if comparing against itself
             const olderTimestamp = calcTimestampSource1.getTime() < calcTimestampSource2.getTime() ? calcTimestampSource1 : calcTimestampSource2; //
-
-            // Cache the calculated direct rate async
-            cacheExchangeRates(
-                db,
-                [
-                    {
-                        baseCurrency: fromCurrency,
-                        targetCurrency: toCurrency,
-                        rate: calculatedRate,
-                        timestamp: olderTimestamp,
-                    },
-                ],
-                allCachedRates
-            ) // Pass existing cache for potential update
-                .catch((err) => console.error('Failed to cache calculated rate:', err)); // Log error but don't block
 
             return { rate: calculatedRate, source: 'calculated', needsApiFetch: false, calculationTimestamp: olderTimestamp };
         }
@@ -1662,18 +1648,6 @@ export const calculateEnvelopeProgress = async (
     if (needsApiFetchOverall) {
         console.log('Triggering background rate fetch due to goal calculation needs...');
         fetchExternalExchangeRates()
-            .then((apiData) => {
-                if (apiData && apiData.rates) {
-                    const now = new Date();
-                    const ratesToCache = Object.entries(apiData.rates).map(([currency, rate]) => ({
-                        baseCurrency: BASE_CURRENCY,
-                        targetCurrency: currency,
-                        rate: rate as number,
-                        timestamp: now,
-                    }));
-                    return cacheExchangeRates(db, ratesToCache, allCachedRates);
-                }
-            })
             .then(() => console.log('Background fetch for goal calculation complete.'))
             .catch((err) => console.error('Error during background fetch for goal:', err));
     }

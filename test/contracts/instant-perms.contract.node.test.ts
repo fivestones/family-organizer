@@ -45,6 +45,16 @@ describe('instant.perms contract', () => {
         expect(allowanceTransactions).toContain('distributionKey: i.string().unique().indexed().optional()');
     });
 
+    it('keeps server-managed exchange-rate pairs unique and indexed', async () => {
+        const schemaSource = await fs.readFile(path.join(process.cwd(), 'instant.schema.ts'), 'utf8');
+        const exchangeRates = schemaSource.slice(
+            schemaSource.indexOf('exchangeRates: i.entity({'),
+            schemaSource.indexOf('familyDashboardLayouts: i.entity({')
+        );
+
+        expect(exchangeRates).toContain('pairKey: i.string().unique().indexed().optional()');
+    });
+
     it('limits kid family-member preferences and PIN hashes to the authenticated member row', () => {
         const perms = rules as any;
         expect(perms.familyMembers.bind.authFamilyMemberIds).toBe("auth.ref('$user.familyMemberId')");

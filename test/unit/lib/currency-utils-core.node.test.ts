@@ -170,7 +170,7 @@ describe('currency-utils core helpers', () => {
         expect(db.transact).not.toHaveBeenCalled();
     });
 
-    it('calculates cross rates from valid USD cache entries and caches the derived rate', async () => {
+    it('calculates cross rates from valid USD cache entries without a client write', async () => {
         const now = new Date('2026-02-26T12:00:00Z');
         const cachedRates: CachedExchangeRate[] = [
             {
@@ -195,10 +195,7 @@ describe('currency-utils core helpers', () => {
         expect(result.source).toBe('calculated');
         expect(result.needsApiFetch).toBe(false);
 
-        await Promise.resolve();
-        expect(db.transact).toHaveBeenCalledTimes(1);
-        const txs = db.transact.mock.calls[0][0] as any[];
-        expect(txs.some((tx) => tx.entity === 'exchangeRates' && tx.op === 'update')).toBe(true);
+        expect(db.transact).not.toHaveBeenCalled();
     });
 
     it('returns stale direct rate with needsApiFetch when cached rate is expired', async () => {
@@ -382,7 +379,7 @@ describe('currency-utils core helpers', () => {
         expect(result.errors).toEqual([]);
     });
 
-    it('reports missing rates in goal progress and triggers a background exchange-rate fetch/cache', async () => {
+    it('reports missing rates in goal progress and triggers the server exchange-rate refresh', async () => {
         const fetchMock = vi.fn().mockResolvedValue({
             ok: true,
             json: async () => ({
@@ -414,7 +411,11 @@ describe('currency-utils core helpers', () => {
         await Promise.resolve();
         await Promise.resolve();
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        expect(db.transact).toHaveBeenCalledTimes(1); // cacheExchangeRates background write
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/exchange-rates',
+            expect.objectContaining({ method: 'GET', cache: 'no-store', credentials: 'same-origin' })
+        );
+        expect(db.transact).not.toHaveBeenCalled();
     });
 
     it('skips allowance execution for zero amount and routes positive/negative amounts to the default envelope', async () => {

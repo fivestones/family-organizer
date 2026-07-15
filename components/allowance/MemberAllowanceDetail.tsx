@@ -41,7 +41,6 @@ import {
     withdrawFromEnvelope,
     transferFundsToPerson,
     fetchExternalExchangeRates,
-    cacheExchangeRates,
     getExchangeRate,
     setLastDisplayCurrencyPref,
     CachedExchangeRate,
@@ -103,8 +102,6 @@ interface MemberAllowanceDetailProps {
 //     //
 //     memberId: string; //
 // }
-
-const BASE_CURRENCY = 'USD'; // API Base
 
 // **** Destructure new props ****
 export default function MemberAllowanceDetail({
@@ -493,21 +490,9 @@ export default function MemberAllowanceDetail({
                 console.log('Triggering background API fetch...');
                 //setIsLoadingRates(true); // Already true or will be handled by useQuery refresh
                 try {
-                    const apiData = await fetchExternalExchangeRates(); // Fetches USD based rates
+                    const apiData = await fetchExternalExchangeRates();
                     if (signal.aborted) return;
-                    if (apiData && apiData.rates) {
-                        const now = new Date();
-                        const ratesToCache = Object.entries(apiData.rates).map(([currency, rate]) => ({
-                            baseCurrency: BASE_CURRENCY,
-                            targetCurrency: currency,
-                            rate: rate as number,
-                            timestamp: now,
-                        }));
-                        // Cache the fresh rates, passing *all* current rates for potential updates
-                        await cacheExchangeRates(db, ratesToCache, allCachedRates);
-                        console.log('Background fetch and cache complete.');
-                        // Let useQuery refresh trigger final state/loading changes
-                    }
+                    if (apiData?.rates) console.log('Background exchange-rate refresh complete.');
                 } catch (fetchError: any) {
                     if (fetchError.name !== 'AbortError') {
                         console.error('Error during background rate fetch:', fetchError);

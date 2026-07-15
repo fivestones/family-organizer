@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed in code and hosted schema: exchange-rate access is server-only (§4; fix plan 8 partial).** The committed fallback credential is removed. Authenticated family clients now call `/api/exchange-rates`; the server reads a two-hour Instant cache, coalesces concurrent stale refreshes, calls OpenExchangeRates with `OPEN_EXCHANGE_RATES_APP_ID`, and admin-upserts deterministic unique `pairKey` rows. Clients no longer write fetched or derived rates. Missing configuration returns a clear 503. The hosted schema has the unique indexed optional `exchangeRates.pairKey`. Verification: 4 service tests, 3 route tests, 19 currency-core tests, 13 schema/permission contract tests, and `tsc --noEmit` pass. External follow-up: revoke/rotate the previously committed provider key and configure its replacement in server runtime secrets.
 - **2026-07-15 — Completed: ledger reconciliation now runs in live finance flows (§1.2; fix plan 4).** `MemberAllowanceDetail` audits every newly loaded or changed envelope signature and reports repairs; atomic distribution reconciles the member's supplied envelopes before its fresh balance/idempotency query. Currency keys are normalized during replay. The guard is intentionally conservative: a nonzero legacy envelope with no ledger rows is preserved and reported as unverifiable instead of being zeroed. Verification: 24 currency-mutation tests, 8 atomic-payout tests, and `tsc --noEmit` pass.
 - **2026-07-15 — Completed: new fixed rewards pay out in every earned currency (§1.4; fix plan 2).** Each period now passes its non-primary `fixedRewardsEarned` amounts into the atomic payout boundary. That boundary updates every currency bucket in one envelope write and creates one deterministic, unique, immutable ledger/history pair per period/currency before marking completions awarded in the same transaction. Foreign-only periods are actionable in both single-period and bulk controls, and success messages enumerate the currencies actually moved. A partial retry pays only a missing currency leg. Verification: all 7 focused atomic-payout tests and `tsc --noEmit` pass.
 - **2026-07-15 — Completed and deployed: allowance payouts are atomic and idempotent (§1.3; fix plan 1).** Distribution now re-reads the member's latest envelope state, assigns one deterministic immutable transaction ID and unique `distributionKey` per member/period/currency, and submits the balance update, ledger rows, finance history, default-envelope creation/linking, and every `allowanceAwarded` completion update in one Instant transaction. Single-period and bulk actions use the same path; bulk retries skip only previously committed periods. A concurrent duplicate collides on deterministic IDs/unique keys, so Instant rejects the entire second transaction without a second balance write. The hosted schema now has the unique indexed optional `allowanceTransactions.distributionKey`. Verification: 5 focused payout tests, 12 permission/schema contract tests, `tsc --noEmit`, and the 3-test hosted permission/cascade matrix pass; the live matrix explicitly proved duplicate-key rejection.
@@ -25,7 +26,7 @@
 | 3 | **Completed 2026-07-15** | Payout, history, and award marking now commit atomically with per-period idempotency |
 | 4 | **High (Confirmed)** | Permissions let any kid principal edit any envelope's `balances` JSON directly (and exchange rates, and calculated periods) |
 | 5 | **Completed 2026-07-15** | Ledger reconciliation now audits finance detail loads and pre-distribution state |
-| 6 | **Medium (Confirmed)** | An OpenExchangeRates API key is hardcoded as a fallback in the client bundle |
+| 6 | **Completed in code 2026-07-15** | Provider access and caching are server-only; external key rotation/configuration remains |
 | 7 | **Medium** | Deleting an envelope silently discards negative balances; transactions write undeclared attributes; float money math throughout |
 
 The theme: the **ledger** (`allowanceTransactions`, append-only, well-audited) and the **balances** (a mutable JSON blob on each envelope) are maintained in parallel with nothing enforcing that they agree.
@@ -105,13 +106,17 @@ This is a family app — the "attacker" is a bored twelve-year-old — but that 
 
 ## 4. Secrets and external calls
 
-### 4.1 Hardcoded API key — **Medium, Confirmed**
+### 4.1 Hardcoded API key — **Completed in code 2026-07-15**
 
-[currency-utils.ts:176](lib/currency-utils.ts:176): `process.env.NEXT_PUBLIC_OPEN_EXCHANGE_RATES_APP_ID || 'a6175466a16c4ce3b3cdbf9fbb50cb7e'` — the fallback key is committed to the repo and, being `NEXT_PUBLIC`, ships in the client bundle either way. Rotate the key at openexchangerates.org, remove the fallback, and (4.2) stop needing it client-side at all.
+The client previously selected a `NEXT_PUBLIC` value or a committed fallback and called the provider directly, exposing the credential in source and browser traffic.
 
-### 4.2 Client-side rate fetching
+**Implemented:** no provider credential remains in client code or as a source fallback. The provider client exists only in [exchange-rates-server.ts](../lib/exchange-rates-server.ts) and reads `OPEN_EXCHANGE_RATES_APP_ID`; [.env.example](../.env.example) documents the server variable. A missing key produces an explicit 503 rather than silently using compromised material. **Operator action still required:** source changes cannot revoke an external credential, so the previously committed key must be rotated at OpenExchangeRates and the replacement installed in the server runtime.
 
-`fetchExternalExchangeRates` runs from the browser ([currency-utils.ts:1215](lib/currency-utils.ts:1215)) and every family device that opens the finance page can independently burn quota + needs `exchangeRates` write permission (see §3). Move to a small server route or a scheduled job that refreshes the `exchangeRates` table; clients become read-only consumers. The 2-hour cache logic already fits this shape.
+### 4.2 Client-side rate fetching — **Completed 2026-07-15**
+
+`fetchExternalExchangeRates` previously ran from the browser, so every family device could independently burn quota and needed `exchangeRates` write permission.
+
+**Implemented:** the browser function now calls the authenticated `/api/exchange-rates` family route with its member token. The route uses the admin SDK to serve a fresh two-hour Instant cache or fetch/upsert provider rates. Stable UUIDv5 row IDs plus unique indexed `pairKey` values prevent duplicate currency pairs, and a process-level single-flight promise prevents simultaneous stale requests from multiplying upstream calls. Calculated cross-rates are derived locally without writing cache rows. This makes clients read-only consumers and enables the permission closure in §3.
 
 ---
 
@@ -153,7 +158,7 @@ This is a family app — the "attacker" is a bored twelve-year-old — but that 
 
 **Phase 2 — permissions & secrets:**
 7. Envelope `delete: isParent`; `exchangeRates` writes parent/server-only; ~~`allowanceAwarded` kid-write closure~~ **completed and deployed 2026-07-14** (§3).
-8. Rotate the OpenExchangeRates key; move rate fetching server-side (§4).
+8. **Server move completed 2026-07-15.** The source fallback is removed and clients are read-only; external credential revocation/rotation plus server-secret configuration remains an operator action (§4).
 
 **Phase 3 — structural:**
 9. Ledger-authoritative balances (or server-mediated money ops) — the durable fix for §1 and §3 together.

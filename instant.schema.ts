@@ -292,6 +292,7 @@ const _schema = i.schema({
         exchangeRates: i.entity({
             baseCurrency: i.string().indexed(),
             lastFetchedTimestamp: i.date().indexed(),
+            pairKey: i.string().unique().indexed().optional(),
             rate: i.number(),
             targetCurrency: i.string().indexed(),
         }),
