@@ -50,6 +50,7 @@ import {
     ExchangeRateResult,
     calculateEnvelopeProgress, // Ensure this is imported if used elsewhere
     GoalProgressResult, // Ensure this is imported if used elsewhere
+    reconcileEnvelopes,
 } from '@/lib/currency-utils';
 
 // +++ NEW IMPORTS +++
@@ -122,6 +123,7 @@ export default function MemberAllowanceDetail({
     const rateCalculationController = useRef<AbortController | null>(null);
     const isFetchingApiRates = useRef(false);
     const hasSetInitialCurrency = useRef(false);
+    const reconciliationSignatures = useRef(new Set<string>());
 
     // --- State ---
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -196,6 +198,50 @@ export default function MemberAllowanceDetail({
             .filter((r: any) => r.lastFetchedTimestamp instanceof Date && !isNaN(r.lastFetchedTimestamp.getTime()));
     }, [data?.exchangeRates]);
     const isLastEnvelope = envelopes.length === 1;
+
+    useEffect(() => {
+        reconciliationSignatures.current.clear();
+    }, [memberId]);
+
+    useEffect(() => {
+        if (isLoadingData || envelopes.length === 0) return;
+
+        const pendingEnvelopes = envelopes.filter((envelope) => {
+            const signature = `${envelope.id}:${JSON.stringify(envelope.balances || {})}`;
+            if (reconciliationSignatures.current.has(signature)) return false;
+            reconciliationSignatures.current.add(signature);
+            return true;
+        });
+        if (pendingEnvelopes.length === 0) return;
+
+        let cancelled = false;
+        reconcileEnvelopes(db, pendingEnvelopes)
+            .then(({ fixedEnvelopeIds, unverifiableEnvelopeIds }) => {
+                if (cancelled) return;
+                if (fixedEnvelopeIds.length > 0) {
+                    toast({
+                        title: 'Balance Reconciled',
+                        description: `${fixedEnvelopeIds.length} envelope${fixedEnvelopeIds.length === 1 ? '' : 's'} repaired from the transaction ledger.`,
+                    });
+                }
+                if (unverifiableEnvelopeIds.length > 0) {
+                    console.warn('Preserved envelopes with balances but no ledger rows:', unverifiableEnvelopeIds);
+                }
+            })
+            .catch((error) => {
+                if (cancelled) return;
+                console.error('Failed to reconcile allowance envelopes:', error);
+                toast({
+                    title: 'Balance Audit Failed',
+                    description: error instanceof Error ? error.message : 'Could not verify envelope balances.',
+                    variant: 'destructive',
+                });
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [db, envelopes, isLoadingData, toast]);
 
     // --- Effect to Populate Allowance Form when Member Data Loads ---
     useEffect(() => {

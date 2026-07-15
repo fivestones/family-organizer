@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-15 — Completed: ledger reconciliation now runs in live finance flows (§1.2; fix plan 4).** `MemberAllowanceDetail` audits every newly loaded or changed envelope signature and reports repairs; atomic distribution reconciles the member's supplied envelopes before its fresh balance/idempotency query. Currency keys are normalized during replay. The guard is intentionally conservative: a nonzero legacy envelope with no ledger rows is preserved and reported as unverifiable instead of being zeroed. Verification: 24 currency-mutation tests, 8 atomic-payout tests, and `tsc --noEmit` pass.
 - **2026-07-15 — Completed: new fixed rewards pay out in every earned currency (§1.4; fix plan 2).** Each period now passes its non-primary `fixedRewardsEarned` amounts into the atomic payout boundary. That boundary updates every currency bucket in one envelope write and creates one deterministic, unique, immutable ledger/history pair per period/currency before marking completions awarded in the same transaction. Foreign-only periods are actionable in both single-period and bulk controls, and success messages enumerate the currencies actually moved. A partial retry pays only a missing currency leg. Verification: all 7 focused atomic-payout tests and `tsc --noEmit` pass.
 - **2026-07-15 — Completed and deployed: allowance payouts are atomic and idempotent (§1.3; fix plan 1).** Distribution now re-reads the member's latest envelope state, assigns one deterministic immutable transaction ID and unique `distributionKey` per member/period/currency, and submits the balance update, ledger rows, finance history, default-envelope creation/linking, and every `allowanceAwarded` completion update in one Instant transaction. Single-period and bulk actions use the same path; bulk retries skip only previously committed periods. A concurrent duplicate collides on deterministic IDs/unique keys, so Instant rejects the entire second transaction without a second balance write. The hosted schema now has the unique indexed optional `allowanceTransactions.distributionKey`. Verification: 5 focused payout tests, 12 permission/schema contract tests, `tsc --noEmit`, and the 3-test hosted permission/cascade matrix pass; the live matrix explicitly proved duplicate-key rejection.
 - **2026-07-14 — Completed and deployed upstream: kids cannot tamper with payout state (§3; fix plan 7 partial).** `choreCompletions.allowanceAwarded` and `dateDue` are no longer kid-updatable. A member kid may update only completion-state fields on a row linked to that same member, cannot create/link a sibling completion, and the shared kid principal cannot create a completion row. Parent payout writes remain supported. Verification: the permission contract, `tsc --noEmit`, and the hosted identity/field matrix pass.
@@ -23,7 +24,7 @@
 | 2 | **Completed 2026-07-15** | New fixed rewards now pay out atomically in every earned currency |
 | 3 | **Completed 2026-07-15** | Payout, history, and award marking now commit atomically with per-period idempotency |
 | 4 | **High (Confirmed)** | Permissions let any kid principal edit any envelope's `balances` JSON directly (and exchange rates, and calculated periods) |
-| 5 | **Medium (Confirmed)** | `reconcileEnvelope` — the one tool that could catch ledger/balance drift — exists but is never called |
+| 5 | **Completed 2026-07-15** | Ledger reconciliation now audits finance detail loads and pre-distribution state |
 | 6 | **Medium (Confirmed)** | An OpenExchangeRates API key is hardcoded as a fallback in the client bundle |
 | 7 | **Medium** | Deleting an envelope silently discards negative balances; transactions write undeclared attributes; float money math throughout |
 
@@ -49,9 +50,11 @@ There is no optimistic-concurrency check and InstantDB `update` on a `json` colu
 2. Failing that, serialize money mutations through a server route (admin SDK) that re-reads balances inside the request.
 3. At minimum, wire up automatic reconciliation (1.2) so drift is detected and repaired instead of compounding.
 
-### 1.2 The reconciliation tool is dead code — **Confirmed**
+### 1.2 The reconciliation tool is dead code — **Completed 2026-07-15**
 
-`reconcileEnvelope` ([currency-utils.ts:258-295](lib/currency-utils.ts:258)) replays an envelope's ledger and repairs `balances` on mismatch — exactly the right safety net — and **no code path calls it**. Wire it to run (a) when opening a member's finance page per envelope, and (b) before allowance distribution executes. Note its replay assumes every balance change has a ledger row, which is true for all current mutation paths — one more reason to close the direct-`balances`-edit hole (section 3).
+`reconcileEnvelope` replayed an envelope's ledger and repaired `balances` on mismatch, but no code path called it. It also treated “no ledger rows” as an authoritative zero balance, which made automatic use unsafe for legacy data.
+
+**Implemented:** `reconcileEnvelopes` now runs from `MemberAllowanceDetail` whenever an envelope ID/balance signature changes, and `executeAtomicAllowancePayout` runs it against the member envelopes before fetching the latest payout state. Replay normalizes currency casing and repairs only differences above the existing `0.001` tolerance. A nonzero balance with no ledger rows returns `reason: 'no-transactions'`, is preserved, and is surfaced as unverifiable in diagnostics; it is never silently zeroed. Detail-view repairs produce one user toast, and signature tracking prevents an update/render loop. This is a working drift safety net, while §1.1 remains the durable concurrency problem to solve.
 
 ### 1.3 Non-atomic payout → double pay — **Completed 2026-07-15**
 
@@ -144,7 +147,7 @@ This is a family app — the "attacker" is a bored twelve-year-old — but that 
 3. ~~Deterministic up-for-grabs completion IDs (chores audit 1.1 — double-pay source).~~ **Completed 2026-07-14, including legacy payout deduplication.**
 
 **Phase 1 — trust the ledger:**
-4. Wire `reconcileEnvelope` into finance-page load + pre-distribution (1.2).
+4. ~~Wire `reconcileEnvelope` into finance-page load + pre-distribution (1.2).~~ **Completed 2026-07-15, including ledgerless-legacy preservation.**
 5. Declare or drop the undeclared transaction attributes (§5).
 6. Migrate negative balances on envelope delete; consider soft-delete (§5).
 

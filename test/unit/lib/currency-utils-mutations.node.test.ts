@@ -612,7 +612,7 @@ describe('currency-utils mutation helpers', () => {
             expect(db.transact).not.toHaveBeenCalled();
         });
 
-        it('fixes when current balances are non-zero but no transactions exist', async () => {
+        it('preserves unverifiable non-zero balances when no transactions exist', async () => {
             const db = {
                 transact: vi.fn().mockResolvedValue(undefined),
                 queryOnce: vi.fn().mockResolvedValue({
@@ -622,8 +622,27 @@ describe('currency-utils mutation helpers', () => {
 
             const result = await reconcileEnvelope(db as any, 'env-1', { USD: 5 });
 
-            expect(result).toEqual({ fixed: true, balances: {} });
-            expect(db.transact).toHaveBeenCalledTimes(1);
+            expect(result).toEqual({ fixed: false, reason: 'no-transactions' });
+            expect(db.transact).not.toHaveBeenCalled();
+        });
+
+        it('normalizes currency casing while replaying the ledger', async () => {
+            const db = {
+                transact: vi.fn(),
+                queryOnce: vi.fn().mockResolvedValue({
+                    data: {
+                        allowanceTransactions: [
+                            { amount: 10, currency: 'usd' },
+                            { amount: 2, currency: 'USD' },
+                        ],
+                    },
+                }),
+            };
+
+            const result = await reconcileEnvelope(db as any, 'env-1', { usd: 12 });
+
+            expect(result).toEqual({ fixed: false });
+            expect(db.transact).not.toHaveBeenCalled();
         });
 
         it('ignores transactions with no currency field when summing balances', async () => {

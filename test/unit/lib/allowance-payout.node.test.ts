@@ -420,4 +420,50 @@ describe('atomic allowance payouts', () => {
         ).rejects.toThrow('Insufficient funds. Available: 2 USD.');
         expect(db.transact).not.toHaveBeenCalled();
     });
+
+    it('reconciles a supplied envelope from its ledger before calculating the payout', async () => {
+        const queryOnce = vi.fn().mockImplementation((query: Record<string, unknown>) => {
+            if ('familyMembers' in query) {
+                return Promise.resolve({
+                    data: {
+                        familyMembers: [
+                            {
+                                id: 'member-1',
+                                allowanceEnvelopes: [
+                                    { id: 'envelope-1', name: 'Savings', balances: { USD: 10 }, isDefault: true },
+                                ],
+                            },
+                        ],
+                        allowanceTransactions: [],
+                    },
+                });
+            }
+            return Promise.resolve({
+                data: { allowanceTransactions: [{ amount: 10, currency: 'USD' }] },
+            });
+        });
+        const db = { queryOnce, transact: vi.fn().mockResolvedValue(undefined) };
+
+        await executeAtomicAllowancePayout({
+            db,
+            memberId: 'member-1',
+            primaryCurrency: 'USD',
+            memberEnvelopes: [{ id: 'envelope-1', name: 'Savings', balances: { USD: 15 }, isDefault: true }],
+            periods: [period('period-1', 2)],
+        });
+
+        expect(db.transact).toHaveBeenCalledTimes(2);
+        expect(db.transact.mock.calls[0][0]).toEqual({
+            op: 'update',
+            entity: 'allowanceEnvelopes',
+            id: 'envelope-1',
+            payload: { balances: { USD: 10 } },
+        });
+        expect(db.transact.mock.calls[1][0]).toContainEqual({
+            op: 'update',
+            entity: 'allowanceEnvelopes',
+            id: 'envelope-1',
+            payload: { balances: { USD: 12 } },
+        });
+    });
 });

@@ -2,7 +2,7 @@ import { tx } from '@instantdb/react';
 import { v5 as uuidv5 } from 'uuid';
 
 import type { Envelope } from '@/lib/currency-utils';
-import { getAllowanceTransactionAuditFields } from '@/lib/currency-utils';
+import { getAllowanceTransactionAuditFields, reconcileEnvelopes } from '@/lib/currency-utils';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 
 const DISTRIBUTION_TRANSACTION_NAMESPACE = '4b2ecb70-5267-45af-867f-c3297ad0de68';
@@ -124,6 +124,9 @@ export async function executeAtomicAllowancePayout({
     if (periods.length === 0) throw new Error('At least one allowance period is required.');
 
     const currency = normalizeCurrency(primaryCurrency);
+    if (memberEnvelopes.length > 0) {
+        await reconcileEnvelopes(db, memberEnvelopes);
+    }
     const seenPeriodKeys = new Set<string>();
     const preparedPeriods = periods.map((period) => {
         if (!period.id) throw new Error('Allowance payout period ID is required.');

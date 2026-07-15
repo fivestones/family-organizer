@@ -263,22 +263,34 @@ export const reconcileEnvelope = async (db: any, envelopeId: string, currentBala
     });
 
     const txs = result.data?.allowanceTransactions || [];
+    if (txs.length === 0 && Object.values(currentBalances || {}).some((amount) => Math.abs(Number(amount) || 0) > 0.001)) {
+        console.warn(`Skipping reconciliation for envelope ${envelopeId}: it has balances but no ledger rows.`);
+        return { fixed: false, reason: 'no-transactions' as const };
+    }
     const calculatedBalances: {[c:string]: number} = {};
 
     // Replay History
     txs.forEach((tx: any) => {
-        const amount = tx.amount || 0;
-        const currency = tx.currency;
+        const amount = Number(tx.amount) || 0;
+        const currency = String(tx.currency || '').trim().toUpperCase();
         if(currency) {
             calculatedBalances[currency] = (calculatedBalances[currency] || 0) + amount;
         }
     });
 
+    const normalizedCurrentBalances: {[c:string]: number} = {};
+    Object.entries(currentBalances || {}).forEach(([currency, rawAmount]) => {
+        const normalizedCurrency = currency.trim().toUpperCase();
+        const amount = Number(rawAmount);
+        if (!normalizedCurrency || !Number.isFinite(amount)) return;
+        normalizedCurrentBalances[normalizedCurrency] = (normalizedCurrentBalances[normalizedCurrency] || 0) + amount;
+    });
+
     let needsUpdate = false;
-    const allCurrencies = new Set([...Object.keys(currentBalances), ...Object.keys(calculatedBalances)]);
+    const allCurrencies = new Set([...Object.keys(normalizedCurrentBalances), ...Object.keys(calculatedBalances)]);
 
     allCurrencies.forEach(c => {
-        const current = currentBalances[c] || 0;
+        const current = normalizedCurrentBalances[c] || 0;
         const calc = calculatedBalances[c] || 0;
         if (Math.abs(current - calc) > 0.001) {
             needsUpdate = true;
@@ -292,6 +304,25 @@ export const reconcileEnvelope = async (db: any, envelopeId: string, currentBala
         return { fixed: true, balances: calculatedBalances };
     }
     return { fixed: false };
+};
+
+export const reconcileEnvelopes = async (db: any, envelopes: Envelope[]) => {
+    const results = await Promise.all(
+        envelopes.map(async (envelope) => ({
+            envelope,
+            result: await reconcileEnvelope(db, envelope.id, envelope.balances || {}),
+        }))
+    );
+
+    return {
+        envelopes: results.map(({ envelope, result }) =>
+            result.fixed && result.balances ? { ...envelope, balances: result.balances } : envelope
+        ),
+        fixedEnvelopeIds: results.filter(({ result }) => result.fixed).map(({ envelope }) => envelope.id),
+        unverifiableEnvelopeIds: results
+            .filter(({ result }) => result.reason === 'no-transactions')
+            .map(({ envelope }) => envelope.id),
+    };
 };
 
 // +++ NEW Utility Function +++
