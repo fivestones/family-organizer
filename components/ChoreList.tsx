@@ -208,6 +208,8 @@ function ChoreList({
     const isPastDate = safeSelectedDate.getTime() < localToday.getTime();
     const canBackfillTaskProgress = isPastDate && canEditChores;
     const isTaskProgressReadOnly = isPastDate && !canEditChores;
+    const canBackfillChoreCompletion = isPastDate && canEditChores;
+    const isChoreCompletionReadOnly = isPastDate && !canEditChores;
     const formattedSelectedDate = selectedDateKey || safeSelectedDate.toISOString().slice(0, 10);
     const selectedDateIsToday = todayDateKey ? formattedSelectedDate === todayDateKey : isToday;
 
@@ -680,6 +682,34 @@ function ChoreList({
             {/* grow min-h-0 on ScrollArea: This makes the ScrollArea itself the expanding element within its direct parent (<div className="flex flex-col gap-6 grow min-h-0">). It will take up the space not used by the allowance balance section. The ScrollArea component (assuming it's from Shadcn UI or similar) internally handles overflow-y: auto;, so when its content exceeds the calculated height it receives from grow, a scrollbar will appear within the ScrollArea. */}
             {/* Added p-3 padding to ul to prevent top avatar animation from being clipped by scroll area boundary */}
             <ul className="p-3">
+                {pageMode === 'chores' && isPastDate ? (
+                    <li
+                        className={`mb-4 rounded-2xl border px-4 py-3 shadow-sm ${
+                            canBackfillChoreCompletion
+                                ? 'border-amber-200 bg-amber-50/90 text-amber-950'
+                                : 'border-slate-200 bg-slate-50/90 text-slate-700'
+                        }`}
+                    >
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em]">
+                            {canBackfillChoreCompletion ? 'Parent backfill' : 'Past chores are read-only'}
+                        </div>
+                        <p className="mt-1 text-sm leading-5">
+                            {canBackfillChoreCompletion
+                                ? `You are editing chore completion for ${safeSelectedDate.toLocaleDateString(undefined, {
+                                      weekday: 'long',
+                                      month: 'long',
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                  })}. Changes are credited to the selected member and recorded as marked by you.`
+                                : `You can review chore completion for ${safeSelectedDate.toLocaleDateString(undefined, {
+                                      weekday: 'long',
+                                      month: 'long',
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                  })}, but only a parent can change a past date.`}
+                        </p>
+                    </li>
+                ) : null}
                 {pageMode === 'chores' && canViewRoutineMarkers ? (
                     <li className="mb-4 rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
                         <div className="flex flex-col gap-3">
@@ -903,6 +933,8 @@ function ChoreList({
                                             taskSeriesProgress={taskSeriesProgress}
                                             // Pass down disabled state and completer info
                                             isDisabled={isDisabled}
+                                            isReadOnly={isChoreCompletionReadOnly}
+                                            readOnlyReason="Only a parent can change chore completion on a past date."
                                             completerName={actualCompleterName}
                                             choreTitle={chore.title} // Pass chore title for toast
                                             isNegative={isNegative} // +++ PASS NEGATIVE FLAG +++

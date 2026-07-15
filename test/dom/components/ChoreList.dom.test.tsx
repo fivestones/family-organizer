@@ -60,8 +60,8 @@ vi.mock('lucide-react', () => ({
 
 vi.mock('@/components/ui/ToggleableAvatar', () => ({
     __esModule: true,
-    default: ({ name, onToggle, isComplete, isDisabled }: any) => (
-        <button type="button" onClick={onToggle} disabled={Boolean(isDisabled)}>
+    default: ({ name, onToggle, isComplete, isDisabled, isReadOnly }: any) => (
+        <button type="button" onClick={isReadOnly ? undefined : onToggle} disabled={Boolean(isDisabled || isReadOnly)}>
             Avatar {name} {isComplete ? 'done' : 'todo'}
         </button>
     ),
@@ -308,6 +308,41 @@ describe('ChoreList', () => {
         expect(choreListMocks.taskSeriesChecklist).toHaveBeenLastCalledWith(
             expect.objectContaining({ isReadOnly: true, isBackfillMode: false })
         );
+    });
+
+    it('allows parent chore backfill on a past date while keeping child completion controls read-only', async () => {
+        const user = userEvent.setup();
+        const parentToggle = vi.fn();
+        const parentRender = renderChoreList({
+            pageMode: 'chores',
+            selectedMember: 'kid-a',
+            canEditChores: true,
+            currentUser: { id: 'parent-1', role: 'parent' },
+            toggleChoreDone: parentToggle,
+        });
+
+        expect(screen.getByText('Parent backfill')).toBeInTheDocument();
+        expect(screen.getByText(/changes are credited to the selected member and recorded as marked by you/i)).toBeInTheDocument();
+        await user.click(screen.getAllByRole('button', { name: /avatar alex todo/i })[0]);
+        expect(parentToggle).toHaveBeenCalledWith('chore-1', 'kid-a', 'parent-1');
+
+        parentRender.unmount();
+
+        const childToggle = vi.fn();
+        renderChoreList({
+            pageMode: 'chores',
+            selectedMember: 'kid-a',
+            canEditChores: false,
+            currentUser: { id: 'kid-a', role: 'child' },
+            toggleChoreDone: childToggle,
+        });
+
+        expect(screen.getByText('Past chores are read-only')).toBeInTheDocument();
+        expect(screen.getByText(/only a parent can change a past date/i)).toBeInTheDocument();
+        for (const button of screen.getAllByRole('button', { name: /avatar alex todo/i })) {
+            expect(button).toBeDisabled();
+        }
+        expect(childToggle).not.toHaveBeenCalled();
     });
 
     it('shows chore descriptions only when the global description setting is enabled', () => {

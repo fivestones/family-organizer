@@ -241,6 +241,8 @@ const ToggleableAvatar = ({
     choreTitle = '',
     isNegative = false, // +++ NEW PROP +++
     taskSeriesProgress = null as number | null, // 0-1 ratio, null = no task series
+    isReadOnly = false,
+    readOnlyReason = 'This completion is read-only.',
 }: {
     name: string;
     photoUrls?: any;
@@ -253,6 +255,8 @@ const ToggleableAvatar = ({
     choreTitle?: string;
     isNegative?: boolean;
     taskSeriesProgress?: number | null;
+    isReadOnly?: boolean;
+    readOnlyReason?: string;
 }) => {
     const { toast } = useToast();
     // State now holds the array of sparkle data instead of just a boolean
@@ -353,7 +357,7 @@ const ToggleableAvatar = ({
     }, [isComplete, isDisabled, isNegative]);
 
     const handlePointerDown = (e: React.PointerEvent) => {
-        if (isDisabled || !onMarkNotDone) return;
+        if (isDisabled || isReadOnly || !onMarkNotDone) return;
         longPressTriggeredRef.current = false;
         longPressTimerRef.current = setTimeout(() => {
             longPressTriggeredRef.current = true;
@@ -376,7 +380,7 @@ const ToggleableAvatar = ({
     };
 
     const handleContextMenu = (e: React.MouseEvent) => {
-        if (isDisabled || !onMarkNotDone) return;
+        if (isDisabled || isReadOnly || !onMarkNotDone) return;
         e.preventDefault();
         // Clear long-press timer since context menu fires instead on some platforms
         if (longPressTimerRef.current) {
@@ -392,7 +396,12 @@ const ToggleableAvatar = ({
             longPressTriggeredRef.current = false;
             return;
         }
-        if (isDisabled) {
+        if (isReadOnly) {
+            toast({
+                title: 'Past chore is read-only',
+                description: readOnlyReason,
+            });
+        } else if (isDisabled) {
             // +++ Show toast if disabled +++
             toast({
                 title: 'Already Completed',
@@ -471,8 +480,11 @@ const ToggleableAvatar = ({
                 // +++ Apply disabled styles conditionally +++
                 className={cn(
                     'p-0 data-[state=on]:bg-transparent data-[state=off]:bg-transparent group relative', // Added 'group' and 'relative'
-                    isDisabled && 'opacity-50 cursor-not-allowed'
+                    isDisabled && 'opacity-50 cursor-not-allowed',
+                    isReadOnly && 'opacity-70 cursor-not-allowed'
                 )}
+                aria-disabled={isDisabled || isReadOnly}
+                title={isReadOnly ? readOnlyReason : undefined}
                 // +++ Disable the underlying button semantics +++
                 disabled={isDisabled}
             >
