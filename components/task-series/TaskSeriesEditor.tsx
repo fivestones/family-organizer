@@ -14,6 +14,16 @@ import { SlashCommand, slashCommandSuggestion } from './SlashCommand';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -276,6 +286,8 @@ const TaskSeriesCard = ({
     const [weight, setWeight] = useState(String(persistedTask?.weight ?? 0));
     const [overrideWorkAhead, setOverrideWorkAhead] = useState(Boolean(persistedTask?.overrideWorkAhead));
     const [uploading, setUploading] = useState(false);
+    const [attachmentToDelete, setAttachmentToDelete] = useState<TaskAttachment | null>(null);
+    const [deletingAttachment, setDeletingAttachment] = useState(false);
     const historyEntries = getTaskHistoryEntries(persistedTask?.updates || []);
 
     useEffect(() => {
@@ -373,13 +385,16 @@ const TaskSeriesCard = ({
         }
     };
 
-    const handleDeleteAttachment = async (attachmentId: string) => {
-        if (!confirm('Remove this attachment from the task?')) return;
-
+    const handleDeleteAttachment = async () => {
+        if (!attachmentToDelete || deletingAttachment) return;
+        setDeletingAttachment(true);
         try {
-            await db.transact([tx.taskAttachments[attachmentId].delete()]);
+            await db.transact([tx.taskAttachments[attachmentToDelete.id].delete()]);
+            setAttachmentToDelete(null);
         } catch (error) {
             console.error('Unable to delete attachment', error);
+        } finally {
+            setDeletingAttachment(false);
         }
     };
 
@@ -552,7 +567,7 @@ const TaskSeriesCard = ({
                                             <button
                                                 key={`${file.id}-remove`}
                                                 type="button"
-                                                onClick={() => void handleDeleteAttachment(file.id)}
+                                                onClick={() => setAttachmentToDelete(file)}
                                                 className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 transition-colors hover:border-rose-200 hover:text-rose-600"
                                             >
                                                 Remove {file.name || 'attachment'}
@@ -604,6 +619,35 @@ const TaskSeriesCard = ({
                     )}
                 </div>
             ) : null}
+
+            <AlertDialog
+                open={Boolean(attachmentToDelete)}
+                onOpenChange={(open) => {
+                    if (!open && !deletingAttachment) setAttachmentToDelete(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Remove attachment?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {attachmentToDelete?.name || 'This attachment'} will be removed from this task. This cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deletingAttachment}>Keep attachment</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={deletingAttachment}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                void handleDeleteAttachment();
+                            }}
+                        >
+                            {deletingAttachment ? 'Removing…' : 'Remove attachment'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </article>
     );
 };

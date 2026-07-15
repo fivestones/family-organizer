@@ -106,7 +106,7 @@ vi.mock('@/components/ui/button', async () => {
             </button>
         );
     });
-    return { Button };
+    return { Button, buttonVariants: vi.fn(() => '') };
 });
 
 vi.mock('@/components/ui/input', async () => {
@@ -682,6 +682,44 @@ describe('TaskSeriesEditor', () => {
                 }),
                 { op: 'link', entity: 'taskSeries', id: 'series-1', payload: { tasks: 'task-1' } },
             ]);
+        });
+    });
+
+    it('confirms attachment removal with the styled dialog before deleting', async () => {
+        const user = userEvent.setup();
+        seedExistingSeries({
+            tasks: [
+                {
+                    id: 'task-1',
+                    text: 'Existing task',
+                    order: 0,
+                    indentationLevel: 0,
+                    isDayBreak: false,
+                    attachments: [{ id: 'attachment-1', name: 'worksheet.pdf', url: 'worksheet.pdf', type: 'application/pdf' }],
+                    parentTask: [],
+                },
+            ],
+        });
+
+        render(<TaskSeriesEditor db={makeDb()} initialSeriesId="series-1" />);
+
+        await user.click(screen.getByRole('button', { name: /remove worksheet\.pdf/i }));
+        expect(screen.getByRole('alertdialog')).toHaveTextContent('worksheet.pdf will be removed from this task');
+
+        await user.click(screen.getByRole('button', { name: /keep attachment/i }));
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+        expect(editorMocks.dbTransact).not.toHaveBeenCalled();
+
+        await user.click(screen.getByRole('button', { name: /remove worksheet\.pdf/i }));
+        await user.click(screen.getByRole('button', { name: /^remove attachment$/i }));
+
+        await waitFor(() => {
+            expect(editorMocks.dbTransact).toHaveBeenCalledWith([
+                { op: 'delete', entity: 'taskAttachments', id: 'attachment-1' },
+            ]);
+        });
+        await waitFor(() => {
+            expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
         });
     });
 
