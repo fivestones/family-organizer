@@ -3,6 +3,7 @@ import { tx, id } from '@instantdb/react';
 import { db } from '@/lib/db';
 import type { ChorePauseState } from '@/lib/chore-schedule';
 import { getChoreOccurrencesInRange } from '@/lib/chore-schedule';
+import { resolveOneLink } from '@/lib/instant-links';
 import {
     calculateDailyXP as calculateSharedDailyXP,
     getAssignedMembersForChoreOnDate as getSharedAssignedMembersForChoreOnDate,
@@ -55,7 +56,7 @@ export function buildUpForGrabsClaimDeduplication(
 
     for (const completion of completions) {
         if (!completion.completed || !completion.dateDue) continue;
-        const choreRef = Array.isArray(completion.chore) ? completion.chore[0] : completion.chore;
+        const choreRef = resolveOneLink(completion.chore);
         if (!choreRef?.id || !choresById.get(choreRef.id)?.isUpForGrabs) continue;
         const key = `${choreRef.id}:${completion.dateDue}`;
         const group = groups.get(key) || [];
@@ -386,7 +387,7 @@ export const calculatePeriodDetails = async (
     for (const completion of unawardedCompletionsForMember) {
         // Ensure completion has required data
         // +++ Fetch chore details directly from allChores array +++
-        const completedChore = allChores.find((c) => c.id === completion.chore?.[0]?.id);
+        const completedChore = allChores.find((c) => c.id === resolveOneLink(completion.chore)?.id);
 
         if (!completion.dateDue || !completedChore) {
             // console.warn("Skipping completion due to missing data or chore link:", completion.id);

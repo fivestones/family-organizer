@@ -422,6 +422,32 @@ describe('chore-utils date logic', () => {
         expect(result?.lastCalculatedAt.toISOString()).toBe('2026-03-08T12:00:00.000Z');
     });
 
+    it('counts completions when an Instant has-one chore link is object-shaped', async () => {
+        const regularChore = makeRotatingChore({
+            id: 'regular-object-link',
+            rotationType: 'none',
+            assignees: [{ id: 'kid-a' }],
+            weight: 2,
+        });
+
+        const result = await calculatePeriodDetails(
+            {} as any,
+            'kid-a',
+            new Date('2026-03-01T00:00:00Z'),
+            new Date('2026-03-01T00:00:00Z'),
+            10,
+            [regularChore] as any,
+            [{ id: 'object-link-completion', dateDue: '2026-03-01', completed: true, chore: { id: regularChore.id } }] as any
+        );
+
+        expect(result).toMatchObject({
+            totalWeight: 2,
+            completedWeight: 2,
+            calculatedAmount: 10,
+            completionsToMark: ['object-link-completion'],
+        });
+    });
+
     it('marks completions as awarded via batch update transactions', async () => {
         const db = { transact: vi.fn().mockResolvedValue(undefined) };
 

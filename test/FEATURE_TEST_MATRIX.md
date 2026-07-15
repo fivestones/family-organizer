@@ -161,7 +161,7 @@ Use fake time for:
 - `FIN-019` `P0` `Planned` Integration: Allowance distribution write path prevents duplicate payout for same period.
 - `FIN-020` `P1` `Planned` Unit: `getAllowancePeriodForDate` weekly/monthly boundary calculations.
 - `FIN-021` `P1` `New (added)` Unit: `getAllowancePeriodForDate` weekly period boundary and pre-start null case.
-- `FIN-022` `P1` `New (added)` Unit: `calculatePeriodDetails` weighted completion + fixed reward accumulation + up-for-grabs contribution.
+- `FIN-022` `P1` `New (added)` Unit: `calculatePeriodDetails` weighted completion + fixed reward accumulation + up-for-grabs contribution across array- and object-shaped Instant has-one links.
 - `FIN-023` `P2` `Planned` E2E: Child self-service actions allowed/blocked per product rules (withdraw/transfer/view history).
 - `FIN-024` `P2` `New (added)` Unit: `deleteEnvelope` validates source/target/default preconditions and migrates every non-zero balance, including debt, with paired transaction records.
 - `FIN-025` `P1` `New (added)` Unit: `setDefaultEnvelope` and `findOrDefaultEnvelope` default selection/repair paths (existing default, Savings, first envelope, create initial Savings).

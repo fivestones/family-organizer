@@ -2,6 +2,7 @@ import { tx, id } from '@instantdb/react';
 import { db as instantDb } from '@/lib/db';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 import { getCachedMemberToken } from '@/lib/instant-principal-storage';
+import { resolveOneLink } from '@/lib/instant-links';
 
 const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 
@@ -21,11 +22,7 @@ export async function getAllowanceTransactionAuditFields(): Promise<{ createdBy:
 }
 
 function getLinkedFamilyMember(value: Envelope['familyMember'] | { id?: string; name?: string } | null | undefined) {
-    if (!value) return null;
-    if (Array.isArray(value)) {
-        return value[0] || null;
-    }
-    return value || null;
+    return resolveOneLink(value);
 }
 
 function formatPossessiveName(name: string | null | undefined) {

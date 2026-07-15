@@ -12,6 +12,7 @@ import {
     type TaskUpdateLike,
     type TaskWorkflowState,
 } from '@/lib/task-progress';
+import { resolveOneLink } from '@/lib/instant-links';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -100,13 +101,6 @@ interface SeriesTaskContext {
 // Core logic
 // ---------------------------------------------------------------------------
 
-/** Normalize an InstantDB has-one link that may be a single object or a 1-element array. */
-function resolveOne<T>(value: T[] | T | null | undefined): T | null {
-    if (!value) return null;
-    if (Array.isArray(value)) return value[0] ?? null;
-    return value;
-}
-
 const STATUS_ORDER: Record<TaskWorkflowState, number> = {
     needs_review: 0,
     blocked: 1,
@@ -140,7 +134,7 @@ export function buildTaskBinEntries(
         .map((task): TaskBinEntry | null => {
             const state = getTaskWorkflowState(task);
             const latestUpdate = getLatestTaskUpdate(task);
-            const series = resolveOne(task.taskSeries);
+            const series = resolveOneLink(task.taskSeries);
             const seriesName = series?.name || null;
             const noted = isTaskNoted(task, today);
             const lateness = getTaskLatenessInfo(task, tasks, today, seriesContexts);
@@ -153,7 +147,7 @@ export function buildTaskBinEntries(
 
             // Filter by family member: use the task series owner (familyMember link)
             if (filters.familyMemberId && filters.familyMemberId !== 'all') {
-                const owner = series ? resolveOne(series.familyMember) : null;
+                const owner = series ? resolveOneLink(series.familyMember) : null;
                 if (!owner || owner.id !== filters.familyMemberId) {
                     return null;
                 }
@@ -235,7 +229,7 @@ function buildSeriesTaskContexts(tasks: TaskBinTask[]): Map<string, SeriesTaskCo
     const tasksBySeries = new Map<string, TaskBinTask[]>();
 
     for (const task of tasks) {
-        const series = resolveOne(task.taskSeries);
+        const series = resolveOneLink(task.taskSeries);
         if (!series?.id) continue;
 
         const seriesTasks = tasksBySeries.get(series.id) || [];
@@ -246,7 +240,7 @@ function buildSeriesTaskContexts(tasks: TaskBinTask[]): Map<string, SeriesTaskCo
     const contexts = new Map<string, SeriesTaskContext>();
 
     tasksBySeries.forEach((seriesTasks, seriesId) => {
-        const series = resolveOne(seriesTasks[0]?.taskSeries);
+        const series = resolveOneLink(seriesTasks[0]?.taskSeries);
         const schedule = buildSeriesScheduleContext(series);
         const blockIndexByTaskId = buildBlockIndexByTaskId(seriesTasks);
         const dueDateByBlockIndex = new Map<number, string>();
@@ -293,7 +287,7 @@ function getTaskLatenessInfo(
     todayKey = getTodayKey(),
     seriesContexts = buildSeriesTaskContexts(allTasks),
 ): TaskLatenessInfo | null {
-    const series = resolveOne(task.taskSeries);
+    const series = resolveOneLink(task.taskSeries);
     if (!series?.id) return null;
 
     const currentState = getTaskWorkflowState(task);
@@ -337,7 +331,7 @@ function getTaskLatenessInfo(
 function buildSeriesScheduleContext(series: NonNullable<TaskBinSeries> | null): SeriesScheduleContext | null {
     if (!series) return null;
 
-    const scheduledActivity = resolveOne(series.scheduledActivity);
+    const scheduledActivity = resolveOneLink(series.scheduledActivity);
     const activityStartDate = toDateKey(scheduledActivity?.startDate);
     const seriesStartDate = toDateKey(series.startDate);
     const anchorDate = maxDateKey(seriesStartDate, activityStartDate);
