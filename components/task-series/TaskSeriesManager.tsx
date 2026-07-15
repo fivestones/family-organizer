@@ -64,14 +64,9 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
         taskSeries: {
             tasks: {
                 parentTask: {},
-                attachments: {},
                 responseFields: {},
                 updates: {
-                    actor: {},
-                    affectedPerson: {},
-                    responseFieldValues: { field: {} },
                     gradeType: {},
-                    attachments: {},
                 },
             },
             familyMember: {},
@@ -467,9 +462,22 @@ const TaskSeriesManager: React.FC<TaskSeriesManagerProps> = ({ db }) => {
     const handleDuplicate = async (seriesWithMeta: (typeof enrichedSeries)[number], e: React.MouseEvent) => {
         e.stopPropagation(); // don't trigger open-on-card-click
 
-        const s = seriesWithMeta.raw;
-
         try {
+            // Duplication needs definition attachments, but the manager list does
+            // not. Fetch that heavy relationship tree once for the chosen series.
+            const duplicateSourceResult = await db.queryOnce({
+                taskSeries: {
+                    $: { where: { id: seriesWithMeta.raw.id } },
+                    tasks: {
+                        parentTask: {},
+                        attachments: {},
+                        responseFields: {},
+                    },
+                },
+            });
+            const s = duplicateSourceResult?.data?.taskSeries?.[0];
+            if (!s) throw new Error('The source task series could not be loaded.');
+
             const newSeriesId = id();
             const now = new Date();
 

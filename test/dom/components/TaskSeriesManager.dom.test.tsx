@@ -13,7 +13,8 @@ const taskSeriesManagerMocks = vi.hoisted(() => {
     };
     return {
         queryState,
-        dbUseQuery: vi.fn(() => ({ data: queryState.data, isLoading: queryState.isLoading, error: queryState.error })),
+        dbUseQuery: vi.fn((_query?: any) => ({ data: queryState.data, isLoading: queryState.isLoading, error: queryState.error })),
+        dbQueryOnce: vi.fn(async (_query?: any) => ({ data: queryState.data })),
         dbTransact: vi.fn().mockResolvedValue(undefined),
         routerPush: vi.fn(),
         toast: vi.fn(),
@@ -162,6 +163,7 @@ import TaskSeriesManager from '@/components/task-series/TaskSeriesManager';
 function makeDb() {
     return {
         useQuery: taskSeriesManagerMocks.dbUseQuery,
+        queryOnce: taskSeriesManagerMocks.dbQueryOnce,
         transact: taskSeriesManagerMocks.dbTransact,
     };
 }
@@ -194,6 +196,8 @@ function renderManagerWithSeries(seriesList: any[]) {
 describe('TaskSeriesManager', () => {
     beforeEach(() => {
         taskSeriesManagerMocks.dbUseQuery.mockClear();
+        taskSeriesManagerMocks.dbQueryOnce.mockClear();
+        taskSeriesManagerMocks.dbQueryOnce.mockImplementation(async () => ({ data: taskSeriesManagerMocks.queryState.data }));
         taskSeriesManagerMocks.dbTransact.mockClear();
         taskSeriesManagerMocks.routerPush.mockClear();
         taskSeriesManagerMocks.toast.mockClear();
@@ -360,14 +364,9 @@ describe('TaskSeriesManager', () => {
             taskSeries: {
                 tasks: {
                     parentTask: {},
-                    attachments: {},
                     responseFields: {},
                     updates: {
-                        actor: {},
-                        affectedPerson: {},
-                        responseFieldValues: { field: {} },
                         gradeType: {},
-                        attachments: {},
                     },
                 },
                 familyMember: {},
@@ -534,6 +533,17 @@ describe('TaskSeriesManager', () => {
         ]);
 
         await user.click(screen.getByRole('button', { name: /duplicate/i }));
+
+        expect(taskSeriesManagerMocks.dbQueryOnce).toHaveBeenCalledWith({
+            taskSeries: {
+                $: { where: { id: 'series-original' } },
+                tasks: {
+                    parentTask: {},
+                    attachments: {},
+                    responseFields: {},
+                },
+            },
+        });
 
         await waitFor(() => {
             expect(db.transact).toHaveBeenCalledTimes(1);
