@@ -167,6 +167,30 @@ describe('DetailedChoreForm', () => {
         );
     });
 
+    it('shows recoverable inline validation instead of a blocking browser alert', async () => {
+        const { onSave } = renderForm();
+        const user = userEvent.setup();
+
+        await user.type(screen.getByLabelText('Title *'), 'Feed the Cat');
+        await user.click(screen.getByRole('button', { name: 'Ava' }));
+        await user.click(screen.getByLabelText(/up for grabs chore/i));
+        await user.click(screen.getByLabelText(/fixed amount/i));
+        await user.type(screen.getByLabelText(/fixed reward amount/i), '-1');
+        await user.selectOptions(screen.getByRole('combobox', { name: /reward currency/i }), 'USD');
+        await user.click(screen.getByRole('button', { name: /save chore/i }));
+
+        expect(onSave).not.toHaveBeenCalled();
+        expect(screen.getByRole('alert')).toHaveTextContent(/invalid fixed reward amount/i);
+        expect(alert).not.toHaveBeenCalled();
+
+        await user.clear(screen.getByLabelText(/fixed reward amount/i));
+        await user.type(screen.getByLabelText(/fixed reward amount/i), '2.50');
+        await user.click(screen.getByRole('button', { name: /save chore/i }));
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
     it('saves edits to a weightless chore without forcing a numeric weight', async () => {
         const { onSave } = renderForm({
             initialChore: {

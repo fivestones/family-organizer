@@ -156,6 +156,7 @@ function DetailedChoreForm({
     const [anchorRoutineKey, setAnchorRoutineKey] = useState<string>('breakfast');
     const [anchorChoreId, setAnchorChoreId] = useState<string>('');
     const [anchorFallbackTime, setAnchorFallbackTime] = useState<string>('');
+    const [validationError, setValidationError] = useState<string | null>(null);
     const [timelineWarnings, setTimelineWarnings] = useState<string[]>([]);
     const [showWarningConfirm, setShowWarningConfirm] = useState(false);
     const [recurrenceUi, setRecurrenceUi] = useState<RecurrenceUiState>(() => ({
@@ -473,14 +474,21 @@ function DetailedChoreForm({
     };
 
     const handleSave = () => {
+        const failValidation = (message: string) => {
+            setValidationError(message);
+            setTimelineWarnings([]);
+            setShowWarningConfirm(false);
+        };
+
+        setValidationError(null);
         const startDateValue = startDate.toISOString().slice(0, 10);
         const finalRrule = normalizeRrule(serializeRecurrenceToRrule(recurrenceUi, startDateValue)) || null;
         if (recurrenceUi.mode !== 'never' && !finalRrule) {
-            alert('Please configure a valid repeat pattern before saving.');
+            failValidation('Please configure a valid repeat pattern before saving.');
             return;
         }
         if (recurrenceUi.repeatEndMode === 'until' && recurrenceUi.mode !== 'never' && !recurrenceUi.repeatEndUntil) {
-            alert('Choose an end date for the repeat pattern, or switch it back to repeat forever.');
+            failValidation('Choose an end date for the repeat pattern, or switch it back to repeat forever.');
             return;
         }
 
@@ -494,7 +502,7 @@ function DetailedChoreForm({
             const trimmedWeight = weight.trim();
             finalWeight = trimmedWeight === '' ? null : parseFloat(trimmedWeight);
             if (finalWeight !== null && isNaN(finalWeight)) {
-                alert('Invalid weight. Please enter a valid number.');
+                failValidation('Invalid weight. Please enter a valid number.');
                 return;
             }
         }
@@ -504,11 +512,11 @@ function DetailedChoreForm({
             finalRewardAmount = parseFloat(rewardAmount);
             finalRewardCurrency = rewardCurrency.trim().toUpperCase();
             if (isNaN(finalRewardAmount) || finalRewardAmount <= 0) {
-                alert('Invalid fixed reward amount. Please enter a positive number.');
+                failValidation('Invalid fixed reward amount. Please enter a positive number.');
                 return;
             }
             if (!finalRewardCurrency || finalRewardCurrency === '__DEFINE_NEW__') {
-                alert('Please select a valid currency for the fixed reward.');
+                failValidation('Please select a valid currency for the fixed reward.');
                 return;
             }
             // If fixed, ensure weight is nullified in save data
@@ -516,41 +524,41 @@ function DetailedChoreForm({
         }
 
         if (timingMode === 'between_times' && windowStartTime && windowEndTime && windowStartTime >= windowEndTime) {
-            alert('The end time must be later than the start time.');
+            failValidation('The end time must be later than the start time.');
             return;
         }
 
         if ((timingMode === 'before_time' || timingMode === 'after_time') && !triggerTime) {
-            alert('Choose the time this chore should be relative to.');
+            failValidation('Choose the time this chore should be relative to.');
             return;
         }
 
         if ((timingMode === 'before_marker' || timingMode === 'after_marker') && !anchorRoutineKey) {
-            alert('Choose a routine marker for this chore timing.');
+            failValidation('Choose a routine marker for this chore timing.');
             return;
         }
 
         if (timingMode === 'between_times' && (!windowStartTime || !windowEndTime)) {
-            alert('Choose both a start and end time for this chore.');
+            failValidation('Choose both a start and end time for this chore.');
             return;
         }
 
         if (timingMode === 'named_window' && !timeBucket) {
-            alert('Choose a named window for this chore.');
+            failValidation('Choose a named window for this chore.');
             return;
         }
 
         if (timingMode === 'before_chore' || timingMode === 'after_chore') {
             if (!anchorChoreId) {
-                alert('Choose another chore to anchor this chore to.');
+                failValidation('Choose another chore to anchor this chore to.');
                 return;
             }
             if (!anchorFallbackTime) {
-                alert('Choose a fallback time for chore anchors.');
+                failValidation('Choose a fallback time for chore anchors.');
                 return;
             }
             if (initialChore?.id && wouldCreateChoreTimingCycle(initialChore.id, anchorChoreId, availableChoreAnchors as any)) {
-                alert('That chore anchor would create a cycle. Choose a different source chore.');
+                failValidation('That chore anchor would create a cycle. Choose a different source chore.');
                 return;
             }
         }
@@ -774,6 +782,23 @@ function DetailedChoreForm({
 
     return (
         <div className="space-y-4 w-full max-w-md mx-auto">
+            {validationError ? (
+                <div
+                    id="chore-form-validation-error"
+                    role="alert"
+                    aria-live="assertive"
+                    className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-950 shadow-sm"
+                >
+                    <span className="mt-0.5 rounded-full bg-rose-100 p-1 text-rose-700" aria-hidden="true">
+                        <AlertTriangle className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                        <p className="text-sm font-semibold">This chore needs attention</p>
+                        <p className="mt-0.5 text-sm leading-5 text-rose-800">{validationError}</p>
+                    </div>
+                </div>
+            ) : null}
+
             {/* Title */}
             <div className="space-y-2">
                 <Label htmlFor="title">
