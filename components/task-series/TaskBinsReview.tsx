@@ -139,22 +139,14 @@ export const TaskBinsReview: React.FC = () => {
             updates: {
                 actor: {},
                 affectedPerson: {},
-                responseFieldValues: { field: {} },
+                responseFieldValues: {},
                 gradeType: {},
                 attachments: {},
-                replyTo: {},
-                replies: {
-                    actor: {},
-                    affectedPerson: {},
-                    attachments: {},
-                    gradeType: {},
-                },
             },
             taskSeries: {
                 familyMember: {},
                 scheduledActivity: {},
             },
-            responseFields: {},
         },
         familyMembers: {},
         taskSeries: {},
@@ -678,34 +670,80 @@ const TaskBinCard: React.FC<TaskBinCardProps> = ({
                         )}
 
                         {/* Update panel */}
-                        <div className="rounded-lg border border-slate-200 bg-white p-4">
-                            <TaskUpdatePanel
-                                task={task as any}
-                                variant="full"
-                                canEdit={true}
-                                gradeTypes={gradeTypes}
-                                isParentReviewer={true}
-                                ownerName={ownerName}
-                                onSubmit={onUpdate}
-                            />
-                        </div>
-
-                        {/* Update history */}
-                        {task.updates && task.updates.length > 0 && (
-                            <div>
-                                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                    History
-                                </div>
-                                <UpdateHistory
-                                    updates={task.updates}
-                                    limit={5}
-                                />
-                            </div>
-                        )}
+                        <TaskBinExpandedDetails
+                            taskId={task.id}
+                            gradeTypes={gradeTypes}
+                            ownerName={ownerName}
+                            onUpdate={onUpdate}
+                        />
                     </div>
                 </div>
             )}
         </div>
+    );
+};
+
+const TaskBinExpandedDetails: React.FC<{
+    taskId: string;
+    gradeTypes: any[];
+    ownerName: string | null;
+    onUpdate: (submission: TaskUpdatePanelSubmission) => Promise<void>;
+}> = ({ taskId, gradeTypes, ownerName, onUpdate }) => {
+    const { data, isLoading, error } = db.useQuery({
+        tasks: {
+            $: { where: { id: taskId } },
+            responseFields: {},
+            updates: {
+                actor: {},
+                affectedPerson: {},
+                responseFieldValues: { field: {} },
+                gradeType: {},
+                attachments: {},
+                replyTo: {},
+                replies: {
+                    actor: {},
+                    affectedPerson: {},
+                    attachments: {},
+                    gradeType: {},
+                },
+            },
+        },
+    });
+
+    if (isLoading) {
+        return <div className="text-sm text-slate-500">Loading task details…</div>;
+    }
+
+    if (error) {
+        return <div className="text-sm text-rose-600">Task details could not be loaded.</div>;
+    }
+
+    const task = data?.tasks?.[0];
+    if (!task) {
+        return <div className="text-sm text-slate-500">This task is no longer available.</div>;
+    }
+
+    return (
+        <>
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <TaskUpdatePanel
+                    task={task as any}
+                    variant="full"
+                    canEdit={true}
+                    gradeTypes={gradeTypes}
+                    isParentReviewer={true}
+                    ownerName={ownerName}
+                    onSubmit={onUpdate}
+                />
+            </div>
+
+            {task.updates && task.updates.length > 0 ? (
+                <div>
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">History</div>
+                    <UpdateHistory updates={task.updates as any} limit={5} />
+                </div>
+            ) : null}
+        </>
     );
 };
 
