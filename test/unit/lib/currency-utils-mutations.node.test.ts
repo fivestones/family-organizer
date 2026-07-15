@@ -114,7 +114,6 @@ describe('currency-utils mutation helpers', () => {
                             description: 'Envelope Created',
                             createdAt: '2026-02-26T12:34:56.000Z',
                             updatedAt: '2026-02-26T12:34:56.000Z',
-                            envelope: 'env-savings',
                         },
                     },
                     {
@@ -168,7 +167,6 @@ describe('currency-utils mutation helpers', () => {
                     currency: 'USD',
                     transactionType: 'init',
                     description: 'Envelope Created',
-                    envelope: 'env-extra',
                 }),
             });
             expect(txs[3]).toMatchObject({
@@ -247,8 +245,6 @@ describe('currency-utils mutation helpers', () => {
                     amount: 4,
                     currency: 'USD',
                     transactionType: 'deposit',
-                    envelope: 'env-1',
-                    destinationEnvelope: 'env-1',
                     description: 'Allowance',
                     createdAt: '2026-02-26T12:34:56.000Z',
                 }),
@@ -289,7 +285,6 @@ describe('currency-utils mutation helpers', () => {
                     amount: -7,
                     currency: 'USD',
                     transactionType: 'withdrawal',
-                    envelope: 'env-1',
                     description: 'Cash out',
                 }),
             });

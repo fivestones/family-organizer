@@ -491,7 +491,6 @@ export const createInitialSavingsEnvelope = async (db: any, familyMemberId: stri
             description: 'Envelope Created',
             createdAt: nowIso,
             updatedAt: nowIso,
-            envelope: newEnvelopeId
         }),
         tx.allowanceEnvelopes[newEnvelopeId].link({ transactions: initTxId }),
         ...historyEvent.transactions,
@@ -567,7 +566,6 @@ export const createAdditionalEnvelope = async (
             description: 'Envelope Created',
             createdAt: nowIso,
             updatedAt: nowIso,
-            envelope: newEnvelopeId
         }),
         tx.allowanceEnvelopes[newEnvelopeId].link({ transactions: initTxId }),
         ...historyEvent.transactions,
@@ -692,8 +690,6 @@ export const depositToSpecificEnvelope = async (
             amount: amount,
             currency: upperCaseCurrency,
             transactionType: 'deposit',
-            envelope: envelopeId,
-            destinationEnvelope: envelopeId, // For deposits, source is external, destination is the envelope
             description: description,
             createdAt: nowIso,
             updatedAt: nowIso,
@@ -787,9 +783,6 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
             amount: -amount,
             currency: upperCaseCurrency,
             transactionType: 'transfer-out',
-            envelope: fromEnvelope.id, // Log against the source envelope
-            sourceEnvelope: fromEnvelope.id,
-            destinationEnvelope: toEnvelope.id,
             description: transferDesc,
             createdAt: nowIso,
             updatedAt: nowIso,
@@ -800,9 +793,6 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
             amount: amount,
             currency: upperCaseCurrency,
             transactionType: 'transfer-in',
-            envelope: toEnvelope.id, // Log against the destination envelope
-            sourceEnvelope: fromEnvelope.id,
-            destinationEnvelope: toEnvelope.id,
             description: transferDesc,
             createdAt: nowIso,
             updatedAt: nowIso,
@@ -871,9 +861,6 @@ export const deleteEnvelope = async (
                     amount: -amount,
                     currency: upperCaseCurrency,
                     transactionType: 'transfer-out',
-                    envelope: envelopeToDeleteId,
-                    sourceEnvelope: envelopeToDeleteId,
-                    destinationEnvelope: transferToEnvelopeId,
                     description: transferDesc,
                     createdAt: nowIso,
                     updatedAt: nowIso,
@@ -886,9 +873,6 @@ export const deleteEnvelope = async (
                     amount: amount,
                     currency: upperCaseCurrency,
                     transactionType: 'transfer-in',
-                    envelope: transferToEnvelopeId,
-                    sourceEnvelope: envelopeToDeleteId,
-                    destinationEnvelope: transferToEnvelopeId,
                     description: transferDesc,
                     createdAt: nowIso,
                     updatedAt: nowIso,
@@ -1056,9 +1040,6 @@ export const withdrawFromEnvelope = async (
         amount: -amount, // Store withdrawal as negative amount for consistency? Or use type field only. Using negative here.
         currency: upperCaseCurrency,
         transactionType: 'withdrawal',
-        envelope: envelope.id, // Link to the envelope it affected
-        // sourceEnvelope: envelope.id, // Could arguably be source
-        // destinationEnvelope: null, // No destination
         description: description,
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -1163,9 +1144,6 @@ export const transferFundsToPerson = async (
         amount: -amount,
         currency: upperCaseCurrency,
         transactionType: 'transfer-out-person',
-        envelope: sourceEnvelope.id,
-        sourceEnvelope: sourceEnvelope.id,
-        destinationEnvelope: destinationEnvelope.id,
         description: transferDesc,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1177,9 +1155,6 @@ export const transferFundsToPerson = async (
         amount: amount,
         currency: upperCaseCurrency,
         transactionType: 'transfer-in-person',
-        envelope: destinationEnvelope.id,
-        sourceEnvelope: sourceEnvelope.id,
-        destinationEnvelope: destinationEnvelope.id,
         description: transferDesc,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

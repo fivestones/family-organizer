@@ -331,7 +331,6 @@ describe('currency-utils core helpers', () => {
                 amount: 0,
                 transactionType: 'init',
                 description: 'Envelope Created',
-                envelope: 'new-savings-id',
             }),
         });
         expect(txs[3]).toMatchObject({
@@ -471,9 +470,18 @@ describe('currency-utils core helpers', () => {
         expect(db.transact).toHaveBeenCalledTimes(2); // create initial envelope + deposit transaction
 
         const depositTxs = db.transact.mock.calls[1][0] as any[];
+        const depositTransaction = depositTxs.find(
+            (tx) => tx.entity === 'allowanceTransactions' && tx.payload?.transactionType === 'deposit' && tx.payload?.amount === 7
+        );
+        expect(depositTransaction).toBeTruthy();
+        expect(depositTransaction.payload).not.toHaveProperty('envelope');
         expect(
             depositTxs.some(
-                (tx) => tx.entity === 'allowanceTransactions' && tx.payload?.transactionType === 'deposit' && tx.payload?.amount === 7 && tx.payload?.envelope === 'created-default'
+                (tx) =>
+                    tx.entity === 'allowanceEnvelopes' &&
+                    tx.id === 'created-default' &&
+                    tx.op === 'link' &&
+                    tx.payload?.transactions === depositTransaction.id
             )
         ).toBe(true);
     });

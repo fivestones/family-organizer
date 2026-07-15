@@ -75,8 +75,9 @@ describe('currency-utils allowance transaction audit stamping', () => {
             amount: 5,
             currency: 'USD',
             transactionType: 'deposit',
-            envelope: 'env_1',
         });
+        expect(transactionUpdate.payload).not.toHaveProperty('envelope');
+        expect(transactionUpdate.payload).not.toHaveProperty('destinationEnvelope');
     });
 
     it('throws when no Instant auth principal is present', async () => {
@@ -140,8 +141,8 @@ describe('currency-utils allowance transaction audit stamping', () => {
             amount: -7,
             currency: 'USD',
             transactionType: 'withdrawal',
-            envelope: 'env_w',
         });
+        expect(transactionUpdate.payload).not.toHaveProperty('envelope');
     });
 
     it('stamps both transaction records created by deleteEnvelope transfers', async () => {
@@ -212,9 +213,10 @@ describe('currency-utils allowance transaction audit stamping', () => {
                 createdBy: 'instant-kid-principal',
                 createdByFamilyMemberId: 'member-person-transfer',
                 currency: 'USD',
-                sourceEnvelope: 'env_sender',
-                destinationEnvelope: 'env_receiver',
             });
+            expect(step.payload).not.toHaveProperty('envelope');
+            expect(step.payload).not.toHaveProperty('sourceEnvelope');
+            expect(step.payload).not.toHaveProperty('destinationEnvelope');
         }
         expect(transactionUpdates.map((step) => step.payload.transactionType).sort()).toEqual(['transfer-in-person', 'transfer-out-person']);
     });
