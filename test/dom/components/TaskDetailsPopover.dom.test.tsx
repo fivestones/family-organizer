@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const testState = vi.hoisted(() => ({
@@ -9,6 +10,8 @@ const testState = vi.hoisted(() => ({
         'task-1': 'First task notes',
         'task-2': 'Second task notes',
     } as Record<string, string>,
+    attachmentsByTaskId: {} as Record<string, any[]>,
+    responseFieldsByTaskId: {} as Record<string, any[]>,
     dbTransact: vi.fn((transaction: any) => {
         if (transaction?.op === 'update' && transaction.entity === 'tasks' && typeof transaction.payload?.notes === 'string') {
             testState.notesByTaskId[transaction.id] = transaction.payload.notes;
@@ -52,6 +55,43 @@ vi.mock('@/components/ui/button', async () => {
     return { Button };
 });
 
+vi.mock('@/components/ui/alert-dialog', async () => {
+    const React = await import('react');
+    const DialogContext = React.createContext({ open: false, onOpenChange: (_open: boolean) => undefined });
+
+    return {
+        AlertDialog: ({ open, onOpenChange, children }: any) => (
+            <DialogContext.Provider value={{ open: Boolean(open), onOpenChange }}>{children}</DialogContext.Provider>
+        ),
+        AlertDialogContent: ({ children, ...props }: any) => {
+            const dialog = React.useContext(DialogContext);
+            return dialog.open ? <div role="alertdialog" {...props}>{children}</div> : null;
+        },
+        AlertDialogHeader: ({ children }: any) => <div>{children}</div>,
+        AlertDialogTitle: ({ children }: any) => <h2>{children}</h2>,
+        AlertDialogDescription: ({ children }: any) => <p>{children}</p>,
+        AlertDialogFooter: ({ children }: any) => <div>{children}</div>,
+        AlertDialogCancel: ({ children, onClick, ...props }: any) => {
+            const dialog = React.useContext(DialogContext);
+            return (
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        onClick?.(event);
+                        dialog.onOpenChange(false);
+                    }}
+                    {...props}
+                >
+                    {children}
+                </button>
+            );
+        },
+        AlertDialogAction: ({ children, onClick, ...props }: any) => (
+            <button type="button" onClick={onClick} {...props}>{children}</button>
+        ),
+    };
+});
+
 vi.mock('@/lib/db', () => ({
     db: {
         useQuery: vi.fn((query: any) => {
@@ -63,7 +103,8 @@ vi.mock('@/lib/db', () => ({
                         {
                             id: taskId,
                             notes: testState.notesByTaskId[taskId] ?? '',
-                            attachments: [],
+                            attachments: testState.attachmentsByTaskId[taskId] ?? [],
+                            responseFields: testState.responseFieldsByTaskId[taskId] ?? [],
                         },
                     ],
                 },
@@ -161,6 +202,8 @@ describe('TaskDetailsPopover', () => {
         document.body.innerHTML = '';
         testState.notesByTaskId['task-1'] = 'First task notes';
         testState.notesByTaskId['task-2'] = 'Second task notes';
+        testState.attachmentsByTaskId = {};
+        testState.responseFieldsByTaskId = {};
         testState.dbTransact.mockClear();
         testState.chainObj.focus = vi.fn(() => testState.chainObj);
         testState.chainObj.setTextSelection = vi.fn(() => testState.chainObj);
@@ -354,5 +397,67 @@ describe('TaskDetailsPopover', () => {
         });
 
         expect(await screen.findByDisplayValue('Edited quickly')).toBeTruthy();
+    });
+
+    it('uses styled confirmations for bulk-popover attachment and response-field removal', async () => {
+        const user = userEvent.setup();
+        testState.attachmentsByTaskId['task-1'] = [
+            { id: 'attachment-1', name: 'worksheet.pdf', url: 'worksheet.pdf', type: 'application/pdf' },
+        ];
+        testState.responseFieldsByTaskId['task-1'] = [
+            { id: 'field-1', type: 'rich_text', label: 'Explain your answer', weight: 0, required: true, order: 0 },
+        ];
+        const taskNode = makeTrigger(1);
+        const task = {
+            type: { name: 'taskItem' },
+            attrs: { id: 'task-1', isDayBreak: false, indentationLevel: 0 },
+            nodeSize: 4,
+        };
+        const editor = {
+            isDestroyed: false,
+            chain: vi.fn(() => testState.chainObj),
+            state: {
+                doc: {
+                    nodeAt: () => task,
+                    resolve: () => ({
+                        index: () => 0,
+                        parent: { childCount: 1, child: () => task },
+                    }),
+                },
+            },
+            view: {
+                dom: document.body,
+                nodeDOM: () => taskNode,
+            },
+        } as any;
+
+        render(<TaskDetailsPopover editor={editor} taskDateMap={{}} />);
+        act(() => {
+            window.dispatchEvent(
+                new CustomEvent(TASK_SERIES_OPEN_DETAILS_EVENT, {
+                    detail: { taskId: 'task-1', taskPos: 1, selection: { anchor: 2, head: 2 } },
+                })
+            );
+        });
+
+        await user.click(await screen.findByRole('button', { name: /remove worksheet\.pdf/i }));
+        expect(screen.getByRole('alertdialog')).toHaveTextContent('worksheet.pdf will be removed');
+        await user.click(screen.getByRole('button', { name: /keep attachment/i }));
+        expect(testState.dbTransact).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog', { name: 'Task Details' })).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: /remove worksheet\.pdf/i }));
+        await user.click(screen.getByRole('button', { name: /^remove attachment$/i }));
+        await waitFor(() => {
+            expect(testState.dbTransact).toHaveBeenCalledWith({ op: 'delete', entity: 'taskAttachments', id: 'attachment-1' });
+        });
+
+        testState.dbTransact.mockClear();
+        await user.click(screen.getByRole('button', { name: /remove response field explain your answer/i }));
+        expect(screen.getByRole('alertdialog')).toHaveTextContent('Explain your answer');
+        await user.click(screen.getByRole('button', { name: /^remove field$/i }));
+        await waitFor(() => {
+            expect(testState.dbTransact).toHaveBeenCalledWith({ op: 'delete', entity: 'taskResponseFields', id: 'field-1' });
+        });
     });
 });

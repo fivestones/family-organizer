@@ -4,6 +4,16 @@ import React, { useState } from 'react';
 import { id as generateId, tx } from '@instantdb/react';
 import { GripVertical, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { db } from '@/lib/db';
 import { cn } from '@/lib/utils';
 import { RESPONSE_FIELD_TYPES, RESPONSE_FIELD_TYPE_LABELS, type TaskResponseFieldType } from '@/lib/task-response-types';
@@ -163,6 +173,7 @@ function ResponseFieldRow({ field, onDelete }: { field: ResponseField; onDelete:
             <button
                 type="button"
                 onClick={onDelete}
+                aria-label={`Remove response field ${field.label}`}
                 className="text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
             >
                 <Trash2 className="h-3 w-3" />
@@ -173,12 +184,22 @@ function ResponseFieldRow({ field, onDelete }: { field: ResponseField; onDelete:
 
 export function ResponseFieldEditor({ taskId, responseFields }: ResponseFieldEditorProps) {
     const [isAdding, setIsAdding] = useState(false);
+    const [fieldToDelete, setFieldToDelete] = useState<ResponseField | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const sortedFields = [...responseFields].sort((a, b) => a.order - b.order);
 
-    const handleDelete = (fieldId: string) => {
-        if (!confirm('Remove this response field?')) return;
-        db.transact(tx.taskResponseFields[fieldId].delete());
+    const handleDelete = async () => {
+        if (!fieldToDelete || isDeleting) return;
+        setIsDeleting(true);
+        try {
+            await db.transact(tx.taskResponseFields[fieldToDelete.id].delete());
+            setFieldToDelete(null);
+        } catch (error) {
+            console.error('Unable to delete response field', error);
+        } finally {
+            setIsDeleting(false);
+        }
     };
 
     const nextOrder = sortedFields.length > 0 ? Math.max(...sortedFields.map((f) => f.order)) + 1 : 0;
@@ -207,13 +228,42 @@ export function ResponseFieldEditor({ taskId, responseFields }: ResponseFieldEdi
 
             <div className="flex flex-col gap-1.5">
                 {sortedFields.map((field) => (
-                    <ResponseFieldRow key={field.id} field={field} onDelete={() => handleDelete(field.id)} />
+                    <ResponseFieldRow key={field.id} field={field} onDelete={() => setFieldToDelete(field)} />
                 ))}
             </div>
 
             {isAdding && (
                 <AddResponseFieldForm taskId={taskId} nextOrder={nextOrder} onDone={() => setIsAdding(false)} />
             )}
+
+            <AlertDialog
+                open={Boolean(fieldToDelete)}
+                onOpenChange={(open) => {
+                    if (!open && !isDeleting) setFieldToDelete(null);
+                }}
+            >
+                <AlertDialogContent data-task-details-modal="true">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Remove response field?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            “{fieldToDelete?.label || 'This field'}” and its stored response values will be permanently removed.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Keep field</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={isDeleting}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                void handleDelete();
+                            }}
+                        >
+                            {isDeleting ? 'Removing…' : 'Remove field'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

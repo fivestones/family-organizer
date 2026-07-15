@@ -11,6 +11,16 @@ import { useDebouncedCallback } from 'use-debounce';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { ResponseFieldEditor } from '@/components/task-series/ResponseFieldEditor';
 import { Button } from '@/components/ui/button';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { db } from '@/lib/db';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { cn } from '@/lib/utils';
@@ -84,6 +94,8 @@ const TaskMetadataManager = ({
         | undefined;
     const [notes, setNotes] = useState(task?.notes || '');
     const [uploading, setUploading] = useState(false);
+    const [attachmentToDelete, setAttachmentToDelete] = useState<{ id: string; name?: string } | null>(null);
+    const [deletingAttachment, setDeletingAttachment] = useState(false);
     const notesRef = useRef<HTMLTextAreaElement | null>(null);
 
     useEffect(() => {
@@ -172,9 +184,16 @@ const TaskMetadataManager = ({
         }
     };
 
-    const handleDeleteAttachment = (attachmentId: string) => {
-        if (confirm('Are you sure you want to remove this attachment?')) {
-            db.transact(tx.taskAttachments[attachmentId].delete());
+    const handleDeleteAttachment = async () => {
+        if (!attachmentToDelete || deletingAttachment) return;
+        setDeletingAttachment(true);
+        try {
+            await db.transact(tx.taskAttachments[attachmentToDelete.id].delete());
+            setAttachmentToDelete(null);
+        } catch (error) {
+            console.error('Unable to delete attachment', error);
+        } finally {
+            setDeletingAttachment(false);
         }
     };
 
@@ -220,7 +239,8 @@ const TaskMetadataManager = ({
                             <span className="min-w-0 flex-1 truncate text-slate-600">{file.name}</span>
                             <button
                                 type="button"
-                                onClick={() => handleDeleteAttachment(file.id)}
+                                aria-label={`Remove ${file.name || 'attachment'}`}
+                                onClick={() => setAttachmentToDelete(file)}
                                 className="text-gray-400 transition-colors hover:text-red-500"
                             >
                                 <Trash2 className="h-3 w-3" />
@@ -247,6 +267,35 @@ const TaskMetadataManager = ({
                     <span className="text-[10px] text-gray-400">For series grade weighting</span>
                 </div>
             </div>
+
+            <AlertDialog
+                open={Boolean(attachmentToDelete)}
+                onOpenChange={(open) => {
+                    if (!open && !deletingAttachment) setAttachmentToDelete(null);
+                }}
+            >
+                <AlertDialogContent data-task-details-modal="true">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Remove attachment?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {attachmentToDelete?.name || 'This attachment'} will be removed from this task. This cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deletingAttachment}>Keep attachment</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={deletingAttachment}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                void handleDeleteAttachment();
+                            }}
+                        >
+                            {deletingAttachment ? 'Removing…' : 'Remove attachment'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };
@@ -390,6 +439,7 @@ export function TaskDetailsPopover({ editor, taskDateMap }: { editor: Editor | n
 
             if (panelRef.current?.contains(target)) return;
             if (target.closest('[data-task-details-trigger="true"]')) return;
+            if (target.closest('[data-task-details-modal="true"]')) return;
 
             void requestClose(false);
         };
