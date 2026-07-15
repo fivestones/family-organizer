@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -123,7 +123,7 @@ vi.mock('@instantdb/react', () => ({
     tx: instantMocks.tx,
 }));
 
-import ChoreList from '@/components/ChoreList';
+import ChoreList, { TASK_SERIES_EXPANSION_STORAGE_KEY } from '@/components/ChoreList';
 
 const familyMembers = [
     { id: 'kid-a', name: 'Alex' },
@@ -171,6 +171,7 @@ function renderChoreList(overrides: any = {}) {
 
 describe('ChoreList', () => {
     beforeEach(() => {
+        window.localStorage.clear();
         choreListMocks.toast.mockReset();
         choreListMocks.getAssignedMembersForChoreOnDate.mockClear();
         choreListMocks.createRRuleWithStartDate.mockReset();
@@ -178,6 +179,52 @@ describe('ChoreList', () => {
         choreListMocks.isSeriesActiveForDate.mockReset();
         choreListMocks.getTasksForDate.mockReturnValue([]);
         choreListMocks.isSeriesActiveForDate.mockReturnValue(false);
+    });
+
+    it('restores and persists per-member task-series expansion choices', async () => {
+        const user = userEvent.setup();
+        const tasks = [
+            { id: 'task-1', text: 'First', order: 1, isDayBreak: false, isCompleted: false },
+            { id: 'task-2', text: 'Second', order: 2, isDayBreak: false, isCompleted: false },
+            { id: 'task-3', text: 'Third', order: 3, isDayBreak: false, isCompleted: false },
+        ];
+        choreListMocks.getTasksForDate.mockReturnValue(tasks);
+        window.localStorage.setItem(
+            TASK_SERIES_EXPANSION_STORAGE_KEY,
+            JSON.stringify({
+                byMember: { 'kid-a': { 'chore-1:series-1': false } },
+                allView: {},
+            })
+        );
+
+        renderChoreList({
+            pageMode: 'tasks',
+            selectedMember: 'kid-a',
+            chores: [
+                makeChore({
+                    id: 'chore-1',
+                    taskSeries: [
+                        {
+                            id: 'series-1',
+                            name: 'Three-part series',
+                            familyMember: [{ id: 'kid-a', name: 'Alex' }],
+                            tasks,
+                        },
+                    ],
+                }),
+            ],
+        });
+
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: /view more/i })).toBeInTheDocument();
+        });
+
+        await user.click(screen.getByRole('button', { name: /view more/i }));
+        expect(screen.getByRole('button', { name: /hide tasks/i })).toBeInTheDocument();
+        expect(JSON.parse(window.localStorage.getItem(TASK_SERIES_EXPANSION_STORAGE_KEY) || '{}')).toEqual({
+            byMember: { 'kid-a': { 'chore-1:series-1': true } },
+            allView: {},
+        });
     });
 
     it('filters chores by selected member and selected date', () => {

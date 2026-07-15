@@ -27,6 +27,50 @@ import ChoreDetailDialog from './ChoreDetailDialog';
 import { sortChoresForDisplay, getChoreTimingMode, type CountdownEngineOutput } from '@family-organizer/shared-core';
 import CountdownPill from './CountdownPill';
 
+export const TASK_SERIES_EXPANSION_STORAGE_KEY = 'family-organizer:task-series-expansion:v1';
+
+type TaskSeriesExpansionState = {
+    byMember: Record<string, Record<string, boolean>>;
+    allView: Record<string, boolean>;
+};
+
+const EMPTY_TASK_SERIES_EXPANSION: TaskSeriesExpansionState = { byMember: {}, allView: {} };
+
+const sanitizeBooleanRecord = (value: unknown): Record<string, boolean> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean'));
+};
+
+const readTaskSeriesExpansion = (): TaskSeriesExpansionState => {
+    if (typeof window === 'undefined') return EMPTY_TASK_SERIES_EXPANSION;
+    try {
+        const parsed = JSON.parse(window.localStorage.getItem(TASK_SERIES_EXPANSION_STORAGE_KEY) || 'null');
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return EMPTY_TASK_SERIES_EXPANSION;
+
+        const rawByMember = (parsed as any).byMember;
+        const byMember =
+            rawByMember && typeof rawByMember === 'object' && !Array.isArray(rawByMember)
+                ? Object.fromEntries(Object.entries(rawByMember).map(([memberId, values]) => [memberId, sanitizeBooleanRecord(values)]))
+                : {};
+        return {
+            byMember,
+            allView: sanitizeBooleanRecord((parsed as any).allView),
+        };
+    } catch {
+        return EMPTY_TASK_SERIES_EXPANSION;
+    }
+};
+
+const writeTaskSeriesExpansion = (value: TaskSeriesExpansionState) => {
+    if (typeof window === 'undefined') return;
+    try {
+        window.localStorage.setItem(TASK_SERIES_EXPANSION_STORAGE_KEY, JSON.stringify(value));
+    } catch {
+        // Storage can be unavailable in private/locked-down browser contexts;
+        // expansion still works for the current mounted view.
+    }
+};
+
 // +++ Accept new props passed down from ChoresTracker +++
 function ChoreList({
     chores,
@@ -63,8 +107,9 @@ function ChoreList({
 }: any) {
     const [editingChore, setEditingChore] = useState(null);
     const [detailChoreId, setDetailChoreId] = useState<string | null>(null);
-    const [expandedTaskSeriesByMember, setExpandedTaskSeriesByMember] = useState<Record<string, Record<string, boolean>>>({});
-    const [expandedTaskSeriesInAllView, setExpandedTaskSeriesInAllView] = useState<Record<string, boolean>>({});
+    const [taskSeriesExpansion, setTaskSeriesExpansion] = useState<TaskSeriesExpansionState>(EMPTY_TASK_SERIES_EXPANSION);
+    const expandedTaskSeriesByMember = taskSeriesExpansion.byMember;
+    const expandedTaskSeriesInAllView = taskSeriesExpansion.allView;
 
     // Guardrail State for Task Series
     const [pendingCompletion, setPendingCompletion] = useState<{
@@ -124,11 +169,8 @@ function ChoreList({
     }, [chores, detailChoreId]);
 
     useEffect(() => {
-        if (selectedMember === 'All') {
-            // Always start "All family members" view collapsed.
-            setExpandedTaskSeriesInAllView({});
-        }
-    }, [selectedMember]);
+        setTaskSeriesExpansion(readTaskSeriesExpansion());
+    }, []);
 
     /* const toggleChoreDetails = (choreId: string) => {
         setExpandedChores((prev) => ({
@@ -1014,21 +1056,29 @@ function ChoreList({
 
                                     const handleTaskSeriesVisibilityToggle = () => {
                                         if (!hasMoreThanTwoTasks) return;
-                                        if (selectedMember === 'All') {
-                                            setExpandedTaskSeriesInAllView((prev) => ({
-                                                ...prev,
-                                                [seriesToggleKey]: !isExpanded,
-                                            }));
-                                            return;
-                                        }
-
-                                        setExpandedTaskSeriesByMember((prev) => ({
-                                            ...prev,
-                                            [memberKey]: {
-                                                ...(prev[memberKey] || {}),
-                                                [seriesToggleKey]: !isExpanded,
-                                            },
-                                        }));
+                                        setTaskSeriesExpansion((previous) => {
+                                            const next =
+                                                selectedMember === 'All'
+                                                    ? {
+                                                          ...previous,
+                                                          allView: {
+                                                              ...previous.allView,
+                                                              [seriesToggleKey]: !isExpanded,
+                                                          },
+                                                      }
+                                                    : {
+                                                          ...previous,
+                                                          byMember: {
+                                                              ...previous.byMember,
+                                                              [memberKey]: {
+                                                                  ...(previous.byMember[memberKey] || {}),
+                                                                  [seriesToggleKey]: !isExpanded,
+                                                              },
+                                                          },
+                                                      };
+                                            writeTaskSeriesExpansion(next);
+                                            return next;
+                                        });
                                     };
 
                                     if (pageMode === 'chores') {
