@@ -1,12 +1,37 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Upload, File as FileIcon, X, Loader2 } from 'lucide-react';
-import { S3File, getFiles, getPresignedUploadUrl, refreshFiles } from '@/app/actions';
+import { Upload, File as FileIcon, X, Loader2, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import {
+    type S3File,
+    type TaskUploadSweepResult,
+    getFiles,
+    getPresignedUploadUrl,
+    refreshFiles,
+    sweepOrphanedTaskUploads,
+} from '@/app/actions';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { requireCachedMemberToken } from '@/lib/instant-principal-storage';
 
 interface FileManagerProps {
     initialFiles?: S3File[];
+}
+
+function formatBytes(value: number) {
+    if (!Number.isFinite(value) || value <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const unitIndex = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+    const amount = value / 1024 ** unitIndex;
+    return `${amount >= 10 || unitIndex === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unitIndex]}`;
 }
 
 export default function FileManager({ initialFiles }: FileManagerProps) {
@@ -14,6 +39,10 @@ export default function FileManager({ initialFiles }: FileManagerProps) {
     const [selectedFile, setSelectedFile] = useState<S3File | null>(null);
     const [uploading, setUploading] = useState(false);
     const [loadingFiles, setLoadingFiles] = useState(initialFiles === undefined);
+    const [cleanupReport, setCleanupReport] = useState<TaskUploadSweepResult | null>(null);
+    const [scanningTaskStorage, setScanningTaskStorage] = useState(false);
+    const [deletingTaskOrphans, setDeletingTaskOrphans] = useState(false);
+    const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
 
     const loadFiles = useCallback(async () => {
         setLoadingFiles(true);
@@ -79,6 +108,29 @@ export default function FileManager({ initialFiles }: FileManagerProps) {
         }
     };
 
+    const runTaskStorageSweep = async (execute: boolean) => {
+        if (execute) setDeletingTaskOrphans(true);
+        else setScanningTaskStorage(true);
+
+        try {
+            const report = await sweepOrphanedTaskUploads(
+                { execute },
+                requireCachedMemberToken()
+            );
+            setCleanupReport(report);
+            if (execute) {
+                setCleanupDialogOpen(false);
+                await loadFiles();
+            }
+        } catch (error) {
+            console.error('Failed to sweep task upload storage', error);
+            alert(execute ? 'Could not delete orphaned task files.' : 'Could not scan task file storage.');
+        } finally {
+            if (execute) setDeletingTaskOrphans(false);
+            else setScanningTaskStorage(false);
+        }
+    };
+
     return (
         <div className="p-6 max-w-5xl mx-auto">
             {/* Upload Area */}
@@ -105,6 +157,93 @@ export default function FileManager({ initialFiles }: FileManagerProps) {
                     </button>
                 </form>
             </div>
+
+            <section className="mb-10 overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-sky-50 shadow-sm">
+                <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                        <span className="rounded-xl bg-emerald-100 p-2.5 text-emerald-700">
+                            <ShieldCheck aria-hidden="true" size={22} />
+                        </span>
+                        <div>
+                            <h2 className="font-semibold text-gray-900">Task storage cleanup</h2>
+                            <p className="mt-1 max-w-2xl text-sm text-gray-600">
+                                Preview task files that have no live attachment record and are at least 24 hours old.
+                                General family files are never included.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        disabled={scanningTaskStorage || deletingTaskOrphans}
+                        onClick={() => void runTaskStorageSweep(false)}
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {scanningTaskStorage ? <Loader2 className="animate-spin" size={17} /> : <Search size={17} />}
+                        {scanningTaskStorage ? 'Scanning…' : 'Scan task storage'}
+                    </button>
+                </div>
+
+                {cleanupReport && (
+                    <div className="border-t border-emerald-100 bg-white/70 px-5 py-4">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <div className="rounded-xl border border-gray-100 bg-white p-3">
+                                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Task-managed</p>
+                                <p className="mt-1 text-xl font-semibold text-gray-900">{cleanupReport.managedObjects}</p>
+                                <p className="text-xs text-gray-500">{formatBytes(cleanupReport.managedBytes)}</p>
+                            </div>
+                            <div className="rounded-xl border border-gray-100 bg-white p-3">
+                                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Live references</p>
+                                <p className="mt-1 text-xl font-semibold text-gray-900">{cleanupReport.referencedObjects}</p>
+                                <p className="text-xs text-gray-500">{formatBytes(cleanupReport.referencedBytes)}</p>
+                            </div>
+                            <div className="rounded-xl border border-gray-100 bg-white p-3">
+                                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Grace protected</p>
+                                <p className="mt-1 text-xl font-semibold text-gray-900">{cleanupReport.graceProtectedObjects}</p>
+                                <p className="text-xs text-gray-500">{formatBytes(cleanupReport.graceProtectedBytes)}</p>
+                            </div>
+                            <div className="rounded-xl border border-gray-100 bg-white p-3">
+                                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                    {cleanupReport.deletedObjects > 0 ? 'Deleted' : 'Safe to reclaim'}
+                                </p>
+                                <p className="mt-1 text-xl font-semibold text-gray-900">
+                                    {cleanupReport.deletedObjects > 0
+                                        ? cleanupReport.deletedObjects
+                                        : cleanupReport.orphanedObjects}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                    {formatBytes(
+                                        cleanupReport.deletedObjects > 0
+                                            ? cleanupReport.deletedBytes
+                                            : cleanupReport.orphanedBytes
+                                    )}
+                                </p>
+                            </div>
+                        </div>
+
+                        {cleanupReport.deletedObjects === 0 && cleanupReport.orphanedObjects > 0 && (
+                            <div className="mt-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                                <p className="text-sm text-amber-900">
+                                    {cleanupReport.orphanedObjects} old, unreferenced task {cleanupReport.orphanedObjects === 1 ? 'file is' : 'files are'} ready to remove.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setCleanupDialogOpen(true)}
+                                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
+                                >
+                                    <Trash2 size={16} />
+                                    Delete orphaned files
+                                </button>
+                            </div>
+                        )}
+
+                        {cleanupReport.deletedObjects > 0 && (
+                            <p className="mt-4 text-sm font-medium text-emerald-700" role="status">
+                                Cleanup completed. Run another scan any time to refresh the report.
+                            </p>
+                        )}
+                    </div>
+                )}
+            </section>
 
             {/* File Grid */}
             <h2 className="text-xl font-bold mb-4 text-gray-800">Files ({files.length})</h2>
@@ -168,6 +307,35 @@ export default function FileManager({ initialFiles }: FileManagerProps) {
                     </div>
                 </div>
             )}
+
+            <AlertDialog
+                open={cleanupDialogOpen}
+                onOpenChange={(open) => {
+                    if (!deletingTaskOrphans) setCleanupDialogOpen(open);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete orphaned task files?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            The server will scan again, protect every current attachment reference, and permanently delete only task-managed files older than {cleanupReport?.gracePeriodHours || 24} hours that are still unreferenced.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deletingTaskOrphans}>Keep files</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={deletingTaskOrphans}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                void runTaskStorageSweep(true);
+                            }}
+                        >
+                            {deletingTaskOrphans ? 'Deleting…' : 'Delete orphaned files'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

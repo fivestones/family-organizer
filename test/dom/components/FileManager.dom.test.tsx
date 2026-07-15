@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,6 +9,7 @@ const fileManagerMocks = vi.hoisted(() => ({
     getFiles: vi.fn(),
     getPresignedUploadUrl: vi.fn(),
     refreshFiles: vi.fn(),
+    sweepOrphanedTaskUploads: vi.fn(),
     requireCachedMemberToken: vi.fn(() => 'parent-token'),
 }));
 
@@ -16,6 +17,7 @@ vi.mock('@/app/actions', () => ({
     getFiles: fileManagerMocks.getFiles,
     getPresignedUploadUrl: fileManagerMocks.getPresignedUploadUrl,
     refreshFiles: fileManagerMocks.refreshFiles,
+    sweepOrphanedTaskUploads: fileManagerMocks.sweepOrphanedTaskUploads,
 }));
 
 vi.mock('@/lib/instant-principal-storage', () => ({
@@ -31,6 +33,7 @@ describe('FileManager', () => {
         fileManagerMocks.getPresignedUploadUrl.mockReset();
         fileManagerMocks.refreshFiles.mockReset();
         fileManagerMocks.refreshFiles.mockResolvedValue(undefined);
+        fileManagerMocks.sweepOrphanedTaskUploads.mockReset();
         fileManagerMocks.requireCachedMemberToken.mockClear();
 
         vi.stubGlobal('fetch', vi.fn());
@@ -166,5 +169,61 @@ describe('FileManager', () => {
         const downloadLink = screen.getByRole('link', { name: /download file/i });
         expect(downloadLink).toHaveAttribute('href', '/files/notes.pdf');
         expect(downloadLink).toHaveAttribute('target', '_blank');
+    });
+
+    it('previews task orphans, keeps cancellation write-free, and confirms a fresh deletion scan', async () => {
+        const preview = {
+            gracePeriodHours: 24,
+            managedObjects: 7,
+            managedBytes: 4096,
+            referencedObjects: 4,
+            referencedBytes: 2048,
+            graceProtectedObjects: 1,
+            graceProtectedBytes: 1024,
+            orphanedObjects: 2,
+            orphanedBytes: 1024,
+            deletedObjects: 0,
+            deletedBytes: 0,
+        };
+        fileManagerMocks.sweepOrphanedTaskUploads
+            .mockResolvedValueOnce(preview)
+            .mockResolvedValueOnce({
+                ...preview,
+                deletedObjects: 2,
+                deletedBytes: 1024,
+            });
+        fileManagerMocks.getFiles.mockResolvedValue([]);
+
+        const user = userEvent.setup();
+        render(<FileManager initialFiles={[]} />);
+
+        await user.click(screen.getByRole('button', { name: /scan task storage/i }));
+
+        await waitFor(() => {
+            expect(fileManagerMocks.sweepOrphanedTaskUploads).toHaveBeenCalledWith(
+                { execute: false },
+                'parent-token'
+            );
+        });
+        expect(screen.getAllByText('1.0 KB')).toHaveLength(2);
+
+        await user.click(screen.getByRole('button', { name: /delete orphaned files/i }));
+        let dialog = screen.getByRole('alertdialog');
+        expect(within(dialog).getByText(/scan again, protect every current attachment reference/i)).toBeInTheDocument();
+        await user.click(within(dialog).getByRole('button', { name: /keep files/i }));
+        expect(fileManagerMocks.sweepOrphanedTaskUploads).toHaveBeenCalledTimes(1);
+
+        await user.click(screen.getByRole('button', { name: /delete orphaned files/i }));
+        dialog = screen.getByRole('alertdialog');
+        await user.click(within(dialog).getByRole('button', { name: /delete orphaned files/i }));
+
+        await waitFor(() => {
+            expect(fileManagerMocks.sweepOrphanedTaskUploads).toHaveBeenLastCalledWith(
+                { execute: true },
+                'parent-token'
+            );
+        });
+        expect(await screen.findByRole('status')).toHaveTextContent('Cleanup completed');
+        expect(fileManagerMocks.getFiles).toHaveBeenCalledWith('parent-token');
     });
 });

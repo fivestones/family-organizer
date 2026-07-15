@@ -4,9 +4,13 @@ const actionMocks = vi.hoisted(() => ({
     cookies: vi.fn(),
     revalidatePath: vi.fn(),
     S3Client: vi.fn(),
+    s3Send: vi.fn(),
     ListObjectsV2Command: vi.fn(),
+    DeleteObjectsCommand: vi.fn(),
     createPresignedPost: vi.fn(),
     requireFamilyMemberToken: vi.fn(),
+    getInstantAdminDb: vi.fn(),
+    adminQuery: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
@@ -20,6 +24,7 @@ vi.mock('next/cache', () => ({
 vi.mock('@aws-sdk/client-s3', () => ({
     S3Client: actionMocks.S3Client,
     ListObjectsV2Command: actionMocks.ListObjectsV2Command,
+    DeleteObjectsCommand: actionMocks.DeleteObjectsCommand,
 }));
 
 vi.mock('@aws-sdk/s3-presigned-post', () => ({
@@ -29,6 +34,14 @@ vi.mock('@aws-sdk/s3-presigned-post', () => ({
 vi.mock('@/lib/request-family-member', () => ({
     requireFamilyMemberToken: actionMocks.requireFamilyMemberToken,
 }));
+
+vi.mock('@/lib/instant-admin', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/instant-admin')>();
+    return {
+        ...actual,
+        getInstantAdminDb: actionMocks.getInstantAdminDb,
+    };
+});
 
 // SHA-256('test-device-key')
 const EXPECTED_TOKEN = 'dbf8307f327810a7080ea7a691ee058251dbc4b4eb030adce9d1a880cb07fcd6';
@@ -46,14 +59,24 @@ describe('app/actions server auth + file actions', () => {
         process.env.S3_BUCKET_NAME = 'family-files';
 
         actionMocks.S3Client.mockImplementation(function MockS3Client() {
-            (this as any).send = vi.fn().mockResolvedValue({
+            (this as any).send = actionMocks.s3Send;
+        });
+        actionMocks.s3Send.mockResolvedValue({
                 Contents: [
                     { Key: 'a.png', LastModified: new Date('2025-01-01T00:00:00Z'), Size: 123 },
                     { Key: 'b.png', LastModified: new Date('2025-01-02T00:00:00Z'), Size: 456 },
                 ],
             });
+        actionMocks.getInstantAdminDb.mockReturnValue({ query: actionMocks.adminQuery });
+        actionMocks.adminQuery.mockResolvedValue({
+            taskAttachments: [],
+            taskUpdateAttachments: [],
+            taskResponseFieldValues: [],
         });
         actionMocks.ListObjectsV2Command.mockImplementation(function MockListObjectsV2Command(input) {
+            (this as any).input = input;
+        });
+        actionMocks.DeleteObjectsCommand.mockImplementation(function MockDeleteObjectsCommand(input) {
             (this as any).input = input;
         });
         actionMocks.createPresignedPost.mockResolvedValue({
@@ -201,5 +224,88 @@ describe('app/actions server auth + file actions', () => {
         const { getFiles } = await import('@/app/actions');
 
         await expect(getFiles('kid-token')).rejects.toThrow('Parent access required');
+    });
+
+    it('previews and deletes only old unreferenced objects in task-owned namespaces', async () => {
+        setDeviceCookie(EXPECTED_TOKEN);
+        const old = new Date('2026-01-01T00:00:00Z');
+        const recent = new Date();
+
+        actionMocks.adminQuery.mockResolvedValue({
+            taskAttachments: [
+                { url: 'task-attachment/referenced.pdf', thumbnailUrl: null },
+                { url: 'task-attachment/referenced.pdf', thumbnailUrl: null },
+            ],
+            taskUpdateAttachments: [{ url: '/files/task-update%2Freferenced.jpg' }],
+            taskResponseFieldValues: [{ fileUrl: '/api/mobile/files/task-attachment--mobile--referenced.png' }],
+        });
+        actionMocks.s3Send.mockImplementation(async (command: { input?: Record<string, any> }) => {
+            const input = command.input || {};
+            if (input.Delete) return {};
+            if (input.Prefix === 'task-attachment/' && !input.ContinuationToken) {
+                return {
+                    Contents: [
+                        { Key: 'task-attachment/referenced.pdf', LastModified: old, Size: 100 },
+                        { Key: 'task-attachment/orphan.pdf', LastModified: old, Size: 200 },
+                    ],
+                    IsTruncated: true,
+                    NextContinuationToken: 'page-2',
+                };
+            }
+            if (input.Prefix === 'task-attachment/' && input.ContinuationToken === 'page-2') {
+                return {
+                    Contents: [{ Key: 'task-attachment/recent.pdf', LastModified: recent, Size: 300 }],
+                    IsTruncated: false,
+                };
+            }
+            if (input.Prefix === 'task-update/') {
+                return {
+                    Contents: [{ Key: 'task-update/referenced.jpg', LastModified: old, Size: 400 }],
+                };
+            }
+            if (input.Prefix === 'task-response/') {
+                return {
+                    Contents: [{ Key: 'task-response/orphan.txt', LastModified: old, Size: 500 }],
+                };
+            }
+            if (input.Prefix === 'task-attachment--') {
+                return {
+                    Contents: [{ Key: 'task-attachment--mobile--referenced.png', LastModified: old, Size: 600 }],
+                };
+            }
+            throw new Error(`Unexpected S3 command: ${JSON.stringify(input)}`);
+        });
+
+        const { sweepOrphanedTaskUploads } = await import('@/app/actions');
+        const preview = await sweepOrphanedTaskUploads({ execute: false }, 'parent-token');
+
+        expect(preview).toMatchObject({
+            gracePeriodHours: 24,
+            managedObjects: 6,
+            managedBytes: 2100,
+            referencedObjects: 3,
+            referencedBytes: 1100,
+            graceProtectedObjects: 1,
+            graceProtectedBytes: 300,
+            orphanedObjects: 2,
+            orphanedBytes: 700,
+            deletedObjects: 0,
+            deletedBytes: 0,
+        });
+        expect(actionMocks.DeleteObjectsCommand).not.toHaveBeenCalled();
+
+        const result = await sweepOrphanedTaskUploads({ execute: true }, 'parent-token');
+
+        expect(actionMocks.adminQuery).toHaveBeenCalledTimes(3);
+        expect(actionMocks.DeleteObjectsCommand).toHaveBeenCalledWith({
+            Bucket: 'family-files',
+            Delete: {
+                Objects: [{ Key: 'task-attachment/orphan.pdf' }, { Key: 'task-response/orphan.txt' }],
+                Quiet: true,
+            },
+        });
+        expect(result).toMatchObject({ orphanedObjects: 2, deletedObjects: 2, deletedBytes: 700 });
+        expect(actionMocks.revalidatePath).toHaveBeenCalledWith('/files');
+        expect(actionMocks.requireFamilyMemberToken).toHaveBeenLastCalledWith('parent-token', { requireParent: true });
     });
 });

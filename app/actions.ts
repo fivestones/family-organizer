@@ -7,8 +7,14 @@ import { cookies } from 'next/headers';
 import { randomUUID, createHash } from 'crypto';
 import { DEVICE_AUTH_COOKIE_NAME } from '@/lib/device-auth';
 import { finalizeUploadedAttachment, type AttachmentFinalizeInput } from '@/lib/attachment-finalizer';
-import { hashPinServer } from '@/lib/instant-admin';
+import { getInstantAdminDb, hashPinServer } from '@/lib/instant-admin';
 import { requireFamilyMemberToken } from '@/lib/request-family-member';
+import {
+    planTaskUploadOrphanSweep,
+    TASK_UPLOAD_OBJECT_PREFIXES,
+    TASK_UPLOAD_SWEEP_GRACE_PERIOD_HOURS,
+    type TaskUploadObject,
+} from '@/lib/task-attachment-orphan-sweep';
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
 const AVATAR_SIZES = ['64', '320', '1200'] as const;
@@ -145,6 +151,95 @@ export interface S3File {
     key: string;
     lastModified: Date;
     size: number;
+}
+
+export interface TaskUploadSweepResult {
+    gracePeriodHours: number;
+    managedObjects: number;
+    managedBytes: number;
+    referencedObjects: number;
+    referencedBytes: number;
+    graceProtectedObjects: number;
+    graceProtectedBytes: number;
+    orphanedObjects: number;
+    orphanedBytes: number;
+    deletedObjects: number;
+    deletedBytes: number;
+}
+
+async function listTaskUploadObjects(s3Internal: S3Client, bucketName: string): Promise<TaskUploadObject[]> {
+    const objects: TaskUploadObject[] = [];
+
+    for (const prefix of TASK_UPLOAD_OBJECT_PREFIXES) {
+        let continuationToken: string | undefined;
+        const seenTokens = new Set<string>();
+
+        do {
+            const page = await s3Internal.send(
+                new ListObjectsV2Command({
+                    Bucket: bucketName,
+                    Prefix: prefix,
+                    ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+                })
+            );
+
+            for (const object of page.Contents || []) {
+                if (!object.Key) continue;
+                objects.push({
+                    key: object.Key,
+                    lastModified: object.LastModified,
+                    size: object.Size || 0,
+                });
+            }
+
+            if (!page.IsTruncated) break;
+            const nextToken = page.NextContinuationToken;
+            if (!nextToken || seenTokens.has(nextToken)) {
+                throw new Error(`Could not finish listing task uploads under ${prefix}`);
+            }
+            seenTokens.add(nextToken);
+            continuationToken = nextToken;
+        } while (continuationToken);
+    }
+
+    return objects;
+}
+
+async function queryTaskUploadReferences(): Promise<unknown[]> {
+    const adminDb = getInstantAdminDb();
+    const result = await adminDb.query({
+        taskAttachments: {},
+        taskUpdateAttachments: {},
+        taskResponseFieldValues: {},
+    });
+
+    const taskAttachments = (result.taskAttachments || []) as Array<{ url?: unknown; thumbnailUrl?: unknown }>;
+    const taskUpdateAttachments = (result.taskUpdateAttachments || []) as Array<{ url?: unknown; thumbnailUrl?: unknown }>;
+    const responseValues = (result.taskResponseFieldValues || []) as Array<{ fileUrl?: unknown; thumbnailUrl?: unknown }>;
+
+    return [
+        ...taskAttachments.flatMap((attachment) => [attachment.url, attachment.thumbnailUrl]),
+        ...taskUpdateAttachments.flatMap((attachment) => [attachment.url, attachment.thumbnailUrl]),
+        ...responseValues.flatMap((value) => [value.fileUrl, value.thumbnailUrl]),
+    ];
+}
+
+async function deleteS3ObjectsWithClient(s3Internal: S3Client, bucketName: string, keys: string[]) {
+    let deleted = 0;
+    for (let start = 0; start < keys.length; start += 1000) {
+        const chunk = keys.slice(start, start + 1000);
+        await s3Internal.send(
+            new DeleteObjectsCommand({
+                Bucket: bucketName,
+                Delete: {
+                    Objects: chunk.map((Key) => ({ Key })),
+                    Quiet: true,
+                },
+            })
+        );
+        deleted += chunk.length;
+    }
+    return deleted;
 }
 
 // 1. Get List of Files (SIMPLIFIED)
@@ -299,25 +394,59 @@ export async function deleteS3Objects(keys: string[], instantAuthToken: string) 
 
     const { s3Internal, bucketName } = getS3Clients();
     try {
-        let deleted = 0;
-        for (let start = 0; start < uniqueKeys.length; start += 1000) {
-            const chunk = uniqueKeys.slice(start, start + 1000);
-            await s3Internal.send(
-                new DeleteObjectsCommand({
-                    Bucket: bucketName,
-                    Delete: {
-                        Objects: chunk.map((Key) => ({ Key })),
-                        Quiet: true,
-                    },
-                })
-            );
-            deleted += chunk.length;
-        }
+        const deleted = await deleteS3ObjectsWithClient(s3Internal, bucketName, uniqueKeys);
         return { deleted };
     } catch (error) {
         console.error('Error deleting S3 objects:', error);
         throw new Error('Failed to delete files');
     }
+}
+
+export async function sweepOrphanedTaskUploads(
+    input: { execute?: boolean },
+    instantAuthToken: string
+): Promise<TaskUploadSweepResult> {
+    await requireActionFamilyMember(instantAuthToken, { requireParent: true });
+
+    const execute = input?.execute === true;
+    const { s3Internal, bucketName } = getS3Clients();
+    const objects = await listTaskUploadObjects(s3Internal, bucketName);
+    let references = await queryTaskUploadReferences();
+    let plan = planTaskUploadOrphanSweep({ objects, referencedValues: references });
+
+    // An execute request always performs a fresh scan. Re-read Instant once more
+    // immediately before deletion so a reference added during the S3 listing is
+    // protected too; the 24-hour object grace period protects uploads in flight.
+    if (execute && plan.orphanedObjects.length > 0) {
+        references = await queryTaskUploadReferences();
+        plan = planTaskUploadOrphanSweep({ objects, referencedValues: references });
+    }
+
+    const deletedObjects = execute
+        ? await deleteS3ObjectsWithClient(
+              s3Internal,
+              bucketName,
+              plan.orphanedObjects.map((object) => object.key)
+          )
+        : 0;
+
+    if (deletedObjects > 0) {
+        revalidatePath('/files');
+    }
+
+    return {
+        gracePeriodHours: TASK_UPLOAD_SWEEP_GRACE_PERIOD_HOURS,
+        managedObjects: plan.managedObjects,
+        managedBytes: plan.managedBytes,
+        referencedObjects: plan.referencedObjects,
+        referencedBytes: plan.referencedBytes,
+        graceProtectedObjects: plan.graceProtectedObjects,
+        graceProtectedBytes: plan.graceProtectedBytes,
+        orphanedObjects: plan.orphanedObjects.length,
+        orphanedBytes: plan.orphanedBytes,
+        deletedObjects,
+        deletedBytes: deletedObjects > 0 ? plan.orphanedBytes : 0,
+    };
 }
 
 export async function refreshFiles(instantAuthToken: string) {
