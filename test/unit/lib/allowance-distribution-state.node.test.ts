@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { addProcessedPeriodIds, calculateEditableAllowanceTotal, excludeProcessedPeriods } from '@/lib/allowance-distribution-state';
+import {
+    addProcessedPeriodIds,
+    calculateEditableAllowanceTotal,
+    excludeProcessedPeriods,
+    getAllowanceAmountWarning,
+} from '@/lib/allowance-distribution-state';
 
 describe('allowance distribution local processed-period state', () => {
     it('keeps a stable union of successfully processed period ids', () => {
@@ -27,5 +32,15 @@ describe('allowance distribution local processed-period state', () => {
 
         expect(calculateEditableAllowanceTotal(periods, { 'pending-a': '12.50', 'pending-b': '-2' }, 3)).toBe(13.5);
         expect(calculateEditableAllowanceTotal(periods, { 'pending-a': '', 'pending-b': 'invalid' }, 3)).toBe(13);
+    });
+
+    it('requires confirmation for direction changes, zero-baseline overrides, and tenfold increases', () => {
+        expect(getAllowanceAmountWarning(45, -45)).toMatchObject({ kind: 'direction-change' });
+        expect(getAllowanceAmountWarning(0, 5)).toMatchObject({ kind: 'zero-baseline' });
+        expect(getAllowanceAmountWarning(45, 450)).toMatchObject({ kind: 'tenfold-increase', multiplier: 10 });
+        expect(getAllowanceAmountWarning(45, 449.99)).toBeNull();
+        expect(getAllowanceAmountWarning(45, 50)).toBeNull();
+        expect(getAllowanceAmountWarning(45, 45.004)).toBeNull();
+        expect(getAllowanceAmountWarning(Number.NaN, 50)).toBeNull();
     });
 });

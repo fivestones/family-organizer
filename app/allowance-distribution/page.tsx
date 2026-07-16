@@ -9,11 +9,27 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
-import { Loader2, CheckCircle, XCircle, DollarSign, TrendingDown, Info, CalendarIcon } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, DollarSign, TrendingDown, Info, CalendarIcon, AlertTriangle } from 'lucide-react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { formatBalances, UnitDefinition, Envelope } from '@/lib/currency-utils';
 import { executeAtomicAllowancePayout } from '@/lib/allowance-payout';
-import { addProcessedPeriodIds, calculateEditableAllowanceTotal, excludeProcessedPeriods } from '@/lib/allowance-distribution-state';
+import {
+    addProcessedPeriodIds,
+    calculateEditableAllowanceTotal,
+    excludeProcessedPeriods,
+    getAllowanceAmountWarning,
+    type AllowanceAmountWarning,
+} from '@/lib/allowance-distribution-state';
 import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import {
     createRRuleWithStartDate,
@@ -82,6 +98,26 @@ interface EditablePeriodAmounts {
     [periodId: string]: string;
 }
 
+interface PendingAmountConfirmation {
+    description: string;
+    confirmLabel: string;
+    run: () => void;
+}
+
+function describeAmountWarning(warning: AllowanceAmountWarning, currency: string, periodEndDate: Date) {
+    const calculated = `${currency.toUpperCase()} ${warning.calculatedAmount.toFixed(2)}`;
+    const edited = `${currency.toUpperCase()} ${warning.editedAmount.toFixed(2)}`;
+    const periodLabel = format(periodEndDate, 'yyyy-MM-dd');
+
+    if (warning.kind === 'direction-change') {
+        return `The period ending ${periodLabel} was calculated as ${calculated}, but the edit changes its direction to ${edited}.`;
+    }
+    if (warning.kind === 'zero-baseline') {
+        return `The period ending ${periodLabel} was calculated as zero, but the edit will move ${edited}.`;
+    }
+    return `The period ending ${periodLabel} was calculated as ${calculated}, but the edit is ${edited} (${warning.multiplier?.toFixed(1)}× larger).`;
+}
+
 // --- Component ---
 
 export default function AllowanceDistributionPage() {
@@ -93,6 +129,7 @@ export default function AllowanceDistributionPage() {
     const [processingMemberId, setProcessingMemberId] = useState<string | null>(null); // Track processing state for specific member actions
     const [simulatedDate, setSimulatedDate] = useState<Date>(() => startOfDay(new Date()));
     const [locallyProcessedPeriodIds, setLocallyProcessedPeriodIds] = useState<ReadonlySet<string>>(() => new Set());
+    const [pendingAmountConfirmation, setPendingAmountConfirmation] = useState<PendingAmountConfirmation | null>(null);
 
     // +++ NEW STATE: Add state for editable period amounts +++
     const [editablePeriodAmounts, setEditablePeriodAmounts] = useState<EditablePeriodAmounts>({});
@@ -428,13 +465,13 @@ export default function AllowanceDistributionPage() {
     };
 
     // +++ NEW: Handler for depositing/withdrawing a single period +++
-    const handleDepositWithdrawPeriod = async (memberId: string, period: CalculatedPeriod) => {
+    const executeDepositWithdrawPeriod = async (memberId: string, period: CalculatedPeriod) => {
         setProcessingMemberId(memberId); // Use member ID to disable all buttons for that member
 
         // The amount being deposited/withdrawn for a *single* period should be the editable weight-based amount
         // PLUS any fixed rewards earned *in that specific period*.
         const editableAmountString = editablePeriodAmounts[period.id];
-        const editableAmount = parseFloat(editableAmountString);
+        const editableAmount = editableAmountString?.trim() ? Number(editableAmountString) : Number.NaN;
         if (isNaN(editableAmount)) {
             toast({
                 title: 'Invalid Amount',
@@ -532,7 +569,26 @@ export default function AllowanceDistributionPage() {
         }
     };
 
-    const handleDepositWithdraw = async (memberId: string) => {
+    const handleDepositWithdrawPeriod = (memberId: string, period: CalculatedPeriod) => {
+        const allowanceInfo = processedAllowances.find((entry) => entry.member.id === memberId);
+        const currency = allowanceInfo?.member.allowanceCurrency;
+        const rawAmount = editablePeriodAmounts[period.id];
+        const editedAmount = rawAmount?.trim() ? Number(rawAmount) : Number.NaN;
+        const warning = currency ? getAllowanceAmountWarning(period.calculatedAmount, editedAmount) : null;
+
+        if (warning && currency) {
+            setPendingAmountConfirmation({
+                description: describeAmountWarning(warning, currency, period.periodEndDate),
+                confirmLabel: warning.editedAmount < 0 ? 'Confirm withdrawal' : 'Confirm amount',
+                run: () => void executeDepositWithdrawPeriod(memberId, period),
+            });
+            return;
+        }
+
+        void executeDepositWithdrawPeriod(memberId, period);
+    };
+
+    const executeDepositWithdraw = async (memberId: string) => {
         setProcessingMemberId(memberId);
 
         const allowanceInfo = processedAllowances.find((pa) => pa.member.id === memberId);
@@ -570,7 +626,7 @@ export default function AllowanceDistributionPage() {
                 .filter((period) => period.status === 'pending')
                 .map((period) => {
                     const amountString = editablePeriodAmounts[period.id];
-                    const editableAmount = parseFloat(amountString || '0');
+                    const editableAmount = amountString?.trim() ? Number(amountString) : Number.NaN;
                     if (!Number.isFinite(editableAmount)) {
                         throw new Error(`Enter a valid amount for the period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}.`);
                     }
@@ -631,12 +687,74 @@ export default function AllowanceDistributionPage() {
         }
     };
 
+    const handleDepositWithdraw = (memberId: string) => {
+        const allowanceInfo = processedAllowances.find((entry) => entry.member.id === memberId);
+        const currency = allowanceInfo?.member.allowanceCurrency;
+        if (!allowanceInfo || !currency) {
+            void executeDepositWithdraw(memberId);
+            return;
+        }
+
+        const warnings = allowanceInfo.pendingPeriods
+            .filter((period) => period.status === 'pending')
+            .map((period) => {
+                const rawAmount = editablePeriodAmounts[period.id];
+                const editedAmount = rawAmount?.trim() ? Number(rawAmount) : Number.NaN;
+                const warning = getAllowanceAmountWarning(period.calculatedAmount, editedAmount);
+                return warning ? { period, warning } : null;
+            })
+            .filter((entry): entry is { period: CalculatedPeriod; warning: AllowanceAmountWarning } => Boolean(entry));
+
+        if (warnings.length > 0) {
+            const firstWarning = warnings[0];
+            const extraWarningText = warnings.length > 1 ? ` ${warnings.length - 1} other period amount(s) also look unusual.` : '';
+            setPendingAmountConfirmation({
+                description: `${describeAmountWarning(firstWarning.warning, currency, firstWarning.period.periodEndDate)}${extraWarningText}`,
+                confirmLabel: warnings.some(({ warning }) => warning.editedAmount < 0) ? 'Confirm adjustments' : 'Confirm amounts',
+                run: () => void executeDepositWithdraw(memberId),
+            });
+            return;
+        }
+
+        void executeDepositWithdraw(memberId);
+    };
+
     // --- Render ---
     const showLoading = isLoading || isDataLoading;
 
     return (
         <ParentGate>
             <div className="container mx-auto p-4 md:p-8 space-y-6">
+                <AlertDialog
+                    open={Boolean(pendingAmountConfirmation)}
+                    onOpenChange={(open) => {
+                        if (!open) setPendingAmountConfirmation(null);
+                    }}
+                >
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle className="flex items-center gap-2">
+                                <AlertTriangle className="h-5 w-5 text-amber-500" /> Confirm unusual allowance amount
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                                {pendingAmountConfirmation?.description} Check the period amount before continuing; this action writes the ledger and
+                                updates the envelope balance.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Go back</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={() => {
+                                    const run = pendingAmountConfirmation?.run;
+                                    setPendingAmountConfirmation(null);
+                                    run?.();
+                                }}
+                            >
+                                {pendingAmountConfirmation?.confirmLabel || 'Confirm amount'}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                     <h1 className="text-3xl font-bold">Allowance Distribution</h1>
                     <div className="flex items-center gap-2">

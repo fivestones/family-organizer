@@ -26,3 +26,32 @@ export function calculateEditableAllowanceTotal(
 
     return editablePeriodTotal + fixedRewardsInPrimaryCurrency;
 }
+
+export type AllowanceAmountWarning = {
+    kind: 'direction-change' | 'zero-baseline' | 'tenfold-increase';
+    calculatedAmount: number;
+    editedAmount: number;
+    multiplier: number | null;
+};
+
+export function getAllowanceAmountWarning(calculatedAmount: number, editedAmount: number): AllowanceAmountWarning | null {
+    if (!Number.isFinite(calculatedAmount) || !Number.isFinite(editedAmount)) return null;
+    if (Math.abs(calculatedAmount - editedAmount) < 0.005) return null;
+
+    if (calculatedAmount !== 0 && editedAmount !== 0 && Math.sign(calculatedAmount) !== Math.sign(editedAmount)) {
+        return { kind: 'direction-change', calculatedAmount, editedAmount, multiplier: null };
+    }
+
+    const calculatedMagnitude = Math.abs(calculatedAmount);
+    const editedMagnitude = Math.abs(editedAmount);
+    if (calculatedMagnitude === 0 && editedMagnitude > 0) {
+        return { kind: 'zero-baseline', calculatedAmount, editedAmount, multiplier: null };
+    }
+
+    const multiplier = editedMagnitude / calculatedMagnitude;
+    if (multiplier >= 10) {
+        return { kind: 'tenfold-increase', calculatedAmount, editedAmount, multiplier };
+    }
+
+    return null;
+}
