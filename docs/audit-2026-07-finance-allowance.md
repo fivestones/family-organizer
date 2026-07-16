@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-16 — Completed: no historical foreign-currency reward recovery is required (§1.4; fix plan 2).** A read-only query of the configured hosted Instant app found zero completion rows with `allowanceAwarded: true`, so there are no previously awarded foreign-currency fixed rewards that could have been dropped by the old payout path. No speculative credits or backfill were created. Future multi-currency rewards remain protected by the atomic per-currency payout implementation.
 - **2026-07-16 — Completed: person-transfer currency behavior is explicit (§7).** `TransferToPersonForm` now uses Instant's supported null-query deferral instead of a non-existent second `enabled` argument. Once a recipient, source, and currency are selected, the form explains that transfers never perform exchange-rate conversion. If the recipient's default envelope lacks that currency/unit, an amber notice names the recipient, envelope, and bucket that the transfer will create before submission. Verification: all 8 allowance-form DOM tests, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-16 — Completed: unusual edited payouts require explicit confirmation (§6).** Both one-period and bulk actions inspect the actual per-period values before touching the ledger. A styled confirmation names the affected period and calculated/edited amounts when an edit reverses deposit/withdrawal direction, changes a zero calculation to a nonzero movement, or reaches at least 10× the calculated magnitude; bulk confirmation also reports additional suspicious periods. Normal corrections proceed directly, and invalid drafts still use the existing validation path. Verification: focused guard/state and payout tests, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-16 — Completed: bulk “Total Due” now reflects the amounts actually submitted (§6).** The footer previously looked editable but its state was never read by the bulk payout handler, so a parent could type a correction and unknowingly submit the unchanged period values. It is now an explicitly read-only derived total of pending period inputs plus fixed rewards in the primary currency; editing a period immediately changes both the displayed total and the values sent to the atomic payout. A shared calculator excludes in-progress periods, uses calculated values as empty-input fallbacks, and handles invalid drafts without poisoning the total. Verification: focused distribution-state and payout tests, `tsc --noEmit`, and `git diff --check` pass.
@@ -82,13 +83,13 @@ Both payout paths previously ran two awaited steps: `executeAllowanceTransaction
 
 **Implemented:** [allowance-payout.ts](../lib/allowance-payout.ts) is now the shared single-period/bulk distribution boundary. It re-queries the current envelope and existing deterministic period rows immediately before building one `db.transact` containing the balance update, one immutable ledger row per pending period, the envelope/ledger links, finance history, optional default-envelope creation, and deduplicated `allowanceAwarded: true` writes. `allowanceTransactions.distributionKey` is unique and indexed, while the transaction/history/default-envelope IDs are UUIDv5 values derived from stable period identity. A normal retry skips rows already present; two concurrent clients build the same IDs and key, so only one entire transaction can commit. This closes the payout/mark failure window. It deliberately does **not** claim to solve the broader stale-JSON balance race in §1.1 for unrelated simultaneous money operations.
 
-### 1.4 Foreign-currency fixed rewards are never paid — **Completed for new payouts 2026-07-15**
+### 1.4 Foreign-currency fixed rewards are never paid — **Completed 2026-07-16**
 
 `calculatePeriodDetails` accumulated `fixedRewardsEarned` per currency, but both payout handlers deposited only the member's primary allowance currency. The completions backing those rewards were still flagged `allowanceAwarded: true`, so (for example) a 500-NPR fixed reward could disappear when a member's allowance currency was USD.
 
 **Implemented for all future distribution actions:** each period carries primary and additional currency amounts to `executeAtomicAllowancePayout`. The helper folds pending currency legs into one balance update, then writes a deterministic ledger row and finance history event for each period/currency in the same transaction as completion award marks. Single-period and bulk buttons stay enabled when the primary amount is zero but another earned currency is non-zero, and their result toast lists every currency moved. Retry detection is per currency, so a primary row already present does not suppress a missing foreign leg.
 
-**Historical-data boundary:** this prevents new loss, but it does not automatically credit foreign rewards that the old code already marked awarded. Those rows need a guarded recovery report/backfill that proves no matching ledger credit exists before creating money. That is tracked as a separate follow-up rather than silently inferring credits during normal payout.
+**Historical exposure verified:** on 2026-07-16 a read-only hosted query found zero completion rows with `allowanceAwarded: true`. There are therefore no historical awarded foreign-currency rows to recover in the configured app, and no backfill was run. If another deployment or imported dataset is introduced later, it must repeat this evidence check before considering any guarded credit operation.
 
 ---
 
@@ -170,7 +171,7 @@ The client previously selected a `NEXT_PUBLIC` value or a committed fallback and
 
 **Phase 0 — stop losing money:**
 1. ~~Atomic payout: single transact for deposit + balance + `allowanceAwarded` marks, with per-period idempotency (1.3).~~ **Completed and hosted schema deployed 2026-07-15.**
-2. ~~Pay `fixedRewardsEarned` per currency in that same transact (1.4).~~ **Completed for new payouts 2026-07-15; historical recovery remains explicitly tracked in §1.4.**
+2. ~~Pay `fixedRewardsEarned` per currency in that same transact (1.4).~~ **Completed for new payouts 2026-07-15; hosted historical exposure was checked and found empty 2026-07-16.**
 3. ~~Deterministic up-for-grabs completion IDs (chores audit 1.1 — double-pay source).~~ **Completed 2026-07-14, including legacy payout deduplication.**
 
 **Phase 1 — trust the ledger:**
