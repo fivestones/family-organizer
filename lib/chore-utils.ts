@@ -339,30 +339,27 @@ export const getChoreOccurrencesForMemberInPeriod = (chore: Chore, memberId: str
 /**
  * Calculates the allowance details for a specific member and period.
  * Queries chores and completions to determine weights and amounts.
- * @param db - InstantDB instance.
  * @param memberId - The family member's ID.
  * @param periodStartDate - Start date of the period (UTC).
  * @param periodEndDate - End date of the period (UTC).
  * @param allowanceAmount - The base allowance amount for the member.
  * @param allChores - An array containing all chore data (or relevant subset).
  * @param unawardedCompletionsForMember - All unawarded completions for this member.
- * @returns A Promise resolving to a CalculatedPeriod object or null.
+ * @returns A calculated period object or null.
  */
-export const calculatePeriodDetails = async (
-    db: any, // Keep db instance for potential future sub-queries
+export const calculatePeriodDetails = (
     memberId: string,
     periodStartDate: Date,
     periodEndDate: Date,
     allowanceAmount: number,
     allChores: Chore[],
     unawardedCompletionsForMember: ChoreCompletion[]
-): Promise<CalculatedPeriod | null> => {
+): CalculatedPeriod | null => {
     let totalWeight = 0;
     let completedWeight = 0;
     const completionsInPeriodToMark: string[] = [];
     // +++ Initialize fixed rewards tracker +++
     const fixedRewardsEarned: { [currency: string]: number } = {};
-    const choreOccurrencesCounted = new Set<string>(); // Track chores already counted for totalWeight
     // +++ Initialize weight tracker for up-for-grabs +++
     let upForGrabsCompletedWeight = 0;
 

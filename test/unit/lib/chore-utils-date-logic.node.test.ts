@@ -409,8 +409,7 @@ describe('chore-utils date logic', () => {
             { id: 'c5', dateDue: '2026-03-20', completed: true, chore: [{ id: 'regular' }] }, // outside period
         ];
 
-        const result = await calculatePeriodDetails(
-            {} as any,
+        const result = calculatePeriodDetails(
             'kid-a',
             new Date('2026-03-01T00:00:00Z'),
             new Date('2026-03-07T00:00:00Z'),
@@ -441,8 +440,7 @@ describe('chore-utils date logic', () => {
             weight: 2,
         });
 
-        const result = await calculatePeriodDetails(
-            {} as any,
+        const result = calculatePeriodDetails(
             'kid-a',
             new Date('2026-03-01T00:00:00Z'),
             new Date('2026-03-01T00:00:00Z'),

@@ -281,8 +281,7 @@ export default function AllowanceDistributionPage() {
                         });
 
                         // Calculate details
-                        const details = await calculatePeriodDetails(
-                            db,
+                        const details = calculatePeriodDetails(
                             member.id,
                             periodStartDate,
                             periodEndDate,
