@@ -47,6 +47,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { ParentGate } from '@/components/auth/ParentGate'; // +++ Added
+import { PendingAllowancePolicyNotice } from '@/components/allowance/PendingAllowancePolicyNotice';
 import { db } from '@/lib/db';
 
 // --- Component Types ---
@@ -773,6 +774,8 @@ export default function AllowanceDistributionPage() {
                         </Popover>
                     </div>
                 </div>
+
+                <PendingAllowancePolicyNotice />
 
                 {showLoading && (
                     <div className="p-4 flex items-center justify-center ">
