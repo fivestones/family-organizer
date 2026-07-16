@@ -10,3 +10,19 @@ export function excludeProcessedPeriods<T extends { id: string }>(periods: T[], 
     if (processedPeriodIds.size === 0) return periods;
     return periods.filter((period) => !processedPeriodIds.has(period.id));
 }
+
+export function calculateEditableAllowanceTotal(
+    periods: Array<{ id: string; status?: string; calculatedAmount: number }>,
+    editablePeriodAmounts: Readonly<Record<string, string>>,
+    fixedRewardsInPrimaryCurrency: number
+): number {
+    const editablePeriodTotal = periods
+        .filter((period) => period.status === 'pending')
+        .reduce((sum, period) => {
+            const rawValue = editablePeriodAmounts[period.id];
+            const amount = rawValue == null || rawValue.trim() === '' ? period.calculatedAmount : Number(rawValue);
+            return sum + (Number.isFinite(amount) ? amount : 0);
+        }, 0);
+
+    return editablePeriodTotal + fixedRewardsInPrimaryCurrency;
+}

@@ -9,11 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
-import { Loader2, CheckCircle, XCircle, DollarSign, TrendingDown, Edit, Info, CalendarIcon } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, DollarSign, TrendingDown, Info, CalendarIcon } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { formatBalances, UnitDefinition, Envelope } from '@/lib/currency-utils';
 import { executeAtomicAllowancePayout } from '@/lib/allowance-payout';
-import { addProcessedPeriodIds, excludeProcessedPeriods } from '@/lib/allowance-distribution-state';
+import { addProcessedPeriodIds, calculateEditableAllowanceTotal, excludeProcessedPeriods } from '@/lib/allowance-distribution-state';
 import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import {
     createRRuleWithStartDate,
@@ -72,14 +72,9 @@ interface FamilyMemberWithAllowance extends Record<string, any> {
 interface MemberAllowanceInfo {
     member: FamilyMemberWithAllowance;
     pendingPeriods: CalculatedPeriod[]; // Includes pending AND in-progress
-    totalDue: number; // Combined total (weight-based + same-currency fixed)
     // +++ Add storage for fixed rewards +++
     totalFixedRewardsInPrimaryCurrency: number;
     totalFixedRewardsInOtherCurrencies: { [currency: string]: number };
-}
-
-interface EditableAmounts {
-    [memberId: string]: string;
 }
 
 // +++ NEW STATE: Store editable amounts per period +++
@@ -95,7 +90,6 @@ export default function AllowanceDistributionPage() {
     const [error, setError] = useState<Error | null>(null);
     // State still holds only members WITH pending periods after processing
     const [processedAllowances, setProcessedAllowances] = useState<MemberAllowanceInfo[]>([]);
-    const [editableAmounts, setEditableAmounts] = useState<EditableAmounts>({});
     const [processingMemberId, setProcessingMemberId] = useState<string | null>(null); // Track processing state for specific member actions
     const [simulatedDate, setSimulatedDate] = useState<Date>(() => startOfDay(new Date()));
     const [locallyProcessedPeriodIds, setLocallyProcessedPeriodIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -166,7 +160,6 @@ export default function AllowanceDistributionPage() {
             const { familyMembers, choreCompletions: allUnawardedCompletions, chores, unitDefinitions, allowanceEnvelopes } = typedData;
             const upForGrabsClaims = buildUpForGrabsClaimDeduplication(allUnawardedCompletions, chores);
             const results: MemberAllowanceInfo[] = [];
-            const newEditableAmounts: EditableAmounts = {};
             // +++ NEW: Reset period amounts on each process run +++
             const newEditablePeriodAmounts: EditablePeriodAmounts = {};
 
@@ -341,15 +334,13 @@ export default function AllowanceDistributionPage() {
                                 }
                             });
 
-                            // +++ Calculate totalDue including same-currency fixed rewards +++
-                            let totalCalculatedAmountDue = 0;
+                            // Aggregate non-editable fixed rewards for the submitted totals.
                             const aggregatedFixedRewards: {
                                 [currency: string]: number;
                             } = {};
                             displayablePeriods
                                 .filter((p) => p.status === 'pending') // Only sum pending ones
                                 .forEach((p) => {
-                                    totalCalculatedAmountDue += p.calculatedAmount; // Sum weight-based part
                                     // Aggregate fixed rewards
                                     for (const [currency, amount] of Object.entries(p.fixedRewardsEarned || {})) {
                                         aggregatedFixedRewards[currency] = (aggregatedFixedRewards[currency] || 0) + amount;
@@ -367,18 +358,13 @@ export default function AllowanceDistributionPage() {
                                 }
                             }
 
-                            const finalTotalDue = totalCalculatedAmountDue + totalFixedPrimary;
-
                             // +++ Push filtered periods and calculated totals to results +++
                             results.push({
                                 member,
                                 pendingPeriods: displayablePeriods,
-                                totalDue: finalTotalDue, // Total including primary fixed rewards
                                 totalFixedRewardsInPrimaryCurrency: totalFixedPrimary,
                                 totalFixedRewardsInOtherCurrencies: totalFixedOther,
                             });
-                            // Editable amount in footer reflects the combined total
-                            newEditableAmounts[member.id] = String(finalTotalDue.toFixed(2));
                         } // End check for displayable periods length
                     }
                 } // End loop through members
@@ -386,7 +372,6 @@ export default function AllowanceDistributionPage() {
                 // +++ Update state variables (editablePeriodAmounts should now only contain entries for displayable periods) +++
 
                 setProcessedAllowances(results);
-                setEditableAmounts(newEditableAmounts);
                 setEditablePeriodAmounts(newEditablePeriodAmounts);
             } catch (e: any) {
                 console.error('Error processing allowance data:', e);
@@ -414,10 +399,7 @@ export default function AllowanceDistributionPage() {
         }
     }, [isDataLoading, typedData, dataError, processAllowanceData, simulatedDate]);
 
-    // --- Event Handlers --- (Keep existing: handleAmountChange, handleSkipPeriod, handleDepositWithdraw)
-    const handleAmountChange = (memberId: string, value: string) => {
-        setEditableAmounts((prev) => ({ ...prev, [memberId]: value }));
-    };
+    // --- Event Handlers ---
 
     const handleSkipPeriod = async (memberId: string, period: CalculatedPeriod) => {
         setProcessingMemberId(memberId);
@@ -441,36 +423,8 @@ export default function AllowanceDistributionPage() {
     };
 
     // +++ NEW: Handler for individual period amount changes +++
-    const handlePeriodAmountChange = (periodId: string, memberId: string, value: string) => {
+    const handlePeriodAmountChange = (periodId: string, value: string) => {
         setEditablePeriodAmounts((prev) => ({ ...prev, [periodId]: value }));
-
-        // Recalculate totalDue for the footer based on the new period amounts
-        setEditableAmounts((prevTotalAmounts) => {
-            const allowanceInfo = processedAllowances.find((pa) => pa.member.id === memberId);
-            if (!allowanceInfo) return prevTotalAmounts; // Should not happen
-
-            // +++ This needs adjustment: totalDue should include fixed rewards, but fixed rewards aren't editable per period.
-            // The editable part is only the 'calculatedAmount' (weight-based).
-            // We should recalculate the *display* total based on edited period amounts + fixed rewards.
-
-            const newTotalCalculatedAmount = allowanceInfo.pendingPeriods
-                .filter((p) => p.status === 'pending') // Only sum pending periods
-                .reduce((sum, p) => {
-                    // Use the updated amount for the changed period, or existing for others
-                    // This represents the weight-based part only
-                    const amountString = p.id === periodId ? value : editablePeriodAmounts[p.id];
-                    const amount = parseFloat(amountString || '0');
-                    return sum + (isNaN(amount) ? 0 : amount);
-                }, 0);
-
-            // Re-add the non-editable fixed rewards for the final display total
-            const newFinalTotalDue = newTotalCalculatedAmount + allowanceInfo.totalFixedRewardsInPrimaryCurrency;
-
-            return {
-                ...prevTotalAmounts,
-                [memberId]: String(newFinalTotalDue.toFixed(2)),
-            };
-        });
     };
 
     // +++ NEW: Handler for depositing/withdrawing a single period +++
@@ -586,29 +540,6 @@ export default function AllowanceDistributionPage() {
             toast({
                 title: 'Error',
                 description: 'Could not find allowance data for this member.',
-                variant: 'destructive',
-            });
-            setProcessingMemberId(null);
-            return;
-        }
-
-        // +++ UPDATE: Use editablePeriodAmounts AND fixed rewards to calculate finalAmount for total deposit/withdraw +++
-        // Sum the *editable* weight-based amounts first
-        const totalEditableAmount = allowanceInfo.pendingPeriods
-            .filter((p) => p.status === 'pending')
-            .reduce((sum, p) => {
-                const amountString = editablePeriodAmounts[p.id]; // Read from period state
-                const amount = parseFloat(amountString || '0');
-                return sum + (isNaN(amount) ? 0 : amount);
-            }, 0);
-
-        // Add the total fixed rewards in the primary currency
-        const finalAmount = totalEditableAmount + allowanceInfo.totalFixedRewardsInPrimaryCurrency;
-
-        if (isNaN(finalAmount)) {
-            toast({
-                title: 'Invalid Amount',
-                description: 'Please enter a valid number.',
                 variant: 'destructive',
             });
             setProcessingMemberId(null);
@@ -752,9 +683,11 @@ export default function AllowanceDistributionPage() {
                         (typedData?.familyMembers || []).map((member) => {
                             const allowanceInfo = processedAllowances.find((pa) => pa.member.id === member.id);
                             const hasAnyPeriodsToShow = allowanceInfo && allowanceInfo.pendingPeriods.length > 0;
-                            // Use totalDue from allowanceInfo which now includes primary fixed rewards
-                            const currentTotalDue = allowanceInfo?.totalDue ?? 0;
-                            const displayEditableAmount = editableAmounts[member.id] ?? String(currentTotalDue.toFixed(2)); // Footer total display
+                            const displayEditableAmount = calculateEditableAllowanceTotal(
+                                allowanceInfo?.pendingPeriods || [],
+                                editablePeriodAmounts,
+                                allowanceInfo?.totalFixedRewardsInPrimaryCurrency || 0
+                            ).toFixed(2);
                             const hasOtherCurrencyRewards = Object.values(
                                 allowanceInfo?.totalFixedRewardsInOtherCurrencies || {}
                             ).some((amount) => amount !== 0);
@@ -900,7 +833,7 @@ export default function AllowanceDistributionPage() {
                                                                             type="number"
                                                                             step="0.01"
                                                                             value={editablePeriodAmounts[period.id] ?? '0'} // Editable part
-                                                                            onChange={(e) => handlePeriodAmountChange(period.id, member.id, e.target.value)}
+                                                                            onChange={(e) => handlePeriodAmountChange(period.id, e.target.value)}
                                                                             className="w-20 text-sm font-semibold border-0 rounded-none focus-visible:ring-0 h-full p-1" // Adjust size/padding
                                                                             disabled={processingMemberId === member.id}
                                                                         />
@@ -1008,7 +941,6 @@ export default function AllowanceDistributionPage() {
                                                     {' '}
                                                     {/* Keep amount/input horizontal */}
                                                     <Label htmlFor={`editAmount-${member.id}`} className="font-semibold text-lg whitespace-nowrap">
-                                                        {/* Use calculated totalDue which excludes in-progress */}
                                                         Total Due:
                                                     </Label>
                                                     <div className="flex items-center bg-white dark:bg-gray-900 border rounded-md overflow-hidden">
@@ -1017,14 +949,12 @@ export default function AllowanceDistributionPage() {
                                                             id={`editAmount-${member.id}`}
                                                             type="number"
                                                             step="0.01"
-                                                            // Bind value to the specific member's editable amount state
-                                                            value={displayEditableAmount} // This now includes primary fixed rewards
-                                                            onChange={(e) => handleAmountChange(member.id, e.target.value)}
+                                                            value={displayEditableAmount}
                                                             className="w-28 text-lg font-semibold border-0 rounded-none focus-visible:ring-0"
-                                                            disabled={processingMemberId === member.id}
+                                                            readOnly
+                                                            aria-label={`Submitted total for ${member.name}`}
                                                         />
                                                     </div>
-                                                    <Edit className="h-4 w-4 text-muted-foreground ml-1" aria-label="Amount can be edited" />
                                                 </div>
                                                 {/* +++ Enhanced Footer Breakdown Text Logic +++ */}
                                                 <div className="text-xs text-muted-foreground pl-1 h-4">
