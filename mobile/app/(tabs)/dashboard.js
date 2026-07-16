@@ -554,11 +554,6 @@ export default function DashboardTab() {
     () => taskSeriesCards.reduce((sum, card) => sum + card.incompleteCount, 0),
     [taskSeriesCards]
   );
-  const scheduledTaskCount = useMemo(
-    () => taskSeriesCards.reduce((sum, card) => sum + card.scheduledTasks.length, 0),
-    [taskSeriesCards]
-  );
-
   // Count tasks with new parent feedback that the kid hasn't responded to yet.
   // A task counts if: it has a feedback reply (isTaskUpdateReply + meaningful content),
   // AND there is no subsequent top-level (non-reply) update by the kid after that feedback.
@@ -699,7 +694,6 @@ export default function DashboardTab() {
       let leftBotH = colLeftBottomH;
       let rightBotH = colRightBottomH;
       const shorter = Math.min(leftBotH, rightBotH);
-      const longer = Math.max(leftBotH, rightBotH);
       // Match heights if the shorter side's content fits in the shorter height
       const shorterIsLeft = leftBotH <= rightBotH;
       const shorterContent = shorterIsLeft ? msgsEstH : calEstH;

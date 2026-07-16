@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { MMKV } from 'react-native-mmkv';
 
 const storage = new MMKV({ id: 'calendar-settings' });

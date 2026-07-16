@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   Modal,
   Pressable,
@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { radii, shadows, spacing, withAlpha } from '../../theme/tokens';
+import { radii, spacing, withAlpha } from '../../theme/tokens';
 
 /**
  * Filter sheet for family member, tag, and text search filtering.

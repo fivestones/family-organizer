@@ -3,7 +3,6 @@ import { buildCalendarHistoryMetadata, buildCalendarHistorySnapshot } from '../.
 import { buildHistoryEventTransactions } from '../../../../lib/history-events';
 import {
   DEFAULT_EVENT_STATUS,
-  addDays,
   eventEndsAt,
   eventStartsAt,
   formatYmd,

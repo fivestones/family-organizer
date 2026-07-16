@@ -4,7 +4,9 @@ import { isDirectPhotoUrl } from '../lib/photo-urls';
 import { useCachedFileUri } from './useCachedFileUri';
 import { usePresignedUrl } from './usePresignedUrl';
 
-export function usePhotoUri(fileKey, siblingKeys = []) {
+const EMPTY_SIBLING_KEYS = [];
+
+export function usePhotoUri(fileKey, siblingKeys = EMPTY_SIBLING_KEYS) {
   const cachedUri = useCachedFileUri(fileKey);
   const remoteUri = usePresignedUrl(fileKey);
   const normalizedPrefetchKeys = useMemo(
@@ -16,7 +18,7 @@ export function usePhotoUri(fileKey, siblingKeys = []) {
             .filter((value) => value && !isDirectPhotoUrl(value))
         )
       ),
-    [fileKey, ...(siblingKeys || [])]
+    [fileKey, siblingKeys]
   );
 
   useEffect(() => {

@@ -1,7 +1,6 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import {
   Dimensions,
-  FlatList,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { radii, spacing, withAlpha } from '../../theme/tokens';
+import { withAlpha } from '../../theme/tokens';
 import { DraggableEvent, DropTarget } from './CalendarDragProvider';
 import {
   addDays,
@@ -19,8 +18,6 @@ import {
   eventEndsAt,
   formatClockTime,
   formatYmd,
-  isImportedEvent,
-  parseYmdLocal,
   startOfDay,
 } from './calendar-utils';
 

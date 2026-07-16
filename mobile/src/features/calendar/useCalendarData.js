@@ -5,9 +5,6 @@ import {
   compareEvents,
   eventOccursOnDay,
   formatYmd,
-  getMonthWhereConditions,
-  addDays,
-  startOfMonth,
 } from './calendar-utils';
 import {
   dedupeCalendarTagRecords,
@@ -61,9 +58,11 @@ function buildQueryWindowConditions(anchorDate) {
  * @param {Date[]} [params.visibleDays] - Optional array of visible days for eventsByDayKey computation
  */
 export function useCalendarData({ db, isAuthenticated, instantReady, anchorDate, visibleDays }) {
+  const anchorYear = anchorDate.getFullYear();
+  const anchorMonth = anchorDate.getMonth();
   const whereConditions = useMemo(
-    () => buildQueryWindowConditions(anchorDate),
-    [anchorDate.getFullYear(), anchorDate.getMonth()]
+    () => buildQueryWindowConditions(new Date(anchorYear, anchorMonth, 1)),
+    [anchorMonth, anchorYear]
   );
 
   const queryEnabled = isAuthenticated && instantReady;

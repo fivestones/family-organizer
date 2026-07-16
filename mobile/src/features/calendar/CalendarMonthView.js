@@ -1,13 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  Dimensions,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { radii, shadows, spacing, withAlpha } from '../../theme/tokens';
+import { radii, spacing, withAlpha } from '../../theme/tokens';
 import { DraggableEvent, DropTarget } from './CalendarDragProvider';
 import {
   WEEKDAY_LABELS,
@@ -16,10 +15,7 @@ import {
   formatDayTitle,
   formatEventRangeLabel,
   formatMonthTitle,
-  isImportedEvent,
-  startOfDay,
   startOfWeekSunday,
-  startOfMonth,
   computeBikramMetaByDayKey,
 } from './calendar-utils';
 
@@ -199,7 +195,6 @@ const MonthDayCell = React.memo(function MonthDayCell({
  * Infinite-scroll month view using FlashList.
  */
 export function CalendarMonthView({
-  viewMonth,
   selectedDate,
   selectedDayKey,
   eventsByDayKey,
@@ -211,17 +206,14 @@ export function CalendarMonthView({
   onSelectDate,
   onAddEvent,
   onOpenEvent,
-  onPrevMonth,
-  onNextMonth,
   onVisibleMonthChange,
   colors,
 }) {
   const styles = useMemo(() => createMonthViewStyles(colors), [colors]);
-  const flashListRef = useRef(null);
   const todayKey = formatYmd(new Date());
 
   // Build week rows
-  const [weeksBefore, setWeeksBefore] = useState(WEEKS_INITIAL / 2);
+  const weeksBefore = WEEKS_INITIAL / 2;
   const [weeksAfter, setWeeksAfter] = useState(WEEKS_INITIAL / 2);
 
   const rows = useMemo(
@@ -248,12 +240,6 @@ export function CalendarMonthView({
   );
 
   // Expand range when scrolling to edges
-  const handleStartReached = useCallback(() => {
-    if (weeksBefore + weeksAfter < WEEKS_MAX) {
-      setWeeksBefore((prev) => prev + WEEKS_EXPAND);
-    }
-  }, [weeksBefore, weeksAfter]);
-
   const handleEndReached = useCallback(() => {
     if (weeksBefore + weeksAfter < WEEKS_MAX) {
       setWeeksAfter((prev) => prev + WEEKS_EXPAND);
@@ -272,18 +258,6 @@ export function CalendarMonthView({
   }, [onVisibleMonthChange]);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50, minimumViewTime: 100 });
-
-  // Scroll to today
-  const scrollToToday = useCallback(() => {
-    if (flashListRef.current && todayIndex >= 0) {
-      flashListRef.current.scrollToIndex({ index: todayIndex, animated: true });
-    }
-  }, [todayIndex]);
-
-  // Expose scrollToToday
-  useEffect(() => {
-    // On mount, the FlashList starts at initialScrollIndex which is todayIndex
-  }, []);
 
   const getItemType = useCallback((item) => item.type, []);
 
@@ -307,7 +281,6 @@ export function CalendarMonthView({
     }
 
     // Week row
-    const viewMonthMonth = viewMonth.getMonth();
     return (
       <View style={styles.weekRow}>
         {item.days.map((day, dayIndex) => {
@@ -341,7 +314,7 @@ export function CalendarMonthView({
         })}
       </View>
     );
-  }, [eventsByDayKey, bikramMetaByDayKey, selectedDayKey, todayKey, onSelectDate, styles, viewMonth]);
+  }, [eventsByDayKey, bikramMetaByDayKey, selectedDayKey, todayKey, onSelectDate, styles]);
 
   return (
     <View style={styles.container}>
@@ -355,7 +328,6 @@ export function CalendarMonthView({
       {/* Infinite scroll grid */}
       <View style={styles.gridContainer}>
         <FlashList
-          ref={flashListRef}
           data={rows}
           renderItem={renderItem}
           getItemType={getItemType}

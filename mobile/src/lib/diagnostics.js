@@ -112,7 +112,7 @@ export function recordDiagnostic(type, phase = 'event', details = null) {
     details: cloneDetails(details),
   };
 
-  const nextEvents = writeEventsSync([...readEventsSync(), event]);
+  writeEventsSync([...readEventsSync(), event]);
 
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     const summary = summarizeForConsole(event);

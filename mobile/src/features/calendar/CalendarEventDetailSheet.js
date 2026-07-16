@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { radii, shadows, spacing, withAlpha } from '../../theme/tokens';
+import { radii, spacing, withAlpha } from '../../theme/tokens';
 import {
   formatEventRangeLabel,
   formatDayTitle,

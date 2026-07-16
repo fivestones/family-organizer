@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { id, tx } from '@instantdb/react-native';
-import { radii, shadows, spacing, withAlpha } from '../../theme/tokens';
+import { radii, spacing, withAlpha } from '../../theme/tokens';
 import { buildCalendarHistoryMetadata, buildCalendarHistorySnapshot } from '../../../../lib/calendar-history';
 import { buildHistoryEventTransactions } from '../../../../lib/history-events';
 import {
@@ -80,7 +80,7 @@ export function CalendarEventEditSheet({
       setForm(editingEvent ? formFromEvent(editingEvent) : buildInitialForm(selectedDate));
       setSaving(false);
     }
-  }, [visible, editingEvent?.id, selectedDate]);
+  }, [visible, editingEvent, selectedDate]);
 
   useEffect(() => {
     const subShow = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';

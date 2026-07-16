@@ -16,7 +16,6 @@ import {
   formatEventRangeLabel,
   formatYmd,
   isImportedEvent,
-  parseYmdLocal,
   startOfDay,
 } from './calendar-utils';
 
@@ -84,7 +83,7 @@ export function CalendarAgendaView({
   const styles = useMemo(() => createStyles(colors), [colors]);
   const flashListRef = useRef(null);
 
-  const [daysBefore, setDaysBefore] = useState(DAYS_INITIAL / 2);
+  const daysBefore = DAYS_INITIAL / 2;
   const [daysAfter, setDaysAfter] = useState(DAYS_INITIAL / 2);
 
   const { rows, todayIndex } = useMemo(
@@ -95,12 +94,6 @@ export function CalendarAgendaView({
   const handleEndReached = useCallback(() => {
     if (daysBefore + daysAfter < DAYS_MAX) {
       setDaysAfter((prev) => prev + DAYS_EXPAND);
-    }
-  }, [daysBefore, daysAfter]);
-
-  const handleStartReached = useCallback(() => {
-    if (daysBefore + daysAfter < DAYS_MAX) {
-      setDaysBefore((prev) => prev + DAYS_EXPAND);
     }
   }, [daysBefore, daysAfter]);
 

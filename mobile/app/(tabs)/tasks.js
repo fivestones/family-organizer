@@ -349,7 +349,7 @@ export default function TasksTab() {
       clearTimeout(timer);
       clearTimeout(scrollTimer);
     };
-  }, [scrollToSeriesId, filteredItems.length]);
+  }, [scrollToSeriesId, filteredItems]);
 
   async function handlePullForward(item) {
     if (!item.nextPullDate) return;

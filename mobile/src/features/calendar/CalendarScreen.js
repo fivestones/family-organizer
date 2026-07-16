@@ -2,13 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import NepaliDate from 'nepali-date-converter';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { spacing, withAlpha } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
 import { useAppSession } from '../../providers/AppProviders';
 import { clearPendingParentAction, getPendingParentAction } from '../../lib/session-prefs';
 import { useParentActionGate } from '../../hooks/useParentActionGate';
@@ -19,7 +18,6 @@ import {
   firstParam,
   formatMonthTitle,
   formatYmd,
-  isImportedEvent,
   parseYmdLocal,
   startOfDay,
   startOfMonth,
@@ -38,7 +36,7 @@ import { CalendarFilterSheet } from './CalendarFilterSheet';
 import { CalendarSettingsSheet } from './CalendarSettingsSheet';
 import { CalendarRecurrenceScopeSheet } from './CalendarRecurrenceScopeSheet';
 import { CalendarDragProvider } from './CalendarDragProvider';
-import { buildMoveEventTransactions, buildDeleteEventTransactions, executeCalendarMutation } from './calendar-mutations';
+import { buildMoveEventTransactions, executeCalendarMutation } from './calendar-mutations';
 
 function getBsPeriodLabel(date) {
   try {
@@ -60,8 +58,6 @@ export function CalendarScreen() {
     db,
     isAuthenticated,
     instantReady,
-    isOnline,
-    connectionStatus,
     principalType,
     currentUser,
     recordParentActivity,
@@ -69,35 +65,38 @@ export function CalendarScreen() {
 
   // --- Settings (MMKV-backed) ---
   const settings = useCalendarSettings();
+  const deepLinkView = firstParam(searchParams.view);
+  const deepLinkDays = firstParam(searchParams.days);
+  const deepLinkDate = firstParam(searchParams.date);
+  const setCalendarViewMode = settings.setViewMode;
+  const setCalendarVisibleDayCount = settings.setVisibleDayCount;
 
   // --- Apply deep link params on mount ---
   const deepLinkApplied = useRef(false);
   useEffect(() => {
+    if (!deepLinkView && !deepLinkDays && !deepLinkDate) return;
     if (deepLinkApplied.current) return;
     deepLinkApplied.current = true;
 
-    const paramView = firstParam(searchParams.view);
-    if (paramView === 'month' || paramView === 'day' || paramView === 'agenda') {
-      settings.setViewMode(paramView);
+    if (deepLinkView === 'month' || deepLinkView === 'day' || deepLinkView === 'agenda') {
+      setCalendarViewMode(deepLinkView);
     }
 
-    const paramDays = firstParam(searchParams.days);
-    if (paramDays) {
-      const n = parseInt(paramDays, 10);
+    if (deepLinkDays) {
+      const n = parseInt(deepLinkDays, 10);
       if (!isNaN(n) && n >= 1 && n <= 14) {
-        settings.setVisibleDayCount(n);
+        setCalendarVisibleDayCount(n);
       }
     }
 
-    const paramDate = firstParam(searchParams.date);
-    if (paramDate) {
-      const parsed = parseYmdLocal(paramDate);
+    if (deepLinkDate) {
+      const parsed = parseYmdLocal(deepLinkDate);
       if (parsed) {
         setSelectedDate(parsed);
         setViewMonth(startOfMonth(parsed));
       }
     }
-  }, []);
+  }, [deepLinkDate, deepLinkDays, deepLinkView, setCalendarViewMode, setCalendarVisibleDayCount]);
 
   // --- Core state ---
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
@@ -159,7 +158,6 @@ export function CalendarScreen() {
 
   const isTodayVisible = useMemo(() => {
     const today = startOfDay(new Date());
-    const todayKey = formatYmd(today);
     return viewMonth.getFullYear() === today.getFullYear() && viewMonth.getMonth() === today.getMonth();
   }, [viewMonth]);
 
@@ -181,16 +179,6 @@ export function CalendarScreen() {
     const today = startOfDay(new Date());
     setViewMonth(startOfMonth(today));
     setSelectedDate(today);
-  }
-
-  function handlePrevMonth() {
-    recordParentActivity();
-    setViewMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-  }
-
-  function handleNextMonth() {
-    recordParentActivity();
-    setViewMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   }
 
   const openNewEventModal = useCallback((date) => {
@@ -433,7 +421,6 @@ export function CalendarScreen() {
           >
             <CalendarMonthView
               grid={grid}
-              viewMonth={viewMonth}
               selectedDate={selectedDate}
               selectedDayKey={selectedDayKey}
               eventsByDayKey={eventsByDayKey}
@@ -445,8 +432,6 @@ export function CalendarScreen() {
               onSelectDate={handleSelectDate}
               onAddEvent={handleAddEventPress}
               onOpenEvent={handleOpenEventPress}
-              onPrevMonth={handlePrevMonth}
-              onNextMonth={handleNextMonth}
               colors={colors}
             />
           </ScrollView>
