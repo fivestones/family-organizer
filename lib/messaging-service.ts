@@ -19,6 +19,7 @@ import {
     HISTORY_MESSAGE_EDIT_WINDOW_MS,
     HISTORY_MESSAGE_THREAD_FAMILY_ID,
 } from '@/lib/history-events';
+import { MessageServiceError } from '@/lib/message-errors';
 
 export const PARENTS_ONLY_THREAD_ID = '00000000-0000-4000-8000-000000000002';
 
@@ -142,7 +143,6 @@ async function getThreadById(threadId: string) {
                 },
             },
             members: {},
-            messages: {},
         },
     });
     return (data.messageThreads as any[])?.[0] || null;
@@ -317,16 +317,6 @@ export async function ensureMessagingBootstrap() {
         await adminDb.transact(transactions);
     }
 
-    const existingFamilyThread = await getThreadById(familyThreadId);
-    if (existingFamilyThread?.messages?.length) {
-        const backfillTxs = (existingFamilyThread.messages as any[])
-            .filter((message) => !message.threadId)
-            .map((message) => adminDb.tx.messages[message.id].update({ threadId: familyThreadId }));
-        if (backfillTxs.length > 0) {
-            await adminDb.transact(backfillTxs);
-        }
-    }
-
     return {
         familyThreadId,
         parentsOnlyThreadId: parentsThreadId,
@@ -336,13 +326,13 @@ export async function ensureMessagingBootstrap() {
 function assertAllowedImportance(actor: any, importance: MessageImportance) {
     if (actor.role === 'parent') return;
     if (importance === 'announcement' || importance === 'needs_ack') {
-        throw new Error('Only parents can send announcements or acknowledgement requests');
+        throw new MessageServiceError(403, 'Only parents can send announcements or acknowledgement requests');
     }
 }
 
 function requireThreadMembership(membership: any, familyMemberId: string) {
     if (!membership) {
-        throw new Error('You are not a member of this thread');
+        throw new MessageServiceError(403, 'You are not a member of this thread');
     }
     return membership;
 }
@@ -377,7 +367,7 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
     }
     if (input.threadType === 'parents_only') {
         if (actor.role !== 'parent') {
-            throw new Error('Only parents can create or open parent-only threads');
+            throw new MessageServiceError(403, 'Only parents can create or open parent-only threads');
         }
         const parents = familyMembers.filter((member: any) => member.role === 'parent');
         const existingThread = await getThreadByKey('parents_only');
@@ -401,7 +391,7 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
     ).filter((memberId) => familyMembersById.has(memberId));
 
     if (input.threadType === 'direct' && participantIds.length !== 2) {
-        throw new Error('Direct messages require exactly two participants');
+        throw new MessageServiceError(400, 'Direct messages require exactly two participants');
     }
 
     if (input.threadType === 'linked' && participantIds.length < 2) {
@@ -416,7 +406,7 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
     }
 
     if ((input.threadType === 'group' || input.threadType === 'linked') && participantIds.length < 2) {
-        throw new Error('Group conversations require at least two participants');
+        throw new MessageServiceError(400, 'Group conversations require at least two participants');
     }
 
     let threadKey = '';
@@ -432,7 +422,7 @@ export async function createMessageThread(actor: any, input: CreateThreadRequest
         }
     } else if (input.threadType === 'linked') {
         if (!input.linkedDomain || !input.linkedEntityId) {
-            throw new Error('linkedDomain and linkedEntityId are required for linked threads');
+            throw new MessageServiceError(400, 'linkedDomain and linkedEntityId are required for linked threads');
         }
         threadKey = buildLinkedThreadKey(input.linkedDomain, input.linkedEntityId);
         if (!title) {
@@ -517,7 +507,7 @@ export async function sendThreadMessage(actor: any, input: SendMessageRequest) {
     const adminDb = getInstantAdminDb();
     const thread = await getThreadById(input.threadId);
     if (!thread) {
-        throw new Error('Thread not found');
+        throw new MessageServiceError(404, 'Thread not found');
     }
 
     const actorMembership = await getThreadMembership(thread.id, actor.id);
@@ -531,7 +521,7 @@ export async function sendThreadMessage(actor: any, input: SendMessageRequest) {
     const body = String(input.body || '').trim();
     const attachments = Array.isArray(input.attachments) ? input.attachments : [];
     if (!body && attachments.length === 0) {
-        throw new Error('Message body or attachment is required');
+        throw new MessageServiceError(400, 'Message body or attachment is required');
     }
 
     const importance = (input.importance || 'normal') as MessageImportance;
@@ -639,21 +629,21 @@ export async function editThreadMessage(actor: any, input: EditMessageRequest) {
     const adminDb = getInstantAdminDb();
     const message = await getMessageById(input.messageId);
     if (!message) {
-        throw new Error('Message not found');
+        throw new MessageServiceError(404, 'Message not found');
     }
 
     if (message.authorFamilyMemberId !== actor.id) {
-        throw new Error('Only the author can edit this message');
+        throw new MessageServiceError(403, 'Only the author can edit this message');
     }
 
     const editableUntilMs = message.editableUntil ? new Date(message.editableUntil).getTime() : 0;
     if (Date.now() > editableUntilMs) {
-        throw new Error('This message can no longer be edited');
+        throw new MessageServiceError(409, 'This message can no longer be edited');
     }
 
     const body = String(input.body || '').trim();
     if (!body) {
-        throw new Error('Message body is required');
+        throw new MessageServiceError(400, 'Message body is required');
     }
 
     const nowIso = new Date().toISOString();
@@ -672,16 +662,16 @@ export async function removeThreadMessage(actor: any, input: { messageId: string
     const adminDb = getInstantAdminDb();
     const message = await getMessageById(input.messageId);
     if (!message) {
-        throw new Error('Message not found');
+        throw new MessageServiceError(404, 'Message not found');
     }
 
     const isAuthor = message.authorFamilyMemberId === actor.id;
     const editableUntilMs = message.editableUntil ? new Date(message.editableUntil).getTime() : 0;
     if (!actor || (!isAuthor && actor.role !== 'parent')) {
-        throw new Error('You cannot remove this message');
+        throw new MessageServiceError(403, 'You cannot remove this message');
     }
     if (actor.role !== 'parent' && Date.now() > editableUntilMs) {
-        throw new Error('This message can no longer be removed');
+        throw new MessageServiceError(409, 'This message can no longer be removed');
     }
 
     const nowIso = new Date().toISOString();
@@ -703,7 +693,7 @@ export async function toggleMessageReaction(actor: any, input: ToggleReactionReq
     const adminDb = getInstantAdminDb();
     const message = await getMessageById(input.messageId);
     if (!message) {
-        throw new Error('Message not found');
+        throw new MessageServiceError(404, 'Message not found');
     }
     const thread = Array.isArray(message.thread) ? message.thread[0] : message.thread;
     const actorMembership = await getThreadMembership(thread?.id, actor.id);
@@ -711,7 +701,7 @@ export async function toggleMessageReaction(actor: any, input: ToggleReactionReq
 
     const emoji = normalizeTitle(input.emoji);
     if (!emoji) {
-        throw new Error('Emoji is required');
+        throw new MessageServiceError(400, 'Emoji is required');
     }
 
     const reactionKey = getReactionKey(message.id, actor.id, emoji);
@@ -742,7 +732,7 @@ export async function acknowledgeMessage(actor: any, input: AcknowledgeMessageRe
     const adminDb = getInstantAdminDb();
     const message = await getMessageById(input.messageId);
     if (!message) {
-        throw new Error('Message not found');
+        throw new MessageServiceError(404, 'Message not found');
     }
     const thread = Array.isArray(message.thread) ? message.thread[0] : message.thread;
     const actorMembership = await getThreadMembership(thread?.id, actor.id);
@@ -770,7 +760,7 @@ export async function markThreadRead(actor: any, input: MarkReadRequest) {
     const adminDb = getInstantAdminDb();
     const thread = await getThreadById(input.threadId);
     if (!thread) {
-        throw new Error('Thread not found');
+        throw new MessageServiceError(404, 'Thread not found');
     }
 
     const membership = requireThreadMembership(await getThreadMembership(thread.id, actor.id), actor.id);
@@ -795,7 +785,7 @@ export async function updateThreadPreferences(actor: any, input: ThreadPreferenc
     const adminDb = getInstantAdminDb();
     const thread = await getThreadById(input.threadId);
     if (!thread) {
-        throw new Error('Thread not found');
+        throw new MessageServiceError(404, 'Thread not found');
     }
 
     const membership = requireThreadMembership(await getThreadMembership(thread.id, actor.id), actor.id);
@@ -821,10 +811,10 @@ export async function joinThreadWatchMode(actor: any, input: { threadId: string 
     const adminDb = getInstantAdminDb();
     const thread = await getThreadById(input.threadId);
     if (!thread) {
-        throw new Error('Thread not found');
+        throw new MessageServiceError(404, 'Thread not found');
     }
     if (actor.role !== 'parent') {
-        throw new Error('Only parents can watch other threads');
+        throw new MessageServiceError(403, 'Only parents can watch other threads');
     }
 
     const existingMembership = (thread.members || []).find((entry: any) => entry.familyMemberId === actor.id);
@@ -847,7 +837,7 @@ export async function leaveThreadWatchMode(actor: any, input: { threadId: string
     const adminDb = getInstantAdminDb();
     const thread = await getThreadById(input.threadId);
     if (!thread) {
-        throw new Error('Thread not found');
+        throw new MessageServiceError(404, 'Thread not found');
     }
     const membership = await getThreadMembership(thread.id, actor.id);
     if (!membership) {

@@ -5,12 +5,18 @@ const messagingServiceMocks = vi.hoisted(() => {
     const state = {
         message: null as any,
         membership: null as any,
+        thread: null as any,
     };
 
     const query = vi.fn(async (request: any) => {
         if (request?.messages) {
             return {
                 messages: state.message ? [state.message] : [],
+            };
+        }
+        if (request?.messageThreads) {
+            return {
+                messageThreads: state.thread ? [state.thread] : [],
             };
         }
         if (request?.messageThreadMembers) {
@@ -95,6 +101,24 @@ const messagingServiceMocks = vi.hoisted(() => {
         }
     );
 
+    const txMessageThreadMembers = new Proxy(
+        {},
+        {
+            get(_target, key) {
+                return {
+                    update(payload: Record<string, unknown>) {
+                        return {
+                            entity: 'messageThreadMembers',
+                            id: String(key),
+                            type: 'update',
+                            payload,
+                        };
+                    },
+                };
+            },
+        }
+    );
+
     const txFamilyMembers = new Proxy(
         {},
         {
@@ -118,6 +142,7 @@ const messagingServiceMocks = vi.hoisted(() => {
         tx: {
             messages: txMessages,
             messageReactions: txMessageReactions,
+            messageThreadMembers: txMessageThreadMembers,
             familyMembers: txFamilyMembers,
         },
     }));
@@ -140,6 +165,7 @@ describe('messaging-service', () => {
         freezeTime('2026-03-15T10:03:00.000Z');
         messagingServiceMocks.state.message = null;
         messagingServiceMocks.state.membership = null;
+        messagingServiceMocks.state.thread = null;
         messagingServiceMocks.query.mockClear();
         messagingServiceMocks.transact.mockClear();
         messagingServiceMocks.getInstantAdminDb.mockClear();
@@ -248,5 +274,48 @@ describe('messaging-service', () => {
 
         expect(removed).toMatchObject({ active: false, reactionId: added.reactionId });
         expect(messagingServiceMocks.state.message.reactions).toHaveLength(0);
+    });
+
+    it('loads thread metadata without hydrating its entire message history', async () => {
+        messagingServiceMocks.state.thread = {
+            id: 'thread-1',
+            latestMessageAt: '2026-07-16T10:00:00.000Z',
+        };
+        messagingServiceMocks.state.membership = {
+            id: 'membership-1',
+            familyMemberId: 'member-1',
+            threadId: 'thread-1',
+        };
+
+        const { markThreadRead } = await import('@/lib/messaging-service');
+        await markThreadRead(
+            { id: 'member-1' },
+            { threadId: 'thread-1', lastReadMessageId: 'message-42' }
+        );
+
+        expect(messagingServiceMocks.query.mock.calls[0]?.[0]).toEqual({
+            messageThreads: {
+                $: {
+                    where: {
+                        id: 'thread-1',
+                    },
+                },
+                members: {},
+            },
+        });
+    });
+
+    it('returns a typed not-found error instead of relying on message text parsing', async () => {
+        const { markThreadRead } = await import('@/lib/messaging-service');
+
+        await expect(
+            markThreadRead(
+                { id: 'member-1' },
+                { threadId: 'missing-thread', lastReadMessageId: 'message-42' }
+            )
+        ).rejects.toMatchObject({
+            message: 'Thread not found',
+            status: 404,
+        });
     });
 });

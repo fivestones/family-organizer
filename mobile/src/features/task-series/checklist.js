@@ -812,6 +812,13 @@ export function TaskSeriesHistoryScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { db, isAuthenticated, instantReady } = useAppSession();
   const [previewAttachment, setPreviewAttachment] = useState(null);
+  const [historyLimit, setHistoryLimit] = useState(100);
+
+  const historyWhere = taskId
+    ? { taskId }
+    : seriesId
+      ? { taskSeriesId: seriesId }
+      : { id: '__missing-task-history-filter__' };
 
   const query = db.useQuery(
     isAuthenticated && instantReady
@@ -819,7 +826,8 @@ export function TaskSeriesHistoryScreen() {
           historyEvents: {
             $: {
               order: { occurredAt: 'desc' },
-              limit: 200,
+              limit: historyLimit,
+              where: historyWhere,
             },
             actor: {},
             affectedFamilyMembers: {},
@@ -835,16 +843,8 @@ export function TaskSeriesHistoryScreen() {
 
   const events = useMemo(
     () =>
-      (query.data?.historyEvents || []).filter((event) => {
-        if (taskId) {
-          return event.taskId === taskId;
-        }
-        if (seriesId) {
-          return event.taskSeriesId === seriesId;
-        }
-        return false;
-      }),
-    [query.data?.historyEvents, seriesId, taskId]
+      query.data?.historyEvents || [],
+    [query.data?.historyEvents]
   );
 
   return (
@@ -883,6 +883,11 @@ export function TaskSeriesHistoryScreen() {
             </View>
           ))
         )}
+        {events.length >= historyLimit ? (
+          <Pressable onPress={() => setHistoryLimit((current) => current + 100)} style={styles.button}>
+            <Text style={styles.buttonText}>Load older history</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
       <AttachmentPreviewModal attachment={previewAttachment} visible={!!previewAttachment} onClose={() => setPreviewAttachment(null)} />
     </SubscreenScaffold>

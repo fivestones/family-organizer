@@ -437,6 +437,46 @@ describe('FamilyMessagesPage', () => {
         expect(screen.getByText('Original context from Pat')).toBeInTheDocument();
     });
 
+    it('loads only the newest message window and expands it on request', async () => {
+        familyMessagesMocks.getMessageServerTime.mockResolvedValue({
+            serverNow: '2026-03-15T10:04:00.000Z',
+        });
+        const messages = Array.from({ length: 100 }, (_, index) => ({
+            id: `message-${index}`,
+            threadId: 'thread-1',
+            body: `Message ${index}`,
+            createdAt: `2026-03-15T10:${String(index % 60).padStart(2, '0')}:00.000Z`,
+            editableUntil: '2026-03-15T12:00:00.000Z',
+            authorFamilyMemberId: 'member-1',
+            deletedAt: null,
+            removedReason: null,
+            attachments: [],
+            author: { id: 'member-1', name: 'Alex' },
+            reactions: [],
+            acknowledgements: [],
+            replyTo: null,
+        }));
+        installQueryMocks({}, { messages });
+
+        render(<FamilyMessagesPage />);
+        await flushMessagingPage();
+
+        const initialMessageQuery = familyMessagesMocks.useQuery.mock.calls.find(([query]) => query?.messages)?.[0];
+        expect(initialMessageQuery?.messages?.$).toMatchObject({
+            last: 100,
+            order: { createdAt: 'asc' },
+            where: { threadId: 'thread-1' },
+        });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Load older messages' }));
+
+        const latestMessageQuery = familyMessagesMocks.useQuery.mock.calls
+            .slice()
+            .reverse()
+            .find(([query]) => query?.messages)?.[0];
+        expect(latestMessageQuery?.messages?.$?.last).toBe(200);
+    });
+
     it('subscribes to reactions and calls the reaction toggle handler when an emoji is pressed', async () => {
         familyMessagesMocks.getMessageServerTime.mockResolvedValue({
             serverNow: '2026-03-15T10:04:00.000Z',

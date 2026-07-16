@@ -62,6 +62,7 @@ type MessageRecord = {
 };
 
 type ReplyPreviewVariant = 'composer' | 'bubble-own' | 'bubble-other';
+const MESSAGE_PAGE_SIZE = 100;
 
 function formatMessageTime(value?: string | null) {
     if (!value) return '';
@@ -230,6 +231,7 @@ export default function FamilyMessagesPage() {
     const [showNotificationPrefs, setShowNotificationPrefs] = useState(false);
     const [optimisticThreadsById, setOptimisticThreadsById] = useState<Record<string, ThreadRecord>>({});
     const [optimisticMessages, setOptimisticMessages] = useState<MessageRecord[]>([]);
+    const [messageQueryLimit, setMessageQueryLimit] = useState(MESSAGE_PAGE_SIZE);
     const [relativeNowMs, setRelativeNowMs] = useState(() => getMonotonicNowMs());
     const [serverNowAnchor, setServerNowAnchor] = useState<MessageServerTimeAnchor | null>(null);
 
@@ -276,6 +278,7 @@ export default function FamilyMessagesPage() {
                           order: {
                               createdAt: 'asc',
                           },
+                          last: messageQueryLimit,
                       },
                       attachments: {},
                       author: {},
@@ -446,10 +449,16 @@ export default function FamilyMessagesPage() {
         [messages, replyToMessageId]
     );
     const activeMessagesError = selectedThreadId ? messagesQuery?.error : null;
+    const loadedServerMessageCount = ((messagesQuery?.data?.messages as MessageRecord[]) || []).length;
+    const canLoadOlderMessages = loadedServerMessageCount >= messageQueryLimit;
     const referenceNowMs = useMemo(
         () => getMessageServerNowMs(serverNowAnchor, relativeNowMs),
         [relativeNowMs, serverNowAnchor]
     );
+
+    useEffect(() => {
+        setMessageQueryLimit(MESSAGE_PAGE_SIZE);
+    }, [selectedThreadId]);
 
     useEffect(() => {
         void bootstrapMessages().catch((error) => {
@@ -1167,6 +1176,18 @@ export default function FamilyMessagesPage() {
                                         <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
                                             <Loader2 className="h-4 w-4 animate-spin" />
                                             Loading conversation...
+                                        </div>
+                                    ) : null}
+
+                                    {!activeMessagesLoading && canLoadOlderMessages ? (
+                                        <div className="flex justify-center">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={() => setMessageQueryLimit((current) => current + MESSAGE_PAGE_SIZE)}
+                                            >
+                                                Load older messages
+                                            </Button>
                                         </div>
                                     ) : null}
 

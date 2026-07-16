@@ -3,6 +3,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { requireRequestFamilyMember } from '@/lib/request-family-member';
+import { toMessageErrorResponse } from '@/lib/message-errors';
 
 export async function requireMessageActor(request: NextRequest, options?: { requireParent?: boolean }) {
     const session = await requireRequestFamilyMember(request, options);
@@ -27,14 +28,9 @@ export async function requireMessageActor(request: NextRequest, options?: { requ
 }
 
 export function jsonRouteError(error: unknown, fallback = 'Request failed') {
-    const message = error instanceof Error ? error.message : fallback;
-    const status =
-        message.includes('not found')
-            ? 404
-            : message.includes('required') || message.includes('cannot') || message.includes('must') || message.includes('exactly')
-            ? 400
-            : message.includes('Only parents') || message.includes('not a member') || message.includes('access')
-            ? 403
-            : 500;
+    const { message, status } = toMessageErrorResponse(error, fallback);
+    if (status === 500) {
+        console.error(`[messages] ${fallback}`, error);
+    }
     return NextResponse.json({ error: message }, { status });
 }
