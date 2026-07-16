@@ -27,6 +27,7 @@ const NAV_LINKS = [
     { href: '/allowance-distribution', label: 'Allowance Distribution' },
     { href: '/content', label: 'Content' },
     { href: '/history', label: 'History' },
+    { href: '/files', label: 'Files' },
     { href: '/settings', label: 'Settings' },
 ] as const;
 

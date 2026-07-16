@@ -51,6 +51,7 @@ describe('MainNav', () => {
         'main-nav-measure-allowance-distribution': 162,
         'main-nav-measure-content': 86,
         'main-nav-measure-history': 88,
+        'main-nav-measure-files': 76,
         'main-nav-measure-settings': 88,
         'main-nav-measure-trigger': 36,
     };
@@ -110,7 +111,7 @@ describe('MainNav', () => {
         const container = screen.getByTestId('main-nav-container');
         Object.defineProperty(container, 'clientWidth', {
             configurable: true,
-            value: 1400,
+            value: 1600,
         });
 
         act(() => {
@@ -120,6 +121,7 @@ describe('MainNav', () => {
         expect(screen.getByTestId('main-nav-link-dashboard')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-link-task-series')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-link-my-tasks')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-link-files')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-link-settings')).toBeInTheDocument();
         expect(screen.queryByTestId('main-nav-overflow-trigger')).toBeNull();
     });
@@ -145,6 +147,7 @@ describe('MainNav', () => {
         expect(screen.getByTestId('main-nav-overflow-item-tasks')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-overflow-item-my-tasks')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-overflow-item-task-series')).toBeInTheDocument();
+        expect(screen.getByTestId('main-nav-overflow-item-files')).toBeInTheDocument();
         expect(screen.getByTestId('main-nav-overflow-item-settings')).toBeInTheDocument();
 
         fireEvent.click(screen.getByTestId('main-nav-overflow-item-task-series'));
