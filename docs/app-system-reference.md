@@ -93,7 +93,7 @@ The most relevant Instant entities for the currently implemented product are:
 | `calculatedAllowancePeriods` | Present in schema but not meaningfully used today |
 | `deviceSessions` | Present in schema but not materially used by the current runtime device-session flow |
 
-Other schema entities like `timeOfDayDefinitions` and `todos` exist, but I did not find meaningful product surfaces using them right now.
+`timeOfDayDefinitions` also exists, but I did not find a meaningful product surface using it right now. The previously unused `todos` namespace was removed after its configured hosted namespace was confirmed empty.
 
 ## Authentication, Activation, And Session Model
 

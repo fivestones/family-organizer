@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-16 — Completed and deployed: repository hygiene/docs sweep (§8, fix plan 9).** `lib/db.ts` is now the only web Instant client entrypoint; the stale untyped `lib/db.js` was deleted. The configured hosted `todos` namespace was confirmed empty before its unused entity and permissive rules were removed from the checked-in and hosted schema. The schema push also removed the stale live-only `calendarSyncCalendars.ctag`/`syncToken` attributes again; current code uses `lastCtag`/`lastSyncToken`. `CLAUDE.md`, the system reference, and the feature matrix now describe the current App Router/server-action upload, avatar, finance, messaging, calendar-sync, and mobile boundaries. The audit's original `calendar-tags.js` classification was wrong: import tracing and its focused tests prove it is an active CommonJS compatibility module shared by web and Expo, so it is intentionally retained. The other named dead helpers had already been removed in their owning audit slices. Verification: `tsc --noEmit`, the 2-test calendar-tag suite, all 18 Instant permission-contract tests, and `git diff --check` pass; both the hosted schema and permissions pushes succeeded.
 - **2026-07-14 — Completed: kid calendar drag/resize affordances are disabled (§4, fix plan 7).** Calendar mutation capability is derived from the selected member role. Non-parent sessions do not register the global event drag monitor, every event chip/span in monthly, mini, year, and day views receives a disabled drag adapter, and timed-day resize handles are omitted. Event selection and detail viewing remain available; Instant's parent-only `calendarItems` rules remain the authoritative write boundary. Verification: all 54 Calendar DOM tests pass, including a kid-session regression assertion; `tsc --noEmit` passes.
 - **2026-07-14 — Verified and covered: every calendar-sync route self-enforces auth (§4, fix plan 5).** The middleware intentionally leaves `/api/calendar-sync/*` public for cron access, but each of the five Apple endpoints (`calendars`, `connect`, `run`, `settings`, and `status`) calls `requireCalendarSyncRouteAuth` before parsing or invoking sync work. A route-level table test now locks that boundary down and proves every endpoint returns `401` with no device, parent, or cron credential. Verification: 14 focused calendar-auth route/helper tests pass; `tsc --noEmit` passes.
 - **2026-07-14 — Completed and deployed: Apple Calendar account credentials are parent-only (§4, fix plan 6).** `calendarSyncAccounts` stores the encrypted app-specific password plus account identity and sync metadata, so its entity-level view rule now requires a parent instead of any family principal. The repository and sync worker already use the Admin SDK, and the parent settings UI goes through authenticated API routes, so kid reads were unnecessary. Verification: the local permission contract, `tsc --noEmit`, and the hosted live matrix pass; the live kid client receives zero account rows while a parent can query the namespace.
@@ -29,7 +30,7 @@
 | 3 | Shell | **Completed 2026-07-13** | Production no longer emits or initializes the time machine without an explicit public env opt-in |
 | 4 | Calendar | **Completed 2026-07-14** | Public sync routes are covered by their own auth matrix, credential rows are parent-only, and kid drag/resize affordances are disabled |
 | 5 | History | **Medium** | Append-only, undeletable, written on every toggle — unbounded growth with no retention plan |
-| 6 | Docs/hygiene | **Low (Confirmed)** | CLAUDE.md documents endpoints that no longer exist; `lib/db.js` + `lib/db.ts` coexist; assorted dead files |
+| 6 | Docs/hygiene | **Completed 2026-07-16** | Current architecture docs restored, stale DB client removed, and empty legacy namespace removed from the repo and hosted app |
 
 ---
 
@@ -91,9 +92,9 @@ The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `wi
 
 ## 8. Hygiene & docs
 
-- **CLAUDE.md drift:** it documents `POST /api/upload` and `pages/api/upload.ts`/`delete-image` — the `pages/` directory no longer exists; uploads now flow through server actions (`app/actions.ts`) and `app/api/avatar-variants`. Anyone (or any agent) following the doc will look for files that aren't there. Update the architecture section.
-- **Duplicate DB entrypoints:** both `lib/db.js` and `lib/db.ts` exist. Whichever is stale, delete it — imports of `@/lib/db` resolving ambiguously across tooling is a classic source of "works in vitest, breaks in Next".
-- Dead weight to sweep with the already-flagged items: `lib/calendar-tags.js` (lone `.js` in a TS lib), the legacy `todos` entity + its permissive rules, `useInstantPrincipalSwitching.ts` (login audit), `isChoreAssignedForPersonOnDate`/`getChoreAssignmentGrid` (chores audit).
+- **CLAUDE.md drift — completed 2026-07-16:** the architecture, route, storage, and mobile sections now describe the current App Router/server-action boundaries; the removed `pages/api/upload.ts` and `delete-image` flow is no longer presented as current.
+- **Duplicate DB entrypoints — completed 2026-07-16:** `lib/db.js` was the stale untyped copy and is deleted; `lib/db.ts` remains the schema-aware client entrypoint.
+- **Dead-code sweep — completed/reconciled 2026-07-16:** the configured hosted `todos` namespace contained zero rows, so its entity and permissive rules were removed and deployed. `useInstantPrincipalSwitching.ts` and the two chore helpers were already removed by their owning audit slices. `lib/calendar-tags.js` is intentionally retained: web and Expo both import it, and its focused tests lock down the shared behavior; its `.js` extension is required by the current cross-workspace CommonJS/Metro consumption path and is not evidence that it is dead.
 - Nav coverage: `/files` (like `/my-tasks`) is reachable only by typing the URL — MainNav has no entry. Intentional? If Files is parent-only-by-obscurity today, note that 1.1 removes the obscurity.
 - Test posture: device-auth, middleware, countdown engine, recurrence, and mobile API routes have real suites (the uncommitted branch updates them consistently — good discipline). The gaps line up exactly with the highest-severity audit findings: **no tests for the money mutation paths** (`currency-utils`), none for `getTasksForDate` block-splitting edge cases, and no permission-regression tests asserting what a *kid principal* can and cannot write (`test/contracts` guards schema shape, not rule behavior). The live-perms smoke test (`npm run test:perms:live`) is the right harness to extend with kid-vs-parent write matrices.
 
@@ -114,7 +115,7 @@ The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `wi
 8. ~~Kid-safe `familyMembers` update: restrict to own row (§6).~~ **Completed and deployed 2026-07-14.**
 
 **Phase 2 — hygiene:**
-9. CLAUDE.md architecture refresh; delete `lib/db.js` (or `.ts` — whichever is dead), `calendar-tags.js`, `todos`, and the dead helpers list (§8).
+9. ~~CLAUDE.md architecture refresh; resolve duplicate DB clients, `calendar-tags.js`, `todos`, and the dead helpers list (§8).~~ **Completed and deployed 2026-07-16; `calendar-tags.js` was verified active and retained.**
 10. History/messages retention decision + pagination (§5).
 
 **Phase 3 — testing:**

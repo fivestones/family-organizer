@@ -70,7 +70,7 @@ Use fake time for:
 - `FAM-011` `P1` `New (added)` DOM: `FamilyMembersList` reorder persistence logic updates `order` transaction payloads and success toast when PDnD monitor drop fires.
 - `FAM-012` `P1` `New (added)` DOM: `FamilyMembersList` child self-edit dialog hides restricted name/email/role fields while still allowing PIN update and save.
 - `FAM-013` `P1` `New (added)` DOM: `SortableFamilyMemberItem` parent/child permission UI for reorder/edit/delete controls, selection disabling in edit mode, and drop-indicator state.
-- `FAM-014` `P2` `New (added)` DOM: `FamilyMembersList` edit flow supports remove-photo checkbox path (calls `/api/delete-image` and clears `photoUrls` before save).
+- `FAM-014` `P2` `New (added)` DOM: `FamilyMembersList` edit flow supports the remove-photo checkbox path (calls the parent-authorized `deleteS3Objects` server action and clears `photoUrls` before save).
 
 ## C. Chores dashboard, recurrence, rotation, completion
 

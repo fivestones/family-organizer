@@ -622,11 +622,6 @@ const _schema = i.schema({
             name: i.string(),
             startTime: i.string(),
         }),
-        todos: i.entity({
-            createdAt: i.any(),
-            done: i.boolean(),
-            text: i.any(),
-        }),
         unitDefinitions: i.entity({
             code: i.string().unique().indexed(),
             decimalPlaces: i.number().optional(),

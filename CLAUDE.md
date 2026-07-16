@@ -36,15 +36,15 @@ INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@la
 
 ## Architecture
 
-This is a **Next.js 16 + InstantDB** family management app. InstantDB is the sole database—there is no traditional backend DB. All data sync happens client-side via the InstantDB React SDK, with the server-side Admin SDK used only for privileged operations (auth token minting, admin writes).
+This is a **Next.js 16 + InstantDB** family management app. InstantDB is the sole database—there is no traditional backend DB. Live reads use the InstantDB React SDK. Ordinary permission-scoped writes may run on the client, while invariant-bearing or privileged workflows use authenticated App Router endpoints/server actions backed by the Admin SDK.
 
 ### Key architectural layers
 
-**Client DB** (`lib/db.ts`): `@instantdb/react` initialized with `instant.schema.ts` for typed queries. All client components use `db.useQuery(...)` for live data and `db.transact(...)` for writes.
+**Client DB** (`lib/db.ts`): the single `@instantdb/react` entrypoint, initialized with `instant.schema.ts` for typed queries and transactions. Components use `db.useQuery(...)` for live data; writes stay client-side only when Instant permissions are the complete authorization/integrity boundary.
 
-**Server/Admin** (`lib/instant-admin.ts`): `@instantdb/admin` for operations requiring elevated privileges. Used in API routes under `app/api/`.
+**Server/Admin** (`lib/instant-admin.ts`): `@instantdb/admin` for verified principal-token minting, finance ledger mutations, messaging, calendar sync, file finalization, and other workflows that require fresh reads, cross-row invariants, or elevated writes. Used by routes under `app/api/` and authenticated server actions in `app/actions.ts`.
 
-**Schema** (`instant.schema.ts`): Single source of truth for all entities and their links. Modify here and push with `instant-cli`. Key entities: `familyMembers`, `chores`, `choreAssignments`, `choreCompletions`, `taskSeries`, `tasks`, `allowanceEnvelopes`, `allowanceTransactions`, `calendarItems`, `deviceSessions`.
+**Schema** (`instant.schema.ts`): Single source of truth for all entities and their links. Modify here and push with `instant-cli`. Key entities include `familyMembers`, chores/task-series records, allowance envelopes/transactions, calendar and sync records, history events, messaging records, and device sessions.
 
 **Permissions** (`instant.perms.ts`): CEL-based rules pushed to InstantDB. Changes must be pushed to take effect.
 
@@ -77,10 +77,12 @@ Two-layer auth:
 
 **Server API routes:**
 - `POST /api/device-activate` — sets device auth cookie
-- `GET /api/instant-auth-token` / `POST /api/instant-auth-parent-token` — mint InstantDB principal tokens
-- `POST /api/upload` (pages/api) — image upload with Sharp resizing
-- `POST /api/delete-image` (pages/api) — image deletion
-- `/api/mobile/*` — mobile-specific mirrors of auth/device/file endpoints
+- `/api/instant-auth-*` — mint kid/parent InstantDB principal tokens after server-side verification
+- `POST /api/finance/mutations` — performs authenticated ledger mutations with fresh server reads and invariant checks
+- `/api/messages/*` — bootstraps threads and performs message, reaction, acknowledgement, read-state, watch, and preference mutations
+- `/api/calendar-sync/apple/*` — parent/cron-authenticated Apple Calendar connection and sync operations
+- `POST /api/avatar-variants` — authenticated multipart fallback for already-resized avatar variants
+- `/api/mobile/*` — bearer-authenticated mobile device, principal, file, and iOS Shortcut endpoints
 
 ### Core business logic
 
@@ -91,7 +93,7 @@ Two-layer auth:
 
 ### File storage
 
-S3-compatible object storage (MinIO in self-hosted setup). Presigned URLs generated server-side in `app/actions.ts`. Image uploads go through `pages/api/upload.ts` which uses Sharp to produce three sizes (64px, 320px, 1200px). Configured via `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME` env vars.
+S3-compatible object storage (MinIO in self-hosted setup). Authenticated server actions in `app/actions.ts` issue constrained presigned uploads, finalize attachment metadata, list/delete objects for parents, and sweep orphaned task uploads. The browser creates 64/320/1200px PNG avatar variants and uploads them with parent-authorized presigned posts; `POST /api/avatar-variants` is the authenticated multipart fallback. Configured via `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME` env vars.
 
 ### Monorepo workspace packages
 
@@ -100,7 +102,7 @@ S3-compatible object storage (MinIO in self-hosted setup). Presigned URLs genera
 
 ### Mobile app (`mobile/`)
 
-Expo/React Native app using Expo Router. Uses a **hybrid backend**: InstantDB (`@instantdb/react-native`) for live real-time queries/writes, plus the Next.js `/api/mobile/*` routes for auth token minting and device management. The mobile app does not talk to InstantDB admin directly — privileged ops go through the API. Base URL configured via `EXPO_PUBLIC_API_BASE_URL` (defaults to `http://localhost:3000`). API client lives in `mobile/src/lib/api-client.js`.
+Expo/React Native app using Expo Router. Uses a **hybrid backend**: InstantDB (`@instantdb/react-native`) for live real-time queries and permission-scoped writes, plus Next.js routes for device/principal auth, files, iOS Shortcuts, messaging, and finance mutations. The mobile app does not talk to InstantDB admin directly—privileged or invariant-bearing operations go through the API. Base URL configured via `EXPO_PUBLIC_API_BASE_URL` (defaults to `http://localhost:3000`). API client lives in `mobile/src/lib/api-client.js`.
 
 **Auth/session flow (mobile-specific):** Three provider layers compose in `mobile/src/providers/AppProviders.js`:
 1. `DeviceSessionProvider` — device activation token persisted in AsyncStorage; refreshed on app resume. Activation calls `POST /api/mobile/device-activate`.
