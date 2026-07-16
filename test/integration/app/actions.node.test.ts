@@ -232,6 +232,7 @@ describe('app/actions server auth + file actions', () => {
         const recent = new Date();
 
         actionMocks.adminQuery.mockResolvedValue({
+            historyEventAttachments: [{ url: 'task-response/history-only.txt', thumbnailUrl: null }],
             taskAttachments: [
                 { url: 'task-attachment/referenced.pdf', thumbnailUrl: null },
                 { url: 'task-attachment/referenced.pdf', thumbnailUrl: null },
@@ -265,7 +266,10 @@ describe('app/actions server auth + file actions', () => {
             }
             if (input.Prefix === 'task-response/') {
                 return {
-                    Contents: [{ Key: 'task-response/orphan.txt', LastModified: old, Size: 500 }],
+                    Contents: [
+                        { Key: 'task-response/history-only.txt', LastModified: old, Size: 200 },
+                        { Key: 'task-response/orphan.txt', LastModified: old, Size: 500 },
+                    ],
                 };
             }
             if (input.Prefix === 'task-attachment--') {
@@ -281,10 +285,10 @@ describe('app/actions server auth + file actions', () => {
 
         expect(preview).toMatchObject({
             gracePeriodHours: 24,
-            managedObjects: 6,
-            managedBytes: 2100,
-            referencedObjects: 3,
-            referencedBytes: 1100,
+            managedObjects: 7,
+            managedBytes: 2300,
+            referencedObjects: 4,
+            referencedBytes: 1300,
             graceProtectedObjects: 1,
             graceProtectedBytes: 300,
             orphanedObjects: 2,

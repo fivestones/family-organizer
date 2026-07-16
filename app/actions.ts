@@ -208,16 +208,19 @@ async function listTaskUploadObjects(s3Internal: S3Client, bucketName: string): 
 async function queryTaskUploadReferences(): Promise<unknown[]> {
     const adminDb = getInstantAdminDb();
     const result = await adminDb.query({
+        historyEventAttachments: {},
         taskAttachments: {},
         taskUpdateAttachments: {},
         taskResponseFieldValues: {},
     });
 
+    const historyAttachments = (result.historyEventAttachments || []) as Array<{ url?: unknown; thumbnailUrl?: unknown }>;
     const taskAttachments = (result.taskAttachments || []) as Array<{ url?: unknown; thumbnailUrl?: unknown }>;
     const taskUpdateAttachments = (result.taskUpdateAttachments || []) as Array<{ url?: unknown; thumbnailUrl?: unknown }>;
     const responseValues = (result.taskResponseFieldValues || []) as Array<{ fileUrl?: unknown; thumbnailUrl?: unknown }>;
 
     return [
+        ...historyAttachments.flatMap((attachment) => [attachment.url, attachment.thumbnailUrl]),
         ...taskAttachments.flatMap((attachment) => [attachment.url, attachment.thumbnailUrl]),
         ...taskUpdateAttachments.flatMap((attachment) => [attachment.url, attachment.thumbnailUrl]),
         ...responseValues.flatMap((value) => [value.fileUrl, value.thumbnailUrl]),
