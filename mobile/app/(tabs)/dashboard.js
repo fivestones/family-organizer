@@ -1332,7 +1332,7 @@ export default function DashboardTab() {
       <Modal visible={memberDropdownVisible} transparent animationType="fade" onRequestClose={() => setMemberDropdownVisible(false)}>
         <Pressable style={styles.dropdownOverlay} onPress={() => setMemberDropdownVisible(false)}>
           <View style={styles.dropdownSheet}>
-            <Text style={styles.dropdownHeading}>View someone's day</Text>
+            <Text style={styles.dropdownHeading}>View someone’s day</Text>
             {members.map((member) => {
               const selected = member.id === viewedMember?.id;
               return (

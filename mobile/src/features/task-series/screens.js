@@ -752,7 +752,7 @@ function UpdateHistoryList({ task, colors, onOpenAttachment }) {
               {fromState && toState && fromState !== toState ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>from {fromState}</Text> : null}
               {getTaskUpdateActorName(entry) ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>by {getTaskUpdateActorName(entry)}</Text> : null}
               {getTaskUpdateAffectedName(entry) && getTaskUpdateAffectedName(entry) !== getTaskUpdateActorName(entry) ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>for {getTaskUpdateAffectedName(entry)}</Text> : null}
-              {replyTargetActorName && !isStatusOnlyReply ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>on {replyTargetActorName}'s response</Text> : null}
+              {replyTargetActorName && !isStatusOnlyReply ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>on {replyTargetActorName}’s response</Text> : null}
               {entry.createdAt ? <Text style={{ color: colors.inkMuted, fontSize: 12 }}>{formatTimestamp(entry.createdAt)}</Text> : null}
             </View>
             {gradeLabel ? <Text style={{ color: colors.success, fontSize: 13, fontWeight: '800' }}>Grade: {gradeLabel}</Text> : null}
