@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     transferFundsToPerson: vi.fn(),
     withdrawFromEnvelope: vi.fn(),
     setDefaultEnvelope: vi.fn(),
+    executeAtomicAllowancePayout: vi.fn(),
 }));
 
 vi.mock('@/lib/instant-admin', () => ({
@@ -26,6 +27,10 @@ vi.mock('@/lib/currency-utils', () => ({
     transferFundsToPerson: mocks.transferFundsToPerson,
     withdrawFromEnvelope: mocks.withdrawFromEnvelope,
     setDefaultEnvelope: mocks.setDefaultEnvelope,
+}));
+
+vi.mock('@/lib/allowance-payout', () => ({
+    executeAtomicAllowancePayout: mocks.executeAtomicAllowancePayout,
 }));
 
 import { executeServerFinanceMutation } from '@/lib/finance-mutation-server';
@@ -100,6 +105,7 @@ describe('server finance mutations', () => {
         const target = envelope('env-target', 'member-kid', {});
         mocks.adminQuery
             .mockResolvedValueOnce({ allowanceEnvelopes: [source, target] })
+            .mockResolvedValueOnce({ allowanceEnvelopes: [source, target] })
             .mockResolvedValueOnce({ familyMembers: [{ id: 'member-kid', allowanceEnvelopes: [source, target] }] });
 
         await expect(
@@ -157,5 +163,56 @@ describe('server finance mutations', () => {
             expect.arrayContaining([oldDefault, expect.objectContaining({ id: 'env-new', isDefault: true })]),
             'env-new'
         );
+    });
+
+    it('requires a parent and serializes allowance payout with the member envelopes', async () => {
+        const savings = { ...envelope('env-savings', 'member-kid', { USD: 12 }), isDefault: true };
+        const member = { id: 'member-kid', name: 'Kid Name', allowanceEnvelopes: [savings] };
+        const payoutResult = {
+            processedPeriodIds: ['period-1'],
+            skippedPeriodIds: [],
+            amountsByCurrency: { USD: 4 },
+            envelopeId: savings.id,
+        };
+        const request = {
+            operation: 'allowance-payout' as const,
+            memberId: member.id,
+            primaryCurrency: 'USD',
+            periods: [
+                {
+                    id: 'period-1',
+                    periodStartDate: '2026-07-01',
+                    periodEndDate: '2026-07-15',
+                    amount: 4,
+                    completionsToMark: ['completion-1'],
+                },
+            ],
+        };
+
+        await expect(executeServerFinanceMutation(request, kidActor)).rejects.toMatchObject({ status: 403 });
+        expect(mocks.adminQuery).not.toHaveBeenCalled();
+
+        mocks.adminQuery.mockResolvedValue({ familyMembers: [member] });
+        mocks.executeAtomicAllowancePayout.mockResolvedValue(payoutResult);
+        await expect(executeServerFinanceMutation(request, parentActor)).resolves.toEqual(payoutResult);
+
+        expect(mocks.adminQuery).toHaveBeenCalledTimes(2);
+        expect(mocks.executeAtomicAllowancePayout).toHaveBeenCalledWith(
+            expect.objectContaining({
+                memberId: member.id,
+                memberName: member.name,
+                primaryCurrency: 'USD',
+                periods: request.periods,
+                memberEnvelopes: [savings],
+            })
+        );
+        const payoutDb = mocks.executeAtomicAllowancePayout.mock.calls[0][0].db;
+        expect(payoutDb.__allowanceAuditFields).toEqual({
+            createdBy: 'instant-parent',
+            createdByFamilyMemberId: 'member-parent',
+        });
+        mocks.adminQuery.mockResolvedValueOnce({ allowanceTransactions: [] });
+        await expect(payoutDb.queryOnce({ allowanceTransactions: {} })).resolves.toEqual({ data: { allowanceTransactions: [] } });
+        await expect(payoutDb.getAuth()).resolves.toEqual(parentActor.instantUser);
     });
 });

@@ -1,5 +1,15 @@
 import { getCachedMemberToken } from '@/lib/instant-principal-storage';
 
+export type AllowancePayoutRequestPeriod = {
+    id: string;
+    periodStartDate: Date | string;
+    periodEndDate: Date | string;
+    amount: number;
+    additionalAmountsByCurrency?: Record<string, number>;
+    completionsToMark: string[];
+    description?: string;
+};
+
 export type FinanceMutationRequest =
     | { operation: 'create-initial'; familyMemberId: string }
     | {
@@ -27,6 +37,12 @@ export type FinanceMutationRequest =
           envelopeId: string;
           transferToEnvelopeId: string;
           newDefaultEnvelopeId?: string | null;
+      }
+    | {
+          operation: 'allowance-payout';
+          memberId: string;
+          primaryCurrency: string;
+          periods: AllowancePayoutRequestPeriod[];
       };
 
 export async function requestFinanceMutation<TResult = null>(request: FinanceMutationRequest): Promise<TResult> {

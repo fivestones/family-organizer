@@ -50,4 +50,38 @@ describe('finance mutation client', () => {
             'Insufficient USD funds.'
         );
     });
+
+    it('posts allowance payouts through the same authenticated boundary', async () => {
+        const result = {
+            processedPeriodIds: ['period-1'],
+            skippedPeriodIds: [],
+            amountsByCurrency: { USD: 5 },
+            envelopeId: 'env-1',
+        };
+        const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ result }), { status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+        const request = {
+            operation: 'allowance-payout' as const,
+            memberId: 'member-1',
+            primaryCurrency: 'USD',
+            periods: [
+                {
+                    id: 'period-1',
+                    periodStartDate: '2026-07-01',
+                    periodEndDate: '2026-07-15',
+                    amount: 5,
+                    completionsToMark: ['completion-1'],
+                },
+            ],
+        };
+
+        await expect(requestFinanceMutation(request)).resolves.toEqual(result);
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/finance/mutations',
+            expect.objectContaining({
+                headers: expect.objectContaining({ 'x-instant-auth-token': 'member-token' }),
+                body: JSON.stringify(request),
+            })
+        );
+    });
 });

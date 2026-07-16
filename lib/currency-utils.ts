@@ -8,6 +8,10 @@ import { requestFinanceMutation } from '@/lib/finance-mutation-client';
 const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 
 export async function getAllowanceTransactionAuditFields(db: any): Promise<{ createdBy: string; createdByFamilyMemberId?: string }> {
+    if (db?.__allowanceAuditFields?.createdBy) {
+        return db.__allowanceAuditFields;
+    }
+
     const authUser = await db?.getAuth?.();
     if (!authUser?.id) {
         throw new Error('Instant auth is required to create allowance transactions');

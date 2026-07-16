@@ -22,7 +22,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { formatBalances, UnitDefinition, Envelope } from '@/lib/currency-utils';
-import { executeAtomicAllowancePayout } from '@/lib/allowance-payout';
+import { requestFinanceMutation } from '@/lib/finance-mutation-client';
+import type { AtomicAllowancePayoutResult } from '@/lib/allowance-payout';
 import {
     addProcessedPeriodIds,
     calculateEditableAllowanceTotal,
@@ -30,7 +31,7 @@ import {
     getAllowanceAmountWarning,
     type AllowanceAmountWarning,
 } from '@/lib/allowance-distribution-state';
-import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
+import { activeAllowanceEnvelopesQuery } from '@/lib/allowance-envelopes';
 import {
     createRRuleWithStartDate,
     getAllowancePeriodForDate,
@@ -515,15 +516,10 @@ export default function AllowanceDistributionPage() {
         const description = `Allowance distribution for period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}`;
 
         try {
-            const memberEnvelopes = filterActiveAllowanceEnvelopes(typedData?.allowanceEnvelopes).filter(
-                (e) => e.familyMember?.[0]?.id === memberId
-            );
-            const result = await executeAtomicAllowancePayout({
-                db,
+            const result = await requestFinanceMutation<AtomicAllowancePayoutResult>({
+                operation: 'allowance-payout',
                 memberId,
-                memberName: member.name,
                 primaryCurrency,
-                memberEnvelopes,
                 periods: [
                     {
                         id: period.id,
@@ -619,9 +615,6 @@ export default function AllowanceDistributionPage() {
         )}`;
 
         try {
-            const memberEnvelopes = filterActiveAllowanceEnvelopes(typedData?.allowanceEnvelopes).filter(
-                (e) => e.familyMember?.[0]?.id === memberId
-            );
             const periods = allowanceInfo.pendingPeriods
                 .filter((period) => period.status === 'pending')
                 .map((period) => {
@@ -646,12 +639,10 @@ export default function AllowanceDistributionPage() {
                         description,
                     };
                 });
-            const result = await executeAtomicAllowancePayout({
-                db,
+            const result = await requestFinanceMutation<AtomicAllowancePayoutResult>({
+                operation: 'allowance-payout',
                 memberId,
-                memberName: allowanceInfo.member.name,
                 primaryCurrency: currency,
-                memberEnvelopes,
                 periods,
             });
 

@@ -3,7 +3,8 @@ import 'server-only';
 import type { FinanceMutationRequest } from '@/lib/finance-mutation-client';
 import { withFinanceMutationLocks } from '@/lib/finance-mutation-lock';
 import { getInstantAdminDb } from '@/lib/instant-admin';
-import { filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
+import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
+import { executeAtomicAllowancePayout, type AtomicAllowancePayoutResult } from '@/lib/allowance-payout';
 import {
     createAdditionalEnvelope,
     createInitialSavingsEnvelope,
@@ -81,9 +82,63 @@ function makeCurrencyDb(adminDb: any, actor: FinanceActor) {
     };
 }
 
-export async function executeServerFinanceMutation(request: FinanceMutationRequest, actor: FinanceActor): Promise<string | null> {
+function makeAllowancePayoutDb(adminDb: any, actor: FinanceActor) {
+    return {
+        __allowanceAuditFields: {
+            createdBy: requireString(actor.instantUser.id, 'Instant user ID'),
+            createdByFamilyMemberId: actor.familyMember.id,
+        },
+        getAuth: async () => actor.instantUser,
+        queryOnce: async (query: any) => ({ data: await adminDb.query(query) }),
+        transact: (transactions: any[]) => adminDb.transact(transactions),
+    };
+}
+
+async function loadMemberWithActiveEnvelopes(adminDb: any, memberId: string) {
+    const data = await adminDb.query({
+        familyMembers: {
+            $: { where: { id: memberId } },
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery,
+        },
+    });
+    const member = data?.familyMembers?.[0];
+    if (!member) throw new FinanceMutationError('Allowance payout member could not be found.', 404);
+    return {
+        ...member,
+        allowanceEnvelopes: filterActiveAllowanceEnvelopes((member.allowanceEnvelopes || []) as Envelope[]),
+    };
+}
+
+export async function executeServerFinanceMutation(
+    request: FinanceMutationRequest,
+    actor: FinanceActor
+): Promise<string | null | AtomicAllowancePayoutResult> {
     const adminDb = getInstantAdminDb() as any;
     const currencyDb = makeCurrencyDb(adminDb, actor);
+
+    if (request.operation === 'allowance-payout') {
+        if (actor.familyMember.role !== 'parent') {
+            throw new FinanceMutationError('Parent access required.', 403);
+        }
+        const memberId = requireString(request.memberId, 'Family member ID');
+        const initialMember = await loadMemberWithActiveEnvelopes(adminDb, memberId);
+        const lockKeys = [
+            `member:${memberId}`,
+            ...initialMember.allowanceEnvelopes.map((envelope: Envelope) => envelope.id),
+        ];
+
+        return withFinanceMutationLocks(lockKeys, async () => {
+            const member = await loadMemberWithActiveEnvelopes(adminDb, memberId);
+            return executeAtomicAllowancePayout({
+                db: makeAllowancePayoutDb(adminDb, actor),
+                memberId,
+                memberName: member.name,
+                primaryCurrency: requireString(request.primaryCurrency, 'Allowance payout currency'),
+                periods: request.periods,
+                memberEnvelopes: member.allowanceEnvelopes,
+            });
+        });
+    }
 
     if (request.operation === 'create-initial' || request.operation === 'create-envelope') {
         const familyMemberId = requireString(request.familyMemberId, 'Family member ID');
@@ -132,7 +187,12 @@ export async function executeServerFinanceMutation(request: FinanceMutationReque
               ? [request.envelopeId, request.transferToEnvelopeId, ...(request.newDefaultEnvelopeId ? [request.newDefaultEnvelopeId] : [])]
               : [request.sourceEnvelopeId, request.destinationEnvelopeId];
 
-    return withFinanceMutationLocks(involvedEnvelopeIds, async () => {
+    const initialEnvelopes = await loadActiveEnvelopes(adminDb, involvedEnvelopeIds);
+    const memberLockKeys = Array.from(
+        new Set(initialEnvelopes.map(linkedMemberId).filter((memberId): memberId is string => Boolean(memberId)))
+    ).map((memberId) => `member:${memberId}`);
+
+    return withFinanceMutationLocks([...involvedEnvelopeIds, ...memberLockKeys], async () => {
         const envelopes = await loadActiveEnvelopes(adminDb, involvedEnvelopeIds);
         const byId = new Map(envelopes.map((envelope) => [envelope.id, envelope]));
 

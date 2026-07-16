@@ -62,6 +62,10 @@ describe('atomic allowance payouts', () => {
 
     it('writes the balance, immutable period ledger row, history, and completion marks in one transaction', async () => {
         const db = {
+            __allowanceAuditFields: {
+                createdBy: 'instant-parent-principal',
+                createdByFamilyMemberId: 'member-parent',
+            },
             getAuth: payoutMocks.getAuth,
             queryOnce: vi.fn().mockResolvedValue({
                 data: {
@@ -138,6 +142,7 @@ describe('atomic allowance payouts', () => {
                 amount: 12.5,
                 createdAt: '2026-02-26T12:34:56.000Z',
                 createdBy: 'instant-parent-principal',
+                createdByFamilyMemberId: 'member-parent',
                 currency: 'USD',
                 description: 'Allowance distribution for period ending 2026-02-14',
                 distributionKey: createAllowanceDistributionKey('member-1', '2026-02-01', '2026-02-14', 'USD'),
@@ -153,10 +158,17 @@ describe('atomic allowance payouts', () => {
                 (transaction) =>
                     transaction.entity === 'historyEvents' &&
                     transaction.op === 'update' &&
+                    transaction.payload?.actorFamilyMemberId === 'member-parent' &&
                     transaction.payload?.allowanceTransactionId === transactionId &&
                     transaction.payload?.summary === 'Deposited $12.50 for Ethan'
             )
         ).toBe(true);
+        expect(transactions).toContainEqual({
+            op: 'link',
+            entity: 'historyEvents',
+            id: expect.any(String),
+            payload: { actor: 'member-parent' },
+        });
     });
 
     it('deposits fixed rewards in every currency and records one ledger row per currency', async () => {
