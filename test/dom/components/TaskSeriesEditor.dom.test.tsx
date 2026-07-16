@@ -97,6 +97,13 @@ vi.mock('@/components/AuthProvider', () => ({
     }),
 }));
 
+vi.mock('@/lib/db', () => ({
+    db: {
+        useQuery: editorMocks.dbUseQuery,
+        transact: editorMocks.dbTransact,
+    },
+}));
+
 vi.mock('@/components/ui/button', async () => {
     const React = await import('react');
     const Button = React.forwardRef<HTMLButtonElement, any>(function MockButton({ children, ...props }, ref) {
