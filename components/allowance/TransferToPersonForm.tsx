@@ -70,17 +70,22 @@ const TransferToPersonForm: React.FC<TransferToPersonFormProps> = ({
   const [destinationDefaultEnvelope, setDestinationDefaultEnvelope] = useState<Envelope | null>(null);
 
   // **** Query for the member and ALL their envelopes ****
-  const { isLoading: isLoadingMemberData, error: errorMemberData, data: memberData } = db.useQuery({
-    familyMembers: {
-        $: { where: { id: destinationMemberId! } },
-        allowanceEnvelopes: activeAllowanceEnvelopesQuery // Get active linked envelopes
-    }
-}, { enabled: !!destinationMemberId && isOpen });
+  const { isLoading: isLoadingMemberData, error: errorMemberData, data: memberData } = db.useQuery(
+    destinationMemberId && isOpen
+      ? {
+          familyMembers: {
+            $: { where: { id: destinationMemberId } },
+            allowanceEnvelopes: activeAllowanceEnvelopesQuery,
+          },
+        }
+      : null
+  );
+  const isLoadingDestination = Boolean(destinationMemberId && isLoadingMemberData);
 
 // **** Effect to FIND the default envelope from the results ****
 useEffect(() => {
     setDestinationDefaultEnvelope(null); // Reset on id change before data arrives
-    if (!isLoadingMemberData && memberData?.familyMembers?.[0]?.allowanceEnvelopes) {
+    if (destinationMemberId && !isLoadingMemberData && memberData?.familyMembers?.[0]?.allowanceEnvelopes) {
         const envelopes = filterActiveAllowanceEnvelopes(memberData.familyMembers[0].allowanceEnvelopes as Envelope[]);
         // Find the default envelope using standard JS array find
         const defaultEnvelope = envelopes.find((env: any) => env.isDefault === true); // Use 'any' if Envelope type isn't perfectly matching raw data
@@ -97,6 +102,11 @@ useEffect(() => {
     return allFamilyMembers.filter(member => member.id !== sourceMemberId);
   }, [allFamilyMembers, sourceMemberId]);
 
+  const selectedDestinationMember = useMemo(
+    () => destinationOptions.find((member) => member.id === destinationMemberId) || null,
+    [destinationMemberId, destinationOptions]
+  );
+
   const selectedSourceEnvelope = useMemo(() => {
     return sourceMemberEnvelopes.find(e => e.id === sourceEnvelopeId);
   }, [sourceEnvelopeId, sourceMemberEnvelopes]);
@@ -108,10 +118,15 @@ useEffect(() => {
       .map(([currency]) => currency);
   }, [selectedSourceEnvelope]);
 
-   const sourceCurrencyBalance = useMemo(() => {
+  const sourceCurrencyBalance = useMemo(() => {
       if (!selectedSourceEnvelope || !selectedCurrency || !selectedSourceEnvelope.balances) return 0;
       return selectedSourceEnvelope.balances[selectedCurrency] ?? 0;
   }, [selectedSourceEnvelope, selectedCurrency]);
+
+  const destinationCreatesCurrencyBucket = useMemo(() => {
+    if (!destinationDefaultEnvelope || !selectedCurrency) return false;
+    return !Object.prototype.hasOwnProperty.call(destinationDefaultEnvelope.balances || {}, selectedCurrency);
+  }, [destinationDefaultEnvelope, selectedCurrency]);
 
 
   // Effects to reset dependent fields
@@ -161,7 +176,7 @@ useEffect(() => {
         return;
     }
     // **** NEW: Check if destination envelope is loaded ****
-    if (isLoadingMemberData) {
+    if (isLoadingDestination) {
         toast({ title: "Please wait", description: "Loading recipient details...", variant: "default" });
         return;
     }
@@ -185,7 +200,7 @@ useEffect(() => {
 
     setIsSubmitting(true);
     try { // Call parent onSubmit, passing the necessary IDs and values
-        await onSubmit(sourceEnvelopeId!, destinationDefaultEnvelope, transferAmount, selectedCurrency!, description.trim());
+        await onSubmit(sourceEnvelopeId!, destinationDefaultEnvelope, transferAmount, selectedCurrency!, trimmedDescription);
     
     } catch (err: any) { // Parent should handle success toast & closing
         console.error("Transfer to person failed in form:", err);
@@ -206,7 +221,7 @@ useEffect(() => {
                            !selectedCurrency ||
                            !amount ||
                            parseFloat(amount) <= 0 ||
-                           isLoadingMemberData || // Disable while loading dest envelope
+                           isLoadingDestination || // Disable while loading dest envelope
                            !destinationDefaultEnvelope || // Disable if dest envelope not found
                            parseFloat(amount) > sourceCurrencyBalance;
 
@@ -258,6 +273,18 @@ useEffect(() => {
                     </Select>
                 </div>
 
+                {selectedCurrency ? (
+                  <div className={destinationCreatesCurrencyBucket ? "rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" : "rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"}>
+                    {destinationCreatesCurrencyBucket ? (
+                      <>
+                        {selectedDestinationMember?.name || 'The recipient'}’s default envelope “{destinationDefaultEnvelope?.name}” does not have a {selectedCurrency} balance yet. This transfer will create that {selectedCurrency} bucket there; it will not convert the amount.
+                      </>
+                    ) : (
+                      <>Transfers keep the selected currency or unit; no exchange-rate conversion is performed.</>
+                    )}
+                  </div>
+                ) : null}
+
                  {/* Currency */}
                 <div className="grid w-full items-center gap-1.5">
                     <Label htmlFor="transfer-currency">Currency/Unit</Label>
@@ -288,9 +315,9 @@ useEffect(() => {
                 </div>
 
             </div>
-            {isLoadingMemberData && <p>Loading recipient details...</p>}
+            {isLoadingDestination && <p>Loading recipient details...</p>}
             {/* Add a message if loading or if default isn't found after loading */}
-            {!isLoadingMemberData && destinationMemberId && !destinationDefaultEnvelope && memberData?.familyMembers?.[0] &&
+            {!isLoadingDestination && destinationMemberId && !destinationDefaultEnvelope && memberData?.familyMembers?.[0] &&
               <p className="text-orange-600 text-sm py-2">Warning: Recipient does not have a default envelope set.</p>
             }
             <DialogFooter>

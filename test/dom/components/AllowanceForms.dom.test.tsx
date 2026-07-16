@@ -293,7 +293,7 @@ describe('Allowance Forms', () => {
         function makeDb(useQueryImpl?: any) {
             const cache = new Map<string, any>();
             return {
-                useQuery: vi.fn((query: any, opts: any) => {
+                useQuery: vi.fn((query: any, opts?: any) => {
                     const requestedId = query?.familyMembers?.$?.where?.id ?? null;
                     const enabled = Boolean(opts?.enabled);
                     const cacheKey = JSON.stringify({ requestedId, enabled });
@@ -435,6 +435,53 @@ describe('Allowance Forms', () => {
                 })
             );
             expect(onSubmit).not.toHaveBeenCalled();
+        });
+
+        it('explains when a same-currency transfer will create a new bucket for the recipient', async () => {
+            const user = userEvent.setup();
+            const db = makeDb((query: any) => {
+                const requestedId = query?.familyMembers?.$?.where?.id;
+                if (requestedId === 'm2') {
+                    return {
+                        isLoading: false,
+                        error: null,
+                        data: {
+                            familyMembers: [
+                                {
+                                    id: 'm2',
+                                    allowanceEnvelopes: [
+                                        { id: 'dest-1', name: 'Main', balances: { NPR: 500 }, isDefault: true },
+                                    ],
+                                },
+                            ],
+                        },
+                    };
+                }
+                return { isLoading: false, error: null, data: { familyMembers: [] } };
+            });
+
+            render(
+                <TransferToPersonForm
+                    db={db as any}
+                    isOpen
+                    onClose={vi.fn()}
+                    onSubmit={vi.fn().mockResolvedValue(undefined)}
+                    sourceMemberId="m1"
+                    allFamilyMembers={allFamilyMembers as any}
+                    sourceMemberEnvelopes={sourceEnvelopes as any}
+                    unitDefinitions={[] as any}
+                />
+            );
+
+            let [destMemberSelect, sourceEnvelopeSelect, currencySelect] = getComboboxes();
+            await user.selectOptions(destMemberSelect, 'm2');
+            [destMemberSelect, sourceEnvelopeSelect, currencySelect] = getComboboxes();
+            await user.selectOptions(sourceEnvelopeSelect, 'src-1');
+            await user.selectOptions(currencySelect, 'USD');
+
+            expect(
+                screen.getByText(/Bri’s default envelope “Main” does not have a USD balance yet/i)
+            ).toHaveTextContent(/will create that USD bucket there; it will not convert the amount/i);
         });
     });
 });
