@@ -1,14 +1,14 @@
-import { tx, id } from '@instantdb/react';
-import { db as instantDb } from '@/lib/db';
+import { tx, id } from '@instantdb/core';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 import { getCachedMemberToken } from '@/lib/instant-principal-storage';
 import { resolveOneLink } from '@/lib/instant-links';
 import { filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
+import { requestFinanceMutation } from '@/lib/finance-mutation-client';
 
 const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 
-export async function getAllowanceTransactionAuditFields(): Promise<{ createdBy: string; createdByFamilyMemberId?: string }> {
-    const authUser = await instantDb.getAuth();
+export async function getAllowanceTransactionAuditFields(db: any): Promise<{ createdBy: string; createdByFamilyMemberId?: string }> {
+    const authUser = await db?.getAuth?.();
     if (!authUser?.id) {
         throw new Error('Instant auth is required to create allowance transactions');
     }
@@ -20,6 +20,14 @@ export async function getAllowanceTransactionAuditFields(): Promise<{ createdBy:
         createdBy: authUser.id,
         ...(selectedFamilyMemberId ? { createdByFamilyMemberId: selectedFamilyMemberId } : {}),
     };
+}
+
+async function getAllowanceAuditFieldsForDb(db: any): Promise<{ createdBy: string; createdByFamilyMemberId?: string }> {
+    return db?.__allowanceAuditFields || getAllowanceTransactionAuditFields(db);
+}
+
+function usesServerFinanceBoundary(db: any): boolean {
+    return typeof window !== 'undefined' && db?.__useServerFinanceBoundary === true;
 }
 
 function getLinkedFamilyMember(value: Envelope['familyMember'] | { id?: string; name?: string } | null | undefined) {
@@ -448,8 +456,11 @@ export const canInitiateTransaction = (userRole: 'Parent' | 'Child', transaction
  * @param familyMemberId - ID of the family member
  */
 export const createInitialSavingsEnvelope = async (db: any, familyMemberId: string) => {
+    if (usesServerFinanceBoundary(db)) {
+        return requestFinanceMutation<string>({ operation: 'create-initial', familyMemberId });
+    }
     // Function no longer needs to query - assumes calling code verified no envelopes exist.
-    const auditFields = await getAllowanceTransactionAuditFields();
+    const auditFields = await getAllowanceAuditFieldsForDb(db);
     const newEnvelopeId = id();
     const initTxId = id();
     const nowIso = new Date().toISOString();
@@ -513,7 +524,8 @@ export const createAdditionalEnvelope = async (
     name: string,
     isDefault: boolean,
     goalAmount?: number | null,
-    goalCurrency?: string | null
+    goalCurrency?: string | null,
+    description?: string | null
 ): Promise<string> => {
     // ... (keep existing implementation, add linking)
     if (!name || name.trim().length === 0) throw new Error('Envelope name cannot be empty.');
@@ -522,7 +534,19 @@ export const createAdditionalEnvelope = async (
     // Removed validation: if (goalCurrency && (goalAmount === null || goalAmount === undefined)) throw new Error("Goal amount must be specified if goal currency is set.");
     // Allow setting goal currency without amount initially if desired, though UI might prevent it.
 
-    const auditFields = await getAllowanceTransactionAuditFields();
+    if (usesServerFinanceBoundary(db)) {
+        return requestFinanceMutation<string>({
+            operation: 'create-envelope',
+            familyMemberId,
+            name: name.trim(),
+            isDefault,
+            goalAmount,
+            goalCurrency,
+            description: description || undefined,
+        });
+    }
+
+    const auditFields = await getAllowanceAuditFieldsForDb(db);
     const newEnvelopeId = id();
     const initTxId = id();
     const nowIso = new Date().toISOString();
@@ -543,6 +567,7 @@ export const createAdditionalEnvelope = async (
             isDefault,
             goalAmount: goalAmount ?? null,
             goalCurrency: goalCurrency ?? null,
+            ...(description?.trim() ? { description: description.trim() } : {}),
         },
     });
 
@@ -552,6 +577,7 @@ export const createAdditionalEnvelope = async (
             balances: {},
             isDefault: isDefault, // Set initial status, but might be overridden by setDefaultEnvelope
             familyMember: familyMemberId, // Link to member
+            ...(description?.trim() ? { description: description.trim() } : {}),
             goalAmount: goalAmount ?? null,
             goalCurrency: goalCurrency ?? null,
         }),
@@ -650,7 +676,11 @@ export const depositToSpecificEnvelope = async (
     description: string = 'Deposit'
 ): Promise<void> => {
     if (amount <= 0) throw new Error('Deposit amount must be positive.');
-    const auditFields = await getAllowanceTransactionAuditFields();
+    if (usesServerFinanceBoundary(db)) {
+        await requestFinanceMutation({ operation: 'deposit', envelopeId, amount, currency, description });
+        return;
+    }
+    const auditFields = await getAllowanceAuditFieldsForDb(db);
     const nowIso = new Date().toISOString();
     const envelopeContextMap = await getEnvelopeContextMap(db, [envelopeId]);
     const envelopeContext = envelopeContextMap.get(envelopeId);
@@ -717,7 +747,17 @@ export const transferFunds = async (db: any, fromEnvelope: Envelope, toEnvelope:
     if (amount <= 0) throw new Error('Transfer amount must be positive.');
     if (!fromEnvelope?.id || !toEnvelope?.id) throw new Error('Source or destination envelope data missing.');
     if (fromEnvelope.id === toEnvelope.id) throw new Error('Cannot transfer funds to the same envelope.');
-    const auditFields = await getAllowanceTransactionAuditFields();
+    if (usesServerFinanceBoundary(db)) {
+        await requestFinanceMutation({
+            operation: 'transfer',
+            sourceEnvelopeId: fromEnvelope.id,
+            destinationEnvelopeId: toEnvelope.id,
+            amount,
+            currency,
+        });
+        return;
+    }
+    const auditFields = await getAllowanceAuditFieldsForDb(db);
 
     const upperCaseCurrency = currency.toUpperCase();
     const fromBalances = fromEnvelope.balances || {};
@@ -842,7 +882,17 @@ export const deleteEnvelope = async (
 
     const balancesToDelete = envelopeToDelete.balances || {};
     const transactions: any[] = [];
-    const auditFields = await getAllowanceTransactionAuditFields();
+    if (usesServerFinanceBoundary(db)) {
+        await requestFinanceMutation({
+            operation: 'archive',
+            envelopeId: envelopeToDeleteId,
+            transferToEnvelopeId,
+            newDefaultEnvelopeId,
+        });
+        return;
+    }
+
+    const auditFields = await getAllowanceAuditFieldsForDb(db);
     const nowIso = new Date().toISOString();
     const targetBalances = targetEnvelope.balances || {};
     const updatedTargetBalances = { ...targetBalances };
@@ -970,7 +1020,7 @@ export const updateEnvelope = async (
 
     console.log(`Updating envelope ${envelopeId}: name='${trimmedName}', isDefault=${isDefault}, goal=${goalCurrency || ''} ${goalAmount || ''}`);
     const nowIso = new Date().toISOString();
-    const auditFields = await getAllowanceTransactionAuditFields();
+    const auditFields = await getAllowanceAuditFieldsForDb(db);
     const envelopeContextMap = await getEnvelopeContextMap(db, [envelopeId]);
     const envelopeContext = envelopeContextMap.get(envelopeId);
     const historyEvent = buildHistoryEventTransactions({
@@ -1030,7 +1080,11 @@ export const withdrawFromEnvelope = async (
     // ... (keep existing implementation, ensure linking)
     if (amount <= 0) throw new Error('Withdrawal amount must be positive.');
     if (!envelope?.id || !envelope.balances) throw new Error('Invalid envelope data provided.');
-    const auditFields = await getAllowanceTransactionAuditFields();
+    if (usesServerFinanceBoundary(db)) {
+        await requestFinanceMutation({ operation: 'withdraw', envelopeId: envelope.id, amount, currency, description });
+        return;
+    }
+    const auditFields = await getAllowanceAuditFieldsForDb(db);
     const nowIso = new Date().toISOString();
 
     const upperCaseCurrency = currency.toUpperCase();
@@ -1123,7 +1177,18 @@ export const transferFundsToPerson = async (
     if (!sourceEnvelope?.id || !sourceEnvelope.balances) throw new Error('Invalid source envelope data.');
     if (!destinationEnvelope?.id || !destinationEnvelope.balances) throw new Error('Invalid destination envelope data.');
     if (sourceEnvelope.id === destinationEnvelope.id) throw new Error('Source and destination envelopes cannot be the same.');
-    const auditFields = await getAllowanceTransactionAuditFields();
+    if (usesServerFinanceBoundary(db)) {
+        await requestFinanceMutation({
+            operation: 'transfer-person',
+            sourceEnvelopeId: sourceEnvelope.id,
+            destinationEnvelopeId: destinationEnvelope.id,
+            amount,
+            currency,
+            description,
+        });
+        return;
+    }
+    const auditFields = await getAllowanceAuditFieldsForDb(db);
 
     const upperCaseCurrency = currency.toUpperCase();
     const sourceCurrentBalance = sourceEnvelope.balances[upperCaseCurrency] || 0;

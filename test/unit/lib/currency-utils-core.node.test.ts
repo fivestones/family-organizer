@@ -38,15 +38,9 @@ const currencyMocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('@instantdb/react', () => ({
+vi.mock('@instantdb/core', () => ({
     id: currencyMocks.id,
     tx: currencyMocks.tx,
-}));
-
-vi.mock('@/lib/db', () => ({
-    db: {
-        getAuth: currencyMocks.getAuth,
-    },
 }));
 
 import type { CachedExchangeRate, Envelope, UnitDefinition } from '@/lib/currency-utils';
@@ -154,7 +148,7 @@ describe('currency-utils core helpers', () => {
                 lastFetchedTimestamp: now,
             },
         ];
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
         await expect(getExchangeRate(db as any, 'USD', 'USD', cachedRates)).resolves.toMatchObject({
             rate: 1,
@@ -188,7 +182,7 @@ describe('currency-utils core helpers', () => {
                 lastFetchedTimestamp: now,
             },
         ];
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
         const result = await getExchangeRate(db as any, 'EUR', 'NPR', cachedRates);
         expect(result.rate).toBe(300); // 150 / 0.5
@@ -209,7 +203,7 @@ describe('currency-utils core helpers', () => {
                 lastFetchedTimestamp: stale,
             },
         ];
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
         const result = await getExchangeRate(db as any, 'EUR', 'NPR', cachedRates);
 
@@ -221,7 +215,7 @@ describe('currency-utils core helpers', () => {
     });
 
     it('returns unavailable with null rate when no usable cache path exists', async () => {
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
         const result = await getExchangeRate(db as any, 'EUR', 'JPY', []);
 
@@ -233,7 +227,7 @@ describe('currency-utils core helpers', () => {
     });
 
     it('generates the right default-envelope update transactions when switching defaults', async () => {
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
         const envelopes: Envelope[] = [
             { id: 'env-a', name: 'A', balances: {}, isDefault: true },
             { id: 'env-b', name: 'B', balances: {}, isDefault: false },
@@ -250,7 +244,7 @@ describe('currency-utils core helpers', () => {
     });
 
     it('does not transact when the requested envelope is already the default', async () => {
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
         const envelopes: Envelope[] = [
             { id: 'env-a', name: 'A', balances: {}, isDefault: true },
             { id: 'env-b', name: 'B', balances: {}, isDefault: false },
@@ -262,7 +256,7 @@ describe('currency-utils core helpers', () => {
     });
 
     it('does not allow an archived envelope to become the default', async () => {
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
         const envelopes: Envelope[] = [
             { id: 'env-active', name: 'Active', balances: {}, isDefault: true },
             { id: 'env-archived', name: 'Archived', balances: {}, archivedAt: '2026-07-15T12:00:00.000Z', isDefault: false },
@@ -273,7 +267,7 @@ describe('currency-utils core helpers', () => {
     });
 
     it('finds an existing default envelope without mutating data', async () => {
-        const db = { transact: vi.fn(), queryOnce: vi.fn() };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn(), queryOnce: vi.fn() };
         const envelopes: Envelope[] = [
             { id: 'env-default', name: 'Savings', balances: {}, isDefault: true },
             { id: 'env-other', name: 'Spending', balances: {}, isDefault: false },
@@ -285,7 +279,7 @@ describe('currency-utils core helpers', () => {
     });
 
     it('promotes the Savings envelope to default when no default exists', async () => {
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
         const envelopes: Envelope[] = [
             { id: 'env-savings', name: 'Savings', balances: {}, isDefault: false },
             { id: 'env-other', name: 'Spending', balances: {}, isDefault: false },
@@ -298,7 +292,7 @@ describe('currency-utils core helpers', () => {
     });
 
     it('falls back to the first envelope when no default and no Savings envelope exist', async () => {
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
         const envelopes: Envelope[] = [
             { id: 'env-first', name: 'Wallet', balances: {}, isDefault: false },
             { id: 'env-second', name: 'Spending', balances: {}, isDefault: false },
@@ -311,7 +305,7 @@ describe('currency-utils core helpers', () => {
     });
 
     it('creates an initial Savings envelope when no envelopes exist', async () => {
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
         currencyMocks.id.mockReturnValueOnce('new-savings-id');
 
         await expect(findOrDefaultEnvelope(db as any, 'member-42', [])).resolves.toBe('new-savings-id');
@@ -353,7 +347,7 @@ describe('currency-utils core helpers', () => {
     });
 
     it('calculates envelope goal progress using cached/identity rates and skips non-monetary balances', async () => {
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
         const envelope: Envelope = {
             id: 'env1',
             name: 'Savings',
@@ -399,7 +393,7 @@ describe('currency-utils core helpers', () => {
         });
         vi.stubGlobal('fetch', fetchMock);
 
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
         const envelope: Envelope = {
             id: 'env2',
             name: 'Savings',
@@ -430,6 +424,7 @@ describe('currency-utils core helpers', () => {
 
     it('skips allowance execution for zero amount and routes positive/negative amounts to the default envelope', async () => {
         const db = {
+            getAuth: currencyMocks.getAuth,
             transact: vi.fn().mockResolvedValue(undefined),
             queryOnce: vi.fn().mockResolvedValue({ data: { allowanceEnvelopes: [] } }),
         };
@@ -465,6 +460,7 @@ describe('currency-utils core helpers', () => {
         currencyMocks.id.mockReturnValueOnce('created-default').mockReturnValueOnce('tx-deposit');
 
         const db = {
+            getAuth: currencyMocks.getAuth,
             transact: vi.fn().mockResolvedValue(undefined),
             queryOnce: vi.fn().mockResolvedValue({
                 data: {

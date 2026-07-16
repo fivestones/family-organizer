@@ -35,15 +35,9 @@ const currencyMocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('@instantdb/react', () => ({
+vi.mock('@instantdb/core', () => ({
     id: currencyMocks.id,
     tx: currencyMocks.tx,
-}));
-
-vi.mock('@/lib/db', () => ({
-    db: {
-        getAuth: currencyMocks.getAuth,
-    },
 }));
 
 describe('currency-utils allowance transaction audit stamping', () => {
@@ -60,7 +54,7 @@ describe('currency-utils allowance transaction audit stamping', () => {
         window.localStorage.setItem('family_organizer_user_id', 'family-member-abc');
 
         const { depositToSpecificEnvelope } = await import('@/lib/currency-utils');
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
         await depositToSpecificEnvelope(db as any, 'env_1', { USD: 10 }, 5, 'usd', 'Test deposit');
 
@@ -84,7 +78,7 @@ describe('currency-utils allowance transaction audit stamping', () => {
         currencyMocks.getAuth.mockResolvedValue(null);
 
         const { depositToSpecificEnvelope } = await import('@/lib/currency-utils');
-        const db = { transact: vi.fn() };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn() };
 
         await expect(depositToSpecificEnvelope(db as any, 'env_1', {}, 5, 'USD')).rejects.toThrow(
             'Instant auth is required to create allowance transactions'
@@ -98,7 +92,7 @@ describe('currency-utils allowance transaction audit stamping', () => {
         currencyMocks.id.mockReturnValueOnce('tx_out').mockReturnValueOnce('tx_in');
 
         const { transferFunds } = await import('@/lib/currency-utils');
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
         await transferFunds(
             db as any,
@@ -128,7 +122,7 @@ describe('currency-utils allowance transaction audit stamping', () => {
         currencyMocks.id.mockReturnValue('tx_withdraw');
 
         const { withdrawFromEnvelope } = await import('@/lib/currency-utils');
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
         await withdrawFromEnvelope(db as any, { id: 'env_w', name: 'Wallet', balances: { USD: 20 } } as any, 7, 'usd', 'Cash out');
 
@@ -151,7 +145,7 @@ describe('currency-utils allowance transaction audit stamping', () => {
         currencyMocks.id.mockReturnValueOnce('tx_del_out').mockReturnValueOnce('tx_del_in');
 
         const { deleteEnvelope } = await import('@/lib/currency-utils');
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
         await deleteEnvelope(
             db as any,
@@ -184,7 +178,7 @@ describe('currency-utils allowance transaction audit stamping', () => {
         currencyMocks.id.mockReturnValueOnce('tx_person_out').mockReturnValueOnce('tx_person_in');
 
         const { transferFundsToPerson } = await import('@/lib/currency-utils');
-        const db = { transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
         await transferFundsToPerson(
             db as any,

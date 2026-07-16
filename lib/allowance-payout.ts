@@ -1,4 +1,4 @@
-import { tx } from '@instantdb/react';
+import { tx } from '@instantdb/core';
 import { v5 as uuidv5 } from 'uuid';
 
 import type { Envelope } from '@/lib/currency-utils';
@@ -222,7 +222,7 @@ export async function executeAtomicAllowancePayout({
         };
     }
 
-    const auditFields = await getAllowanceTransactionAuditFields();
+    const auditFields = await getAllowanceTransactionAuditFields(db);
     const now = new Date().toISOString();
     let envelope = chooseEnvelope(envelopes);
     const envelopeId = envelope?.id || createDefaultEnvelopeId(memberId);

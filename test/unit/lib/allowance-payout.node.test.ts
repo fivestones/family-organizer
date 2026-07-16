@@ -35,8 +35,7 @@ const payoutMocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('@instantdb/react', () => ({ tx: payoutMocks.tx }));
-vi.mock('@/lib/db', () => ({ db: { getAuth: payoutMocks.getAuth } }));
+vi.mock('@instantdb/core', () => ({ tx: payoutMocks.tx }));
 
 import {
     createAllowanceDistributionKey,
@@ -63,6 +62,7 @@ describe('atomic allowance payouts', () => {
 
     it('writes the balance, immutable period ledger row, history, and completion marks in one transaction', async () => {
         const db = {
+            getAuth: payoutMocks.getAuth,
             queryOnce: vi.fn().mockResolvedValue({
                 data: {
                     familyMembers: [
@@ -161,6 +161,7 @@ describe('atomic allowance payouts', () => {
 
     it('deposits fixed rewards in every currency and records one ledger row per currency', async () => {
         const db = {
+            getAuth: payoutMocks.getAuth,
             queryOnce: vi.fn().mockResolvedValue({
                 data: {
                     familyMembers: [
@@ -233,6 +234,7 @@ describe('atomic allowance payouts', () => {
             'USD'
         );
         const db = {
+            getAuth: payoutMocks.getAuth,
             queryOnce: vi.fn().mockResolvedValue({
                 data: {
                     familyMembers: [
@@ -284,6 +286,7 @@ describe('atomic allowance payouts', () => {
             'USD'
         );
         const db = {
+            getAuth: payoutMocks.getAuth,
             queryOnce: vi.fn().mockResolvedValue({
                 data: {
                     familyMembers: [
@@ -320,6 +323,7 @@ describe('atomic allowance payouts', () => {
             'USD'
         );
         const db = {
+            getAuth: payoutMocks.getAuth,
             queryOnce: vi.fn().mockResolvedValue({
                 data: {
                     familyMembers: [
@@ -361,6 +365,7 @@ describe('atomic allowance payouts', () => {
 
     it('creates and links a deterministic Savings envelope inside the payout transaction', async () => {
         const db = {
+            getAuth: payoutMocks.getAuth,
             queryOnce: vi.fn().mockResolvedValue({
                 data: { familyMembers: [{ id: 'member-1', allowanceEnvelopes: [] }], allowanceTransactions: [] },
             }),
@@ -396,6 +401,7 @@ describe('atomic allowance payouts', () => {
 
     it('rejects an overdraw before writing any payout state', async () => {
         const db = {
+            getAuth: payoutMocks.getAuth,
             queryOnce: vi.fn().mockResolvedValue({
                 data: {
                     familyMembers: [
@@ -442,7 +448,7 @@ describe('atomic allowance payouts', () => {
                 data: { allowanceTransactions: [{ amount: 10, currency: 'USD' }] },
             });
         });
-        const db = { queryOnce, transact: vi.fn().mockResolvedValue(undefined) };
+        const db = { getAuth: payoutMocks.getAuth, queryOnce, transact: vi.fn().mockResolvedValue(undefined) };
 
         await executeAtomicAllowancePayout({
             db,

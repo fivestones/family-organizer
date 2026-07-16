@@ -58,8 +58,12 @@ describe('instant.perms contract', () => {
     it('keeps destructive and bookkeeping finance mutations parent-only', () => {
         const perms = rules as any;
         expect(perms.allowanceEnvelopes.allow.delete).toBe('isParent');
-        expect(perms.allowanceEnvelopes.allow.create).toContain("!('archivedAt' in request.modifiedFields)");
-        expect(perms.allowanceEnvelopes.allow.update).toContain("!('archivedAt' in request.modifiedFields)");
+        expect(perms.allowanceEnvelopes.allow.create).toBe('isParent');
+        expect(perms.allowanceEnvelopes.allow.link.$default).toBe('isParent');
+        expect(perms.allowanceEnvelopes.allow.unlink.$default).toBe('isParent');
+        expect(perms.allowanceEnvelopes.allow.update).toBe('isParent || (ownsEnvelope && kidSafeEnvelopeUpdate)');
+        expect(perms.allowanceEnvelopes.bind.ownsEnvelope).toContain("data.ref('familyMember.id')");
+        expect(perms.allowanceEnvelopes.bind.kidSafeEnvelopeUpdate).not.toContain('balances');
 
         for (const operation of ['create', 'update', 'delete'] as const) {
             expect(perms.exchangeRates.allow[operation]).toBe('isParent');

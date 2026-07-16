@@ -12,7 +12,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { id, tx } from '@instantdb/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { ScreenScaffold } from '../../src/components/ScreenScaffold';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
@@ -20,6 +19,7 @@ import { useAppSession } from '../../src/providers/AppProviders';
 import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/session-prefs';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
+import { runFinanceMutation } from '../../src/lib/api-client';
 
 function firstRef(value) {
   if (!value) return null;
@@ -56,15 +56,6 @@ function addBalancesInto(target, source) {
     target[code] = (target[code] || 0) + coerceNumber(amount);
   }
   return target;
-}
-
-function withoutZeroBalances(balances) {
-  return Object.fromEntries(
-    Object.entries(balances || {}).filter(([, amount]) => {
-      const num = coerceNumber(amount);
-      return num !== 0;
-    })
-  );
 }
 
 function sortBalanceEntries(balances) {
@@ -175,13 +166,6 @@ function getPreferredCurrency(member, envelope) {
   return 'USD';
 }
 
-function buildAuditFields(authUserId, currentFamilyMemberId) {
-  const fields = {};
-  if (authUserId) fields.createdBy = authUserId;
-  if (currentFamilyMemberId) fields.createdByFamilyMemberId = currentFamilyMemberId;
-  return fields;
-}
-
 function summarizeAllowance(member, unitMap) {
   const hasAmount = member.allowanceAmount != null && member.allowanceCurrency;
   const amountLabel = hasAmount ? formatAmount(member.allowanceCurrency, coerceNumber(member.allowanceAmount), unitMap) : null;
@@ -215,7 +199,6 @@ export default function FinanceTab() {
   const { requireParentAction } = useParentActionGate();
   const {
     db,
-    auth,
     isAuthenticated,
     instantReady,
     isOnline,
@@ -479,11 +462,11 @@ export default function FinanceTab() {
   }
 
   function isKidAllowedFinanceAction(kind) {
-    return kind === 'add-envelope' || kind === 'delete-envelope' || kind === 'transfer';
+    return kind === 'add-envelope' || kind === 'transfer';
   }
 
   function isActionParentOnly(kind) {
-    return kind === 'deposit' || kind === 'withdraw';
+    return kind === 'deposit' || kind === 'withdraw' || kind === 'delete-envelope';
   }
 
   function isActionVisuallyLocked(kind) {
@@ -664,8 +647,6 @@ export default function FinanceTab() {
 
     setFinanceModalSubmitting(true);
     setFinanceModalError('');
-    const auditFields = buildAuditFields(auth?.user?.id, currentUser?.id);
-    const nowIso = new Date().toISOString();
 
     try {
       if (financeModalKind === 'add-envelope') {
@@ -673,27 +654,13 @@ export default function FinanceTab() {
         if (!name) throw new Error('Envelope name is required.');
         const description = envelopeDescriptionInput.trim();
         const shouldBeDefault = member.envelopes.length === 0 ? true : !!envelopeIsDefaultInput;
-        const newEnvelopeId = id();
-        const envelopePayload = {
+        await runFinanceMutation({
+          operation: 'create-envelope',
+          familyMemberId: member.id,
           name,
-          balances: {},
           isDefault: shouldBeDefault,
           ...(description ? { description } : {}),
-        };
-
-        const transactionsToRun = [];
-        if (shouldBeDefault) {
-          member.envelopes.forEach((env) => {
-            if (env.isDefault) {
-              transactionsToRun.push(tx.allowanceEnvelopes[env.id].update({ isDefault: false }));
-            }
-          });
-        }
-
-        transactionsToRun.push(tx.allowanceEnvelopes[newEnvelopeId].update(envelopePayload));
-        transactionsToRun.push(tx.allowanceEnvelopes[newEnvelopeId].link({ familyMember: member.id }));
-
-        await db.transact(transactionsToRun);
+        });
         closeFinanceModal();
         return;
       }
@@ -709,14 +676,14 @@ export default function FinanceTab() {
           throw new Error('Transfer or withdraw all funds before deleting this envelope.');
         }
 
-        const siblingEnvelopes = member.envelopes.filter((envelope) => envelope.id !== envelopeToDelete.id);
-        const txs = [];
-        if (envelopeToDelete.isDefault && siblingEnvelopes.length > 0) {
-          txs.push(tx.allowanceEnvelopes[siblingEnvelopes[0].id].update({ isDefault: true }));
-        }
-        txs.push(tx.allowanceEnvelopes[envelopeToDelete.id].delete());
-
-        await db.transact(txs);
+        const siblingEnvelope = member.envelopes.find((envelope) => envelope.id !== envelopeToDelete.id);
+        if (!siblingEnvelope) throw new Error('The last envelope cannot be archived.');
+        await runFinanceMutation({
+          operation: 'archive',
+          envelopeId: envelopeToDelete.id,
+          transferToEnvelopeId: siblingEnvelope.id,
+          newDefaultEnvelopeId: envelopeToDelete.isDefault ? siblingEnvelope.id : null,
+        });
         closeFinanceModal();
         return;
       }
@@ -735,26 +702,13 @@ export default function FinanceTab() {
       }
 
       if (financeModalKind === 'deposit') {
-        const updatedBalances = withoutZeroBalances({
-          ...sourceBalances,
-          [currency]: coerceNumber(sourceBalances[currency]) + amount,
+        await runFinanceMutation({
+          operation: 'deposit',
+          envelopeId: sourceEnvelope.id,
+          amount,
+          currency,
+          description: description || `Deposit to ${sourceEnvelope.name}`,
         });
-        const txId = id();
-        await db.transact([
-          tx.allowanceEnvelopes[sourceEnvelope.id].update({ balances: updatedBalances }),
-          tx.allowanceTransactions[txId].update({
-            ...auditFields,
-            amount,
-            currency,
-            transactionType: 'deposit',
-            envelope: sourceEnvelope.id,
-            destinationEnvelope: sourceEnvelope.id,
-            description: description || `Deposit to ${sourceEnvelope.name}`,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          }),
-          tx.allowanceEnvelopes[sourceEnvelope.id].link({ transactions: txId }),
-        ]);
         closeFinanceModal();
         return;
       }
@@ -764,25 +718,13 @@ export default function FinanceTab() {
         if (available < amount) {
           throw new Error(`Insufficient ${currency}. Available: ${formatAmount(currency, available, unitMap)}.`);
         }
-        const updatedBalances = { ...sourceBalances };
-        const remaining = available - amount;
-        if (remaining === 0) delete updatedBalances[currency];
-        else updatedBalances[currency] = remaining;
-        const txId = id();
-        await db.transact([
-          tx.allowanceEnvelopes[sourceEnvelope.id].update({ balances: withoutZeroBalances(updatedBalances) }),
-          tx.allowanceTransactions[txId].update({
-            ...auditFields,
-            amount: -amount,
-            currency,
-            transactionType: 'withdrawal',
-            envelope: sourceEnvelope.id,
-            description: description || `Withdrawal from ${sourceEnvelope.name}`,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          }),
-          tx.allowanceEnvelopes[sourceEnvelope.id].link({ transactions: txId }),
-        ]);
+        await runFinanceMutation({
+          operation: 'withdraw',
+          envelopeId: sourceEnvelope.id,
+          amount,
+          currency,
+          description: description || `Withdrawal from ${sourceEnvelope.name}`,
+        });
         closeFinanceModal();
         return;
       }
@@ -797,50 +739,16 @@ export default function FinanceTab() {
           throw new Error(`Insufficient ${currency}. Available: ${formatAmount(currency, available, unitMap)}.`);
         }
 
-        const destinationBalances = { ...(destinationEnvelope.balancesNormalized || {}) };
-        const sourceUpdated = { ...sourceBalances };
-        const sourceRemaining = available - amount;
-        if (sourceRemaining === 0) delete sourceUpdated[currency];
-        else sourceUpdated[currency] = sourceRemaining;
-        const destinationUpdated = withoutZeroBalances({
-          ...destinationBalances,
-          [currency]: coerceNumber(destinationBalances[currency]) + amount,
-        });
-
         const transferDescription = description || `Transfer from ${sourceEnvelope.name} to ${destinationEnvelope.name}`;
-        const txOutId = id();
-        const txInId = id();
-
-        await db.transact([
-          tx.allowanceEnvelopes[sourceEnvelope.id].update({ balances: withoutZeroBalances(sourceUpdated) }),
-          tx.allowanceEnvelopes[destinationEnvelope.id].update({ balances: destinationUpdated }),
-          tx.allowanceTransactions[txOutId].update({
-            ...auditFields,
-            amount: -amount,
-            currency,
-            transactionType: 'transfer-out',
-            envelope: sourceEnvelope.id,
-            sourceEnvelope: sourceEnvelope.id,
-            destinationEnvelope: destinationEnvelope.id,
-            description: transferDescription,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          }),
-          tx.allowanceTransactions[txInId].update({
-            ...auditFields,
-            amount,
-            currency,
-            transactionType: 'transfer-in',
-            envelope: destinationEnvelope.id,
-            sourceEnvelope: sourceEnvelope.id,
-            destinationEnvelope: destinationEnvelope.id,
-            description: transferDescription,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          }),
-          tx.allowanceEnvelopes[sourceEnvelope.id].link({ outgoingTransfers: txOutId, transactions: txOutId }),
-          tx.allowanceEnvelopes[destinationEnvelope.id].link({ incomingTransfers: txInId, transactions: txInId }),
-        ]);
+        const sameOwner = destinationEnvelope.ownerMember?.id === member.id;
+        await runFinanceMutation({
+          operation: sameOwner ? 'transfer' : 'transfer-person',
+          sourceEnvelopeId: sourceEnvelope.id,
+          destinationEnvelopeId: destinationEnvelope.id,
+          amount,
+          currency,
+          ...(sameOwner ? {} : { description: transferDescription }),
+        });
         closeFinanceModal();
         return;
       }
@@ -855,7 +763,7 @@ export default function FinanceTab() {
   return (
     <ScreenScaffold
       title="Finance"
-      subtitle="Phase 3 now includes live envelopes, balances, and transactions. Kids can self-manage their own envelopes and transfers, while parent-only actions prompt elevation."
+      subtitle="Live envelopes, balances, and transactions with kid self-service transfers and parent-gated cash and archive actions."
       accent={colors.accentFinance}
       statusChips={[
         { label: isOnline ? 'Online' : 'Offline', tone: isOnline ? 'success' : 'warning' },
@@ -1349,7 +1257,7 @@ export default function FinanceTab() {
 
                     {financeModalKind === 'delete-envelope' ? (
                       <Text style={styles.deleteWarningText}>
-                        Deleting removes this envelope permanently. Transfer or withdraw its balance first if funds remain.
+                        Archiving preserves the transaction history for this envelope. Transfer or withdraw its balance first if funds remain.
                       </Text>
                     ) : null}
 

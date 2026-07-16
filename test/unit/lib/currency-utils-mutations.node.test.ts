@@ -38,15 +38,9 @@ const currencyMocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('@instantdb/react', () => ({
+vi.mock('@instantdb/core', () => ({
     id: currencyMocks.id,
     tx: currencyMocks.tx,
-}));
-
-vi.mock('@/lib/db', () => ({
-    db: {
-        getAuth: currencyMocks.getAuth,
-    },
 }));
 
 import type { Envelope } from '@/lib/currency-utils';
@@ -75,7 +69,7 @@ describe('currency-utils mutation helpers', () => {
     describe('envelope creation and updates', () => {
         it('creates an initial Savings envelope and links it to the family member', async () => {
             currencyMocks.id.mockReturnValueOnce('env-savings');
-            const db = { transact: vi.fn().mockResolvedValue(undefined) };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
             await expect(createInitialSavingsEnvelope(db as any, 'member-1')).resolves.toBe('env-savings');
 
@@ -134,7 +128,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('creates an additional envelope with trimmed name and goal fields', async () => {
             currencyMocks.id.mockReturnValueOnce('env-extra');
-            const db = { transact: vi.fn().mockResolvedValue(undefined) };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
             const newId = await createAdditionalEnvelope(db as any, 'member-1', '  Vacation  ', false, 150, 'USD');
             expect(newId).toBe('env-extra');
@@ -178,7 +172,7 @@ describe('currency-utils mutation helpers', () => {
         });
 
         it('validates additional envelope input before transacting', async () => {
-            const db = { transact: vi.fn() };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn() };
 
             await expect(createAdditionalEnvelope(db as any, 'member-1', '', false)).rejects.toThrow('Envelope name cannot be empty.');
             await expect(createAdditionalEnvelope(db as any, 'member-1', 'Trip', false, 0, 'USD')).rejects.toThrow(
@@ -191,7 +185,7 @@ describe('currency-utils mutation helpers', () => {
         });
 
         it('updates envelope fields and validates name/goal amount', async () => {
-            const db = { transact: vi.fn().mockResolvedValue(undefined) };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
             await updateEnvelope(db as any, 'env-1', '  New Name  ', true, 25, 'EUR');
             expect(db.transact).toHaveBeenCalledTimes(1);
@@ -227,7 +221,7 @@ describe('currency-utils mutation helpers', () => {
     describe('deposit/withdraw/transfer helper transactions', () => {
         it('deposits using uppercase currency and merges balances', async () => {
             currencyMocks.id.mockReturnValueOnce('tx-deposit');
-            const db = { transact: vi.fn().mockResolvedValue(undefined) };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
             await depositToSpecificEnvelope(db as any, 'env-1', { usd: 1, PTS: 2 } as any, 4, 'usd', 'Allowance');
 
@@ -258,7 +252,7 @@ describe('currency-utils mutation helpers', () => {
         });
 
         it('rejects non-positive deposits before transacting', async () => {
-            const db = { transact: vi.fn() };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn() };
 
             await expect(depositToSpecificEnvelope(db as any, 'env-1', {}, 0, 'USD')).rejects.toThrow('Deposit amount must be positive.');
             await expect(depositToSpecificEnvelope(db as any, 'env-1', {}, -1, 'USD')).rejects.toThrow('Deposit amount must be positive.');
@@ -267,7 +261,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('withdraws funds, removes zeroed currency balances, and links the transaction', async () => {
             currencyMocks.id.mockReturnValueOnce('tx-withdraw');
-            const db = { transact: vi.fn().mockResolvedValue(undefined) };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
             const envelope: Envelope = { id: 'env-1', name: 'Wallet', balances: { USD: 7, PTS: 10 } };
 
             await withdrawFromEnvelope(db as any, envelope, 7, 'usd', 'Cash out');
@@ -299,6 +293,7 @@ describe('currency-utils mutation helpers', () => {
         it('records the envelope owner in withdrawal history when the member is resolved from envelope context', async () => {
             currencyMocks.id.mockReturnValueOnce('tx-withdraw').mockReturnValueOnce('history-withdraw');
             const db = {
+                getAuth: currencyMocks.getAuth,
                 transact: vi.fn().mockResolvedValue(undefined),
                 queryOnce: vi.fn().mockResolvedValue({
                     data: {
@@ -335,7 +330,7 @@ describe('currency-utils mutation helpers', () => {
         });
 
         it('validates withdrawal inputs and insufficient funds', async () => {
-            const db = { transact: vi.fn() };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn() };
 
             await expect(withdrawFromEnvelope(db as any, { id: 'env-1', name: 'Wallet', balances: { USD: 1 } } as any, 0, 'USD')).rejects.toThrow(
                 'Withdrawal amount must be positive.'
@@ -351,7 +346,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('transfers between envelopes, removes zeroed source balance, and creates paired transactions/links', async () => {
             currencyMocks.id.mockReturnValueOnce('tx-out').mockReturnValueOnce('tx-in');
-            const db = { transact: vi.fn().mockResolvedValue(undefined) };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
             await transferFunds(
                 db as any,
@@ -380,7 +375,7 @@ describe('currency-utils mutation helpers', () => {
         });
 
         it('validates transferFunds input and insufficient funds', async () => {
-            const db = { transact: vi.fn() };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn() };
             const env = { id: 'env-a', name: 'A', balances: { USD: 1 } } as any;
 
             await expect(transferFunds(db as any, env, { id: 'env-b', name: 'B', balances: {} } as any, 0, 'USD')).rejects.toThrow(
@@ -395,7 +390,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('transfers funds to another person with fallback description and paired person-transfer transaction types', async () => {
             currencyMocks.id.mockReturnValueOnce('tx-person-out').mockReturnValueOnce('tx-person-in');
-            const db = { transact: vi.fn().mockResolvedValue(undefined) };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
             await transferFundsToPerson(
                 db as any,
@@ -433,7 +428,7 @@ describe('currency-utils mutation helpers', () => {
         });
 
         it('validates transferFundsToPerson envelopes and insufficient funds', async () => {
-            const db = { transact: vi.fn() };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn() };
             const source = { id: 'env-s', name: 'Spending', balances: { USD: 1 } } as any;
             const dest = { id: 'env-r', name: 'Savings', balances: { USD: 0 } } as any;
 
@@ -454,7 +449,7 @@ describe('currency-utils mutation helpers', () => {
 
     describe('deleteEnvelope helper', () => {
         it('validates deleteEnvelope preconditions', async () => {
-            const db = { transact: vi.fn() };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn() };
             const envelopes = [
                 { id: 'e1', name: 'A', balances: {}, isDefault: true },
                 { id: 'e2', name: 'B', balances: {}, isDefault: false },
@@ -486,7 +481,7 @@ describe('currency-utils mutation helpers', () => {
                 .mockReturnValueOnce('tx-out-neg')
                 .mockReturnValueOnce('tx-in-neg');
 
-            const db = { transact: vi.fn().mockResolvedValue(undefined) };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
             const envelopes: Envelope[] = [
                 {
                     id: 'env-delete',
@@ -551,7 +546,7 @@ describe('currency-utils mutation helpers', () => {
 
     describe('preference helper', () => {
         it('stores last display currency preference for a member', async () => {
-            const db = { transact: vi.fn().mockResolvedValue(undefined) };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn().mockResolvedValue(undefined) };
 
             await setLastDisplayCurrencyPref(db as any, 'member-1', 'EUR');
 
@@ -561,7 +556,7 @@ describe('currency-utils mutation helpers', () => {
         });
 
         it('returns early when no member id is provided', async () => {
-            const db = { transact: vi.fn() };
+            const db = { getAuth: currencyMocks.getAuth, transact: vi.fn() };
 
             await setLastDisplayCurrencyPref(db as any, '', 'USD');
 
@@ -572,6 +567,7 @@ describe('currency-utils mutation helpers', () => {
     describe('reconcileEnvelope', () => {
         it('returns fixed:false when calculated balances match current balances', async () => {
             const db = {
+                getAuth: currencyMocks.getAuth,
                 transact: vi.fn(),
                 queryOnce: vi.fn().mockResolvedValue({
                     data: {
@@ -595,6 +591,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('fixes and returns calculated balances when mismatch exceeds tolerance', async () => {
             const db = {
+                getAuth: currencyMocks.getAuth,
                 transact: vi.fn().mockResolvedValue(undefined),
                 queryOnce: vi.fn().mockResolvedValue({
                     data: {
@@ -620,6 +617,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('returns fixed:false for empty transactions when current balances are empty', async () => {
             const db = {
+                getAuth: currencyMocks.getAuth,
                 transact: vi.fn(),
                 queryOnce: vi.fn().mockResolvedValue({
                     data: { allowanceTransactions: [] },
@@ -634,6 +632,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('preserves unverifiable non-zero balances when no transactions exist', async () => {
             const db = {
+                getAuth: currencyMocks.getAuth,
                 transact: vi.fn().mockResolvedValue(undefined),
                 queryOnce: vi.fn().mockResolvedValue({
                     data: { allowanceTransactions: [] },
@@ -648,6 +647,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('normalizes currency casing while replaying the ledger', async () => {
             const db = {
+                getAuth: currencyMocks.getAuth,
                 transact: vi.fn(),
                 queryOnce: vi.fn().mockResolvedValue({
                     data: {
@@ -667,6 +667,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('ignores transactions with no currency field when summing balances', async () => {
             const db = {
+                getAuth: currencyMocks.getAuth,
                 transact: vi.fn(),
                 queryOnce: vi.fn().mockResolvedValue({
                     data: {
@@ -688,6 +689,7 @@ describe('currency-utils mutation helpers', () => {
 
         it('treats differences within 0.001 tolerance as matching', async () => {
             const db = {
+                getAuth: currencyMocks.getAuth,
                 transact: vi.fn(),
                 queryOnce: vi.fn().mockResolvedValue({
                     data: {

@@ -390,18 +390,21 @@ const rules = {
             isKid: "'kid' in auth.ref('$user.type')",
             isParent: "'parent' in auth.ref('$user.type')",
             isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+            ownsEnvelope: "isKid && auth.ref('$user.familyMemberId')[0] in data.ref('familyMember.id')",
+            kidSafeEnvelopeUpdate:
+                "request.modifiedFields.all(field, field in ['name', 'description', 'goalAmount', 'goalCurrency', 'isDefault'])",
         },
         allow: {
             link: {
-                $default: 'isFamilyPrincipal',
+                $default: 'isParent',
             },
             view: 'isFamilyPrincipal',
-            create: "isFamilyPrincipal && (isParent || !('archivedAt' in request.modifiedFields))",
+            create: 'isParent',
             delete: 'isParent',
             unlink: {
-                $default: 'isFamilyPrincipal',
+                $default: 'isParent',
             },
-            update: "isFamilyPrincipal && (isParent || !('archivedAt' in request.modifiedFields))",
+            update: 'isParent || (ownsEnvelope && kidSafeEnvelopeUpdate)',
         },
     },
     taskResponseFields: {

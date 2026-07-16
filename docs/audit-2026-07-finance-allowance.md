@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-16 — Substantially completed and deployed: web/native money mutations now cross an authenticated server boundary (§1.1, §3; fix plan 9).** Browser and iPhone envelope creation, deposits, withdrawals, same-owner transfers, person transfers, and archival now call `/api/finance/mutations` with the active Instant family-member token. The server re-reads active envelopes, enforces actor/source ownership and transfer/archive invariants, serializes overlapping envelope operations inside the process, and submits the already-tested balance + append-only ledger + history transaction through the admin SDK. Native finance no longer emits undeclared scalar relationship attributes or writes balances directly; kid deletion now follows the parent-only archival rule. Hosted permissions deny kid envelope creation/linking/deletion and any kid `balances` update while retaining owner-scoped metadata edits. Verification: 56 focused route/service/lock/client/mobile/permission tests, the hosted 3-test permission matrix, changed-file mobile lint, `tsc --noEmit`, the full 828-test suite, and a successful production Webpack build. The remaining structural limit is cross-process concurrency (including an allowance payout racing a mutation handled by another server instance); ledger reconciliation detects and repairs that cache drift, but fully eliminating it requires ledger-derived balances or a distributed lock/version check.
 - **2026-07-15 — Completed and deployed: legacy scalar envelope balances are removed (§5).** A hosted read found 18 envelope rows and zero non-null legacy `amount`/`currency` values, so no backfill was necessary. Both attributes are deleted from the hosted and checked-in schema, and dashboard normalization now accepts only the canonical multi-currency `balances` map. Verification: 17 focused dashboard/schema-contract tests, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-15 — Completed and deployed: envelope deletion is ledger-preserving archival (§5; fix plan 6).** The delete workflow migrates every non-zero balance, writes and links both sides of each transfer, then clears/default-unsets and timestamps the source envelope instead of deleting it. All active finance, chore-balance, family-list, payout, and dashboard queries filter the indexed `archivedAt` marker; transaction history deliberately retains archived rows and their immutable links. Kids cannot set `archivedAt`, while parents can archive. Verification: 97 cross-surface tests and `tsc --noEmit` pass; the schema/index and permissions are deployed; the full 3-test hosted permission/cascade matrix passes.
 - **2026-07-15 — Completed: count-limited allowance periods no longer expand the full rule (§2).** The terminal-period branch now checks `rule.options.count === 1` directly instead of materializing every recurrence through `rule.all()`. Large finite counts therefore retain bounded period lookup behavior. Verification: all 24 chore date-logic tests, including a prototype spy proving `all()` is never called, plus `tsc --noEmit` pass.
@@ -29,10 +30,10 @@
 
 | # | Severity | Finding |
 |---|----------|---------|
-| 1 | **High (Confirmed)** | Every balance mutation is a client-side read-modify-write of the whole `balances` JSON — concurrent operations lose money silently |
+| 1 | **High (Substantially fixed)** | Web/native interactive mutations now re-read and serialize through the server; cross-process or payout-vs-mutation races still require ledger-derived balances or distributed concurrency control |
 | 2 | **Completed 2026-07-15** | New fixed rewards now pay out atomically in every earned currency |
 | 3 | **Completed 2026-07-15** | Payout, history, and award marking now commit atomically with per-period idempotency |
-| 4 | **High (Partially fixed)** | Exchange rates, calculated periods, and envelope deletion are closed; direct envelope balance updates await server-mediated transfers |
+| 4 | **Completed for kid principals 2026-07-16** | Kids can edit only owner-scoped envelope metadata; money/create/archive operations use the authenticated server boundary |
 | 5 | **Completed 2026-07-15** | Ledger reconciliation now audits finance detail loads and pre-distribution state |
 | 6 | **Completed in code 2026-07-15** | Provider access and caching are server-only; external key rotation/configuration remains |
 | 7 | **Medium (Partially fixed)** | Debt preservation, relationship/schema hygiene, and ledger-preserving archival are fixed; float money math remains |
@@ -43,21 +44,27 @@ The theme: the **ledger** (`allowanceTransactions`, append-only, well-audited) a
 
 ## 1. The balance/ledger split — **High**
 
-### 1.1 Read-modify-write races lose money — **Confirmed**
+### 1.1 Read-modify-write races lose money — **Substantially fixed 2026-07-16**
 
-Every money operation follows the same shape — read `envelope.balances` from client-cached props, compute a new object, write the *entire* object back:
+Originally every money operation followed the same shape — read `envelope.balances` from client-cached props, compute a new object, and write the *entire* object back:
 
 - `depositToSpecificEnvelope` ([currency-utils.ts:612-675](lib/currency-utils.ts:612))
 - `transferFunds` ([currency-utils.ts:685-785](lib/currency-utils.ts:685))
 - `withdrawFromEnvelope`, `transferFundsToPerson` ([currency-utils.ts:1085-1205](lib/currency-utils.ts:1085))
 - `deleteEnvelope`'s fund migration ([currency-utils.ts:795-911](lib/currency-utils.ts:795))
 
-There is no optimistic-concurrency check and InstantDB `update` on a `json` column replaces the whole value. Two operations on the same envelope in flight at once — parent runs allowance distribution on the laptop while the kid moves money into a savings envelope on the tablet, or one device is briefly offline and syncs later — and the second write clobbers the first. The ledger records both transactions, so the envelope balance no longer equals the sum of its ledger, and **nothing ever notices** (see 1.2).
+InstantDB `update` on a `json` column replaces the whole value, so two stale client writes could clobber each other even though the ledger recorded both.
 
-**Fix (in preference order):**
+**Implemented:** production web helpers and the native Finance screen now send all interactive money changes to the authenticated `/api/finance/mutations` route. The route resolves the active family-member principal before parsing the mutation, re-queries every involved active envelope, verifies that a kid owns the source/member, separates same-owner from person transfers, restricts archival to parents and same-owner targets, and executes the balance, ledger, link, and history writes through the admin SDK. A keyed process lock serializes operations whose envelope/member keys overlap while allowing unrelated members to proceed independently. Web fake DBs retain a direct builder path for deterministic unit tests; the real browser DB is explicitly marked for server routing. Native requests use the same active-member token and no longer call `db.transact` for finance.
+
+Permissions close the direct kid bypass: envelope create/link/unlink/delete are parent/admin-only, and an owner kid may update only `name`, `description`, `goalAmount`, `goalCurrency`, or `isDefault`—never `balances` or `archivedAt`. The hosted matrix proves safe owner metadata succeeds while balance forgery and creation are denied.
+
+**Remaining limit:** the lock is process-local. Two server instances—or the still-client-initiated atomic allowance payout racing a server mutation—can both read the same balance cache before either commits. The append-only ledger remains complete and the wired reconciliation path detects/repairs the cache, so the operation is no longer silently lost, but complete prevention still requires ledger-derived balances, a distributed lock, or an enforceable balance version/compare-and-swap primitive.
+
+**Remaining structural options (in preference order):**
 1. **Make the ledger authoritative.** Balances become derived state: after writing a transaction row, recompute the envelope's balances from its transactions (or maintain them as a cache that `reconcileEnvelope` refreshes). Transactions are append-only with `update: false` perms already — they're the trustworthy half.
-2. Failing that, serialize money mutations through a server route (admin SDK) that re-reads balances inside the request.
-3. At minimum, wire up automatic reconciliation (1.2) so drift is detected and repaired instead of compounding.
+2. Add distributed serialization/version checking around the completed server route if the deployment runs multiple mutation workers.
+3. Keep automatic reconciliation (1.2) as the safety net for historical, offline, or cross-process drift.
 
 ### 1.2 The reconciliation tool is dead code — **Completed 2026-07-15**
 
@@ -96,19 +103,19 @@ From [instant.perms.ts:388-406](instant.perms.ts:388) and friends, all under a k
 
 | Entity | Rule | Consequence |
 |---|---|---|
-| `allowanceEnvelopes` | **Partially completed 2026-07-15:** delete is parent-only; create/update remain `isFamilyPrincipal` | Kids can no longer delete envelopes, but can still forge a `balances` update until money mutations move server-side |
+| `allowanceEnvelopes` | **Completed for kid principals 2026-07-16:** parent/admin-only create/link/unlink/delete; owner-kid update allowlist excludes `balances` and `archivedAt` | Kids use the server for creation/transfers and cannot forge balances or archive envelopes directly |
 | `exchangeRates` | **Completed 2026-07-15:** writes and links are parent-only; refresh uses server admin | Kids cannot rewrite rates used in combined-balance and goal-progress displays |
 | `calculatedAllowancePeriods` | **Completed 2026-07-15:** writes and links are parent-only | Distribution bookkeeping is no longer kid-editable |
 | `allowanceTransactions` | create requires `createdBy == auth.id`, update `false`, delete `isParent` | The ledger itself is well protected — good |
 | `choreCompletions.allowanceAwarded` | **Completed 2026-07-14:** kid updates are ownership-scoped and limited to completion-state fields | Kids cannot set or re-arm payout state; parent distribution can still mark rows awarded |
 
-Kids do legitimately need to deposit/withdraw/transfer (each touches two envelopes' balances), and CEL can't validate arithmetic — so `update: isParent` alone would break the product. Realistic options:
+Kids legitimately need self-service envelope creation and transfers, and CEL cannot validate arithmetic. Those workflows now use the authenticated server boundary:
 
 1. **Ledger-authoritative model (1.1)** shrinks the blast radius: if balances are derived and reconciled, a forged balance write is detected and reverted; the append-only ledger with `auditMatchesPrincipal` stays the source of truth.
-2. Move kid-initiated money ops to a small server route (admin SDK validates: own envelopes only, sufficient funds, writes ledger + balances atomically). Then envelope `update`/`delete` can become `isParent`.
-3. **Completed and deployed 2026-07-15:** `delete: isParent` on envelopes; parent-only exchange-rate and calculated-period writes/links. The `allowanceAwarded` kid-write closure was completed and deployed on 2026-07-14.
+2. **Completed 2026-07-16:** kid-initiated create/transfer operations and all web/native interactive money changes use one admin route that validates source ownership and fresh sufficient funds, then writes ledger + balances together.
+3. **Completed and deployed:** envelope create/link/unlink/delete are parent/admin-only, owner-kid updates are metadata-only, exchange-rate and calculated-period writes/links are parent-only, and payout state is not kid-writable.
 
-Envelope create/update cannot be identity-scoped without breaking the current kid-to-kid transfer path: the sender's client must update and link both the sender and recipient envelopes. The safe remaining step is the server-mediated money route in Phase 3, followed by parent/admin-only envelope balance writes—not a CEL rule that silently disables transfers.
+The native app uses the same route, so the hosted rule does not silently disable kid-to-kid transfers. Native delete is now parent-gated and uses ledger-preserving archival rather than permanent deletion.
 
 This is a family app — the "attacker" is a bored twelve-year-old — but that is precisely the audience that discovers the InstantDB devtools.
 
@@ -171,6 +178,6 @@ The client previously selected a `NEXT_PUBLIC` value or a committed fallback and
 8. **Server move completed 2026-07-15.** The source fallback is removed and clients are read-only; external credential revocation/rotation plus server-secret configuration remains an operator action (§4).
 
 **Phase 3 — structural:**
-9. Ledger-authoritative balances (or server-mediated money ops) — the durable fix for §1 and §3 together.
+9. **Server-mediated web/native interactive money ops completed and hosted permissions deployed 2026-07-16.** Ledger-derived balances or distributed concurrency control remains the final cross-process closure for §1.1.
 10. Integer minor-unit migration decision (§5).
 11. ~~Distribution page: eliminate the post-action stale snapshot (§6).~~ **Completed 2026-07-15 with confirmed-ID suppression layered over the existing live query.** A larger calculation extraction remains optional refactoring, not a correctness blocker.

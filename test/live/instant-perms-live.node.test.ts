@@ -384,8 +384,9 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             await parentDb.transact(parentDb.tx.allowanceTransactions[validKidTxId].delete());
             cleanup.allowanceTransactions.delete(validKidTxId);
 
-            // Kids retain non-destructive envelope operations for transfers,
-            // but cannot delete an envelope and discard its financial state.
+            // Envelope creation, balances, links, and archival are server/parent
+            // managed. A member-scoped kid retains only safe metadata updates on
+            // an envelope linked to that same member.
             const protectedEnvelopeId = instantId();
             await parentDb.transact(
                 parentDb.tx.allowanceEnvelopes[protectedEnvelopeId].create({
@@ -406,6 +407,37 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             await parentDb.transact(parentDb.tx.allowanceEnvelopes[protectedEnvelopeId].update({ archivedAt: nowIso }));
             await parentDb.transact(parentDb.tx.allowanceEnvelopes[protectedEnvelopeId].delete());
             cleanup.allowanceEnvelopes.delete(protectedEnvelopeId);
+
+            const ownedEnvelopeId = instantId();
+            await parentDb.transact([
+                parentDb.tx.allowanceEnvelopes[ownedEnvelopeId].create({
+                    balances: { USD: 5 },
+                    isDefault: false,
+                    name: 'Perms smoke owned envelope',
+                }),
+                parentDb.tx.familyMembers[kidMember.id].link({ allowanceEnvelopes: ownedEnvelopeId }),
+            ]);
+            cleanup.allowanceEnvelopes.add(ownedEnvelopeId);
+            const financeKidDb = createClient();
+            const financeKidSession = await mintFamilyMemberToken(kidMember.id);
+            await financeKidDb.auth.signInWithToken(financeKidSession.token);
+            try {
+                await financeKidDb.transact(financeKidDb.tx.allowanceEnvelopes[ownedEnvelopeId].update({ name: 'Kid safe rename' }));
+                await expectRejected(
+                    financeKidDb.transact(financeKidDb.tx.allowanceEnvelopes[ownedEnvelopeId].update({ balances: { USD: 999 } })),
+                    'kid allowanceEnvelopes balance update'
+                );
+                await expectRejected(
+                    financeKidDb.transact(
+                        financeKidDb.tx.allowanceEnvelopes[instantId()].create({ balances: { USD: 999 }, isDefault: false, name: 'Forged' })
+                    ),
+                    'kid allowanceEnvelopes create'
+                );
+            } finally {
+                financeKidDb.shutdown?.();
+            }
+            await parentDb.transact(parentDb.tx.allowanceEnvelopes[ownedEnvelopeId].delete());
+            cleanup.allowanceEnvelopes.delete(ownedEnvelopeId);
 
             // Exchange-rate cache writes now run through the server admin SDK.
             const exchangeRateId = instantId();

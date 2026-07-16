@@ -24,4 +24,9 @@ const db = init({
     ...connectionConfig,
 });
 
+// Money-changing helpers use this explicit marker to route the real browser
+// client through the authenticated server mutation boundary. Fake/test DBs
+// remain able to exercise the shared transaction builders directly.
+(db as any).__useServerFinanceBoundary = true;
+
 export { db };

@@ -126,6 +126,20 @@ export async function getParentInstantToken({ familyMemberId, pin }) {
   return parseJson(response);
 }
 
+export async function runFinanceMutation(payload) {
+  const response = await fetch(`${getApiBaseUrl()}/api/finance/mutations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+      ...(await memberPrincipalHeaders()),
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await parseJson(response);
+  return data.result;
+}
+
 export async function getMobileFilesList() {
   const response = await fetch(`${getApiBaseUrl()}/api/mobile/files`, {
     headers: {
