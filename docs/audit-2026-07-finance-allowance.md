@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-16 — Final reconciliation: every safe in-repository finance fix and explicit migration decision is complete.** Release verification passes: 130 local test files / 839 tests, `tsc --noEmit`, zero-error/zero-warning Expo lint, the 3-test hosted Instant permission/cascade matrix, `git diff --check`, and the production Next.js Webpack build. Two operational boundaries remain: money-writing traffic supports the checked-in single-Next-app deployment, not horizontal replicas; and the previously exposed OpenExchangeRates key must be revoked/replaced by the operator. The checked workspace environment does not currently define `OPEN_EXCHANGE_RATES_APP_ID`, so live provider refreshes will intentionally return 503 until a replacement server secret is installed.
 - **2026-07-16 — Completed: pending-period schedule semantics are explicit (§2).** The chores audit already established the intended boundary: untouched/unpaid dates are projections of the current chore schedule, completed rows retain their durable beneficiary, and distributed finance rows are immutable snapshots. The allowance screen now explains that retroactive weight, rotation, assignment, or exclusion edits can recalculate an undistributed period and directs the parent to review/edit before confirming; later schedule edits do not rewrite the resulting ledger. Verification: the focused notice DOM regression, `tsc --noEmit`, and `git diff --check` pass.
 - **2026-07-16 — Decision completed: do not rewrite the live ledger to integer minor units in this audit (§5; fix plan 10).** The hosted precision inventory found one zero-decimal custom unit (`STARS`), 37 immutable transaction rows, and 18 envelopes. The only 15-digit balance is `6.880000000000001 USD`, and its linked ledger replay produces the identical value—representation noise, not cache/ledger loss. Four historical paired transfer rows intentionally store `±0.014 USD`; converting them to cents would require a product rounding policy and would rewrite immutable financial history. The current schema therefore remains number-based with formatted currency precision and the `0.001` reconciliation tolerance. A future representation migration must add scaled-integer fields, dual-write, backfill with an explicit per-unit rounding policy, verify ledger/cache parity, then cut reads over; it must not mutate the existing amount fields in place.
 - **2026-07-16 — Completed for the supported deployment: allowance payouts share the authenticated finance lock boundary (§1.1, §1.3; fix plan 9).** Single-period and bulk payouts no longer transact directly from the browser. They post through `/api/finance/mutations`, require a server-verified parent, use the server's authoritative member name and active envelopes, reconcile inside the lock, and retain the existing atomic/idempotent ledger + history + completion transaction. Every interactive operation now locks both involved envelope IDs and their owner-member IDs, so payout, envelope creation/default changes, deposits, withdrawals, transfers, and archival serialize against each other in the repository's one-Next-app Docker deployment. The server supplies both Instant-user and family-member audit attribution. Verification: 29 focused payout/client/route/service/lock/audit tests, `tsc --noEmit`, and `git diff --check` pass. Running multiple Next app replicas remains unsupported for money mutations until the process lock is replaced by distributed serialization or ledger-derived balance enforcement.
@@ -50,7 +51,7 @@ The theme: the **ledger** (`allowanceTransactions`, append-only, well-audited) a
 
 ---
 
-## 1. The balance/ledger split — **High**
+## 1. The balance/ledger split — **Completed for supported deployment**
 
 ### 1.1 Read-modify-write races lose money — **Completed for supported deployment 2026-07-16**
 
@@ -105,7 +106,7 @@ Both payout paths previously ran two awaited steps: `executeAllowanceTransaction
 
 ---
 
-## 3. Permissions — **High (Confirmed)**
+## 3. Permissions — **Completed and deployed**
 
 From [instant.perms.ts:388-406](instant.perms.ts:388) and friends, all under a kid principal:
 

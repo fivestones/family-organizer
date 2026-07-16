@@ -8,6 +8,7 @@
 
 ## Implementation progress
 
+- **2026-07-16 — Final reconciliation: every finding and fix-plan item in this audit is complete.** Release verification passes: 130 local test files / 839 tests, `tsc --noEmit`, zero-error/zero-warning Expo lint, the 3-test hosted Instant permission/cascade matrix, `git diff --check`, and the production Next.js Webpack build. Optional future refactors (for example splitting the large calendar component or consolidating server-only PIN hashing call sites) remain correctly classified as maintainability ideas, not open exposure.
 - **2026-07-16 — Completed: the editor DOM suite no longer depended on the deleted untyped DB entrypoint (§8).** Removing `lib/db.js` correctly exposed that `TaskSeriesEditor.dom.test.tsx` mocked only two exports from `@instantdb/react`; an indirectly imported component then initialized the real schema through `lib/db.ts` and failed before collecting tests because the mock omitted Instant's `i` builder. The editor suite now mocks the app DB boundary directly, which is the dependency it actually consumes and avoids coupling the component test to SDK schema construction. Verification: the isolated editor DOM suite and `git diff --check` pass.
 - **2026-07-16 — Completed: the mobile lint baseline is fully clean (§8).** Removed dead imports, calculations, and unreachable scroll helpers left by the calendar/dashboard rewrites, then corrected hook dependencies for task-series deep-link scrolling, calendar form resets and delayed deep-link application, month query windows, photo sibling prefetching, and principal-context memoization. Calendar deep links now wait until at least one parameter exists before marking themselves applied, so late Expo Router parameters are not discarded. Verification: full Expo lint passes with 0 errors and 0 warnings, the focused diagnostics tests pass, `tsc --noEmit` passes, and `git diff --check` passes.
 - **2026-07-16 — Completed: the audit's three named testing gaps are closed (§8; fix plan 11).** Money mutations now have helper, authenticated route/service, ownership, serialization, and mobile-boundary coverage; task-series scheduling has table-driven empty-block/day-break projections; and the hosted permission matrix exercises anonymous, shared-kid, member-kid, and parent reads/writes across the hardened namespaces. Verification: the focused seven-file local matrix passes all 97 tests; hosted permission coverage had already passed with each deployed permission slice.
@@ -56,7 +57,7 @@ Every server action in [actions.ts](app/actions.ts) — including `deleteS3Objec
 - `hashPin` is still called when parents create or edit family members, so it was not removed. It is now parent-only at the server boundary; a future migration can consolidate hashing without reopening the unauthenticated surface.
 - **Completed 2026-07-15/16:** attachment object reclamation deliberately does not delete inline with metadata mutations because uploads can be shared by duplicated tasks and preserved history. The parent-only File Manager sweep enumerates only proven task-owned prefixes, re-reads live task/update/response/history references immediately before deletion, protects recent uploads for 24 hours, and deletes only old unreferenced objects.
 
-## 2. Service worker (`public/sw.js`) — **Medium, Confirmed**
+## 2. Service worker (`public/sw.js`) — **Completed 2026-07-13**
 
 Two compounding problems in the fetch handler:
 
@@ -65,7 +66,7 @@ Two compounding problems in the fetch handler:
 
 **Completed 2026-07-13:** responses are cached only when successful, basic, and non-redirected; the static matcher is limited to `/_next/static/` plus explicit app-shell assets, so `/files/` is never intercepted. `CACHE_VERSION` was bumped to `family-organizer-v2` to remove existing bad entries. The policy is covered by focused unit tests.
 
-## 3. Time machine ships to production — **Medium, Confirmed**
+## 3. Time machine ships to production — **Completed 2026-07-13**
 
 The inline `<head>` script in [layout.tsx:81-115](app/layout.tsx:81) patches `window.Date` from `localStorage.debug_time_offset` **unconditionally** — only the *widget* hides in production ([DebugTimeWidget.tsx:44](components/debug/DebugTimeWidget.tsx:44)). Any kid who learns one devtools line (`localStorage.debug_time_offset = '86400000'`) time-travels the whole client: tomorrow's chores become completable today, allowance periods shift, countdown timers warp. Since completions store client-derived `dateDue`/`dateCompleted`, the forgery is durable.
 
