@@ -1,3 +1,5 @@
+
+
 # Thomas Family Organizer
 
 Hey! This is the code for our family's organizer. I'm building this to help us (and maybe you, if you like this kind of thing!) manage our family life a bit more smoothly. It's a personal project, so I'm putting it on GitHub mainly to track my own changes and updates, but if you find it useful, feel free to run with it!
@@ -243,6 +245,8 @@ npm test
 npm run test:e2e
 npm run test:all
 ```
+
+If Playwright browsers are missing, run `npm run test:e2e:install` first.
 
 ## Apple Calendar Sync Setup
 
