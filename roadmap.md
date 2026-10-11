@@ -69,12 +69,12 @@ The current `/countdown` page keeps working off the planner while the runner lan
 
 ### 2.2 The runner UI
 
-- [ ] **Rebuild `/countdown` around the run record** ([FocusedCountdownPage.tsx](components/countdown/FocusedCountdownPage.tsx)): start, advance, stop, untimed steps. Keep [RadialTimer](components/countdown/RadialTimer.tsx).
-- [ ] **The page owns its own background.** Every string is `text-white` but the page renders in the light app shell; its only dark backdrop is a `fixed inset-0 -z-10` gradient painted from inside `RadialTimer`, so loading, error, "No Countdown Chores" and "All Done!" are white on white.
-- [ ] **Ahead/behind and the deadline forecast**, replacing the single-slot delta that is currently labelled as a stack total.
-- [ ] **The "+5 min" control** on the running step ([spec](docs/countdown-redesign.md#step-overrun-and-abandonment)).
-- [ ] **Overrun and abandonment**: count up and wait, then the "Still working on this?" ladder, then auto-stop with `stoppedReason`. Idleness belongs to the run, not the device.
-- [ ] **Several people at once.** One run row per member, so a shared tablet can show more than one.
+- [x] **Rebuild `/countdown` around the run record** ([FocusedCountdownPage.tsx](components/countdown/FocusedCountdownPage.tsx)): start, advance, stop, untimed steps. Keep [RadialTimer](components/countdown/RadialTimer.tsx).
+- [x] **The page owns its own background.** Every string is `text-white` but the page renders in the light app shell; its only dark backdrop is a `fixed inset-0 -z-10` gradient painted from inside `RadialTimer`, so loading, error, "No Countdown Chores" and "All Done!" are white on white.
+- [x] **Ahead/behind and the deadline forecast**, replacing the single-slot delta that is currently labelled as a stack total.
+- [x] **The "+5 min" control** on the running step ([spec](docs/countdown-redesign.md#step-overrun-and-abandonment)).
+- [x] **Overrun and abandonment**: count up and wait, then the "Still working on this?" ladder, then auto-stop with `stoppedReason`. Idleness belongs to the run, not the device.
+- [x] **Several people at once.** One run row per member, so a shared tablet can show more than one.
 
 ### 2.3 Routines
 

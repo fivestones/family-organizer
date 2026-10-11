@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useId, useRef, useEffect, useState } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,6 +20,8 @@ interface RadialTimerProps {
     choreKey: string;
     children?: React.ReactNode;
     className?: string;
+    /** CSS length for the ring's width and height. */
+    size?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +49,16 @@ function getPlasmaColor(state: RadialTimerState, progress: number): string {
     return `${r}, ${g}, ${Math.max(0, b)}`;
 }
 
+/**
+ * The gradient that sits behind a ring in this state. The page paints it —
+ * the timer used to, from a `fixed` layer of its own, which left every screen
+ * without a ring with no background at all.
+ */
+export function getTimerBackdrop(state: RadialTimerState, progress: number): string {
+    const hue = getHueForProgress(Math.max(0, Math.min(1, progress)), state);
+    return `radial-gradient(circle at 50% 42%, hsl(${hue}, 78%, 66%), hsl(${hue + 30}, 70%, 44%))`;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -59,7 +71,13 @@ export default function RadialTimer({
     choreKey,
     children,
     className,
+    size = 'min(92vw, 80vh)',
 }: RadialTimerProps) {
+    // Several timers can share a page, so the SVG filter and mask ids are per instance.
+    const svgId = `radial-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    const glowId = `${svgId}-glow`;
+    const softEdgeId = `${svgId}-soft-edge`;
+    const coreMaskId = `${svgId}-core-mask`;
     const canvasRef = useRef<HTMLDivElement>(null);
     const [rippleActive, setRippleActive] = useState(false);
     const prevChoreKeyRef = useRef(choreKey);
@@ -128,7 +146,6 @@ export default function RadialTimer({
         prevChoreKeyRef.current = choreKey;
     }, [choreKey]);
 
-    const hue = getHueForProgress(p, state);
     const plasmaRGB = getPlasmaColor(state, p);
 
     // --- SVG ring geometry ---
@@ -227,25 +244,14 @@ export default function RadialTimer({
         }
     }
 
-    const bgGradient = `radial-gradient(circle at 50% 50%, hsl(${hue}, 80%, 75%), hsl(${hue + 30}, 70%, 55%))`;
-
     return (
         <div
             className={`relative flex items-center justify-center select-none ${className ?? ''}`}
-            style={{
-                width: 'min(92vw, 80vh)',
-                height: 'min(92vw, 80vh)',
-            }}
+            style={{ width: size, height: size }}
         >
-            {/* Background gradient fills the parent container via absolute positioning */}
-            <div
-                className="pointer-events-none fixed inset-0 -z-10 transition-[background] duration-1000 ease-in-out"
-                style={{ background: bgGradient }}
-            />
-
             <svg viewBox={`0 0 ${viewBox} ${viewBox}`} className="h-full w-full" style={{ pointerEvents: 'none' }}>
                 <defs>
-                    <filter id="radial-super-glow" x="-30%" y="-30%" width="160%" height="160%">
+                    <filter id={glowId} x="-30%" y="-30%" width="160%" height="160%">
                         <feGaussianBlur stdDeviation="6" result="blur1" />
                         <feGaussianBlur stdDeviation="14" result="blur2" />
                         <feMerge>
@@ -254,10 +260,10 @@ export default function RadialTimer({
                             <feMergeNode in="SourceGraphic" />
                         </feMerge>
                     </filter>
-                    <filter id="radial-soft-edge" x="-20%" y="-20%" width="140%" height="140%">
+                    <filter id={softEdgeId} x="-20%" y="-20%" width="140%" height="140%">
                         <feGaussianBlur stdDeviation="5" />
                     </filter>
-                    <mask id="radial-core-mask">
+                    <mask id={coreMaskId}>
                         <circle
                             cx={cx}
                             cy={cy}
@@ -269,7 +275,7 @@ export default function RadialTimer({
                             transform={`rotate(-90 ${cx} ${cy})`}
                             strokeDasharray={circumference}
                             strokeDashoffset={arcOffset}
-                            filter="url(#radial-soft-edge)"
+                            filter={`url(#${softEdgeId})`}
                             style={{ transition: 'none' }}
                         />
                     </mask>
@@ -290,7 +296,7 @@ export default function RadialTimer({
 
                 {/* Progress ring group with glow */}
                 <g
-                    filter="url(#radial-super-glow)"
+                    filter={`url(#${glowId})`}
                     style={{
                         animation: state === 'active' ? 'radial-gentle-pulse 4s ease-in-out infinite' : 'none',
                         opacity: 1,
@@ -312,7 +318,7 @@ export default function RadialTimer({
                     />
 
                     {/* Plasma conic gradient fill (masked to the arc) */}
-                    <g mask="url(#radial-core-mask)">
+                    <g mask={`url(#${coreMaskId})`}>
                         <foreignObject x="0" y="0" width={viewBox} height={viewBox}>
                             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                                 <div

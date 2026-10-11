@@ -30,6 +30,38 @@ function minSecToSecs(min: string, sec: string): number {
     return Math.max(0, m * 60 + s);
 }
 
+/** The overrun thresholds, as the whole numbers the form edits. */
+interface OverrunForm {
+    extensionMin: string;
+    promptMin: string;
+    promptPercent: string;
+    graceMin: string;
+    stopOfferAfter: string;
+}
+
+function toOverrunForm(settings: CountdownSettingsType): OverrunForm {
+    return {
+        extensionMin: String(Math.round(settings.stepExtensionSecs / 60)),
+        promptMin: String(Math.round(settings.overrunPromptMinSecs / 60)),
+        promptPercent: String(Math.round(settings.overrunPromptFraction * 100)),
+        graceMin: String(Math.round(settings.overrunPromptGraceSecs / 60)),
+        stopOfferAfter: String(settings.overrunStopOfferAfterExtensions),
+    };
+}
+
+function wholeNumber(value: string, minimum: number, fallback: number): number {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback;
+}
+
+const OVERRUN_FIELDS: Array<{ key: keyof OverrunForm; label: string; unit: string; hint: string; min: number; max: number }> = [
+    { key: 'extensionMin', label: 'Extra time', unit: 'min', hint: 'What one "+" press adds to the running step.', min: 1, max: 60 },
+    { key: 'promptMin', label: 'Ask after at least', unit: 'min', hint: 'Over time and untouched for this long.', min: 0, max: 120 },
+    { key: 'promptPercent', label: 'Or this share of the step', unit: '%', hint: 'Whichever of the two is longer applies.', min: 0, max: 500 },
+    { key: 'graceMin', label: 'Stop if unanswered for', unit: 'min', hint: 'The run stops itself; nothing is marked done.', min: 0, max: 120 },
+    { key: 'stopOfferAfter', label: 'Offer to stop after', unit: 'extensions', hint: 'On the same step.', min: 1, max: 20 },
+];
+
 export default function CountdownSettings({ db }: CountdownSettingsProps) {
     const { toast } = useToast();
     const { data, isLoading, error } = db.useQuery({
@@ -51,6 +83,7 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
     const [delayMin, setDelayMin] = useState('');
     const [delaySec, setDelaySec] = useState('');
     const [autoComplete, setAutoComplete] = useState(false);
+    const [overrun, setOverrun] = useState<OverrunForm>(() => toOverrunForm(DEFAULT_COUNTDOWN_SETTINGS));
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
@@ -61,6 +94,7 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
         setDelayMin(del.min);
         setDelaySec(del.sec);
         setAutoComplete(parsed.autoMarkCompleteOnCountdownEnd);
+        setOverrun(toOverrunForm(parsed));
     }, [parsed]);
 
     const restoreDefaults = () => {
@@ -71,6 +105,7 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
         setDelayMin(del.min);
         setDelaySec(del.sec);
         setAutoComplete(DEFAULT_COUNTDOWN_SETTINGS.autoMarkCompleteOnCountdownEnd);
+        setOverrun(toOverrunForm(DEFAULT_COUNTDOWN_SETTINGS));
     };
 
     const saveSettings = async () => {
@@ -83,6 +118,11 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
             stackBufferSecs,
             afterAnchorDefaultDelaySecs,
             autoMarkCompleteOnCountdownEnd: autoComplete,
+            stepExtensionSecs: wholeNumber(overrun.extensionMin, 1, parsed.stepExtensionSecs / 60) * 60,
+            overrunPromptMinSecs: wholeNumber(overrun.promptMin, 0, parsed.overrunPromptMinSecs / 60) * 60,
+            overrunPromptFraction: wholeNumber(overrun.promptPercent, 0, parsed.overrunPromptFraction * 100) / 100,
+            overrunPromptGraceSecs: wholeNumber(overrun.graceMin, 0, parsed.overrunPromptGraceSecs / 60) * 60,
+            overrunStopOfferAfterExtensions: wholeNumber(overrun.stopOfferAfter, 1, parsed.overrunStopOfferAfterExtensions),
         };
         if (!parsed.perMarkerAfterDelaySecs || Object.keys(parsed.perMarkerAfterDelaySecs).length === 0) {
             delete settings.perMarkerAfterDelaySecs;
@@ -99,7 +139,7 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
             ]);
             toast({
                 title: 'Countdown settings saved',
-                description: 'Buffer, delay, and auto-complete settings are updated.',
+                description: 'Buffer, delay, overrun and auto-complete settings are updated.',
             });
         } catch (saveError: any) {
             console.error('Failed to save countdown settings:', saveError);
@@ -209,6 +249,36 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
                         <div className="pb-2 text-sm text-muted-foreground">
                             = {minSecToSecs(delayMin, delaySec)}s
                         </div>
+                    </div>
+                </section>
+
+                <section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div>
+                        <h3 className="text-sm font-semibold">Running Over Time</h3>
+                        <p className="text-sm text-muted-foreground">
+                            A step that reaches zero counts up and waits. If it runs well over and nobody has touched the
+                            countdown, it asks &ldquo;Still working?&rdquo; before stopping the run by itself.
+                        </p>
+                    </div>
+                    <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
+                        {OVERRUN_FIELDS.map((field) => (
+                            <div key={field.key} className="space-y-1">
+                                <Label htmlFor={`overrun-${field.key}`}>{field.label}</Label>
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        id={`overrun-${field.key}`}
+                                        type="number"
+                                        min={field.min}
+                                        max={field.max}
+                                        className="w-24"
+                                        value={overrun[field.key]}
+                                        onChange={(e) => setOverrun((current) => ({ ...current, [field.key]: e.target.value }))}
+                                    />
+                                    <span className="text-sm text-muted-foreground">{field.unit}</span>
+                                </div>
+                                <p className="text-xs text-muted-foreground">{field.hint}</p>
+                            </div>
+                        ))}
                     </div>
                 </section>
 

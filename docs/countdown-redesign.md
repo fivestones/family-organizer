@@ -1,12 +1,20 @@
 # Countdown Redesign
 
 **Date:** 2026-08-02
-**Status:** Agreed design, being implemented. Phase 1 is built; see the implementation log.
+**Status:** Agreed design, being implemented. Phases 1 and 2 are built; see the implementation log.
 **Supersedes:** the countdown behaviour described in `audit-2026-07-chores.md` §5.2.
 
 ---
 
 ## Implementation log
+
+- **2026-10-11 — Completed: `/countdown` is rebuilt around the run record (phase 2).**
+  The page is three pieces. `useCountdownRunner` reads the day — chores, today's completions, the run rows — builds each person's queue from one plan, and owns every write: start, done, "+5 min", stop, and the transitions nobody taps for. `RunnerPanel` draws one person's countdown. `FocusedCountdownPage` is the shell: who is on screen, the grid, full screen.
+  A live timed step runs on the runner clock, so a 2pm chore started at 10am shows its own budget. Past zero it turns red and counts up. An untimed step has no ring and waits for Done. Done writes the completion through the canonical path and moves the run to the next open step in the same transaction; the next step's timer starts after the stack buffer, which is the celebration. When no step is open the run finishes, and the steps still gated are listed with when they unlock.
+  The single-slot figure that was labelled a stack total is gone. In its place are two readouts: ahead/behind against the planner's schedule, and a forecast sentence — either the first hard deadline the current pace misses, or the room left before the tightest one.
+  The overrun ladder runs from the run row, so it reads the same on every device: a prompt once the step is well over and nobody has touched the countdown, five more minutes when it is answered, an offer to stop after two extensions, and a `timeout` stop when it goes unanswered. A device also advances a run whose live step was finished in the day list, and sweeps a run left running when its family day ended.
+  The page paints its own background and each panel paints its own, so loading, error, empty and finished states are no longer white on white. `RadialTimer` lost its `fixed` backdrop and gained per-instance SVG ids, so several can share a screen. Any number of people can be shown side by side; a kid sees a sibling's run but cannot drive it.
+  Verification: 30 page tests and 22 display tests — 960 local tests in all; `tsc --noEmit` and the production build pass. Not exercised in a browser: the roadmap leaves that to David.
 
 - **2026-10-11 — Completed and deployed: the run record, the runner, the gate, untimed steps and the canonical completion path (phase 1).**
   `countdownRuns` is in the schema and the hosted app, one row per member per family day with a UUIDv5 id derived from `(familyMemberId, date)`, so two devices starting the same run converge on one row. Its rule follows the `choreCompletions` pattern: a member-scoped kid may create only a run stamped with their own `familyMemberId` and may update only the run's working fields on it — never `familyMemberId` or `date` — while the shared kid principal can write nothing and parents can drive, sweep or delete anyone's. The run carries no links; identity lives in indexed attributes.
@@ -160,6 +168,28 @@ reading the row needs to tell "ran out of things to do" from "stopped". `skipped
 exists because a routine set to `advance` leaves steps undone, and without a record of them
 the runner would select the same step again on the very next advance. A stopped run keeps
 its `currentChoreId`, so the row still says where the run ended.
+
+### The runner screen
+
+**(built)** How the page behaves, where the sections above leave it open:
+
+- **With no run, the planner's slot is a reminder.** Before a step's scheduled start the
+  page shows it as "up next" with Start. Once the scheduled start arrives the ring comes
+  back, counting down to the planned end — this is decision 6's "its countdown reappears
+  then". Pressing Start at any point begins a run with the step's full budget, and the
+  lateness shows up as "behind".
+- **The celebration is the stack buffer.** Done advances the run at once, with the next
+  step's `stepStartedAt` set one buffer into the future. Every device shows the same pause
+  because it is read from the run row.
+- **Any tap is presence.** A click or key press on a device showing the countdown stamps
+  `lastInteractionAt` on the runs that device may write, at most once a minute.
+- **Who may drive a run.** The member themselves, or a parent. Anyone else sees it
+  read-only, which is the same boundary the permission rule enforces.
+- **Transitions nobody taps for** — advancing past a step finished elsewhere, the timeout
+  stop, the day-boundary sweep — are made by whichever open device may write that run. If no
+  such device is open, nothing happens until one is.
+- **Several people.** Tapping a person adds or removes them from the screen; someone is
+  always shown. The choice is remembered per device.
 
 ### Routines
 
