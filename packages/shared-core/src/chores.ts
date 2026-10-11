@@ -131,9 +131,13 @@ export interface SharedChoreLike {
   rotationType?: 'none' | 'daily' | 'weekly' | 'monthly' | string | null;
   isJoint?: boolean | null;
   isUpForGrabs?: boolean | null;
+  /** Fold this chore into its routine's row in the day list. Inert without a routine. */
+  hideFromDayList?: boolean | null;
   assignees?: SharedChoreAssignee[] | null;
   assignments?: SharedChoreAssignment[] | null;
   completions?: SharedChoreCompletion[] | null;
+  /** The routines this chore is a step of. */
+  routineSteps?: Array<{ id: string; routine?: { id?: string | null } | Array<{ id?: string | null }> | null }> | null;
 }
 
 export interface SharedXpStats {

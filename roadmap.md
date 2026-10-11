@@ -78,11 +78,11 @@ The current `/countdown` page keeps working off the planner while the runner lan
 
 ### 2.3 Routines
 
-- [ ] **`routines` and `routineSteps`** ([spec](docs/countdown-redesign.md#routines)), the join carrying step position, mirroring the existing `choreAssignments` ordering pattern.
-- [ ] **Both creation paths**: point a routine at existing chores, or type new steps and have the chores created. Routine order supersedes `after_chore` chaining.
-- [ ] **`onStepOverrun`** per routine: `wait` or `advance`.
-- [ ] **Day-list visibility** ([spec](docs/countdown-redesign.md#day-list-visibility)). Membership gates, the optional chore flag modifies, defaulted by creation path. The day list shows one collapsed routine row with its own XP contribution.
-- [ ] This closes **Routine manager** in the aspirational backlog ([§ Integrations](docs/organized-aspirational-features.md)).
+- [x] **`routines` and `routineSteps`** ([spec](docs/countdown-redesign.md#routines)), the join carrying step position, mirroring the existing `choreAssignments` ordering pattern.
+- [x] **Both creation paths**: point a routine at existing chores, or type new steps and have the chores created. Routine order supersedes `after_chore` chaining.
+- [x] **`onStepOverrun`** per routine: `wait` or `advance`.
+- [x] **Day-list visibility** ([spec](docs/countdown-redesign.md#day-list-visibility)). Membership gates, the optional chore flag modifies, defaulted by creation path. The day list shows one collapsed routine row with its own XP contribution.
+- [x] This closes **Routine manager** in the aspirational backlog ([§ Integrations](docs/organized-aspirational-features.md)).
 
 ### 2.4 Cleanup
 
@@ -165,7 +165,7 @@ Classified in July 2026 as product decisions rather than defects. The three prom
 
 ### 6.2 The idea backlog
 
-[docs/organized-aspirational-features.md](docs/organized-aspirational-features.md), 63 open items in ten groups. Counts as of 11 October 2026:
+[docs/organized-aspirational-features.md](docs/organized-aspirational-features.md), 62 open items in ten groups. Counts as of 11 October 2026:
 
 | Group | Open | Notes |
 | --- | --- | --- |
@@ -176,7 +176,7 @@ Classified in July 2026 as product decisions rather than defects. The three prom
 | Calendar, events, views, and planning | 10 | |
 | Finance, allowance, and money tools | 8 | |
 | Search, communication, and family life | 10 | |
-| Integrations, platforms, and extensibility | 5 | Routine manager closes with [Scope 2.3](#23-routines) |
+| Integrations, platforms, and extensibility | 4 | Routine manager closed with [Scope 2.3](#23-routines) |
 | Bugs, correctness issues, and behavior gaps | 3 | All promoted to [Scope 3](#scope-3--the-correctness-sweep) |
 
 ### 6.3 Checks for you, carried from the audits

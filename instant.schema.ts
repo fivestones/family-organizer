@@ -214,6 +214,7 @@ const _schema = i.schema({
             dueTimes: i.any().optional(),
             estimatedDurationSecs: i.number().optional(),
             exdates: i.json().optional(),
+            hideFromDayList: i.boolean().optional(),
             imageUrl: i.any().optional(),
             isJoint: i.boolean().optional(),
             isUpForGrabs: i.boolean().optional(),
@@ -511,6 +512,15 @@ const _schema = i.schema({
             markerKey: i.string().indexed(),
             startedAt: i.string().optional(),
             startedById: i.string().optional(),
+        }),
+        routines: i.entity({
+            createdAt: i.string().indexed().optional(),
+            name: i.string(),
+            onStepOverrun: i.string().optional(),
+            sortOrder: i.number().indexed().optional(),
+        }),
+        routineSteps: i.entity({
+            position: i.number().indexed(),
         }),
         settings: i.entity({
             name: i.string(),
@@ -827,6 +837,19 @@ const _schema = i.schema({
             },
             reverse: {
                 on: 'choreCompletions',
+                has: 'one',
+                label: 'chore',
+                onDelete: 'cascade',
+            },
+        },
+        choresRoutineSteps: {
+            forward: {
+                on: 'chores',
+                has: 'many',
+                label: 'routineSteps',
+            },
+            reverse: {
+                on: 'routineSteps',
                 has: 'one',
                 label: 'chore',
                 onDelete: 'cascade',
@@ -1169,6 +1192,19 @@ const _schema = i.schema({
                 on: 'messages',
                 has: 'one',
                 label: 'thread',
+            },
+        },
+        routinesSteps: {
+            forward: {
+                on: 'routines',
+                has: 'many',
+                label: 'steps',
+            },
+            reverse: {
+                on: 'routineSteps',
+                has: 'one',
+                label: 'routine',
+                onDelete: 'cascade',
             },
         },
         taskResponseFieldsTask: {

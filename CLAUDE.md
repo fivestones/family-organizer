@@ -63,6 +63,8 @@ Two-layer auth:
 - First, you have to activate the app. If you try to load any route before doing this, you will get a 404 not found error. After the server is running, get `DEVICE_ACCESS_KEY` from the .env file, and go to `http://<ip>:<port>/?activate=<DEVICE_ACCESS_KEY>`. This will activate you and immediately redirect you to `/`. Then you will be able to get to any of the other routes without a 404 error.
 - `/activate` — Device activation screen (enter shared `DEVICE_ACCESS_KEY`). You should not use this to activate; it's for human use and you can use the method described above for quicker access.
 - `/` — Main chore dashboard (`ChoresTracker` + `ChoreList`). Family member sidebar, date carousel, add/edit/delete chores, task series checklists with file attachment previews, marks completions.
+- `/countdown` — The countdown runner. Start, and a step gets a timer for its own duration; finish it and the next begins. Shows one or several family members' runs, with ahead/behind and a deadline forecast. Reads and writes `countdownRuns`.
+- `/routines` — Routine manager (parent-only). A routine is a named, ordered group of chores, built from existing chores or from typed steps whose chores are created on save.
 - `/calendar` — Multi-week calendar with drag-and-drop events. Supports both Gregorian and Nepali (Bikram Samvat) views. Displays chore dates and calendar items.
 - `/task-series` — Task series manager (parent-only). Lists all series with status filters (draft/pending/in_progress/archived), batch delete, progress tracking.
 - `/task-series/new` and `/task-series/[seriesId]` — TipTap-based rich text editor for creating/editing task series. Supports slash commands, nested task indentation, drag-and-drop reordering, and day-break markers.
@@ -77,6 +79,8 @@ Two-layer auth:
 - `FamilyMembersList.tsx` — member management with photo upload (crop), drag-and-drop reorder (Atlaskit PDND), role and PIN configuration.
 - `TaskSeriesChecklist.tsx` — renders the rolling-queue task list inside a chore row, including nested sub-tasks, file/note previews, and a completion fireworks animation.
 - `components/allowance/MemberAllowanceDetail.tsx` — the full envelope finance UI for one member (the largest single component at ~61KB).
+- `components/countdown/` — `useCountdownRunner.ts` reads the day and owns every write to a run; `RunnerPanel.tsx` draws one person's countdown; `FocusedCountdownPage.tsx` is the page shell. `SequenceTimeline.tsx` is the separate parent-facing plan view at `/chores/all`.
+- `components/routines/` — `RoutineManager.tsx` and `RoutineEditor.tsx` for `/routines`; `RoutineDayRows.tsx` is the collapsed routine row in the day list.
 
 **Server API routes:**
 - `POST /api/device-activate` — sets device auth cookie
@@ -90,6 +94,9 @@ Two-layer auth:
 ### Core business logic
 
 - **Chore scheduling** (`lib/chore-utils.ts`): `rrule`-based recurrence. `createRRuleWithStartDate` / `toUTCDate` are the key helpers. Rotation types (`none` | `daily` | `weekly` | `monthly`) determine which family member is assigned on a given date.
+- **Countdown** (`packages/shared-core/src/chore-countdown-engine.ts`, `chore-countdown-runner.ts`): two clocks. The planner packs chores as late as their deadlines allow and is only the yardstick; the runner drives the ring from `stepStartedAt + durationSecs`, honours each timing mode's earliest-allowed gate, and builds every patch written to a `countdownRuns` row. Specified in `docs/countdown-redesign.md`.
+- **Chore completion** (`lib/chore-completion.ts`): the one way a chore is marked done or not done on the web — history event, `markedBy` link, and the up-for-grabs claim guard. The day list, the countdown and the sequence view all build their writes here.
+- **Routines** (`packages/shared-core/src/routines.ts`, `lib/routine-mutations.ts`): `routineSteps` is a join row carrying `position`. A chore is folded into its routine's day-list row when it has a routine step *and* `hideFromDayList` is true; the flag is inert otherwise.
 - **Task series scheduler** (`lib/task-scheduler.ts`): `getTasksForDate` implements the "rolling queue" — tasks in a series advance based on completion, not calendar date. Day-break entities (`isDayBreak: true`) act as paginators between sessions.
 - **Allowance** (`lib/chore-utils.ts` `CalculatedPeriod`): Weight-based percentage completion, fixed rewards for "up for grabs" chores, multi-currency envelope deposits.
 - **Time machine** (`lib/time-machine.ts`): Dev/test utility that patches `Date` via a `localStorage` offset (`debug_time_offset`). Used extensively in tests; `packages/shared-core/src/time-provider.ts` exposes `getNow()` which tests can override.

@@ -1,12 +1,19 @@
 # Countdown Redesign
 
 **Date:** 2026-08-02
-**Status:** Agreed design, being implemented. Phases 1 and 2 are built; see the implementation log.
+**Status:** Agreed design, being implemented. Phases 1 to 3 are built; see the implementation log.
 **Supersedes:** the countdown behaviour described in `audit-2026-07-chores.md` §5.2.
 
 ---
 
 ## Implementation log
+
+- **2026-10-11 — Completed and deployed: routines (phase 3).**
+  `routines` and `routineSteps` are in the schema and the hosted app. A step is a join row carrying `position`, linked to one routine and one chore and cascading from both, which mirrors `choreAssignments`. Parents manage routines; the family can read them. `chores` gains the optional `hideFromDayList` flag.
+  `/routines` is the parent-only manager, reached from the countdown and from a day-list routine row. Its editor builds a routine both ways in one list: point it at chores that already exist, or type new steps and have the chores created on save — for the people and the days chosen there. Steps are reordered with up and down buttons; each has an eye toggle for whether it still lists by itself in the day list. The routine's order supersedes `after_chore` between its own steps, and a routine chooses whether a step at zero waits or moves on.
+  On the countdown a person sees the routines that have a step on their plate today, with progress, and starts one with a tap. A run keeps to the routine it was started on, follows its positions, and finishes after its last open step. Steps folded into a routine are left out of the day's own queue, so they are run from the routine and nowhere else.
+  The day list drops folded steps and shows one collapsed row per routine with steps due — `Morning Routine 3/12` — with a progress bar and the routine's own XP, so the sidebar's totals still visibly add up. The row opens to its steps, where each can be ticked for each person through the same path as any other chore. `Run` goes to the countdown.
+  Verification: 23 mutation and helper tests, 12 editor-draft tests, 9 day-summary tests, 9 manager and 6 day-row DOM tests, 9 routine cases on the countdown page and 5 in the day list, plus 1 permission contract — 1,035 local tests in all; `tsc --noEmit` passes; the schema and rules pushes were previewed and add only the routine entities, their links and `chores.hideFromDayList`; the hosted matrix proves kid writes are denied and that deleting a routine takes its steps and leaves its chores.
 
 - **2026-10-11 — Completed: `/countdown` is rebuilt around the run record (phase 2).**
   The page is three pieces. `useCountdownRunner` reads the day — chores, today's completions, the run rows — builds each person's queue from one plan, and owns every write: start, done, "+5 min", stop, and the transitions nobody taps for. `RunnerPanel` draws one person's countdown. `FocusedCountdownPage` is the shell: who is on screen, the grid, full screen.
@@ -209,6 +216,18 @@ Creating a routine from scratch spawns chores for steps that do not yet exist. W
 routine, step order supersedes `after_chore`; the timing mode remains for genuine one-off
 cross-routine dependencies.
 
+**(built)** What the model above leaves open:
+
+- **A routine belongs to nobody in particular.** It is a list of chores, and each chore has
+  its own assignees, so one "Morning Routine" serves every child whose chores are in it:
+  each person runs the steps that are on their own plate that day.
+- **Typed steps need a who and a when.** The editor asks once — which people, which days —
+  and applies it to every chore it creates. They are created as `anytime`, untimed unless
+  minutes are given, with no XP weight; all of that is editable on the chore afterwards.
+- **A chore may be a step of more than one routine**, but appears once in each.
+- **Icon and colour** are not built. Nothing else depends on them.
+- **Deleting a routine** removes its steps and never its chores.
+
 ### Day-list visibility
 
 ```
@@ -223,6 +242,11 @@ The two creation paths produce different kinds of step and need opposite default
 - **Typing new steps, chores auto-created.** "Brush teeth", "take vitamins". These are the
   clutter the decision exists to remove. Default **hidden**.
 
+**(built)** The default is applied when the step is created, so the stored rule is simply
+`hidden = hasRoutineMembership && chore.hideFromDayList === true`: a typed step is written
+with the flag set, and an existing chore is left without it. The editor's eye toggle changes
+it either way. The flag is the chore's, so it reads the same from every routine it is in.
+
 Membership gates the rule, so the flag is inert on a chore that belongs to no routine.
 Removing a chore from its last routine therefore restores it to the day list automatically,
 with no stale state to clean up — the failure mode of a bare flag, which would otherwise
@@ -236,6 +260,17 @@ XP is computed from chores rather than from the rendered list, so hiding rows ch
 totals. It does mean the sidebar's possible-XP denominator includes rows that are not
 visible, so the collapsed routine row should surface its own XP contribution or the numbers
 will not visibly reconcile.
+
+**(built)** Three things about the row and the queue:
+
+- **A folded step can still be ticked from the day list.** The routine row opens to its
+  steps with a tick per person. Without that, a parent could only mark "brush teeth" done by
+  running the countdown.
+- **Folded steps are left out of the day's ad-hoc queue** on the countdown, for the same
+  reason they are left out of the list: they belong to their routine. A step that still
+  lists by itself is in both.
+- **The tasks page ignores the flag.** A chore that carries a task series stays on `/tasks`
+  whether or not it is folded into a routine.
 
 ### Step overrun and abandonment
 

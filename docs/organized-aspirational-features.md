@@ -338,9 +338,6 @@ Partially shipped now: the web finance system is already real and broad, and the
   - Keep rounding out the native iOS app.
   - Maybe Android too.
 
-- [ ] Routine manager:
-  - Routine manager, for example passage of time-aware items to playback as part of a morning routine.
-
 - [ ] Open-ended extensibility:
   - And whatever else sounds fun or useful.
 

@@ -20,19 +20,27 @@ import {
     computeCountdownTimelines,
     createCountdownRunId,
     findCountdownRun,
+    selectNextRunnerStep,
     getFamilyDayDateUTC,
+    getRoutineChoreIds,
+    getRoutineOverrunPolicy,
+    isChoreHiddenFromDayList,
+    isCountdownRunLive,
     isCountdownRunStale,
     parseCountdownSettings,
     parseSharedScheduleSettings,
     resolveRunnerState,
     shouldRecordRunInteraction,
+    sortRoutines,
     type CountdownEngineInput,
     type CountdownRunLike,
     type CountdownRunPatch,
     type CountdownRunStoppedReason,
     type CountdownSettings,
+    type RoutineOverrunPolicy,
     type RunnerState,
     type RunnerStep,
+    type SharedRoutineLike,
     type SharedScheduleSettings,
 } from '@family-organizer/shared-core';
 
@@ -47,10 +55,25 @@ export interface CountdownMember {
     photoUrls?: any;
 }
 
+/** A routine one person could run today, and how far through it they are. */
+export interface MemberRoutine {
+    id: string;
+    name: string;
+    totalCount: number;
+    completedCount: number;
+    /** The step starting this routine would begin; null when none is open. */
+    nextStep: RunnerStep | null;
+}
+
 export interface MemberRunner {
     member: CountdownMember;
     run: (CountdownRunLike & { id: string }) | null;
+    /** The queue the run is working through: a routine's while one is live, otherwise the day's. */
     state: RunnerState;
+    /** The routine the live run belongs to, if any. */
+    activeRoutine: { id: string; name: string } | null;
+    /** Routines with steps on this person's plate today. */
+    routines: MemberRoutine[];
     /** Whether this session may start, advance or stop this member's run. */
     canControl: boolean;
     /** The description of the step on screen — the live one, or the one Start would begin. */
@@ -58,7 +81,8 @@ export interface MemberRunner {
 }
 
 export interface CountdownRunnerActions {
-    start: (memberId: string) => void;
+    /** Start the day's queue, or a routine when one is named. */
+    start: (memberId: string, routineId?: string) => void;
     markDone: (memberId: string) => void;
     extend: (memberId: string) => void;
     stop: (memberId: string) => void;
@@ -72,7 +96,13 @@ export interface CountdownRunner {
     runners: MemberRunner[];
     settings: CountdownSettings;
     currentMemberId: string | null;
+    canManageRoutines: boolean;
     actions: CountdownRunnerActions;
+}
+
+interface MemberQueues {
+    day: RunnerStep[];
+    routines: Array<{ id: string; name: string; onStepOverrun: RoutineOverrunPolicy; queue: RunnerStep[] }>;
 }
 
 function useNowMs(intervalMs: number): number {
@@ -126,7 +156,9 @@ export function useCountdownRunner(): CountdownRunner {
         chores: {
             assignees: {},
             assignments: { familyMember: {} },
+            routineSteps: {},
         },
+        routines: { steps: { chore: {} } },
         choreCompletions: {
             $: { where: { dateDue: todayKey } },
             chore: {},
@@ -144,6 +176,7 @@ export function useCountdownRunner(): CountdownRunner {
         [data?.countdownRuns],
     );
     const routineMarkerStatuses = useMemo(() => (data?.routineMarkerStatuses as any[]) || [], [data?.routineMarkerStatuses]);
+    const routines = useMemo(() => sortRoutines((data?.routines as SharedRoutineLike[]) || []), [data?.routines]);
 
     const chores = useMemo(() => {
         const completionsByChoreId = new Map<string, any[]>();
@@ -176,19 +209,29 @@ export function useCountdownRunner(): CountdownRunner {
     }, [chores, todayKey, routineMarkerStatuses, settings, scheduleSettings, queueTick]);
 
     const queues = useMemo(() => {
-        const byMember = new Map<string, RunnerStep[]>();
+        const byMember = new Map<string, MemberQueues>();
         if (!engineInput) return byMember;
         try {
             const plan = computeCountdownTimelines(engineInput);
+            // Steps folded into a routine are run from the routine, not from the day's queue.
+            const foldedChoreIds = chores.filter(isChoreHiddenFromDayList).map((chore) => chore.id as string);
             for (const member of familyMembers) {
-                const queue = buildRunnerQueue(engineInput, { personId: member.id, plan });
-                if (queue.length > 0) byMember.set(member.id, queue);
+                const personId = member.id as string;
+                const memberQueues: MemberQueues = {
+                    day: buildRunnerQueue(engineInput, { personId, plan, excludeChoreIds: foldedChoreIds }),
+                    routines: routines.flatMap((routine) => {
+                        const queue = buildRunnerQueue(engineInput, { personId, plan, orderedChoreIds: getRoutineChoreIds(routine) });
+                        if (queue.length === 0) return [];
+                        return [{ id: routine.id, name: routine.name || 'Routine', onStepOverrun: getRoutineOverrunPolicy(routine), queue }];
+                    }),
+                };
+                if (memberQueues.day.length > 0 || memberQueues.routines.length > 0) byMember.set(personId, memberQueues);
             }
         } catch (err) {
             console.error('Countdown engine error:', err);
         }
         return byMember;
-    }, [engineInput, familyMembers]);
+    }, [engineInput, familyMembers, chores, routines]);
 
     const currentMemberId = currentUser?.id ?? null;
     const choreDescriptions = useMemo(
@@ -199,16 +242,34 @@ export function useCountdownRunner(): CountdownRunner {
     const runners: MemberRunner[] = useMemo(
         () =>
             familyMembers.flatMap((member) => {
-                const queue = queues.get(member.id);
-                if (!queue) return [];
+                const memberQueues = queues.get(member.id);
+                if (!memberQueues) return [];
                 const run = findCountdownRun(allRuns, member.id, todayKey);
-                const state = resolveRunnerState({ queue, run, settings, nowMs });
+                // A live run keeps to the routine it was started on; everything else reads the day's queue.
+                const liveRoutine = isCountdownRunLive(run)
+                    ? memberQueues.routines.find((routine) => routine.id === run!.routineId) ?? null
+                    : null;
+                const state = resolveRunnerState({
+                    queue: liveRoutine?.queue ?? memberQueues.day,
+                    run,
+                    settings,
+                    nowMs,
+                    onStepOverrun: liveRoutine?.onStepOverrun ?? 'wait',
+                });
                 const stepOnScreen = state.liveStep ?? state.nextStep;
                 return [
                     {
                         member: { id: member.id, name: member.name || 'Unknown', photoUrls: member.photoUrls },
                         run,
                         state,
+                        activeRoutine: liveRoutine ? { id: liveRoutine.id, name: liveRoutine.name } : null,
+                        routines: memberQueues.routines.map((routine) => ({
+                            id: routine.id,
+                            name: routine.name,
+                            totalCount: routine.queue.length,
+                            completedCount: routine.queue.filter((step) => step.completedAtMs != null).length,
+                            nextStep: selectNextRunnerStep(routine.queue, nowMs),
+                        })),
                         canControl: isParentMode || member.id === currentMemberId,
                         stepDescription: stepOnScreen ? choreDescriptions.get(stepOnScreen.choreId) ?? null : null,
                     },
@@ -248,14 +309,24 @@ export function useCountdownRunner(): CountdownRunner {
     }, []);
 
     const start = useCallback(
-        (memberId: string) => {
+        (memberId: string, routineId?: string) => {
             const runner = findRunner(memberId);
-            const step = runner?.state.nextStep;
-            if (!runner || !step || runner.state.phase === 'running') return;
+            if (!runner || runner.state.phase === 'running') return;
+            const step = routineId
+                ? runner.routines.find((routine) => routine.id === routineId)?.nextStep
+                : runner.state.nextStep;
+            if (!step) return;
             const { todayKey: date } = latest.current;
             void writeRun(
                 runner.run?.id ?? createCountdownRunId(memberId, date),
-                buildRunStartPatch({ familyMemberId: memberId, date, step, nowMs: Date.now(), existingRun: runner.run }),
+                buildRunStartPatch({
+                    familyMemberId: memberId,
+                    date,
+                    routineId,
+                    step,
+                    nowMs: Date.now(),
+                    existingRun: runner.run,
+                }),
             );
         },
         [findRunner, writeRun],
@@ -417,6 +488,7 @@ export function useCountdownRunner(): CountdownRunner {
         runners,
         settings,
         currentMemberId,
+        canManageRoutines: isParentMode,
         actions,
     };
 }

@@ -37,6 +37,8 @@ import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 import { buildChoreCompletionChange } from '@/lib/chore-completion';
+import { summarizeRoutinesForDay } from '@/lib/routine-summary';
+import RoutineDayRows from '@/components/routines/RoutineDayRows';
 
 // +++ NEW IMPORTS +++
 import { useAuth } from '@/components/AuthProvider';
@@ -59,6 +61,7 @@ import {
     COUNTDOWN_SETTINGS_NAME,
     parseCountdownSettings,
     getChoreTimingMode,
+    isChoreHiddenFromDayList,
     type SharedScheduleSettings,
     type SharedRoutineMarkerStatusLike,
     type CountdownEngineOutput,
@@ -257,6 +260,7 @@ function ChoresTracker({
                 assignments: {
                     familyMember: {},
                 },
+                routineSteps: {},
                 taskSeries: {
                     tasks: {
                         parentTask: {},
@@ -285,6 +289,7 @@ function ChoresTracker({
                 completedBy: {},
             },
             routineMarkerStatuses: {},
+            routines: { steps: { chore: {} } },
             settings: {
                 $: {
                     where: {
@@ -1151,6 +1156,10 @@ function ChoresTracker({
             if (pageMode === 'tasks' && (!chore.taskSeries || chore.taskSeries.length === 0)) {
                 return false;
             }
+            // A step folded into its routine is shown by the routine's row, not by itself.
+            if (pageMode === 'chores' && isChoreHiddenFromDayList(chore as any)) {
+                return false;
+            }
 
             // In tasks mode, also include chores with active pull-forwards for the selected member
             if (pageMode === 'tasks' && chore.taskSeries) {
@@ -1181,6 +1190,16 @@ function ChoresTracker({
             scheduleSettings,
         }).map((entry) => entry.chore as Chore);
     }, [chores, pageMode, routineMarkerStatuses, scheduleSettings, selectedDate, selectedMember]);
+
+    // One collapsed row per routine with steps due in view, carrying its own XP so
+    // the totals still visibly add up when its steps are folded away.
+    const routineRows = useMemo(
+        () =>
+            pageMode === 'chores'
+                ? summarizeRoutinesForDay((data?.routines as any[]) || [], chores as any, familyMembers as any, selectedDate, selectedMember)
+                : [],
+        [chores, data?.routines, familyMembers, pageMode, selectedDate, selectedMember]
+    );
 
     // +++ Logic for Add Button +++
     const isParent = isParentMode;
@@ -1602,6 +1621,17 @@ function ChoresTracker({
                                 </div>
                             );
                         })()}
+                        <RoutineDayRows
+                            routines={routineRows}
+                            canRun={selectedDateKey === todayDateKey}
+                            showMembers={selectedMember === 'All'}
+                            // Today is anyone's to tick; another day's steps are a parent's to backfill.
+                            onToggleStep={
+                                currentUser && (isParent || selectedDateKey === todayDateKey)
+                                    ? (choreId, memberId) => toggleChoreDone(choreId, memberId, currentUser.id)
+                                    : undefined
+                            }
+                        />
                         {/* Removed simple Add Chore form */}
                         <div className="flex flex-col gap-6 grow min-h-0">
                             {' '}

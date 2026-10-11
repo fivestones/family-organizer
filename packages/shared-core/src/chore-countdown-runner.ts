@@ -222,6 +222,11 @@ export interface RunnerQueueOptions {
    * order, and the order supersedes `after_chore` chaining between them.
    */
   orderedChoreIds?: string[] | null;
+  /**
+   * Chores to leave out of the day's ad-hoc queue: routine steps folded into
+   * their routine, which are run from the routine instead.
+   */
+  excludeChoreIds?: Iterable<string> | null;
   /** A plan already computed from the same input, to avoid packing twice. */
   plan?: CountdownEngineOutput | null;
 }
@@ -235,10 +240,14 @@ export function buildRunnerQueue(input: CountdownEngineInput, options: RunnerQue
   const { personId } = options;
   const routineOrder = options.orderedChoreIds ? options.orderedChoreIds.map(String) : null;
   const routineChoreIds = new Set(routineOrder ?? []);
+  const excludedChoreIds = new Set(routineOrder ? [] : Array.from(options.excludeChoreIds ?? []));
   const todaysChoresById = new Map(input.chores.map((chore) => [chore.id, chore]));
 
   const mine = input.chores.filter(
-    (chore) => chore.assigneeIds.includes(personId) && (!routineOrder || routineChoreIds.has(chore.id)),
+    (chore) =>
+      chore.assigneeIds.includes(personId) &&
+      (!routineOrder || routineChoreIds.has(chore.id)) &&
+      !excludedChoreIds.has(chore.id),
   );
   if (mine.length === 0) return [];
 

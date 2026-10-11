@@ -60,6 +60,15 @@ vi.mock('@/components/ui/use-toast', () => ({
     useToast: () => ({ toast: mocks.toast }),
 }));
 
+vi.mock('next/link', () => ({
+    __esModule: true,
+    default: ({ href, children, ...props }: any) => (
+        <a href={typeof href === 'string' ? href : '#'} {...props}>
+            {children}
+        </a>
+    ),
+}));
+
 import FocusedCountdownPage from '@/components/countdown/FocusedCountdownPage';
 
 // ---------------------------------------------------------------------------
@@ -103,8 +112,38 @@ function makeData(overrides: Record<string, unknown> = {}) {
         choreCompletions: [],
         countdownRuns: [],
         routineMarkerStatuses: [],
+        routines: [],
         ...overrides,
     };
+}
+
+/**
+ * Alex's Morning Routine: Teeth (two minutes) and Vitamins (untimed) exist only
+ * inside it; Dishes is an ordinary chore the routine also points at.
+ */
+function makeRoutineData(overrides: Record<string, unknown> = {}, onStepOverrun = 'wait') {
+    const inRoutine = (id: string) => ({ routineSteps: [{ id: `step-${id}` }] });
+    return makeData({
+        chores: [
+            makeChore('Dishes', 'kid-a', { ...beforeTime('14:00'), ...inRoutine('Dishes') }),
+            makeChore('Homework', 'kid-a', beforeTime('15:00')),
+            makeChore('Teeth', 'kid-a', { estimatedDurationSecs: 120, hideFromDayList: true, ...inRoutine('Teeth') }),
+            makeChore('Vitamins', 'kid-a', { estimatedDurationSecs: null, hideFromDayList: true, ...inRoutine('Vitamins') }),
+        ],
+        routines: [
+            {
+                id: 'morning',
+                name: 'Morning Routine',
+                onStepOverrun,
+                steps: [
+                    { id: 'step-Teeth', position: 0, chore: { id: 'Teeth' } },
+                    { id: 'step-Vitamins', position: 1, chore: { id: 'Vitamins' } },
+                    { id: 'step-Dishes', position: 2, chore: { id: 'Dishes' } },
+                ],
+            },
+        ],
+        ...overrides,
+    });
 }
 
 function makeRun(overrides: Record<string, unknown> = {}) {
@@ -466,6 +505,106 @@ describe('FocusedCountdownPage', () => {
             });
             render(<FocusedCountdownPage />);
             expect(mocks.transact).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('routines', () => {
+        const routineRun = (overrides: Record<string, unknown> = {}) =>
+            makeRun({ routineId: 'morning', currentChoreId: 'Teeth', stepStartedAt: at('09:59'), ...overrides });
+
+        it('keeps folded steps out of the day queue and offers the routine instead', () => {
+            mocks.data = makeRoutineData();
+            render(<FocusedCountdownPage />);
+
+            // The day's own queue is Dishes then Homework; Teeth and Vitamins belong to the routine.
+            expect(within(panel()).getByRole('heading', { name: 'Dishes' })).toBeInTheDocument();
+            const launcher = within(panel()).getByRole('button', { name: 'Start Morning Routine' });
+            expect(launcher).toHaveTextContent('0/3');
+        });
+
+        it('starts a routine on its first step and records which routine it is', () => {
+            mocks.data = makeRoutineData();
+            render(<FocusedCountdownPage />);
+            fireEvent.click(within(panel()).getByRole('button', { name: 'Start Morning Routine' }));
+
+            expect(runUpdate().payload).toMatchObject({ status: 'running', routineId: 'morning', currentChoreId: 'Teeth' });
+        });
+
+        it('starts the day queue without a routine', () => {
+            mocks.data = makeRoutineData();
+            render(<FocusedCountdownPage />);
+            fireEvent.click(within(panel()).getByRole('button', { name: 'Start' }));
+
+            expect(runUpdate().payload).toMatchObject({ routineId: null, currentChoreId: 'Dishes' });
+        });
+
+        it('follows the routine’s order, not the day’s, once it is running', () => {
+            mocks.data = makeRoutineData({ countdownRuns: [routineRun()] });
+            render(<FocusedCountdownPage />);
+
+            expect(within(panel()).getByText('Morning Routine')).toBeInTheDocument();
+            expect(within(panel()).getByRole('timer')).toHaveAccessibleName('1:00');
+            expect(within(panel()).getByRole('img', { name: '0 of 3 done' })).toBeInTheDocument();
+
+            fireEvent.click(within(panel()).getByRole('button', { name: 'Done' }));
+            expect(runUpdate().payload).toMatchObject({ currentChoreId: 'Vitamins' });
+        });
+
+        it('waits at zero by default', () => {
+            mocks.data = makeRoutineData({ countdownRuns: [routineRun({ stepStartedAt: at('09:55') })] });
+            render(<FocusedCountdownPage />);
+
+            expect(panel()).toHaveAttribute('data-mode', 'overrun');
+            expect(mocks.transact).not.toHaveBeenCalled();
+        });
+
+        it('moves on at zero when the routine says so, leaving the step undone', () => {
+            mocks.data = makeRoutineData({ countdownRuns: [routineRun({ stepStartedAt: at('09:55') })] }, 'advance');
+            render(<FocusedCountdownPage />);
+
+            const transaction = lastTransaction();
+            expect(transaction).toHaveLength(1); // No completion is invented for the skipped step.
+            expect(runUpdate(transaction).payload).toMatchObject({ currentChoreId: 'Vitamins', skippedChoreIds: ['Teeth'] });
+        });
+
+        it('finishes the routine after its last step, even with day chores left', () => {
+            mocks.data = makeRoutineData({
+                countdownRuns: [routineRun({ currentChoreId: 'Dishes' })],
+                choreCompletions: ['Teeth', 'Vitamins'].map((choreId) => ({
+                    id: `done-${choreId}`,
+                    completed: true,
+                    dateDue: DATE_KEY,
+                    dateCompleted: at('09:50'),
+                    chore: { id: choreId },
+                    completedBy: { id: 'kid-a' },
+                })),
+            });
+            render(<FocusedCountdownPage />);
+            fireEvent.click(within(panel()).getByRole('button', { name: 'Done' }));
+
+            expect(runUpdate().payload).toMatchObject({ status: 'stopped', stoppedReason: 'finished' });
+        });
+
+        it('invites a routine when everything on the plate is folded into one', () => {
+            const data = makeRoutineData();
+            data.chores = (data.chores as any[]).filter((chore) => chore.hideFromDayList);
+            mocks.data = data;
+            render(<FocusedCountdownPage />);
+
+            expect(within(panel()).getByRole('heading', { name: 'Pick a routine to start' })).toBeInTheDocument();
+            expect(within(panel()).queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
+            expect(within(panel()).getByRole('button', { name: 'Start Morning Routine' })).toBeEnabled();
+        });
+
+        it('links parents, and only parents, to the routine manager', () => {
+            mocks.data = makeRoutineData();
+            const { unmount } = render(<FocusedCountdownPage />);
+            expect(screen.queryByRole('link', { name: 'Routines' })).not.toBeInTheDocument();
+            unmount();
+
+            mocks.isParentMode = true;
+            render(<FocusedCountdownPage />);
+            expect(screen.getByRole('link', { name: /Routines/ })).toHaveAttribute('href', '/routines');
         });
     });
 

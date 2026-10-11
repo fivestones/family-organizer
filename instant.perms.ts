@@ -873,6 +873,44 @@ const rules = {
             update: 'isParent || (isKid && ownsRun && kidSafeRunUpdate)',
         },
     },
+    routines: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+        },
+        allow: {
+            link: {
+                $default: 'isParent',
+            },
+            view: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'isParent',
+            unlink: {
+                $default: 'isParent',
+            },
+            update: 'isParent',
+        },
+    },
+    routineSteps: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+        },
+        allow: {
+            link: {
+                $default: 'isParent',
+            },
+            view: 'isFamilyPrincipal',
+            create: 'isParent',
+            delete: 'isParent',
+            unlink: {
+                $default: 'isParent',
+            },
+            update: 'isParent',
+        },
+    },
     choreManualStarts: {
         bind: {
             isKid: "'kid' in auth.ref('$user.type')",

@@ -27,6 +27,7 @@ const choreTrackerMocks = vi.hoisted(() => {
         computeAllApplicableCurrencyCodes: vi.fn(() => []),
         calculateDailyXP: vi.fn(() => ({})),
         lastChoreListProps: null as any,
+        lastRoutineRowsProps: null as any,
     };
 });
 
@@ -172,6 +173,18 @@ vi.mock('@/components/ChoreList', () => ({
     },
 }));
 
+vi.mock('@/components/routines/RoutineDayRows', () => ({
+    __esModule: true,
+    default: (props: any) => {
+        choreTrackerMocks.lastRoutineRowsProps = props;
+        return (
+            <div data-testid="mock-routine-rows">
+                {(props.routines || []).map((routine: any) => `${routine.name} ${routine.completed}/${routine.total}`).join('|')}
+            </div>
+        );
+    },
+}));
+
 vi.mock('@/components/DetailedChoreForm', () => ({
     __esModule: true,
     default: () => <div data-testid="detailed-chore-form" />,
@@ -288,6 +301,7 @@ function makeData(overrides: Partial<any> = {}) {
         allowanceEnvelopes: overrides.allowanceEnvelopes ?? [],
         choreAssignments: overrides.choreAssignments ?? [],
         choreCompletions: overrides.choreCompletions ?? [],
+        routines: overrides.routines ?? [],
     };
 }
 
@@ -299,6 +313,7 @@ describe('ChoresTracker', () => {
         choreTrackerMocks.computeAllApplicableCurrencyCodes.mockClear();
         choreTrackerMocks.calculateDailyXP.mockClear();
         choreTrackerMocks.lastChoreListProps = null;
+        choreTrackerMocks.lastRoutineRowsProps = null;
         choreTrackerMocks.currentUser = { id: 'kid-a', role: 'child' };
         choreTrackerMocks.isParentMode = false;
         choreTrackerMocks.dbState.isLoading = false;
@@ -368,6 +383,98 @@ describe('ChoresTracker', () => {
                 completedBy: { id: 'kid-a' },
             }),
         ]);
+    });
+
+    describe('routines in the day list', () => {
+        const routineChore = (id: string, title: string, overrides: Record<string, unknown> = {}) => ({
+            id,
+            title,
+            startDate: '2026-04-03',
+            done: false,
+            rrule: null,
+            assignees: [{ id: 'kid-a', name: 'Alex' }],
+            rotationType: 'none',
+            completions: [],
+            taskSeries: [],
+            routineSteps: [{ id: `step-${id}` }],
+            ...overrides,
+        });
+
+        const withRoutine = () =>
+            makeData({
+                chores: [
+                    routineChore('teeth', 'Brush teeth', { hideFromDayList: true }),
+                    routineChore('vitamins', 'Take vitamins', { hideFromDayList: true }),
+                    // Pointed at by the routine, but still an ordinary chore in the list.
+                    routineChore('dishes', 'Dishes'),
+                    // Flagged, but in no routine: the flag is inert.
+                    routineChore('stray', 'Stray Chore', { hideFromDayList: true, routineSteps: [] }),
+                ],
+                choreCompletions: [
+                    { id: 'done-1', completed: true, dateDue: '2026-04-03', chore: { id: 'teeth' }, completedBy: { id: 'kid-a' } },
+                ],
+                routines: [
+                    {
+                        id: 'morning',
+                        name: 'Morning Routine',
+                        steps: [
+                            { id: 'step-teeth', position: 0, chore: { id: 'teeth' } },
+                            { id: 'step-vitamins', position: 1, chore: { id: 'vitamins' } },
+                            { id: 'step-dishes', position: 2, chore: { id: 'dishes' } },
+                        ],
+                    },
+                ],
+            });
+
+        it('folds flagged routine steps into one row and leaves the rest listed', () => {
+            choreTrackerMocks.dbState.data = withRoutine();
+            render(<ChoresTracker initialSelectedDate="2026-04-03" />);
+
+            expect(screen.getByTestId('chore-list-chores')).toHaveTextContent(/^(Dishes\|Stray Chore|Stray Chore\|Dishes)$/);
+            expect(screen.getByTestId('mock-routine-rows')).toHaveTextContent('Morning Routine 1/3');
+            expect(choreTrackerMocks.lastRoutineRowsProps.routines[0].hiddenCount).toBe(2);
+        });
+
+        it('asks for each chore’s routine membership and every routine’s steps', () => {
+            render(<ChoresTracker initialSelectedDate="2026-04-03" />);
+            const query = choreTrackerMocks.dbUseQuery.mock.calls[0]?.[0];
+            expect(query.chores.routineSteps).toEqual({});
+            expect(query.routines).toEqual({ steps: { chore: {} } });
+        });
+
+        it('does not let a kid change a folded step on another day', () => {
+            choreTrackerMocks.dbState.data = withRoutine();
+            render(<ChoresTracker initialSelectedDate="2026-04-03" />);
+
+            // The page is on a date that is not today, so only a parent may change it.
+            expect(choreTrackerMocks.lastRoutineRowsProps.onToggleStep).toBeUndefined();
+        });
+
+        it('lets a parent backfill a folded step through the same path as the day list', () => {
+            choreTrackerMocks.isParentMode = true;
+            choreTrackerMocks.currentUser = { id: 'parent-1', role: 'parent' };
+            choreTrackerMocks.dbState.data = withRoutine();
+            render(<ChoresTracker initialSelectedDate="2026-04-03" />);
+
+            choreTrackerMocks.lastRoutineRowsProps.onToggleStep('vitamins', 'kid-a');
+
+            const transaction = choreTrackerMocks.dbTransact.mock.calls.at(-1)?.[0] as any[];
+            expect(transaction.find((entry) => entry.entity === 'choreCompletions')?.payload).toMatchObject({
+                completed: true,
+                dateDue: '2026-04-03',
+            });
+            expect(transaction.some((entry) => entry.op === 'link' && entry.id === 'parent-1' && entry.payload.markedCompletions)).toBe(true);
+        });
+
+        it('keeps folded steps on the tasks page, where they carry task series', () => {
+            const data = withRoutine();
+            data.chores[0].taskSeries = [{ id: 'series-1', tasks: [] }] as any;
+            choreTrackerMocks.dbState.data = data;
+            render(<ChoresTracker pageMode="tasks" initialSelectedDate="2026-04-03" />);
+
+            expect(screen.getByTestId('chore-list-chores')).toHaveTextContent('Brush teeth');
+            expect(screen.getByTestId('mock-routine-rows')).toBeEmptyDOMElement();
+        });
     });
 
     it('adds only one timed-chore assignment lookup per countdown render pass', () => {

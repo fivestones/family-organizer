@@ -151,6 +151,36 @@ describe('instant.perms contract', () => {
         }
     });
 
+    it('keeps routines parent-managed and readable by the family', async () => {
+        const perms = rules as any;
+        for (const entity of ['routines', 'routineSteps']) {
+            expect(perms[entity].allow.view, entity).toBe('isFamilyPrincipal');
+            expect(perms[entity].allow.create, entity).toBe('isParent');
+            expect(perms[entity].allow.update, entity).toBe('isParent');
+            expect(perms[entity].allow.delete, entity).toBe('isParent');
+            expect(perms[entity].allow.link.$default, entity).toBe('isParent');
+            expect(perms[entity].allow.unlink.$default, entity).toBe('isParent');
+        }
+
+        // A step belongs to one routine and one chore, and goes when either does.
+        const schemaSource = await fs.readFile(path.join(process.cwd(), 'instant.schema.ts'), 'utf8');
+        for (const [linkName, label] of [
+            ['routinesSteps', 'routine'],
+            ['choresRoutineSteps', 'chore'],
+        ]) {
+            const linkStart = schemaSource.indexOf(`${linkName}: {`);
+            expect(linkStart, `missing link ${linkName}`).toBeGreaterThan(-1);
+            const linkSource = schemaSource.slice(linkStart, schemaSource.indexOf('\n        },', linkStart));
+            expect(linkSource).toContain("on: 'routineSteps'");
+            expect(linkSource).toContain(`label: '${label}'`);
+            expect(linkSource).toContain("onDelete: 'cascade'");
+        }
+        const choresStart = schemaSource.indexOf('        chores: i.entity({');
+        expect(schemaSource.slice(choresStart, schemaSource.indexOf('}),', choresStart))).toContain(
+            'hideFromDayList: i.boolean().optional()'
+        );
+    });
+
     it('binds immutable kid history events to the authenticated member actor', () => {
         const perms = rules as any;
         expect(perms.historyEvents.bind.authFamilyMemberIds).toBe("auth.ref('$user.familyMemberId')");

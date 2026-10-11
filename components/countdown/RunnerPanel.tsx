@@ -7,6 +7,7 @@ import {
     ChevronRight,
     Hand,
     Hourglass,
+    ListChecks,
     Lock,
     Minus,
     PartyPopper,
@@ -345,6 +346,13 @@ export default function RunnerPanel({ runner, nowMs, settings, actions, layout }
 
             {/* ---- Readouts and actions ---- */}
             <div className={cn('flex w-full max-w-lg flex-col items-center gap-4 px-5', isSolo ? 'pb-8' : 'pb-6')}>
+                {runner.activeRoutine && (
+                    <span className={cn(PILL, 'bg-white/15 text-white/90')}>
+                        <ListChecks className="h-3.5 w-3.5" />
+                        {runner.activeRoutine.name}
+                    </span>
+                )}
+
                 <ProgressDots state={state} />
 
                 {(pace || forecast) && (
@@ -451,6 +459,47 @@ export default function RunnerPanel({ runner, nowMs, settings, actions, layout }
                     )
                 )}
 
+                {!isLive && runner.routines.length > 0 && (
+                    <div className="w-full max-w-xs">
+                        <div className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50">
+                            Routines
+                        </div>
+                        <ul className="space-y-1.5">
+                            {runner.routines.map((routine) => {
+                                const finished = routine.completedCount === routine.totalCount;
+                                const startable = canControl && !!routine.nextStep;
+                                return (
+                                    <li key={routine.id}>
+                                        <button
+                                            type="button"
+                                            disabled={!startable}
+                                            onClick={() => actions.start(member.id, routine.id)}
+                                            aria-label={`Start ${routine.name}`}
+                                            className={cn(
+                                                'flex w-full items-center gap-3 rounded-2xl bg-white/15 px-4 py-3 text-left backdrop-blur-sm transition-colors',
+                                                startable ? 'hover:bg-white/25' : 'cursor-default opacity-70',
+                                            )}
+                                        >
+                                            <ListChecks className="h-4 w-4 shrink-0 text-white/70" />
+                                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{routine.name}</span>
+                                            <span className="shrink-0 text-xs font-medium tabular-nums text-white/65">
+                                                {routine.completedCount}/{routine.totalCount}
+                                            </span>
+                                            {finished ? (
+                                                <Check className="h-4 w-4 shrink-0 text-emerald-200" strokeWidth={3} />
+                                            ) : startable ? (
+                                                <Play className="h-4 w-4 shrink-0 fill-current text-white" />
+                                            ) : (
+                                                <Lock className="h-4 w-4 shrink-0 text-white/50" />
+                                            )}
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                )}
+
                 {state.lockedSteps.length > 0 && mode !== 'waiting' && (
                     <LaterList steps={state.lockedSteps} />
                 )}
@@ -518,8 +567,14 @@ function CalmStage({ runner, view, nowMs, isSolo }: { runner: MemberRunner; view
     const { state, member } = runner;
     const { mode, step } = view;
 
+    // Everything on this person's plate may live inside routines, leaving the day's own queue empty.
+    const onlyRoutines = mode === 'done' && state.totalCount === 0 && runner.routines.length > 0;
+    const routinesLeft = runner.routines.some((routine) => routine.completedCount < routine.totalCount);
+
     const icon =
-        mode === 'done' ? (
+        onlyRoutines && routinesLeft ? (
+            <ListChecks className="h-1/2 w-1/2" />
+        ) : mode === 'done' ? (
             <PartyPopper className="h-1/2 w-1/2" />
         ) : mode === 'waiting' ? (
             <Hourglass className="h-1/2 w-1/2" />
@@ -529,17 +584,27 @@ function CalmStage({ runner, view, nowMs, isSolo }: { runner: MemberRunner; view
             <Play className="h-1/2 w-1/2 translate-x-[6%] fill-current" />
         );
 
-    const eyebrow =
-        mode === 'done' ? 'All done' : mode === 'waiting' ? 'Nothing open right now' : mode === 'untimed' ? 'No timer' : 'Up next';
+    const eyebrow = onlyRoutines
+        ? 'Routines'
+        : mode === 'done'
+          ? 'All done'
+          : mode === 'waiting'
+            ? 'Nothing open right now'
+            : mode === 'untimed'
+              ? 'No timer'
+              : 'Up next';
 
-    const title =
-        mode === 'done'
-            ? state.totalCount > 0
-                ? 'Everything is finished'
-                : 'Nothing on the plate today'
-            : mode === 'waiting'
-              ? 'The rest unlocks later'
-              : step?.title ?? '';
+    const title = onlyRoutines
+        ? routinesLeft
+            ? 'Pick a routine to start'
+            : 'Every routine is finished'
+        : mode === 'done'
+          ? state.totalCount > 0
+              ? 'Everything is finished'
+              : 'Nothing on the plate today'
+          : mode === 'waiting'
+            ? 'The rest unlocks later'
+            : step?.title ?? '';
 
     const detail =
         mode === 'done'

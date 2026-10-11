@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Maximize2, Minimize2, Timer } from 'lucide-react';
+import Link from 'next/link';
+import { ListChecks, Maximize2, Minimize2, Timer } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getPhotoUrl } from '@/lib/photo-urls';
 import { cn } from '@/lib/utils';
@@ -44,7 +45,7 @@ function Notice({ icon, title, children }: { icon?: React.ReactNode; title: stri
 }
 
 export default function FocusedCountdownPage() {
-    const { isLoading, error, nowMs, runners, settings, currentMemberId, actions } = useCountdownRunner();
+    const { isLoading, error, nowMs, runners, settings, currentMemberId, canManageRoutines, actions } = useCountdownRunner();
     const [chosenIds, setChosenIds] = useState<string[]>([]);
     const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -100,6 +101,11 @@ export default function FocusedCountdownPage() {
             ) : runners.length === 0 ? (
                 <Notice icon={<Timer className="h-16 w-16 text-white/30" />} title="Nothing to count down today">
                     Chores that are due today show up here, ready to start whenever you are.
+                    {canManageRoutines && (
+                        <Link href="/routines" className="mt-4 block font-semibold text-white/85 underline underline-offset-4 hover:text-white">
+                            Set up a routine
+                        </Link>
+                    )}
                 </Notice>
             ) : (
                 <>
@@ -145,14 +151,26 @@ export default function FocusedCountdownPage() {
                             })}
                         </div>
 
-                        <button
-                            type="button"
-                            onClick={() => setIsFullscreen((value) => !value)}
-                            aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
-                            className="shrink-0 rounded-full bg-white/10 p-2.5 text-white/70 backdrop-blur-sm transition-colors hover:bg-white/20 hover:text-white"
-                        >
-                            {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
-                        </button>
+                        <div className="flex shrink-0 items-center gap-2">
+                            {canManageRoutines && (
+                                <Link
+                                    href="/routines"
+                                    className="flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-2.5 text-sm font-medium text-white/75 backdrop-blur-sm transition-colors hover:bg-white/20 hover:text-white"
+                                >
+                                    <ListChecks className="h-4 w-4" />
+                                    <span className="hidden sm:inline">Routines</span>
+                                    <span className="sr-only sm:hidden">Routines</span>
+                                </Link>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => setIsFullscreen((value) => !value)}
+                                aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
+                                className="rounded-full bg-white/10 p-2.5 text-white/70 backdrop-blur-sm transition-colors hover:bg-white/20 hover:text-white"
+                            >
+                                {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                            </button>
+                        </div>
                     </div>
 
                     {/* ---- The countdowns ---- */}

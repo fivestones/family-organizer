@@ -158,6 +158,7 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         choreAssignments: new Set<string>(),
         choreCompletions: new Set<string>(),
         countdownRuns: new Set<string>(),
+        routines: new Set<string>(),
         tasks: new Set<string>(),
         taskUpdates: new Set<string>(),
         taskResponseFields: new Set<string>(),
@@ -200,6 +201,10 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         }
         for (const entryId of Array.from(cleanup.countdownRuns)) {
             txs.push(adminDb.tx.countdownRuns[entryId].delete());
+        }
+        // Deleting a routine cascades to its steps.
+        for (const entryId of Array.from(cleanup.routines)) {
+            txs.push(adminDb.tx.routines[entryId].delete());
         }
         for (const entryId of Array.from(cleanup.chores)) {
             txs.push(adminDb.tx.chores[entryId].delete());
@@ -840,6 +845,65 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
             } finally {
                 memberKidDb.shutdown?.();
             }
+        },
+        120_000
+    );
+
+    it(
+        'keeps routines parent-managed, and cascades their steps',
+        async () => {
+            const routineId = instantId();
+            const stepId = instantId();
+            const choreId = instantId();
+            cleanup.routines.add(routineId);
+            cleanup.chores.add(choreId);
+
+            await parentDb.transact([
+                parentDb.tx.chores[choreId].update({
+                    title: 'Routine smoke chore',
+                    startDate: '2026-02-25',
+                    rotationType: 'none',
+                    done: false,
+                    hideFromDayList: true,
+                }),
+                parentDb.tx.routines[routineId].update({ name: 'Perms smoke routine', onStepOverrun: 'wait', sortOrder: 9999 }),
+                parentDb.tx.routineSteps[stepId].update({ position: 0 }).link({ routine: routineId, chore: choreId }),
+            ]);
+
+            const kidRoutineId = instantId();
+            await expectRejected(
+                kidDb.transact(kidDb.tx.routines[kidRoutineId].update({ name: 'Kid routine' })),
+                'kid routines create'
+            );
+            await expectRejected(
+                kidDb.transact(kidDb.tx.routines[routineId].update({ name: 'Renamed by a kid' })),
+                'kid routines update'
+            );
+            await expectRejected(
+                kidDb.transact(kidDb.tx.routineSteps[stepId].update({ position: 5 })),
+                'kid routineSteps update'
+            );
+            await expectRejected(kidDb.transact(kidDb.tx.routineSteps[stepId].delete()), 'kid routineSteps delete');
+            await expectRejected(
+                kidDb.transact(kidDb.tx.chores[choreId].update({ hideFromDayList: false })),
+                'kid chores hideFromDayList update'
+            );
+
+            const before = await adminDb.query({
+                routines: { $: { where: { id: routineId } }, steps: { chore: {} } },
+            });
+            expect((before.routines as any[])[0]?.steps?.[0]?.chore?.id ?? (before.routines as any[])[0]?.steps?.[0]?.chore?.[0]?.id).toBe(
+                choreId
+            );
+
+            // Deleting the routine takes its steps with it and leaves the chore alone.
+            await parentDb.transact(parentDb.tx.routines[routineId].delete());
+            const after = await adminDb.query({
+                routineSteps: { $: { where: { id: stepId } } },
+                chores: { $: { where: { id: choreId } } },
+            });
+            expect(after.routineSteps).toHaveLength(0);
+            expect(after.chores).toHaveLength(1);
         },
         120_000
     );

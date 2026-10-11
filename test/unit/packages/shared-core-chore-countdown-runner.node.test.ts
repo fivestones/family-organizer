@@ -240,6 +240,15 @@ describe('chore-countdown-runner', () => {
             expect(step.deadlineMs).toBe(at('14:00'));
         });
 
+        it('leaves folded routine steps out of the day queue, but not out of their routine', () => {
+            const input = makeInput([before('teeth', '09:00'), before('dishes', '14:00')], '06:00');
+
+            expect(ids(buildRunnerQueue(input, { personId: PERSON, excludeChoreIds: ['teeth'] }))).toEqual(['dishes']);
+            expect(
+                ids(buildRunnerQueue(input, { personId: PERSON, orderedChoreIds: ['teeth'], excludeChoreIds: ['teeth'] })),
+            ).toEqual(['teeth']);
+        });
+
         it('follows a routine’s own order and leaves everything else out', () => {
             const queue = queueFor(
                 [before('teeth', '09:00'), before('dress', '08:00'), before('unrelated', '07:00')],
