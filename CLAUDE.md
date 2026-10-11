@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Rules
 - Do your very best to write code that is both perfectly functional and exetremely good looking.
 - When you finish coding something, do not test the UI unless you have been explicitly instructed to do so. I will do the UI testing for you. That means you must skip preview verification (unless I ask you to do so for a specific case).
+- After any update, bug fix, or new feature, commit it. Don't leave finished work uncommitted: once a change is complete and its checks pass, make a focused commit with a message that says what changed and why, before moving on to the next piece of work.
 
 ## Commands
 
