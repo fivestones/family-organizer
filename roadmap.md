@@ -141,12 +141,15 @@ When each is fixed, remove it from the idea backlog's bug group rather than leav
 
 ## Scope 4 — Chore scheduling extras
 
-[docs/chore-scheduling-extras-plan.md](docs/chore-scheduling-extras-plan.md) specifies chore **end dates**, **extra days**, and **breaks**. All three outcomes are wanted. None of it shipped: `chores` has no `endDate`, `extraDays` or `breaks` field, and `allowExtraDays` sits in the schema referenced by nothing outside it. Only pause/resume exists, through `pauseState` and `exdates`.
+[docs/chore-scheduling-extras-plan.md](docs/chore-scheduling-extras-plan.md) covers chore **end dates**, **extra days**, and **breaks**. All three outcomes are wanted. It was audited and rewritten on 11 October 2026, and the audit changed the picture: end dates already exist, as the end condition of a chore's recurrence; breaks exist one at a time, as a pause with a resume date; only extra days are missing outright. `allowExtraDays` sits in the schema referenced by nothing.
 
-The specification was written before two quarters of change — including the July audits, the move of assignment and rotation into `shared-core`, and the occurrence/rotation caches — so its file-by-file instructions cannot be trusted as written.
+The old plan's file-by-file instructions were written before the schedule engine was rebuilt and are replaced. What is left to build waits on two questions for David, set out at the end of the plan.
 
-- [ ] **Audit the plan against the current code** before following any of it. Confirm which of its seven named files still own the behavior it assigns them, whether its scheduling-priority rules still agree with `lib/chore-schedule.ts` and `packages/shared-core/src/chores.ts`, and how end dates, extra days and breaks must interact with the occurrence and rotation caches. Correct the document in place and note the date of the audit at its top.
-- [ ] **End dates** — inclusive; the chore stops appearing after the date.
+- [x] **Audit the plan against the current code** before following any of it. Confirm which of its seven named files still own the behavior it assigns them, whether its scheduling-priority rules still agree with `lib/chore-schedule.ts` and `packages/shared-core/src/chores.ts`, and how end dates, extra days and breaks must interact with the occurrence and rotation caches. Correct the document in place and note the date of the audit at its top.
+  - Done. The plan is rewritten from the code. The scheduling logic is no longer in `lib/chore-utils.ts`: there are two occurrence engines, each with its own caches, and several callers — task series among them — hand the engine a cut-down schedule that would silently ignore a new field.
+- [x] **End dates** — inclusive; the chore stops appearing after the date.
+  - Already shipped, in a different shape from the old plan: Repeat → *End on date* in the chore form, and *End chore* in its schedule actions, both write the recurrence's end condition. No `endDate` field is needed or wanted. Inclusive in both engines, now [pinned by tests](test/unit/lib/chore-end-date.node.test.ts).
+- [ ] **(you)** **Answer the plan's two questions** ([Questions for David](docs/chore-scheduling-extras-plan.md#questions-for-david)): whether a pause with a resume date should become a break, and whether an extra day takes a turn in a daily rotation. Both decide what is written to the schema, so they come before the build.
 - [ ] **Extra days** — one-off additional days beyond the recurrence.
 - [ ] **Breaks** — single days or ranges where the chore is paused; these override everything, extra days included.
 - [ ] **Remove the dead `allowExtraDays` schema field** once extra days have a real representation.

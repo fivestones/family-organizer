@@ -1,153 +1,136 @@
-# Plan: Chore End Date, Extra Days & Breaks
+# Chore end dates, extra days and breaks
 
-> **Status, 11 October 2026 — read this before following anything below.**
->
-> **All three outcomes are still wanted**: end dates, extra days, and breaks. None of them shipped. Verified against the current schema: `chores` has no `endDate`, `extraDays` or `breaks` field, and `allowExtraDays` exists but is referenced nowhere outside [instant.schema.ts](../instant.schema.ts). Only pause/resume exists, through `pauseState` and `exdates`.
->
-> **The instructions below are stale and must not be followed as written.** This plan was authored before two quarters of change — the four July 2026 audits, the move of assignment, rotation and daily-XP logic into `packages/shared-core`, the occurrence-set and rotation-index caches, chore-deletion cascades, and the countdown engine. Its file-by-file assignments, and its scheduling-priority rules, may no longer match where the behavior actually lives.
->
-> **The first step of implementing this is to audit this document**, not to start editing the seven files it names:
->
-> 1. Confirm which of the named files still own the behavior assigned to them here.
-> 2. Check the scheduling-priority rules against [lib/chore-schedule.ts](../lib/chore-schedule.ts) and [packages/shared-core/src/chores.ts](../packages/shared-core/src/chores.ts), which are now the authority.
-> 3. Decide how end dates, extra days and breaks interact with the content-keyed occurrence and rotation caches added in July — a new exclusion or inclusion source has to invalidate correctly.
-> 4. Decide whether `extraDays` and `breaks` should be `i.json()` as drafted, or should reuse the existing `exdates` and `pauseState` representations.
-> 5. Rewrite this document from that audit, and date the rewrite here.
->
-> Tracked as [Scope 4](../roadmap.md#scope-4--chore-scheduling-extras) on the roadmap. Previously lived at the repository root as `plan.md`, where `.gitignore` had been hiding it from version control by basename.
+**Audited and rewritten:** 11 October 2026, against the code as it stands after the July audits and the countdown redesign.
+**Status:** End dates are shipped. Breaks are half-shipped. Extra days do not exist. Two design questions need David before the rest is built — see [Questions](#questions-for-david).
+**Tracked as:** [Scope 4](../roadmap.md#scope-4--chore-scheduling-extras) on the roadmap.
 
+This replaces the plan that used to live at the repository root as `plan.md`. That plan named seven files and gave line-level instructions; it was written before the schedule engine it describes was rebuilt, and most of what it says to add or edit either already exists in another form or now lives somewhere else. Nothing in it should be followed. What it wanted is kept here; how to get there is redone from the code.
 
-## Overview
-Add three scheduling features to recurring chores:
-1. **End date** (inclusive) — chore stops appearing after this date
-2. **Extra days** — one-off additional days beyond normal recurrence
-3. **Breaks** — single days or date ranges where the chore is paused
+---
 
-All three features apply **only to recurring chores** (ones with an rrule set). Breaks override everything including extra days.
+## What was wanted
 
-## Data Structures
+Three things for recurring chores:
+
+1. **End date**, inclusive — the chore stops appearing after it.
+2. **Extra days** — one-off days the chore also happens on, beyond its recurrence.
+3. **Breaks** — single days or ranges where the chore does not happen. A break wins over everything, an extra day included.
+
+## What the audit found
+
+### End dates already exist
+
+A chore's end date is the end condition of its recurrence, and there are three ways to set one today:
+
+- **In the chore form.** Repeat → *End on date* writes `UNTIL=` into the chore's `rrule`; *End after occurrences* writes `COUNT=` ([ChoreRecurrenceFields.tsx](../components/ChoreRecurrenceFields.tsx), [lib/recurrence.ts](../lib/recurrence.ts)).
+- **From the chore's schedule actions.** *End chore* caps the rule before the first occurrence that should no longer happen and records an open-ended pause with intent `ended`, so it can be undone ([ChoreScheduleActions.tsx](../components/ChoreScheduleActions.tsx), `createChorePausePatch` in [lib/chore-schedule.ts](../lib/chore-schedule.ts)).
+
+The date is inclusive in both occurrence engines. That is now pinned by [test/unit/lib/chore-end-date.node.test.ts](../test/unit/lib/chore-end-date.node.test.ts).
+
+The old plan's `endDate` field should **not** be added. It would be a second source of truth beside `UNTIL`, and the pause machinery already rewrites the rule's end condition and remembers the original in `pauseState.originalEndCondition` so that resuming restores it. A separate field would have to be kept in step with all of that for no gain.
+
+### Breaks exist one at a time
+
+*Pause*, with "resume automatically on" a date, is a break: `createChorePausePatch` adds an exdate for every occurrence in the window and stores them in `pauseState.generatedExdates` so that cancelling or resuming early can take them back out.
+
+What is missing against what was wanted:
+
+- **Only one at a time.** `pauseState` holds a single pause. A second break cannot be planned until the first has finished.
+- **No list.** There is nowhere to see the breaks a chore has, past or planned.
+- **Tied to the schedule at the moment of pausing.** The exdates are worked out from the rule as it was. Change the chore from Mondays to Tuesdays during a planned break and the break silently stops applying, because none of its exdates fall on a Tuesday.
+- **It cannot beat an extra day**, because there are no extra days yet — and a list of exdates could not express it anyway.
+
+### Extra days do not exist
+
+Nothing adds an occurrence outside the rule. `chores.allowExtraDays` is in the schema and is referenced nowhere; it was presumably a placeholder for this.
+
+### Where the behaviour lives now
+
+The old plan put the scheduling logic in `lib/chore-utils.ts`. It is not there any more. There are **two** occurrence engines, and both would have to change:
+
+| Engine | File | Used by |
+| --- | --- | --- |
+| Shared | [packages/shared-core/src/chores.ts](../packages/shared-core/src/chores.ts) — `createOccurrenceSet`, `getChoreOccurrencesInRange`, `getRotationIndex`, `getAssignedMembersForChoreOnDate`, `calculateDailyXP` | Who is assigned on a day, rotation, daily XP, the countdown and routine queues, the whole Expo app |
+| Web | [lib/chore-schedule.ts](../lib/chore-schedule.ts) — `createOccurrenceSet`, `getChoreOccurrencesInRange`, `choreOccursOnDate`, `getNextChoreOccurrence`, and all pause/resume logic | The day list ([ChoreList.tsx](../components/ChoreList.tsx) `shouldShowChore`), the allowance period calculation and the assignment preview grid ([lib/chore-utils.ts](../lib/chore-utils.ts)), the chore inventory ([lib/chore-catalog.ts](../lib/chore-catalog.ts)), and — easy to miss — task series ([lib/task-scheduler.ts](../lib/task-scheduler.ts), [lib/task-bins.ts](../lib/task-bins.ts)), whose rolling queue advances on the chore's occurrences |
+
+Each builds an `RRuleSet` from `rrule` and `exdates`, and each keeps its own content-keyed caches.
+
+Of the seven files the old plan named:
+
+| Old plan | Now |
+| --- | --- |
+| `instant.schema.ts` — add `extraDays`, `breaks`; `endDate` "already exists" | `endDate` does not exist and should not. The other two are still the right additions; see the design below. |
+| `lib/chore-utils.ts` — `isChoreScheduledOnDate`, `isRegularOccurrence`, edit `getRotationIndex` | None of these belong here. `chore-utils` delegates assignment and XP to shared-core and occurrences to `lib/chore-schedule.ts`. `getRotationIndex` is in shared-core. |
+| `components/ChoreList.tsx` — replace inline rrule logic in `shouldShowChore` | Already done: it calls `choreOccursOnDate`. It will follow the engine with no edit. |
+| `components/DetailedChoreForm.tsx` — end-date switch, extra days, breaks | The end date is already in the Repeat section. Extra days and breaks are still to add. |
+| `components/ChoresTracker.tsx` — save the fields | Still true for `extraDays` and `breaks`, in `addChore` and `updateChore`. |
+| `components/ChoreCalendarView.tsx` — "no change needed" | Still true: it reads `getChoreAssignmentGridFromChore`, which reads the web engine. |
+| "Push schema" | Preview first — see the note under Commands in [CLAUDE.md](../CLAUDE.md). |
+
+### What the caches need
+
+Both engines key their caches on the schedule's content: the normalised rule, the start date and the sorted exdates. Extra days and breaks are part of what makes two schedules the same or different, so **both must go into both cache keys** — the occurrence-set key, which the range and rotation keys are built from. Leave them out and a chore edited to add a break would keep serving its old occurrences until the cache turned over. Nothing else about the caches has to change: a new key is a new entry, and the old one ages out.
+
+### The hazard: partial schedule objects
+
+Several callers do not pass the chore to the engine. They pass a hand-built `{ startDate, rrule, exdates }`:
+
+- `ChoreList.tsx`, when deciding whether a pulled-forward task series is off schedule
+- `lib/task-scheduler.ts` and `lib/task-bins.ts`, for the task-series queue — `getTasksForDate` takes the rule and the exdates as separate arguments, so its signature and every caller change too
+- `createChorePausePatch` and `resumeChorePatch`, when working out which occurrences a pause covers
+
+Any of these that is not given the new fields will quietly compute a schedule without them. A task series would not advance on an extra day; a pause would generate exdates for days that are already inside a break. This is the part most likely to go wrong, and the reason to make the change in one pass with a test for each caller rather than field by field.
+
+---
+
+## Proposed design
+
+Not yet agreed — it depends on the two questions below.
 
 ```ts
-// On the chore entity:
-endDate: string | null          // ISO date string "2026-06-30", already exists in schema
-extraDays: string[] | null      // ["2026-03-11", "2026-04-15"]
-breaks: Array<{start: string; end: string}> | null  // [{start: "2026-03-15", end: "2026-03-20"}]
-// Single-day break: start === end
+// chores
+extraDays: string[]                          // i.json().optional() — ["2026-03-11"]
+breaks: Array<{ start: string; end: string }> // i.json().optional() — a single day has start === end
 ```
 
-## Files to Modify (7 files)
+Evaluated by the engines in this order, which is the old plan's order with the end date read from the rule:
 
-### 1. `instant.schema.ts` — Add two new fields
-- Add `extraDays: i.any().optional()` to `chores` entity
-- Add `breaks: i.any().optional()` to `chores` entity
-- `endDate` already exists, no change needed
-- Then push schema: `npx instant-cli push schema --yes`
-
-### 2. `lib/chore-utils.ts` — Core scheduling logic
-
-**Add new exported function `isChoreScheduledOnDate(chore, date)`:**
-Centralized check that handles all scheduling rules in priority order:
-1. Before start date → false
-2. Past end date (inclusive) → false
-3. Falls within a break → false
-4. Matches rrule → true
-5. Is in extraDays → true
-6. Otherwise → false
-
-**Add helper `isRegularOccurrence(chore, date)`:** Returns true if the date matches the rrule (not an extra day). Needed for rotation logic.
-
-**Update `Chore` interface:** Add optional `endDate`, `extraDays`, `breaks` fields.
-
-**Update `getRotationIndex()`:** Add optional `extraDays` parameter.
-- **Daily rotation**: Extra days count as additional occurrences advancing the rotation. Calculate: `regularOccurrencesUpToD + extraDaysBeforeD - 1` (0-based).
-- **Weekly/Monthly rotation**: No change needed — extra days naturally inherit the rotation index of their week/month.
-
-**Update `getAssignedMembersForChoreOnDate()`:**
-- Use `isChoreScheduledOnDate()` instead of inline rrule check
-- Pass `extraDays` to `getRotationIndex()` for daily rotation
-- For non-rotating chores on extra days: return all assignees
-
-**Update `getChoreOccurrencesForMemberInPeriod()`:**
-- After getting rrule occurrences, filter out dates past endDate, dates within breaks
-- Add extra days that fall within the period (and aren't in breaks or past endDate)
-- Then check assignment for each date as before
-
-**Update `getChoreAssignmentGridFromChore()`:**
-- Same adjustments: filter by endDate/breaks, add extra days
-- This function powers the ChoreCalendarView preview
-
-### 3. `components/ChoreList.tsx` — Use centralized function
-
-**Update `shouldShowChore()`:** Replace the inline rrule logic with a call to `isChoreScheduledOnDate()` from chore-utils. This makes ChoreList automatically respect end dates, breaks, and extra days.
-
-### 4. `components/DetailedChoreForm.tsx` — Form UI for all three features
-
-**New state variables:**
-```ts
-const [endDate, setEndDate] = useState<Date | null>(null);
-const [hasEndDate, setHasEndDate] = useState(false);
-const [extraDays, setExtraDays] = useState<string[]>([]);
-const [newExtraDay, setNewExtraDay] = useState('');
-const [breaks, setBreaks] = useState<Array<{start: string; end: string}>>([]);
-const [newBreakStart, setNewBreakStart] = useState('');
-const [newBreakEnd, setNewBreakEnd] = useState('');
-const [newBreakType, setNewBreakType] = useState<'single' | 'range'>('single');
+```
+1. before the start date                 → no
+2. inside a break                        → no    (beats an extra day)
+3. matches the rule, and not an exdate   → yes   (the rule's own UNTIL or COUNT has already applied)
+4. is an extra day, on or before UNTIL   → yes
+5. otherwise                             → no
 ```
 
-**Initialize from `initialChore`** in the existing useEffect.
+In `RRuleSet` terms: `rdate` for each extra day that is inside no break and not past `UNTIL`, and an `exdate` for each rule occurrence inside a break — computed when the set is built, from the ranges, so that a break keeps applying when the rule is edited.
 
-**New UI sections** (placed between Frequency and Assignees, only shown when recurrence is set):
+- **Ranges, not exdates, for breaks.** This is the one real departure from "reuse what exists". A range survives a change of schedule and can override an extra day; a list of exdates can do neither.
+- **`pauseState` stays as it is**, for *Pause until further notice* and *End chore*, which are open-ended and are about the rule's end condition. A bounded pause and a break are the same thing to the person using it, so the bounded form should write a break instead of exdates — see the first question.
+- **Rotation.** An extra day is a real occurrence, so for a daily rotation it takes a turn, exactly as the old plan said. This falls out of `getRotationIndex` counting the set's occurrences; there is nothing to special-case. Weekly and monthly rotations already bucket by week and month, so an extra day inherits its bucket.
+- **Remove `chores.allowExtraDays`** in the same schema push.
 
-**End Date section:**
-- Switch toggle "Set End Date"
-- When enabled: date picker (must be >= startDate)
+### Where it would be built
 
-**Extra Days section:**
-- Date input + "Add" button
-- List of added dates with day-of-week label and remove (×) button
-- Validation: don't allow adding a date that's already a regular occurrence or already in the list
+1. Both engines' `createOccurrenceSet` and cache keys, behind one shared function that turns `{ rrule, startDate, exdates, extraDays, breaks }` into the set, so the two cannot drift.
+2. Every partial-schedule caller listed above, each with a test.
+3. `ChoreSchedulePatch` and the pause functions, so a patch carries the new fields through.
+4. The chore form: two list editors under Repeat, shown only for a recurring chore.
+5. `ChoresTracker` `addChore` / `updateChore`, and the schema.
+6. The Expo app needs no change: it reads the shared engine, and a chore's new attributes arrive with the chore.
 
-**Breaks section:**
-- Toggle: "Single Day" / "Date Range"
-- Single: one date picker + Add
-- Range: start date + end date pickers + Add
-- List of breaks showing the date/range with remove (×) button
+---
 
-**Update `handleSave()`:** Include `endDate`, `extraDays`, `breaks` in save data.
+## Questions for David
 
-**Update `ChoreSaveData` interface:** Add the three new fields.
+1. **Should a bounded pause become a break?** Today *Pause · resume automatically on 20 March* writes exdates and a `pauseState`. With breaks in place, the same action could simply add a break, and the Pause dialog would be left with the two open-ended choices. That is cleaner, and it is what makes several planned breaks possible — but it changes what an existing control does, and any bounded pause already scheduled would need converting. The alternative is to leave Pause alone and add breaks beside it, which gives two ways to do one thing.
 
-**Update `choreForPreview`:** Include the three new fields so ChoreCalendarView shows them.
+2. **Does an extra day take a turn in a daily rotation?** The old plan says yes, and it is the natural reading: it is a real occurrence. But it shifts everyone after it by one — add an extra Saturday and the following Monday goes to a different child than it would have. If extra days are meant as "this child, one more time", they should not advance the rotation, and need an explicit assignee instead.
 
-### 5. `components/ChoresTracker.tsx` — Save new fields to DB
+Neither changes whether the feature is built; both change what gets written to the schema, which is why they come first.
 
-**Update `addChore()`:** Include `endDate`, `extraDays`, `breaks` in the `tx.chores[choreId].update({...})` call.
+---
 
-**Update `updateChore()`:** Same — include the three new fields in the update transaction.
+## What closes with this
 
-### 6. `components/ChoreCalendarView.tsx` — Preview respects new rules
-
-The calendar preview gets its data from `getChoreAssignmentGridFromChore()`, which we're updating in step 2. The preview will automatically respect end dates, breaks, and show extra days once that function is updated. **No additional changes needed** in this file since it delegates to chore-utils.
-
-### 7. Push schema changes
-Run `npx instant-cli push schema --yes` after updating `instant.schema.ts`.
-
-## Scheduling Logic Priority (for reference)
-```
-1. date < startDate        → NOT scheduled
-2. date > endDate          → NOT scheduled
-3. date in break range     → NOT scheduled (overrides extra days)
-4. date matches rrule      → SCHEDULED
-5. date in extraDays       → SCHEDULED
-6. otherwise               → NOT scheduled
-```
-
-## Rotation Index with Extra Days (daily rotation only)
-```
-If target is a REGULAR day:
-  index = rrule.between(start, target, true).length + extraDaysBefore(target) - 1
-
-If target is an EXTRA day:
-  index = rrule.between(start, dayBefore(target), true).length + extraDaysUpToAndIncluding(target) - 1
-```
-For weekly/monthly rotation: no change — extra days inherit the rotation of their week/month.
+In the idea backlog: **Chore end dates, pauses, restarts, and schedule changes**, and **One-off and exception-day chore changes**. The first is already mostly met by end dates and pause; the second waits for extra days and breaks.
