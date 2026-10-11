@@ -340,8 +340,3 @@ Partially shipped now: the web finance system is already real and broad, and the
 
 - [ ] Open-ended extensibility:
   - And whatever else sounds fun or useful.
-
-## Bugs, Correctness Issues, and Behavior Gaps
-
-- [ ] Envelope deletion edge case:
-  - If an empty envelope is deleted, it should just give an `are you sure` message and not ask where to transfer funds to, since there are none.

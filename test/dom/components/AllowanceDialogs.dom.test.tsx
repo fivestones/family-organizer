@@ -300,9 +300,9 @@ describe('Allowance dialogs', () => {
                 <DeleteEnvelopeDialog
                     {...commonProps}
                     onConfirm={onConfirm}
-                    envelopeToDelete={{ id: 'env-a', name: 'Savings', balances: {}, isDefault: true }}
+                    envelopeToDelete={{ id: 'env-a', name: 'Savings', balances: { USD: 12 }, isDefault: true }}
                     allEnvelopes={[
-                        { id: 'env-a', name: 'Savings', balances: {}, isDefault: true },
+                        { id: 'env-a', name: 'Savings', balances: { USD: 12 }, isDefault: true },
                         { id: 'env-b', name: 'Spending', balances: {}, isDefault: false },
                     ]}
                 />
@@ -329,9 +329,9 @@ describe('Allowance dialogs', () => {
                 <DeleteEnvelopeDialog
                     {...commonProps}
                     onConfirm={onConfirm}
-                    envelopeToDelete={{ id: 'env-a', name: 'Spending', balances: {}, isDefault: false }}
+                    envelopeToDelete={{ id: 'env-a', name: 'Spending', balances: { USD: -3 }, isDefault: false }}
                     allEnvelopes={[
-                        { id: 'env-a', name: 'Spending', balances: {}, isDefault: false },
+                        { id: 'env-a', name: 'Spending', balances: { USD: -3 }, isDefault: false },
                         { id: 'env-b', name: 'Savings', balances: {}, isDefault: true },
                     ]}
                 />
@@ -344,15 +344,68 @@ describe('Allowance dialogs', () => {
             expect(onConfirm).toHaveBeenCalledWith('env-b', null);
         });
 
+        it('only asks for confirmation when the envelope is empty', async () => {
+            const onConfirm = vi.fn().mockResolvedValue(undefined);
+            render(
+                <DeleteEnvelopeDialog
+                    {...commonProps}
+                    onConfirm={onConfirm}
+                    envelopeToDelete={{ id: 'env-a', name: 'Spending', balances: { USD: 0 }, isDefault: false }}
+                    allEnvelopes={[
+                        { id: 'env-a', name: 'Spending', balances: { USD: 0 }, isDefault: false },
+                        { id: 'env-b', name: 'Savings', balances: { USD: 40 }, isDefault: true },
+                    ]}
+                />
+            );
+            const user = userEvent.setup();
+
+            // No funds, so no question about where they go.
+            expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+            expect(screen.getByText(/This envelope is empty, so there is nothing to move/)).toBeInTheDocument();
+
+            const confirmButton = screen.getByRole('button', { name: /confirm delete/i });
+            expect(confirmButton).toBeEnabled();
+            await user.click(confirmButton);
+
+            expect(onConfirm).toHaveBeenCalledWith('env-b', null);
+        });
+
+        it('still asks for a new default when the empty envelope is the default', async () => {
+            const onConfirm = vi.fn().mockResolvedValue(undefined);
+            render(
+                <DeleteEnvelopeDialog
+                    {...commonProps}
+                    onConfirm={onConfirm}
+                    envelopeToDelete={{ id: 'env-a', name: 'Savings', balances: {}, isDefault: true }}
+                    allEnvelopes={[
+                        { id: 'env-a', name: 'Savings', balances: {}, isDefault: true },
+                        { id: 'env-b', name: 'Spending', balances: {}, isDefault: false },
+                        { id: 'env-c', name: 'Gifts', balances: {}, isDefault: false },
+                    ]}
+                />
+            );
+            const user = userEvent.setup();
+
+            const confirmButton = screen.getByRole('button', { name: /confirm delete/i });
+            expect(confirmButton).toBeDisabled();
+
+            // The only question left is which envelope becomes the default.
+            await user.selectOptions(screen.getByRole('combobox'), 'env-c');
+            expect(confirmButton).toBeEnabled();
+            await user.click(confirmButton);
+
+            expect(onConfirm).toHaveBeenCalledWith('env-c', 'env-c');
+        });
+
         it('shows a generic error toast when onConfirm rejects', async () => {
             const onConfirm = vi.fn().mockRejectedValue(new Error('boom'));
             render(
                 <DeleteEnvelopeDialog
                     {...commonProps}
                     onConfirm={onConfirm}
-                    envelopeToDelete={{ id: 'env-a', name: 'Spending', balances: {}, isDefault: false }}
+                    envelopeToDelete={{ id: 'env-a', name: 'Spending', balances: { USD: 5 }, isDefault: false }}
                     allEnvelopes={[
-                        { id: 'env-a', name: 'Spending', balances: {}, isDefault: false },
+                        { id: 'env-a', name: 'Spending', balances: { USD: 5 }, isDefault: false },
                         { id: 'env-b', name: 'Savings', balances: {}, isDefault: true },
                     ]}
                 />

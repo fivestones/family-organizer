@@ -127,10 +127,11 @@ Four of these are filed in [the idea backlog](docs/organized-aspirational-featur
 - [x] **Allowance-distribution reporting for up-for-grabs** is laid out so the period's fixed rewards and weight-based share read clearly ([audit §6](docs/audit-2026-07-finance-allowance.md)).
   - Each period now reads as a sum: the chore share (weight done, percentage, and how much of it came from up-for-grabs chores), the fixed rewards in every unit, and what the period pays — which follows the amount box as it is edited.
 - [ ] **Resolve `isJoint`.** The chore form offers it, the schema stores it, and the countdown engine propagates it, but the XP maths ignores it entirely. Either split the weight among completers or remove the control until it means something ([chores audit §6](docs/audit-2026-07-chores.md)).
-- [ ] **Empty-envelope deletion** asks only for confirmation instead of asking where to transfer funds that do not exist.
+- [x] **Empty-envelope deletion** asks only for confirmation instead of asking where to transfer funds that do not exist.
+  - An envelope whose balances are all zero is now a plain "are you sure". If it is the default, the one question left is which envelope becomes the default.
 - [ ] **(you)** **Decide what the two undeclared calendar attributes are.** The hosted app has `calendarSyncCalendars.ctag` and `calendarSyncCalendars.syncToken` (both optional JSON); [instant.schema.ts](instant.schema.ts) declares neither, and no code reads or writes them — the sync code uses `lastCtag` and `lastSyncToken`. Found on 11 October 2026 while pushing `countdownRuns`. Either declare them or delete them from the hosted app. Until then a plain `instant-cli push schema --yes` would delete them, because a field missing from the file is a deletion — see the note under Commands in [CLAUDE.md](CLAUDE.md).
 
-When each is fixed, remove it from the idea backlog's bug group rather than leaving two records of it.
+When each is fixed, remove it from the idea backlog's bug group rather than leaving two records of it. Done for all four; the group is now empty and has been removed.
 
 ---
 
@@ -175,7 +176,7 @@ Classified in July 2026 as product decisions rather than defects. The three prom
 
 ### 6.2 The idea backlog
 
-[docs/organized-aspirational-features.md](docs/organized-aspirational-features.md), 62 open items in ten groups. Counts as of 11 October 2026:
+[docs/organized-aspirational-features.md](docs/organized-aspirational-features.md), 59 open items in eight groups. Counts as of 11 October 2026:
 
 | Group | Open | Notes |
 | --- | --- | --- |
@@ -187,7 +188,8 @@ Classified in July 2026 as product decisions rather than defects. The three prom
 | Finance, allowance, and money tools | 8 | |
 | Search, communication, and family life | 10 | |
 | Integrations, platforms, and extensibility | 4 | Routine manager closed with [Scope 2.3](#23-routines) |
-| Bugs, correctness issues, and behavior gaps | 3 | All promoted to [Scope 3](#scope-3--the-correctness-sweep) |
+
+The ninth group, "Bugs, correctness issues, and behavior gaps", is gone: its three entries were the defects in [Scope 3](#scope-3--the-correctness-sweep), and each was removed as it was fixed.
 
 ### 6.3 Checks for you, carried from the audits
 

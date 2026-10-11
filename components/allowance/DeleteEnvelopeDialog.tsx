@@ -47,6 +47,13 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
 
   const otherEnvelopes = allEnvelopes.filter(e => e.id !== envelopeToDelete?.id);
   const isDeletingDefault = envelopeToDelete?.isDefault === true;
+  // An envelope with nothing in it has nothing to move, so there is nothing to ask.
+  const hasFunds = Object.values(envelopeToDelete?.balances || {}).some((amount) => amount !== 0);
+  // The mutation still names a destination. For an empty envelope it is a formality,
+  // so it follows the new default when one is being chosen, or else the first envelope left.
+  const resolvedTransferTargetId = hasFunds
+    ? transferTargetId
+    : (isDeletingDefault ? newDefaultId : undefined) ?? otherEnvelopes[0]?.id;
 
   // Reset state when modal opens or target envelope changes
   useEffect(() => {
@@ -58,7 +65,7 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
   }, [isOpen, envelopeToDelete]);
 
   const handleConfirm = async () => {
-    if (!envelopeToDelete || !transferTargetId) {
+    if (!envelopeToDelete || !resolvedTransferTargetId) {
       toast({ title: "Error", description: "Please select where to transfer funds.", variant: "destructive" });
       return;
     }
@@ -70,7 +77,7 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
          toast({ title: "Error", description: "New default cannot be the envelope being deleted.", variant: "destructive" });
          return;
      }
-     if (transferTargetId === envelopeToDelete.id) {
+     if (resolvedTransferTargetId === envelopeToDelete.id) {
          toast({ title: "Error", description: "Cannot transfer funds to the envelope being deleted.", variant: "destructive" });
          return;
      }
@@ -79,7 +86,7 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
     setIsDeleting(true);
     try {
       // Pass null for newDefaultId if not deleting the default
-      await onConfirm(transferTargetId, isDeletingDefault ? newDefaultId : null);
+      await onConfirm(resolvedTransferTargetId, isDeletingDefault ? newDefaultId : null);
       // onConfirm should handle success toast and closing
     } catch (err: any) {
       // onConfirm should handle error toast
@@ -106,13 +113,19 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete Envelope: {envelopeToDelete.name}?</AlertDialogTitle>
           <AlertDialogDescription>
-            This action cannot be undone. All funds currently in this envelope must be transferred to another envelope.
-            {isDeletingDefault && " Since this is your default envelope, you must also select a new default."}
+            {hasFunds
+              ? "This action cannot be undone. All funds currently in this envelope must be transferred to another envelope."
+              : "This envelope is empty, so there is nothing to move. Deleting it cannot be undone."}
+            {isDeletingDefault && (hasFunds
+              ? " Since this is your default envelope, you must also select a new default."
+              : " Since this is your default envelope, choose which one becomes the default.")}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
+        {(hasFunds || isDeletingDefault) && (
         <div className="grid gap-4 py-4">
-          {/* Transfer Funds To */}
+          {/* Transfer Funds To — only when there are funds to transfer */}
+          {hasFunds && (
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="transfer-target" className="text-right">
               Transfer Funds To<span className="text-destructive">*</span>
@@ -135,6 +148,7 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
               </SelectContent>
             </Select>
           </div>
+          )}
 
           {/* Select New Default (only if deleting default) */}
           {isDeletingDefault && (
@@ -162,12 +176,13 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
             </div>
           )}
         </div>
+        )}
 
         <AlertDialogFooter>
           <AlertDialogCancel onClick={onClose} disabled={isDeleting}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleConfirm}
-            disabled={isDeleting || !transferTargetId || (isDeletingDefault && !newDefaultId)}
+            disabled={isDeleting || !resolvedTransferTargetId || (isDeletingDefault && !newDefaultId)}
             // Use custom styling if needed to show it's destructive
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
