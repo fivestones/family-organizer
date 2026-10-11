@@ -14,7 +14,6 @@ import {
     parseCountdownSettings,
     computeCountdownTimelines,
     getChoreTimingMode,
-    createChoreCompletionRecordId,
     type SharedScheduleSettings,
     type CountdownEngineOutput,
     type CountdownChoreInput,
@@ -27,6 +26,7 @@ import {
 } from '@family-organizer/shared-core';
 import { useAuth } from '@/components/AuthProvider';
 import { getAssignedMembersForChoreOnDate as getAssignedMembersLocal } from '@/lib/chore-utils';
+import { buildChoreCompletionChange } from '@/lib/chore-completion';
 import { getPhotoUrl } from '@/lib/photo-urls';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import RadialTimer, { type RadialTimerState } from './RadialTimer';
@@ -448,7 +448,6 @@ export default function FocusedCountdownPage() {
     const handleMarkDone = useCallback(
         async (choreId: string, personId: string) => {
             const slotKey = `${choreId}:${personId}`;
-            const nowIso = new Date().toISOString();
             const dateKey = todayKey;
 
             // Trigger celebration animation
@@ -460,22 +459,24 @@ export default function FocusedCountdownPage() {
 
             try {
                 const chore = chores.find((entry: any) => entry.id === choreId);
-                const completionId = createChoreCompletionRecordId(choreId, dateKey, Boolean(chore?.isUpForGrabs), id);
-                await db.transact([
-                    tx.choreCompletions[completionId]
-                        .update({
-                            completed: true,
-                            dateDue: dateKey,
-                            dateCompleted: nowIso,
-                            allowanceAwarded: false,
-                        })
-                        .link({ chore: choreId, completedBy: personId }),
-                ]);
+                if (!chore) return;
+                // The same path the day list uses, so the completion is recorded
+                // in history and cannot overwrite an up-for-grabs claim.
+                const change = buildChoreCompletionChange({
+                    tx,
+                    createId: id,
+                    chore,
+                    familyMemberId: personId,
+                    executorId: currentUser?.id,
+                    dateKey,
+                    intent: 'done',
+                });
+                if (change.status === 'completed') await db.transact(change.transactions);
             } catch (err) {
                 console.error('Failed to mark chore done:', err);
             }
         },
-        [chores, todayKey, countdownSettings.stackBufferSecs],
+        [chores, todayKey, countdownSettings.stackBufferSecs, currentUser?.id],
     );
 
     // --- Start Now handler ---

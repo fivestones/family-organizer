@@ -1,8 +1,21 @@
 # Countdown Redesign
 
 **Date:** 2026-08-02
-**Status:** Agreed design, not yet implemented.
+**Status:** Agreed design, being implemented. Phase 1 is built; see the implementation log.
 **Supersedes:** the countdown behaviour described in `audit-2026-07-chores.md` §5.2.
+
+---
+
+## Implementation log
+
+- **2026-10-11 — Completed and deployed: the run record, the runner, the gate, untimed steps and the canonical completion path (phase 1).**
+  `countdownRuns` is in the schema and the hosted app, one row per member per family day with a UUIDv5 id derived from `(familyMemberId, date)`, so two devices starting the same run converge on one row. Its rule follows the `choreCompletions` pattern: a member-scoped kid may create only a run stamped with their own `familyMemberId` and may update only the run's working fields on it — never `familyMemberId` or `date` — while the shared kid principal can write nothing and parents can drive, sweep or delete anyone's. The run carries no links; identity lives in indexed attributes.
+  The engine is now two modules. `chore-countdown-engine.ts` is the planner, unchanged in behaviour. `chore-countdown-runner.ts` is the runner: `buildRunnerQueue` lists everything on a person's plate in the day list's own order (or a routine's), `selectNextRunnerStep` picks the first unfinished step whose gate is open, `getRunnerClock` runs the ring from `stepStartedAt + durationSecs + extensions`, `getRunnerOverrunStatus` is the abandonment ladder, `computeRunnerStanding` is the ahead/behind figure and the deadline forecast, and the `buildRun…Patch` functions are the only writers of a run row. A step with no duration is queued as untimed rather than dropped, and `anytime` chores are queued like any other.
+  Completions no longer have three implementations. `lib/chore-completion.ts` builds the writes for the day list, the countdown and the sequence view alike, so a chore finished on the countdown now carries a history event and a `markedBy` link and cannot overwrite somebody else's up-for-grabs claim.
+  The `/countdown` page still renders from the planner; it starts reading the run record in phase 2.
+  Verification: 63 new runner tests beside the planner's 42, 9 completion-path tests and 1 permission contract — 912 local tests in all; `tsc --noEmit` passes; the schema and rules pushes succeeded, each previewed first and adding only `countdownRuns`; the hosted member-kid/shared-kid/parent matrix for `countdownRuns` passes.
+
+Decisions the build had to make where this document was silent are marked **(built)** below.
 
 ---
 
@@ -104,6 +117,19 @@ When the queue reaches a step whose floor is still in the future, the runner ski
 and resurfaces it once it unlocks, rather than blocking the whole queue. *(Confirm this
 skip-and-resurface behaviour during implementation — blocking is the alternative.)*
 
+**(built)** Skip-and-resurface is what shipped. Selection always starts from the top of the
+queue, so a gated step comes back on the first advance after it unlocks; nothing interrupts
+the step that is live. Three details the table does not cover:
+
+- **Queue order.** The ad-hoc day queue follows the day list's own order — late, then now,
+  then upcoming, by deadline within each — so the countdown never disagrees with the list
+  beside it. A routine follows its step positions.
+- **`after_chore` with nothing to wait for.** A step that follows a chore not due today is
+  not gated at all, since that chore can never be finished. A step whose anchor is due but
+  undone waits for it, or for its fallback time if it has one.
+- **Nothing left but gated steps.** The run ends rather than idling; the gated steps go back
+  to being ordinary scheduled chores, exactly as decision 6 describes for a manual stop.
+
 ### The run record
 
 One row per member per family day:
@@ -118,14 +144,22 @@ countdownRuns
   stepStartedAt     ISO timestamp, basis for the ring
   stepExtensionSecs accumulated "+5 min" grants for the live step
   stepExtensionCount how many times the live step has been extended
+  skippedChoreIds   steps a routine set to `advance` moved past      (built)
   lastInteractionAt any tap on any device; basis for the idle check
   startedAt / stoppedAt
-  stoppedReason     'user' | 'timeout' | 'day_boundary'
+  stoppedReason     'user' | 'timeout' | 'day_boundary' | 'finished' (built)
 ```
 
 Completions already record what was finished, so the run does not duplicate that.
 Permissions follow the member-scoped pattern the July audit applied to `choreCompletions`:
 a kid may write only their own run.
+
+**(built)** Two additions. `finished` is the queue running out of steps that can be done
+now — the other three reasons all stop a run that still had a live step, and a parent
+reading the row needs to tell "ran out of things to do" from "stopped". `skippedChoreIds`
+exists because a routine set to `advance` leaves steps undone, and without a record of them
+the runner would select the same step again on the very next advance. A stopped run keeps
+its `currentChoreId`, so the row still says where the run ended.
 
 ### Routines
 
@@ -208,6 +242,23 @@ Design constraints:
 - Thresholds are settings, not constants — this is the sort of thing that wants tuning after
   a week of real use.
 
+**(built)** The thresholds are five fields on the stored countdown settings:
+`overrunPromptMinSecs` (300), `overrunPromptFraction` (0.5), `overrunPromptGraceSecs` (600),
+`stepExtensionSecs` (300) and `overrunStopOfferAfterExtensions` (2). Two readings the table
+left open:
+
+- **"Untouched since the step started" is "untouched for the threshold".** The prompt is due
+  at `max(step's end, last interaction) + threshold`. On a step nobody has touched since it
+  began this is exactly stage 1. It also covers what the table does not: a stray tap after
+  zero postpones the prompt by one threshold instead of silencing it for the rest of the
+  day, and the prompt comes round again after an extension, which stage 4 depends on.
+- **"+5 min" on a step already past zero grants five minutes from now.** Adding five minutes
+  to a budget that ran out eight minutes ago would leave the ring red and the button
+  apparently broken. Pressed with time still on the clock, it simply adds five minutes.
+
+An untimed step has no clock to run over, so it never prompts; an abandoned one is ended by
+the day-boundary sweep.
+
 Both platforms already track idle time: `AuthProvider.tsx:32` (`IDLE_TIMEOUT_MS`, parent
 de-elevation) on web, and `InteractionCapture` in `mobile/src/providers/AppProviders.js`.
 This is a second consumer of an existing pattern rather than a new primitive.
@@ -272,7 +323,9 @@ work:
 - **Overrun thresholds.** The 5 min / 50% / 10 min / 2–3 extensions figures above are
   starting values to tune once the runner is in daily use.
 - **Skipped steps under `onStepOverrun: 'advance'`.** Whether an auto-advanced step
-  resurfaces at the end of the routine or is simply left undone for the day.
+  resurfaces at the end of the routine or is simply left undone for the day. **(built)**
+  Left undone for that run: it stays an ordinary unfinished chore in the day list. This is
+  the starting behaviour, not a settled answer.
 
 ---
 

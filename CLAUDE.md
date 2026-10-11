@@ -35,6 +35,8 @@ INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@la
 INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest pull
 ```
 
+**Preview every hosted schema push before confirming it.** `.env` points at the family's live Instant Cloud app, and a field missing from `instant.schema.ts` is pushed as a deletion. Run `npx instant-cli@latest push schema < /dev/null` first: it prints the plan and stops at the prompt. Only add `--yes` once the plan contains nothing but the change you mean to make. The hosted app currently has attributes the file does not declare (see the correctness sweep in `roadmap.md`), so an unpreviewed push would delete live data.
+
 ## Architecture
 
 This is a **Next.js 16 + InstantDB** family management app. InstantDB is the sole database—there is no traditional backend DB. Live reads use the InstantDB React SDK. Ordinary permission-scoped writes may run on the client, while invariant-bearing or privileged workflows use authenticated App Router endpoints/server actions backed by the Admin SDK.

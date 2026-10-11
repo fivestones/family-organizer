@@ -77,15 +77,15 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
         const stackBufferSecs = minSecToSecs(bufferMin, bufferSec);
         const afterAnchorDefaultDelaySecs = minSecToSecs(delayMin, delaySec);
 
+        // Start from what is stored so settings this form does not edit survive the save.
         const settings: CountdownSettingsType = {
+            ...parsed,
             stackBufferSecs,
             afterAnchorDefaultDelaySecs,
             autoMarkCompleteOnCountdownEnd: autoComplete,
         };
-
-        // Preserve any existing perMarkerAfterDelaySecs
-        if (parsed.perMarkerAfterDelaySecs && Object.keys(parsed.perMarkerAfterDelaySecs).length > 0) {
-            settings.perMarkerAfterDelaySecs = parsed.perMarkerAfterDelaySecs;
+        if (!parsed.perMarkerAfterDelaySecs || Object.keys(parsed.perMarkerAfterDelaySecs).length === 0) {
+            delete settings.perMarkerAfterDelaySecs;
         }
 
         setIsSaving(true);

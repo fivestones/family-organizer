@@ -849,6 +849,30 @@ const rules = {
             update: 'false',
         },
     },
+    countdownRuns: {
+        bind: {
+            isKid: "'kid' in auth.ref('$user.type')",
+            isParent: "'parent' in auth.ref('$user.type')",
+            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
+            authFamilyMemberIds: "auth.ref('$user.familyMemberId')",
+            hasAuthFamilyMemberId: "authFamilyMemberIds.exists(memberId, memberId != '')",
+            ownsRun: 'hasAuthFamilyMemberId && data.familyMemberId == authFamilyMemberIds[0]',
+            kidSafeRunUpdate:
+                "request.modifiedFields.all(field, field in ['routineId', 'status', 'currentChoreId', 'stepStartedAt', 'stepExtensionSecs', 'stepExtensionCount', 'skippedChoreIds', 'lastInteractionAt', 'startedAt', 'stoppedAt', 'stoppedReason'])",
+        },
+        allow: {
+            link: {
+                $default: 'false',
+            },
+            view: 'isFamilyPrincipal',
+            create: 'isParent || (isKid && ownsRun)',
+            delete: 'isParent',
+            unlink: {
+                $default: 'false',
+            },
+            update: 'isParent || (isKid && ownsRun && kidSafeRunUpdate)',
+        },
+    },
     choreManualStarts: {
         bind: {
             isKid: "'kid' in auth.ref('$user.type')",

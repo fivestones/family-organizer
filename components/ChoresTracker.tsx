@@ -36,6 +36,7 @@ import { UnitDefinition, Envelope, computeAllApplicableCurrencyCodes } from '@/l
 import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
+import { buildChoreCompletionChange } from '@/lib/chore-completion';
 
 // +++ NEW IMPORTS +++
 import { useAuth } from '@/components/AuthProvider';
@@ -58,7 +59,6 @@ import {
     COUNTDOWN_SETTINGS_NAME,
     parseCountdownSettings,
     getChoreTimingMode,
-    createChoreCompletionRecordId,
     type SharedScheduleSettings,
     type SharedRoutineMarkerStatusLike,
     type CountdownEngineOutput,
@@ -752,15 +752,11 @@ function ChoresTracker({
     // **** REMOVED: addFamilyMember function ****
     // **** REMOVED: deleteFamilyMember function ****
 
-    // **** UPDATED: toggleChoreDone now accepts executorId ****
     const toggleChoreDone = async (choreId: string, familyMemberId: string, executorId?: string) => {
         const chore = chores.find((c) => c.id === choreId);
-        // +++ Add check for Up for Grabs +++
-        const isUpForGrabsChore = chore?.isUpForGrabs ?? false;
         const formattedDate = selectedDate.toISOString().slice(0, 10);
 
         if (!chore) {
-            // Keep existing chore check
             console.error('Chore not found:', choreId);
             toast({
                 title: 'Error',
@@ -770,118 +766,32 @@ function ChoresTracker({
             return;
         }
 
-        // +++ Check if Up for Grabs and already completed by someone else +++
-        if (isUpForGrabsChore) {
-            const completionsOnDate = (chore.completions || []).filter((completion) => completion.dateDue === formattedDate && completion.completed);
-            if (completionsOnDate.length > 0) {
-                // Check if the current user is trying to mark it complete AGAIN (allow unchecking)
-                const currentUserCompletion = completionsOnDate.find((c: any) => c.completedBy?.id === familyMemberId);
-                if (!currentUserCompletion) {
-                    // Someone else completed it, prevent current user from completing
-                    // Try to find the completer's name (might need fuller data fetch)
-                    const completerId = completionsOnDate[0].completedBy?.id;
-                    const completer = familyMembers.find((fm) => fm.id === completerId);
-                    toast({
-                        title: 'Chore Already Completed',
-                        description: `${chore.title} was already completed by ${completer?.name || 'another member'} on ${formattedDate}.`,
-                        variant: 'default', // Or "info"
-                    });
-                    return; // Stop execution
-                }
-                // If currentUserCompletion exists, it means the current user is UNCHECKING it, allow this below.
-            }
-        }
-        // --- End Up for Grabs Check ---
-
-        // Original logic to find/update/create completion (proceed if not blocked above)
-        const currentCompletions = chore.completions || [];
-        const existingCompletion = currentCompletions.find(
-            (completion) =>
-                completion.completedBy?.id === familyMemberId && // Safer access
-                completion.dateDue === formattedDate
-        );
-
         try {
-            if (existingCompletion) {
-                // Update existing completion
-                const nowIso = new Date().toISOString();
-                const historyEvent = buildHistoryEventTransactions({
-                    tx,
-                    createId: id,
-                    occurredAt: nowIso,
-                    domain: 'chores',
-                    actionType: existingCompletion.completed ? 'chore_marked_undone' : 'chore_marked_done',
-                    summary: `${existingCompletion.completed ? 'Marked' : 'Completed'} "${chore.title}" ${existingCompletion.completed ? 'not done' : 'done'}`,
-                    source: 'manual',
-                    actorFamilyMemberId: executorId || familyMemberId,
-                    affectedFamilyMemberIds: [familyMemberId],
-                    choreId,
-                    scheduledForDate: formattedDate,
-                    metadata: {
-                        choreTitle: chore.title,
-                        completed: !existingCompletion.completed,
-                        dateDue: formattedDate,
-                    },
-                });
-                db.transact([
-                    tx.choreCompletions[existingCompletion.id].update({
-                        completed: !existingCompletion.completed,
-                        notDone: false, // Clear notDone when toggling done status
-                        dateCompleted: !existingCompletion.completed
-                            ? nowIso // Use ISO string
-                            : null,
-                    }),
-                    ...historyEvent.transactions,
-                ]);
+            const change = buildChoreCompletionChange({
+                tx,
+                createId: id,
+                chore,
+                familyMemberId,
+                executorId,
+                dateKey: formattedDate,
+            });
+
+            if (change.status === 'claimed') {
+                const completer = familyMembers.find((fm) => fm.id === change.claimedById);
                 toast({
-                    title: 'Chore Updated',
-                    description: `Marked as ${!existingCompletion.completed ? 'done' : 'not done'}.`,
+                    title: 'Chore Already Completed',
+                    description: `${chore.title} was already completed by ${completer?.name || 'another member'} on ${formattedDate}.`,
                 });
-            } else {
-                // Create new completion
-                const newCompletionId = createChoreCompletionRecordId(choreId, formattedDate, isUpForGrabsChore, id);
-                const nowIso = new Date().toISOString();
-                const transactions: any[] = [
-                    tx.choreCompletions[newCompletionId].update({
-                        dateDue: formattedDate,
-                        dateCompleted: nowIso, // Set completion time
-                        completed: true,
-                        allowanceAwarded: false, // Set allowanceAwarded to false for new completions
-                    }),
-                    tx.chores[choreId].link({ completions: newCompletionId }),
-                    tx.familyMembers[familyMemberId].link({
-                        completedChores: newCompletionId,
-                    }),
-                ];
-
-                // +++ NEW: Link markedBy if executor exists +++
-                if (executorId) {
-                    transactions.push(tx.familyMembers[executorId].link({ markedCompletions: newCompletionId }));
-                }
-
-                const historyEvent = buildHistoryEventTransactions({
-                    tx,
-                    createId: id,
-                    occurredAt: nowIso,
-                    domain: 'chores',
-                    actionType: 'chore_marked_done',
-                    summary: `Completed "${chore.title}"`,
-                    source: 'manual',
-                    actorFamilyMemberId: executorId || familyMemberId,
-                    affectedFamilyMemberIds: [familyMemberId],
-                    choreId,
-                    scheduledForDate: formattedDate,
-                    metadata: {
-                        choreTitle: chore.title,
-                        completed: true,
-                        dateDue: formattedDate,
-                    },
-                });
-                transactions.push(...historyEvent.transactions);
-
-                db.transact(transactions);
-                toast({ title: 'Chore Marked Done' });
+                return;
             }
+            if (change.status === 'unchanged') return;
+
+            db.transact(change.transactions);
+            toast(
+                change.status === 'reopened'
+                    ? { title: 'Chore Updated', description: 'Marked as not done.' }
+                    : { title: 'Chore Marked Done' }
+            );
         } catch (err: any) {
             console.error('Error toggling chore completion:', err);
             toast({
@@ -889,6 +799,43 @@ function ChoresTracker({
                 description: `Failed to update chore status: ${err.message}`,
                 variant: 'destructive',
             });
+        }
+    };
+
+    // The sequence view only ever completes; it goes through the same path as the day list.
+    const markSequenceChoreDone = async (choreId: string, personId: string) => {
+        const chore = chores.find((c) => c.id === choreId);
+        if (!chore) return;
+        if (!currentUser) {
+            toast({ title: 'Login Required', description: 'Please log in to mark chores as complete.', variant: 'destructive' });
+            return;
+        }
+
+        const change = buildChoreCompletionChange({
+            tx,
+            createId: id,
+            chore,
+            familyMemberId: personId,
+            executorId: currentUser.id,
+            dateKey: selectedDateKey,
+            intent: 'done',
+        });
+
+        if (change.status === 'claimed') {
+            const completer = familyMembers.find((fm) => fm.id === change.claimedById);
+            toast({
+                title: 'Chore Already Completed',
+                description: `${chore.title} was already completed by ${completer?.name || 'another member'}.`,
+            });
+            return;
+        }
+        if (change.status === 'unchanged') return;
+
+        try {
+            await db.transact(change.transactions);
+        } catch (err: any) {
+            console.error('Error completing chore from the sequence view:', err);
+            toast({ title: 'Error', description: `Failed to update chore status: ${err.message}`, variant: 'destructive' });
         }
     };
 
@@ -1603,23 +1550,7 @@ function ChoresTracker({
                             familyMembers={sequenceFamilyMembers}
                             choresRaw={sequenceChoresRaw}
                             nowMs={nowMs}
-                            onMarkDone={async (choreId, personId) => {
-                                const sequenceChore = chores.find((chore: any) => chore.id === choreId);
-                                const completionId = createChoreCompletionRecordId(
-                                    choreId,
-                                    selectedDateKey,
-                                    Boolean(sequenceChore?.isUpForGrabs),
-                                    id
-                                );
-                                await db.transact([
-                                    tx.choreCompletions[completionId].update({
-                                        completed: true,
-                                        dateDue: selectedDateKey,
-                                        dateCompleted: new Date().toISOString(),
-                                        allowanceAwarded: false,
-                                    }).link({ chore: choreId, completedBy: personId }),
-                                ]);
-                            }}
+                            onMarkDone={markSequenceChoreDone}
                             onReorder={handleSequenceReorder}
                         />
                     ) : allChoresSubView === 'sequence' ? (

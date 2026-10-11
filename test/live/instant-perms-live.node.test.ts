@@ -157,6 +157,7 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         chores: new Set<string>(),
         choreAssignments: new Set<string>(),
         choreCompletions: new Set<string>(),
+        countdownRuns: new Set<string>(),
         tasks: new Set<string>(),
         taskUpdates: new Set<string>(),
         taskResponseFields: new Set<string>(),
@@ -196,6 +197,9 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
         }
         for (const entryId of Array.from(cleanup.choreAssignments)) {
             txs.push(adminDb.tx.choreAssignments[entryId].delete());
+        }
+        for (const entryId of Array.from(cleanup.countdownRuns)) {
+            txs.push(adminDb.tx.countdownRuns[entryId].delete());
         }
         for (const entryId of Array.from(cleanup.chores)) {
             txs.push(adminDb.tx.chores[entryId].delete());
@@ -736,6 +740,105 @@ suite('live Instant perms smoke matrix (hosted app)', () => {
                 cleanup.historyEvents.add(parentHistoryEventId);
             } finally {
                 completionKidDb.shutdown?.();
+            }
+        },
+        120_000
+    );
+
+    it(
+        'scopes kid countdown run writes to their own run',
+        async () => {
+            const { familyMembers } = await adminDb.query({ familyMembers: {} });
+            const kidMember = (familyMembers as any[]).find((member) => member.role !== 'parent');
+            const siblingMember = (familyMembers as any[]).find((member) => member.id !== kidMember?.id);
+            expect(kidMember?.id).toBeTruthy();
+            expect(siblingMember?.id).toBeTruthy();
+
+            const nowIso = new Date().toISOString();
+            const runFields = (familyMemberId: string) => ({
+                familyMemberId,
+                date: '2026-02-25',
+                status: 'running',
+                currentChoreId: instantId(),
+                stepStartedAt: nowIso,
+                stepExtensionSecs: 0,
+                stepExtensionCount: 0,
+                lastInteractionAt: nowIso,
+                startedAt: nowIso,
+            });
+
+            const memberKidDb = createClient();
+            const memberSession = await mintFamilyMemberToken(kidMember.id);
+            await memberKidDb.auth.signInWithToken(memberSession.token);
+            try {
+                const ownRunId = instantId();
+                await memberKidDb.transact(memberKidDb.tx.countdownRuns[ownRunId].update(runFields(kidMember.id)));
+                cleanup.countdownRuns.add(ownRunId);
+
+                // Advancing, extending and stopping are all ordinary updates of the kid's own row.
+                await memberKidDb.transact(
+                    memberKidDb.tx.countdownRuns[ownRunId].update({
+                        currentChoreId: instantId(),
+                        stepStartedAt: nowIso,
+                        stepExtensionSecs: 300,
+                        stepExtensionCount: 1,
+                        skippedChoreIds: [],
+                        lastInteractionAt: nowIso,
+                    })
+                );
+                await memberKidDb.transact(
+                    memberKidDb.tx.countdownRuns[ownRunId].update({
+                        status: 'stopped',
+                        stoppedAt: nowIso,
+                        stoppedReason: 'user',
+                    })
+                );
+
+                await expectRejected(
+                    memberKidDb.transact(
+                        memberKidDb.tx.countdownRuns[ownRunId].update({ familyMemberId: siblingMember.id })
+                    ),
+                    'kid countdownRuns re-point at sibling'
+                );
+                await expectRejected(
+                    memberKidDb.transact(memberKidDb.tx.countdownRuns[ownRunId].update({ date: '2026-02-26' })),
+                    'kid countdownRuns date update'
+                );
+                await expectRejected(
+                    memberKidDb.transact(memberKidDb.tx.countdownRuns[ownRunId].delete()),
+                    'kid countdownRuns delete'
+                );
+
+                const siblingCreateId = instantId();
+                await expectRejected(
+                    memberKidDb.transact(
+                        memberKidDb.tx.countdownRuns[siblingCreateId].update(runFields(siblingMember.id))
+                    ),
+                    'kid countdownRuns create for sibling'
+                );
+
+                const sharedKidRunId = instantId();
+                await expectRejected(
+                    kidDb.transact(kidDb.tx.countdownRuns[sharedKidRunId].update(runFields(kidMember.id))),
+                    'shared kid countdownRuns create without member identity'
+                );
+
+                const siblingRunId = instantId();
+                await parentDb.transact(parentDb.tx.countdownRuns[siblingRunId].update(runFields(siblingMember.id)));
+                cleanup.countdownRuns.add(siblingRunId);
+                await expectRejected(
+                    memberKidDb.transact(
+                        memberKidDb.tx.countdownRuns[siblingRunId].update({ status: 'stopped', stoppedReason: 'user' })
+                    ),
+                    'kid countdownRuns sibling update'
+                );
+
+                // A parent can drive or sweep anyone's run.
+                await parentDb.transact(
+                    parentDb.tx.countdownRuns[ownRunId].update({ status: 'stopped', stoppedReason: 'day_boundary' })
+                );
+            } finally {
+                memberKidDb.shutdown?.();
             }
         },
         120_000

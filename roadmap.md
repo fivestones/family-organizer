@@ -55,15 +55,17 @@ The current `/countdown` page keeps working off the planner while the runner lan
 
 ### 2.1 Schema and engine split
 
-- [ ] **The run record.** Add `countdownRuns` to [instant.schema.ts](instant.schema.ts) and member-scoped rules to [instant.perms.ts](instant.perms.ts), following the pattern the July audit applied to `choreCompletions` ([spec](docs/countdown-redesign.md#the-run-record)).
+- [x] **The run record.** Add `countdownRuns` to [instant.schema.ts](instant.schema.ts) and member-scoped rules to [instant.perms.ts](instant.perms.ts), following the pattern the July audit applied to `choreCompletions` ([spec](docs/countdown-redesign.md#the-run-record)).
   - One row per member per family day: the live step, `stepStartedAt`, extension state, `lastInteractionAt`, `stoppedReason`.
   - A kid may write only their own run.
   - Push both with `instant-cli`.
-- [ ] **Split the engine into runner and planner** ([spec](docs/countdown-redesign.md#two-clocks)). The runner clock drives the ring from `stepStartedAt + durationSecs`; the planner keeps right-to-left deadline packing but only answers "am I ahead, and will I still make my hard deadlines".
+- [x] **Split the engine into runner and planner** ([spec](docs/countdown-redesign.md#two-clocks)). The runner clock drives the ring from `stepStartedAt + durationSecs`; the planner keeps right-to-left deadline packing but only answers "am I ahead, and will I still make my hard deadlines".
   - The 42 existing engine tests ([engine](test/unit/packages/shared-core-chore-countdown-engine.node.test.ts), [golden scenarios](test/unit/packages/shared-core-chore-countdown-scenarios.node.test.ts)) cover the planner; keep them passing and add a runner suite beside them.
-- [ ] **Honour the earliest-allowed gate** ([spec](docs/countdown-redesign.md#the-earliest-allowed-gate)). Every timing mode already resolves a floor; the runner must consult it. Today `handleStartNow` performs no check at all.
-- [ ] **Untimed steps** ([decision 4](docs/countdown-redesign.md#decisions)). A step with no duration shows no ring and advances on tap. This also ends the silent dropping of chores that have timing but neither duration nor weight.
-- [ ] **Route countdown completions through the canonical path.** Both countdown completion paths bypass `toggleChoreDone`, so they write no history event, no `markedBy` link, and skip the up-for-grabs claim guard — chores finished on the countdown are invisible in `/history`.
+  - Done: [the runner](packages/shared-core/src/chore-countdown-runner.ts) and [its 63 tests](test/unit/packages/shared-core-chore-countdown-runner.node.test.ts).
+- [x] **Honour the earliest-allowed gate** ([spec](docs/countdown-redesign.md#the-earliest-allowed-gate)). Every timing mode already resolves a floor; the runner must consult it. Today `handleStartNow` performs no check at all.
+  - The runner honours it. `handleStartNow` itself goes when [2.2](#22-the-runner-ui) rebuilds the page on the run record.
+- [x] **Untimed steps** ([decision 4](docs/countdown-redesign.md#decisions)). A step with no duration shows no ring and advances on tap. This also ends the silent dropping of chores that have timing but neither duration nor weight.
+- [x] **Route countdown completions through the canonical path.** Both countdown completion paths bypass `toggleChoreDone`, so they write no history event, no `markedBy` link, and skip the up-for-grabs claim guard — chores finished on the countdown are invisible in `/history`.
 
 ### 2.2 The runner UI
 
@@ -116,6 +118,7 @@ Four of these are filed in [the idea backlog](docs/organized-aspirational-featur
 - [ ] **Allowance-distribution reporting for up-for-grabs** is laid out so the period's fixed rewards and weight-based share read clearly ([audit §6](docs/audit-2026-07-finance-allowance.md)).
 - [ ] **Resolve `isJoint`.** The chore form offers it, the schema stores it, and the countdown engine propagates it, but the XP maths ignores it entirely. Either split the weight among completers or remove the control until it means something ([chores audit §6](docs/audit-2026-07-chores.md)).
 - [ ] **Empty-envelope deletion** asks only for confirmation instead of asking where to transfer funds that do not exist.
+- [ ] **(you)** **Decide what the two undeclared calendar attributes are.** The hosted app has `calendarSyncCalendars.ctag` and `calendarSyncCalendars.syncToken` (both optional JSON); [instant.schema.ts](instant.schema.ts) declares neither, and no code reads or writes them — the sync code uses `lastCtag` and `lastSyncToken`. Found on 11 October 2026 while pushing `countdownRuns`. Either declare them or delete them from the hosted app. Until then a plain `instant-cli push schema --yes` would delete them, because a field missing from the file is a deletion — see the note under Commands in [CLAUDE.md](CLAUDE.md).
 
 When each is fixed, remove it from the idea backlog's bug group rather than leaving two records of it.
 

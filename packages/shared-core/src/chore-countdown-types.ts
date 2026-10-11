@@ -17,12 +17,27 @@ export interface CountdownSettings {
   autoMarkCompleteOnCountdownEnd: boolean;
   /** Per-marker overrides for the after-anchor delay, keyed by marker key. */
   perMarkerAfterDelaySecs?: Record<string, number>;
+  /** Seconds one "+5 min" grant adds to the running step (default 300). */
+  stepExtensionSecs: number;
+  /** A step must run over by at least this long before the "still working?" prompt (default 300). */
+  overrunPromptMinSecs: number;
+  /** …or by this fraction of its own duration, whichever is longer (default 0.5). */
+  overrunPromptFraction: number;
+  /** Seconds the prompt may go unanswered before the run stops itself (default 600). */
+  overrunPromptGraceSecs: number;
+  /** After this many extensions on one step the prompt also offers to stop the run (default 2). */
+  overrunStopOfferAfterExtensions: number;
 }
 
 export const DEFAULT_COUNTDOWN_SETTINGS: CountdownSettings = {
   stackBufferSecs: 30,
   afterAnchorDefaultDelaySecs: 300,
   autoMarkCompleteOnCountdownEnd: false,
+  stepExtensionSecs: 300,
+  overrunPromptMinSecs: 300,
+  overrunPromptFraction: 0.5,
+  overrunPromptGraceSecs: 600,
+  overrunStopOfferAfterExtensions: 2,
 };
 
 export const COUNTDOWN_SETTINGS_NAME = 'countdownSettings';
@@ -35,13 +50,18 @@ export function parseCountdownSettings(value?: string | null | unknown): Countdo
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEFAULT_COUNTDOWN_SETTINGS };
   const obj = raw as Record<string, unknown>;
+  const nonNegative = (key: keyof CountdownSettings, minimum = 0): number => {
+    const parsed = obj[key] == null || obj[key] === '' ? NaN : Number(obj[key]);
+    return Number.isFinite(parsed) && parsed >= minimum ? parsed : (DEFAULT_COUNTDOWN_SETTINGS[key] as number);
+  };
   return {
-    stackBufferSecs: Number.isFinite(Number(obj.stackBufferSecs)) && Number(obj.stackBufferSecs) >= 0
-      ? Number(obj.stackBufferSecs)
-      : DEFAULT_COUNTDOWN_SETTINGS.stackBufferSecs,
-    afterAnchorDefaultDelaySecs: Number.isFinite(Number(obj.afterAnchorDefaultDelaySecs)) && Number(obj.afterAnchorDefaultDelaySecs) >= 0
-      ? Number(obj.afterAnchorDefaultDelaySecs)
-      : DEFAULT_COUNTDOWN_SETTINGS.afterAnchorDefaultDelaySecs,
+    stackBufferSecs: nonNegative('stackBufferSecs'),
+    afterAnchorDefaultDelaySecs: nonNegative('afterAnchorDefaultDelaySecs'),
+    stepExtensionSecs: nonNegative('stepExtensionSecs', 1),
+    overrunPromptMinSecs: nonNegative('overrunPromptMinSecs'),
+    overrunPromptFraction: nonNegative('overrunPromptFraction'),
+    overrunPromptGraceSecs: nonNegative('overrunPromptGraceSecs'),
+    overrunStopOfferAfterExtensions: Math.floor(nonNegative('overrunStopOfferAfterExtensions', 1)),
     autoMarkCompleteOnCountdownEnd: typeof obj.autoMarkCompleteOnCountdownEnd === 'boolean'
       ? obj.autoMarkCompleteOnCountdownEnd
       : DEFAULT_COUNTDOWN_SETTINGS.autoMarkCompleteOnCountdownEnd,

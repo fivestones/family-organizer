@@ -67,7 +67,14 @@ export function timestampMsToOffset(
   return (timestampMs - zeroMs) / 60_000;
 }
 
-function getEffectiveDurationSecs(chore: CountdownChoreInput): number | null {
+/**
+ * A chore's own time budget: its estimated duration, else one minute per XP of
+ * weight. Null means the chore is untimed — the planner cannot pack it, and the
+ * runner shows it without a ring.
+ */
+export function getCountdownDurationSecs(
+  chore: Pick<CountdownChoreInput, 'estimatedDurationSecs' | 'weight'>,
+): number | null {
   if (chore.estimatedDurationSecs != null && chore.estimatedDurationSecs > 0) {
     return chore.estimatedDurationSecs;
   }
@@ -78,7 +85,7 @@ function getEffectiveDurationSecs(chore: CountdownChoreInput): number | null {
   return null;
 }
 
-function getAnchorChoreId(chore: CountdownChoreInput): string | null {
+export function getCountdownAnchorChoreId(chore: Pick<CountdownChoreInput, 'timingConfig'>): string | null {
   if (
     chore.timingConfig &&
     typeof chore.timingConfig === 'object' &&
@@ -92,7 +99,22 @@ function getAnchorChoreId(chore: CountdownChoreInput): string | null {
   return null;
 }
 
-const DEADLINE_MODES = new Set<SharedTimingMode>([
+/** The minimal chore shape the timing resolver reads, built from an engine input. */
+export function toCountdownTimingChore(chore: CountdownChoreInput, date: Date): SharedChoreLike {
+  return {
+    id: chore.id,
+    title: chore.title,
+    startDate: date.toISOString().slice(0, 10),
+    timingMode: chore.timingMode,
+    timingConfig: chore.timingConfig,
+    timeBucket: chore.timeBucket,
+    sortOrder: chore.sortOrder,
+    assignees: chore.assigneeIds.map((id) => ({ id })),
+  };
+}
+
+/** Timing modes that carry a hard deadline the planner packs against. */
+export const COUNTDOWN_DEADLINE_MODES = new Set<SharedTimingMode>([
   'before_time',
   'before_marker',
   'before_chore',
@@ -110,7 +132,7 @@ const START_MODES = new Set<SharedTimingMode>([
 // Step 1: Collect & resolve eligible chores
 // ---------------------------------------------------------------------------
 
-function buildTimingContext(
+export function buildCountdownTimingContext(
   input: CountdownEngineInput,
 ): SharedChoreTimingContext {
   return {
@@ -123,27 +145,17 @@ function buildTimingContext(
 }
 
 function resolveChores(input: CountdownEngineInput): ResolvedCountdownChore[] {
-  const context = buildTimingContext(input);
+  const context = buildCountdownTimingContext(input);
   const results: ResolvedCountdownChore[] = [];
 
   for (const chore of input.chores) {
     // Skip completed chores (all members done).
     if (chore.completedAt != null) continue;
 
-    const durationSecs = getEffectiveDurationSecs(chore);
+    const durationSecs = getCountdownDurationSecs(chore);
     if (durationSecs == null || durationSecs <= 0) continue;
 
-    // Build a minimal SharedChoreLike for the timing resolver.
-    const choreLike: SharedChoreLike = {
-      id: chore.id,
-      title: chore.title,
-      startDate: input.date.toISOString().slice(0, 10),
-      timingMode: chore.timingMode,
-      timingConfig: chore.timingConfig,
-      timeBucket: chore.timeBucket,
-      sortOrder: chore.sortOrder,
-      assignees: chore.assigneeIds.map((id) => ({ id })),
-    };
+    const choreLike = toCountdownTimingChore(chore, input.date);
 
     const timingMode = getChoreTimingMode(choreLike);
     if (timingMode === 'anytime') {
@@ -163,7 +175,7 @@ function resolveChores(input: CountdownEngineInput): ResolvedCountdownChore[] {
 
     const resolved = resolveChoreTimingForDate(choreLike, context);
 
-    if (DEADLINE_MODES.has(timingMode)) {
+    if (COUNTDOWN_DEADLINE_MODES.has(timingMode)) {
       const deadlineOffset = resolved.endOffset;
       if (deadlineOffset == null) continue;
 
@@ -322,7 +334,7 @@ function packDeadlineDriven(
       scheduleType: 'deadline',
       isResume: false,
       sortOrder: chore.input.sortOrder ?? Number.MAX_SAFE_INTEGER,
-      anchorChoreId: getAnchorChoreId(chore.input),
+      anchorChoreId: getCountdownAnchorChoreId(chore.input),
     });
   }
 
@@ -398,7 +410,7 @@ function packStartDriven(
     // timing resolver. This prevents the afterDelay from appearing shortened
     // due to seconds being dropped.
     let anchorMs: number;
-    const anchorChoreId = getAnchorChoreId(chore.input);
+    const anchorChoreId = getCountdownAnchorChoreId(chore.input);
     const anchorChoreCompletion = anchorChoreId
       ? choreInputMap.get(anchorChoreId)?.memberCompletions[personId]
       : null;
@@ -446,7 +458,7 @@ function packStartDriven(
       scheduleType: chore.timingMode === 'anytime' ? 'manual' : 'start',
       isResume: false,
       sortOrder: chore.input.sortOrder ?? Number.MAX_SAFE_INTEGER,
-      anchorChoreId: getAnchorChoreId(chore.input),
+      anchorChoreId: getCountdownAnchorChoreId(chore.input),
     });
   }
 

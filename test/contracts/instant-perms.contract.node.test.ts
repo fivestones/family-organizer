@@ -118,6 +118,39 @@ describe('instant.perms contract', () => {
         expect(perms.familyMembers.allow.link.markedCompletions).toContain("data.id in auth.ref('$user.familyMemberId')");
     });
 
+    it('scopes kid countdown run writes to their own run', async () => {
+        const perms = rules as any;
+        expect(perms.countdownRuns.bind.authFamilyMemberIds).toBe("auth.ref('$user.familyMemberId')");
+        expect(perms.countdownRuns.bind.ownsRun).toBe(
+            'hasAuthFamilyMemberId && data.familyMemberId == authFamilyMemberIds[0]'
+        );
+        expect(perms.countdownRuns.allow.view).toBe('isFamilyPrincipal');
+        expect(perms.countdownRuns.allow.create).toBe('isParent || (isKid && ownsRun)');
+        expect(perms.countdownRuns.allow.update).toBe('isParent || (isKid && ownsRun && kidSafeRunUpdate)');
+        expect(perms.countdownRuns.allow.delete).toBe('isParent');
+        // The run's identity is fixed at creation: a kid can never re-point a run at a sibling or another day.
+        expect(perms.countdownRuns.bind.kidSafeRunUpdate).not.toContain('familyMemberId');
+        expect(perms.countdownRuns.bind.kidSafeRunUpdate).not.toContain("'date'");
+        // Identity lives in attributes, so nothing needs to be linkable.
+        expect(perms.countdownRuns.allow.link.$default).toBe('false');
+        expect(perms.countdownRuns.allow.unlink.$default).toBe('false');
+
+        const schemaSource = await fs.readFile(path.join(process.cwd(), 'instant.schema.ts'), 'utf8');
+        const entityStart = schemaSource.indexOf('countdownRuns: i.entity({');
+        expect(entityStart).toBeGreaterThan(-1);
+        const entitySource = schemaSource.slice(entityStart, schemaSource.indexOf('}),', entityStart));
+        expect(entitySource).toContain('familyMemberId: i.string().indexed()');
+        expect(entitySource).toContain('date: i.string().indexed()');
+        // Every attribute a kid may write is a real attribute of the entity.
+        const kidWritable = Array.from(
+            (perms.countdownRuns.bind.kidSafeRunUpdate as string).matchAll(/'([A-Za-z]+)'/g)
+        ).map((match) => match[1]);
+        expect(kidWritable.length).toBeGreaterThan(0);
+        for (const field of kidWritable) {
+            expect(entitySource, `kid-writable field ${field} is not in the schema`).toContain(`${field}: i.`);
+        }
+    });
+
     it('binds immutable kid history events to the authenticated member actor', () => {
         const perms = rules as any;
         expect(perms.historyEvents.bind.authFamilyMemberIds).toBe("auth.ref('$user.familyMemberId')");
