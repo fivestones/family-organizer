@@ -1148,6 +1148,11 @@ function DetailedChoreForm({
                         Check this if the selected members work together to complete one single task (e.g., 'Clean Game Room'). Leave unchecked if they each do
                         their own individual task (e.g., 'Math Practice').
                     </p>
+                    {/* What the flag does today, so the control does not promise more than it delivers. */}
+                    <p className="text-xs text-muted-foreground pl-8">
+                        A joint chore is labelled &ldquo;with&hellip;&rdquo; in each person&rsquo;s list and is planned for everyone at the same time. Each
+                        person still ticks it off and earns its full XP; the XP is not shared out.
+                    </p>
                 </div>
             )}
 
