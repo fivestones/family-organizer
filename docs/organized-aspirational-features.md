@@ -345,6 +345,3 @@ Partially shipped now: the web finance system is already real and broad, and the
 
 - [ ] Envelope deletion edge case:
   - If an empty envelope is deleted, it should just give an `are you sure` message and not ask where to transfer funds to, since there are none.
-
-- [ ] Up-for-grabs / allowance-distribution bugs:
-  - The way chore period allowance distribution info, especially with up-for-grabs items, is shown needs to be arranged more clearly.

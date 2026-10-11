@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { formatBalances, UnitDefinition, Envelope } from '@/lib/currency-utils';
+import PeriodBreakdown from '@/components/allowance/PeriodBreakdown';
 import { requestFinanceMutation } from '@/lib/finance-mutation-client';
 import type { AtomicAllowancePayoutResult } from '@/lib/allowance-payout';
 import {
@@ -870,55 +871,17 @@ export default function AllowanceDistributionPage() {
                                                                     </span>
                                                                 )}
                                                             </p>
-                                                            {/* ... rest of the details (weights, amount, etc.) ... */}
-                                                            {/* +++ Display weight details +++ */}
-                                                            <div className="text-xs grid grid-cols-2 gap-x-2">
-                                                                <span>
-                                                                    Total Wt: <span className="font-mono">{period.totalWeight.toFixed(2)}</span>
-                                                                </span>
-                                                                <span>
-                                                                    Completed Wt: <span className="font-mono">{period.completedWeight.toFixed(2)}</span>
-                                                                </span>
-                                                                {/* +++ Update Percentage Display +++ */}
-                                                                <span>
-                                                                    Completion: <span className="font-mono">{period.percentage.toFixed(1)}%</span>
-                                                                    {/* +++ Add Note for Up-for-Grabs Contribution +++ */}
-                                                                    {period.upForGrabsContributionPercentage > 0 && (
-                                                                        <span className="text-xs italic text-muted-foreground ml-1">
-                                                                            (incl. {period.upForGrabsContributionPercentage.toFixed(1)}% from up-for-grabs)
-                                                                        </span>
-                                                                    )}
-                                                                </span>
-                                                                <span>
-                                                                    Calc Amt:{' '}
-                                                                    <span className="font-mono">
-                                                                        {formatBalances(
-                                                                            {
-                                                                                [allowanceInfo.member.allowanceCurrency!]: period.calculatedAmount,
-                                                                            },
-                                                                            typedData?.unitDefinitions || []
-                                                                        )}
-                                                                    </span>
-                                                                </span>
-                                                            </div>
-                                                            {/* +++ Display fixed reward details for the period +++ */}
-                                                            {(periodFixedPrimary > 0 || Object.keys(periodFixedOther).length > 0) && (
-                                                                <div className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
-                                                                    Fixed Rewards:
-                                                                    {periodFixedPrimary > 0 &&
-                                                                        ` ${formatBalances(
-                                                                            {
-                                                                                [allowanceInfo.member.allowanceCurrency!]: periodFixedPrimary,
-                                                                            },
-                                                                            typedData?.unitDefinitions || []
-                                                                        )}`}
-                                                                    {Object.keys(periodFixedOther).length > 0 &&
-                                                                        `${periodFixedPrimary > 0 ? ' + ' : ''}${formatBalances(
-                                                                            periodFixedOther,
-                                                                            typedData?.unitDefinitions || []
-                                                                        )}`}
-                                                                </div>
-                                                            )}
+                                                            <PeriodBreakdown
+                                                                period={period}
+                                                                currency={allowanceInfo.member.allowanceCurrency!}
+                                                                unitDefinitions={typedData?.unitDefinitions || []}
+                                                                editedAmount={
+                                                                    isInProgress || !editablePeriodAmounts[period.id]?.trim()
+                                                                        ? null
+                                                                        : Number(editablePeriodAmounts[period.id])
+                                                                }
+                                                                isInProgress={isInProgress}
+                                                            />
                                                         </div>
 
                                                         {/* +++ NEW: Per-period Edit/Deposit/Skip controls (Right Aligned) +++ */}
