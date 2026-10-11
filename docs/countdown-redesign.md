@@ -1,12 +1,20 @@
 # Countdown Redesign
 
 **Date:** 2026-08-02
-**Status:** Agreed design, being implemented. Phases 1 to 4 are built; see the implementation log.
+**Status:** Built. All five phases are implemented; what remains is checking it against real use — see the implementation log and the roadmap's checks.
 **Supersedes:** the countdown behaviour described in `audit-2026-07-chores.md` §5.2.
 
 ---
 
 ## Implementation log
+
+- **2026-10-11 — Completed: the phone has a countdown (phase 5).**
+  `/countdown` in the Expo app is the same runner as the web page: it reads the same `countdownRuns` rows, builds its queues with the same `shared-core` functions and writes the same patches, so a run started on the wall tablet reads identically on a phone. It shows one person at a time — the signed-in member first, with a row of chips to look at anyone else who has something to do — and does everything the web panel does: start the day's queue or a routine, Done, "+5 min", stop, the locked steps with when they open, ahead/behind, the forecast, and the "still working?" prompt with its automatic stop.
+  The ring is drawn from plain views (two half-discs turning over a track, hollowed by an inner disc), because the app has no SVG library and adding a native one would mean a new build. A backgrounded app stops ticking, so the clock catches up the moment the app is foregrounded.
+  To let both platforms share one view-model, the panel's display logic (`describeRunnerPanel`, the pace and forecast sentences, the formatting) moved from the web component folder into `shared-core`, as did the routine day summary. The phone's chore list now folds routine steps exactly as the web day list does and shows a row per routine that opens the countdown.
+  It is reached from a timer button in the Chores tab header and from More.
+  Two differences from the web, both inherited rather than chosen: a completion made on the phone writes no history event, as no mobile completion does; and the routine editor is web-only.
+  Verification: 6 tests for the phone's completion builder, with the moved display and summary suites still passing — 1,038 local tests in all; `tsc --noEmit` passes; the Expo lint is clean and the iOS bundle exports. Not run on a device or simulator.
 
 - **2026-10-11 — Completed: the old machinery is removed (phase 4). One hosted deletion is deliberately left.**
   The planner no longer takes manual starts or collision decisions. `detectCollisions`, `applyCollisionDecisions`, the split/resume `isResume` handling and `CollisionDecisionDialog` are deleted; a start-driven slot and a deadline-driven slot that overlap are now simply both planned, and the runner's forecast says what the overlap costs. The `buffer` and `waiting_decision` slot states are gone from the types, the pill, the sequence graph and the chore list, and `scheduleType` loses `manual`. An `anytime` chore has no plan slot at all; it is the runner that queues it. The engine is 706 lines, down from 903.

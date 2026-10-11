@@ -97,10 +97,13 @@ The current `/countdown` page keeps working off the planner while the runner lan
 
 ### 2.5 Mobile
 
-- [ ] **A countdown screen in the Expo app.** The engine lives in `shared-core` precisely so mobile can use it; today mobile has no countdown at all.
+- [x] **A countdown screen in the Expo app.** The engine lives in `shared-core` precisely so mobile can use it; today mobile has no countdown at all.
 
 ### 2.6 Checks for you
 
+Everything above this line in Scope 2 is built. None of it has been run in a browser or on a device — the tests, the typecheck, the production build and the iOS bundle are what stand behind it — so the first check is simply to use it.
+
+- [ ] **(you)** Open `/countdown`, `/routines` and the phone's countdown and look at them. Say what reads wrong, looks wrong or feels wrong.
 - [ ] **(you)** Run a real morning routine on the wall tablet and a phone at the same time, and say whether the two timers read correctly from one run record.
 - [ ] **(you)** Work four afternoon chores forward from the morning and say whether the queue carries you the way you described it.
 - [ ] **(you)** Tune the overrun numbers after a week of real use — the 5 min / 50% / 10 min / 2–3 extensions figures in the specification are starting values.

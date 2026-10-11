@@ -96,7 +96,7 @@ Two-layer auth:
 - **Chore scheduling** (`lib/chore-utils.ts`): `rrule`-based recurrence. `createRRuleWithStartDate` / `toUTCDate` are the key helpers. Rotation types (`none` | `daily` | `weekly` | `monthly`) determine which family member is assigned on a given date.
 - **Countdown** (`packages/shared-core/src/chore-countdown-engine.ts`, `chore-countdown-runner.ts`): two clocks. The planner packs chores as late as their deadlines allow and is only the yardstick; the runner drives the ring from `stepStartedAt + durationSecs`, honours each timing mode's earliest-allowed gate, and builds every patch written to a `countdownRuns` row. Specified in `docs/countdown-redesign.md`.
 - **Chore completion** (`lib/chore-completion.ts`): the one way a chore is marked done or not done on the web — history event, `markedBy` link, and the up-for-grabs claim guard. The day list, the countdown and the sequence view all build their writes here.
-- **Routines** (`packages/shared-core/src/routines.ts`, `lib/routine-mutations.ts`): `routineSteps` is a join row carrying `position`. A chore is folded into its routine's day-list row when it has a routine step *and* `hideFromDayList` is true; the flag is inert otherwise.
+- **Routines** (`packages/shared-core/src/routines.ts`, `routine-summary.ts`, `lib/routine-mutations.ts`): `routineSteps` is a join row carrying `position`. A chore is folded into its routine's day-list row when it has a routine step *and* `hideFromDayList` is true; the flag is inert otherwise.
 - **Task series scheduler** (`lib/task-scheduler.ts`): `getTasksForDate` implements the "rolling queue" — tasks in a series advance based on completion, not calendar date. Day-break entities (`isDayBreak: true`) act as paginators between sessions.
 - **Allowance** (`lib/chore-utils.ts` `CalculatedPeriod`): Weight-based percentage completion, fixed rewards for "up for grabs" chores, multi-currency envelope deposits.
 - **Time machine** (`lib/time-machine.ts`): Dev/test utility that patches `Date` via a `localStorage` offset (`debug_time_offset`). Used extensively in tests; `packages/shared-core/src/time-provider.ts` exposes `getNow()` which tests can override.
@@ -123,7 +123,8 @@ Navigation: unauthenticated device → `/activate`; no member selected → `/loc
 
 **Implemented screens:**
 - **Dashboard** — XP scores, 7-day chore/task summary, recent transactions
-- **Chores** — date-navigable chore list with per-member filtering and completion status
+- **Chores** — date-navigable chore list with per-member filtering and completion status; routine steps fold into a row per routine
+- **Countdown** (`app/countdown.js`, `src/features/countdown/`) — the same runner as the web `/countdown`, one person at a time, reached from the Chores header and from More
 - **Calendar** — Gregorian + Nepali (Bikram Samvat) calendar views with chore/task overlays
 - **Finance** — multi-currency envelope balances, transaction history, envelope management modals
 - **More > Task Series** (parent) — live task series status and checklist progress

@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getPhotoUrl } from '@/lib/photo-urls';
 import { cn } from '@/lib/utils';
 import RunnerPanel from './RunnerPanel';
-import { getInitials } from './runner-display';
+import { getInitials } from './initials';
 import { useCountdownRunner } from './useCountdownRunner';
 
 const SELECTION_STORAGE_KEY = 'countdown_shown_members';

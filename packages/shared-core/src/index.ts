@@ -4,6 +4,8 @@ export * from './chore-timing';
 export * from './chore-countdown-types';
 export * from './chore-countdown-engine';
 export * from './chore-countdown-runner';
+export * from './chore-countdown-display';
 export * from './routines';
+export * from './routine-summary';
 export * from './time-provider';
 export * from './attachments';

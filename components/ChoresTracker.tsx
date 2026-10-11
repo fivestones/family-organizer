@@ -37,7 +37,6 @@ import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@
 import TaskSeriesEditor from '@/components/task-series/TaskSeriesEditor';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
 import { buildChoreCompletionChange } from '@/lib/chore-completion';
-import { summarizeRoutinesForDay } from '@/lib/routine-summary';
 import RoutineDayRows from '@/components/routines/RoutineDayRows';
 
 // +++ NEW IMPORTS +++
@@ -62,6 +61,7 @@ import {
     parseCountdownSettings,
     getChoreTimingMode,
     isChoreHiddenFromDayList,
+    summarizeRoutinesForDay,
     type SharedScheduleSettings,
     type SharedRoutineMarkerStatusLike,
     type CountdownEngineOutput,

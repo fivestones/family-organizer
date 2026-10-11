@@ -13,8 +13,10 @@ import {
   getAssignedMembersForChoreOnDate,
   getCompletedChoreCompletionsForDate,
   getMemberCompletionForDate,
+  isChoreHiddenFromDayList,
   parseSharedScheduleSettings,
   sortChoresForDisplay,
+  summarizeRoutinesForDay,
 } from '@family-organizer/shared-core';
 import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
@@ -141,8 +143,10 @@ export default function ChoresTab() {
               completedBy: {},
               markedBy: {},
             },
+            routineSteps: {},
             taskSeries: {},
           },
+          routines: { steps: { chore: {} } },
           routineMarkerStatuses: {},
           settings: {
             $: {
@@ -187,6 +191,9 @@ export default function ChoresTab() {
       .map((chore) => {
         if (!viewedMember?.id) return null;
 
+        // A step folded into its routine is shown by the routine's row, not by itself.
+        if (isChoreHiddenFromDayList(chore)) return null;
+
         const assignedMembers = getAssignedMembersForChoreOnDate(chore, selectedDate);
         if (assignedMembers.length === 0) return null;
         if (!assignedMembers.some((member) => member.id === viewedMember.id)) return null;
@@ -230,6 +237,16 @@ export default function ChoresTab() {
         timing: timingById.get(row.chore.id) || null,
       }));
   }, [chores, routineMarkerStatuses, scheduleSettings, selectedDate, viewedMember?.id]);
+
+  // One row per routine with steps due, carrying its own XP so the totals in
+  // the header still visibly add up when its steps are folded away.
+  const routineRows = useMemo(
+    () =>
+      viewedMember?.id
+        ? summarizeRoutinesForDay(choresQuery.data?.routines || [], chores, familyMembers, selectedDate, viewedMember.id)
+        : [],
+    [chores, choresQuery.data?.routines, familyMembers, selectedDate, viewedMember?.id]
+  );
 
   const viewedMemberName = viewedMember?.name || 'Family member';
   const headerTitle = formatPossessive(viewedMemberName);
@@ -441,6 +458,16 @@ export default function ChoresTab() {
             </View>
 
             <Pressable
+              testID="chores-countdown-button"
+              accessibilityRole="button"
+              accessibilityLabel="Open the countdown"
+              onPress={() => router.push('/countdown')}
+              style={styles.headerUtilityButton}
+            >
+              <Ionicons name="timer-outline" size={18} color={colors.accentChores} />
+            </Pressable>
+
+            <Pressable
               testID="chores-view-settings-button"
               accessibilityRole="button"
               accessibilityLabel="Open chores view settings"
@@ -469,6 +496,59 @@ export default function ChoresTab() {
           <View style={styles.contentShell}>
             <View style={styles.contentGlow} />
             <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+              {routineRows.length > 0 ? (
+                <View style={styles.panel}>
+                  <View style={styles.panelHeaderRow}>
+                    <Text style={styles.panelTitle}>Routines</Text>
+                    <Text style={styles.metaText}>Run from the countdown</Text>
+                  </View>
+                  <View style={styles.cards}>
+                    {routineRows.map((routine) => {
+                      const finished = routine.completed === routine.total;
+                      return (
+                        <Pressable
+                          key={routine.id}
+                          testID={`chores-routine-${routine.id}`}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${routine.name}, ${routine.completed} of ${routine.total} done. Open the countdown.`}
+                          onPress={() => router.push('/countdown')}
+                          style={styles.routineRow}
+                        >
+                          <View style={[styles.routineIcon, finished && styles.routineIconDone]}>
+                            <Ionicons name={finished ? 'checkmark' : 'list'} size={18} color={colors.onAccent} />
+                          </View>
+                          <View style={styles.routineCopy}>
+                            <Text style={styles.choreTitle} numberOfLines={1}>
+                              {routine.name}
+                            </Text>
+                            <View style={styles.routineTrack}>
+                              <View
+                                style={[
+                                  styles.routineFill,
+                                  finished && styles.routineFillDone,
+                                  { width: `${Math.round((routine.completed / routine.total) * 100)}%` },
+                                ]}
+                              />
+                            </View>
+                          </View>
+                          <Text style={styles.routineCount}>
+                            {routine.completed}/{routine.total}
+                          </Text>
+                          {routine.xpPossible > 0 ? (
+                            <View style={[styles.tag, styles.tagXp]}>
+                              <Text style={[styles.tagText, styles.tagXpText]}>
+                                XP {routine.xpEarned}/{routine.xpPossible}
+                              </Text>
+                            </View>
+                          ) : null}
+                          <Ionicons name="chevron-forward" size={16} color={colors.inkMuted} />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+
               <View style={styles.panel}>
                 <View style={styles.panelHeaderRow}>
                   <Text style={styles.panelTitle}>Due Chores</Text>
@@ -1469,6 +1549,51 @@ const createStyles = (colors, isDark) =>
   },
   sectionChipTextActive: {
     color: colors.success,
+  },
+  routineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.panelElevated,
+  },
+  routineIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentChores,
+  },
+  routineIconDone: {
+    backgroundColor: colors.success,
+  },
+  routineCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  routineTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+    backgroundColor: withAlpha(colors.inkMuted, 0.18),
+  },
+  routineFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: colors.accentChores,
+  },
+  routineFillDone: {
+    backgroundColor: colors.success,
+  },
+  routineCount: {
+    color: colors.inkMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   choreCard: {
     borderWidth: 1,

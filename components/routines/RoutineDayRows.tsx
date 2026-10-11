@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { Check, ChevronDown, EyeOff, ListChecks, Play } from 'lucide-react';
-import type { RoutineDaySummary } from '@/lib/routine-summary';
+import type { RoutineDaySummary } from '@family-organizer/shared-core';
 import { cn } from '@/lib/utils';
 
 interface RoutineDayRowsProps {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeRoutinesForDay } from '@/lib/routine-summary';
+import { summarizeRoutinesForDay } from '@family-organizer/shared-core';
 
 const DATE = new Date('2026-03-31T00:00:00Z');
 const DATE_KEY = '2026-03-31';

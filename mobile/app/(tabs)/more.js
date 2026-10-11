@@ -11,6 +11,14 @@ import { useAppTheme } from '../../src/theme/ThemeProvider';
 
 const MENU_ITEMS = [
   {
+    key: 'countdown',
+    title: 'Countdown',
+    description: 'Run today’s chores or a routine one timed step at a time.',
+    status: 'Live',
+    href: '/countdown',
+    parentOnly: false,
+  },
+  {
     key: 'taskSeries',
     title: 'Task Series Manager',
     description: 'Manager, review queue, editor, and full mobile task-series detail flow.',

@@ -4,7 +4,7 @@ import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import RoutineDayRows from '@/components/routines/RoutineDayRows';
-import type { RoutineDaySummary } from '@/lib/routine-summary';
+import type { RoutineDaySummary } from '@family-organizer/shared-core';
 
 vi.mock('next/link', () => ({
     __esModule: true,

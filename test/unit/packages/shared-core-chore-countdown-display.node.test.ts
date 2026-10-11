@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { RunnerClock, RunnerProjectionEntry, RunnerState, RunnerStep } from '@family-organizer/shared-core';
 import {
     describeForecast,
     describeGate,
@@ -9,7 +8,11 @@ import {
     describeSchedule,
     formatCountdown,
     formatSpan,
-} from '@/components/countdown/runner-display';
+    type RunnerClock,
+    type RunnerProjectionEntry,
+    type RunnerState,
+    type RunnerStep,
+} from '@family-organizer/shared-core';
 
 const T0 = new Date('2026-03-31T10:00:00').getTime();
 const MIN = 60_000;

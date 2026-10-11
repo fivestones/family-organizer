@@ -17,12 +17,6 @@ import {
     TrendingUp,
     TriangleAlert,
 } from 'lucide-react';
-import type { CountdownSettings } from '@family-organizer/shared-core';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
-import { getPhotoUrl } from '@/lib/photo-urls';
-import { cn } from '@/lib/utils';
-import RadialTimer, { getTimerBackdrop } from './RadialTimer';
 import {
     describeForecast,
     describeGate,
@@ -32,10 +26,16 @@ import {
     describeSchedule,
     formatCountdown,
     formatSpan,
-    getInitials,
+    type CountdownSettings,
     type RunnerPanelMode,
     type RunnerPanelView,
-} from './runner-display';
+} from '@family-organizer/shared-core';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { getPhotoUrl } from '@/lib/photo-urls';
+import { cn } from '@/lib/utils';
+import RadialTimer, { getTimerBackdrop } from './RadialTimer';
+import { getInitials } from './initials';
 import type { CountdownRunnerActions, MemberRunner } from './useCountdownRunner';
 
 // ---------------------------------------------------------------------------
