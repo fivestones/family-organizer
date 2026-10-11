@@ -76,6 +76,7 @@ Two-layer auth:
 
 **Key components to know:**
 - `ChoresTracker.tsx` / `ChoreList.tsx` — the core chore UI; chore display, completion toggling, and the `DetailedChoreForm.tsx` dialog for creating/editing chores (rrule picker, rotation, weight, up-for-grabs, reward type/currency, date preview).
+- `MainNav.tsx` — the header navigation. `NAV_ENTRIES` is the single list of pages: a new route gets its link by being added there, as a page of its own or inside a group.
 - `FamilyMembersList.tsx` — member management with photo upload (crop), drag-and-drop reorder (Atlaskit PDND), role and PIN configuration.
 - `TaskSeriesChecklist.tsx` — renders the rolling-queue task list inside a chore row, including nested sub-tasks, file/note previews, and a completion fireworks animation.
 - `components/allowance/MemberAllowanceDetail.tsx` — the full envelope finance UI for one member (the largest single component at ~61KB).

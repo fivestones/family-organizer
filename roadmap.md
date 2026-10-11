@@ -161,7 +161,9 @@ The old plan's file-by-file instructions were written before the schedule engine
 
 Left open by the July audits as product decisions; chosen on 11 October 2026 as the three worth doing next.
 
-- [ ] **Nav grouping** ([audit part 8](docs/audit-2026-07-task-series-login-nav.md)). Twelve top-level links collapse into an unlabeled overflow menu on a tablet in portrait. Group them — Chores/Tasks · Calendar · Money · Admin — so the common four stay visible. This is a wall-tablet app, so it costs something every day.
+- [x] **Nav grouping** ([audit part 8](docs/audit-2026-07-task-series-login-nav.md)). Twelve top-level links collapse into an unlabeled overflow menu on a tablet in portrait. Group them — Chores/Tasks · Calendar · Money · Admin — so the common four stay visible. This is a wall-tablet app, so it costs something every day.
+  - Fourteen links are now six entries: Dashboard · Chores ▾ · Calendar · Money ▾ · Messages · Admin ▾. A group's label is still a link to its everyday page (Chores, Finance), so nothing common costs a second tap; the chevron holds the rest. Whatever does not fit goes into a menu that keeps the group headings. Routines, which had no link at all, is under Chores.
+  - **(you)** Not seen in a browser. Say whether Dashboard and Messages belong at the top level, and whether the order is right.
 - [ ] **Parent review inbox with a nav badge** ([audit part 8](docs/audit-2026-07-task-series-login-nav.md)). Every `needs_review` item across all series on one screen, with one-tap approve and grade. `TaskBinsReview` is close but is series-centric rather than "what needs me now"-centric; a badge count on the Task Series nav entry closes the loop.
 - [ ] **A Claim state for up-for-grabs chores** ([chores audit §6](docs/audit-2026-07-chores.md)). Claimed → doing → done, instead of instant completion. It removes the race at the UX level rather than only at the data level, where deterministic completion IDs already converge concurrent claims, and it lets a parent see who committed to what. Build it after [Scope 3](#scope-3--the-correctness-sweep)'s up-for-grabs work so the two do not fight over the same screens.
 
