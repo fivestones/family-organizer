@@ -850,6 +850,10 @@ function ChoreList({
                             }
                         }
                     }
+                    // For the person who did it, a claimed chore is finished, not unavailable.
+                    // It is only out of reach for whoever else is being viewed.
+                    const claimedByAnotherMember =
+                        upForGrabsCompletedByOther && selectedMember !== 'All' && selectedMember !== completerIdActual;
                     // --- End Check ---
 
                     // --- Determine visibility of details ---
@@ -966,7 +970,7 @@ function ChoreList({
                                     type="button"
                                     onClick={() => handleOpenChoreDetails(chore.id)}
                                     className={`truncate text-left font-medium transition-colors hover:text-sky-700 hover:underline ${
-                                        upForGrabsCompletedByOther && selectedMember !== 'All' ? 'text-muted-foreground line-through' : ''
+                                        claimedByAnotherMember ? 'text-muted-foreground line-through' : ''
                                     }`}
                                 >
                                     {chore.title}
@@ -1005,11 +1009,17 @@ function ChoreList({
                                     return <CountdownPill slot={sorted[0].slot} />;
                                 })()}
                                 {/* +++ ADDED: Up for Grabs Label +++ */}
-                                {chore.isUpForGrabs && (
-                                    <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 border border-green-200">
-                                        Up for Grabs
-                                    </span>
-                                )}
+                                {chore.isUpForGrabs &&
+                                    (upForGrabsCompletedByOther ? (
+                                        // Say who has it, so nobody has to tap a greyed-out avatar to find out.
+                                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 border border-slate-200">
+                                            Claimed by {completerName}
+                                        </span>
+                                    ) : (
+                                        <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 border border-green-200">
+                                            Up for Grabs
+                                        </span>
+                                    ))}
                                 {hasTaskSeries && pageMode === 'chores' && (
                                     <Link
                                         href={buildTasksHref(chore.id)}

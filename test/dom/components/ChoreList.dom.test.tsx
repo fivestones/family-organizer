@@ -626,4 +626,39 @@ describe('ChoreList', () => {
         renderChoreList({ countdownTimelines, selectedDateKey: '2026-04-02', todayDateKey: '2026-04-03' });
         expect(screen.queryAllByTitle(/60s duration/)).toHaveLength(0);
     });
+    describe('a claimed up-for-grabs chore', () => {
+        const claimed = () =>
+            makeChore({
+                title: 'Take out bins',
+                isUpForGrabs: true,
+                assignees: [
+                    { id: 'kid-a', name: 'Alex' },
+                    { id: 'kid-b', name: 'Blair' },
+                ],
+                completions: [{ id: 'claim', completed: true, dateDue: '2026-04-02', completedBy: { id: 'kid-b' } }],
+            });
+        const title = () => screen.getAllByRole('button', { name: 'Take out bins' })[0];
+
+        it('is struck through for the person who can no longer do it, and says who did', () => {
+            renderChoreList({ chores: [claimed()], selectedMember: 'kid-a' });
+
+            expect(title().className).toContain('line-through');
+            expect(screen.getAllByText('Claimed by Blair').length).toBeGreaterThan(0);
+            expect(screen.queryByText('Up for Grabs')).not.toBeInTheDocument();
+        });
+
+        it('reads as done, not unavailable, in the list of the person who did it', () => {
+            renderChoreList({ chores: [claimed()], selectedMember: 'kid-b' });
+
+            expect(title().className).not.toContain('line-through');
+            expect(screen.getAllByText('Claimed by Blair').length).toBeGreaterThan(0);
+        });
+
+        it('still advertises an unclaimed chore', () => {
+            renderChoreList({ chores: [{ ...claimed(), completions: [] }], selectedMember: 'kid-a' });
+
+            expect(title().className).not.toContain('line-through');
+            expect(screen.getAllByText('Up for Grabs').length).toBeGreaterThan(0);
+        });
+    });
 });

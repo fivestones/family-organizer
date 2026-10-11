@@ -484,9 +484,9 @@ const ToggleableAvatar = ({
                     isReadOnly && 'opacity-70 cursor-not-allowed'
                 )}
                 aria-disabled={isDisabled || isReadOnly}
-                title={isReadOnly ? readOnlyReason : undefined}
-                // +++ Disable the underlying button semantics +++
-                disabled={isDisabled}
+                title={isReadOnly ? readOnlyReason : isDisabled && completerName ? `Completed by ${completerName}` : undefined}
+                // Deliberately not natively disabled: a disabled button swallows the tap,
+                // and the tap is how someone finds out who already did the chore.
             >
                 {/* --- Sparkles/Lightning Portal --- */}
                 {/* By moving this to a Portal, we break out of the overflow:hidden/scroll containers of the list */}

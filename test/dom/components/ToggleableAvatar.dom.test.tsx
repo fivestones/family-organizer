@@ -72,3 +72,28 @@ describe('ToggleableAvatar read-only state', () => {
         });
     });
 });
+
+describe('ToggleableAvatar claimed up-for-grabs state', () => {
+    it('says who already did the chore when someone else taps it', async () => {
+        const onToggle = vi.fn();
+        const user = userEvent.setup();
+        mocks.toast.mockClear();
+
+        render(<ToggleableAvatar name="Alex" isComplete={false} isDisabled completerName="Blair" choreTitle="Dishes" onToggle={onToggle} />);
+
+        // The control reads as unavailable but still takes the tap: a natively
+        // disabled button would swallow it, and the explanation with it.
+        const button = screen.getByRole('button');
+        expect(button).toHaveAttribute('aria-disabled', 'true');
+        expect(button).not.toBeDisabled();
+        expect(button).toHaveAttribute('title', 'Completed by Blair');
+
+        await user.click(button);
+
+        expect(onToggle).not.toHaveBeenCalled();
+        expect(mocks.toast).toHaveBeenCalledWith({
+            title: 'Already Completed',
+            description: 'Dishes was completed by Blair.',
+        });
+    });
+});

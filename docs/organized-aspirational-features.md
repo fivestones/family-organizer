@@ -348,5 +348,3 @@ Partially shipped now: the web finance system is already real and broad, and the
 
 - [ ] Up-for-grabs / allowance-distribution bugs:
   - The way chore period allowance distribution info, especially with up-for-grabs items, is shown needs to be arranged more clearly.
-  - When an up-for-grabs chore is done, while it disables it for others, it doesn’t give them a message about who has already done it.
-  - When an up-for-grabs chore is done, and you are viewing the chore list of the person who completed it, its name shouldn’t be struck through, as it’s a completed task for them, not an unavailable one.
