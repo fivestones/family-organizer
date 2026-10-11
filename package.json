@@ -29,9 +29,9 @@
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.7",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "^1.1.0",
     "@atlaskit/pragmatic-drag-and-drop-react-drop-indicator": "^3.2.9",
-    "@aws-sdk/client-s3": "^3.940.0",
-    "@aws-sdk/s3-presigned-post": "^3.940.0",
-    "@aws-sdk/s3-request-presigner": "^3.940.0",
+    "@aws-sdk/client-s3": "^3.1149.0",
+    "@aws-sdk/s3-presigned-post": "^3.1149.0",
+    "@aws-sdk/s3-request-presigner": "^3.1149.0",
     "@date-fns/utc": "^2.1.1",
     "@instantdb/admin": "^0.22.143",
     "@instantdb/core": "^0.22.143",
@@ -68,14 +68,14 @@
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
     "dompurify": "^3.3.3",
-    "fast-xml-parser": "^5.4.2",
+    "fast-xml-parser": "^5.11.2",
     "file-type": "^21.3.2",
     "formidable": "^3.5.2",
     "ical.js": "^2.2.1",
     "lucide-react": "^0.437.0",
-    "minio": "^8.0.6",
+    "minio": "^8.0.7",
     "nepali-date-converter": "^3.4.0",
-    "next": "^16.0.6",
+    "next": "^16.4.0",
     "pdfjs-dist": "^4.4.168",
     "prosemirror-state": "^1.4.4",
     "react": "^18.3.1",
@@ -104,13 +104,19 @@
     "@types/react": "18.2.47",
     "@types/react-dom": "18.2.18",
     "@types/rrule": "^2.1.7",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^4.1.11",
     "autoprefixer": "^10.4.20",
     "jsdom": "^28.1.0",
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.3.3",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "canvas": {
+      "@mapbox/node-pre-gyp": "^2.0.3"
+    },
+    "tar": "^7.5.22"
   }
 }

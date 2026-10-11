@@ -45,12 +45,14 @@ Status marks: `[ ]` not started · `[~]` partly done, with a note saying what is
 
 [docs/dependency-maintenance.md](docs/dependency-maintenance.md) defines the checks and records the updates. Deprecation warnings and security advisories are tracked separately; the first item takes priority over product work.
 
-- [ ] **Resolve critical audit findings.** Patch Next.js, XML parsing (including inherited copies), Vitest/coverage, and the `tar` and `shell-quote` dependency chains. Verify with a fresh audit, typechecks, tests and a production build.
+- [x] **Resolve critical audit findings.** Patch Next.js, XML parsing (including inherited copies), Vitest/coverage, and the `tar` and `shell-quote` dependency chains. Verify with a fresh audit, typechecks, tests and a production build.
+  - Completed 12 October 2026: zero critical findings in the whole-monorepo audit; 1,074 tests, typechecking, the Node 20 Docker build and container/worker smoke checks passed. Versions and the temporary install-helper override are recorded in the specification's implementation log.
 - [ ] **Review and resolve the remaining web/server security findings.** Prioritize reachable production code, then build/test tooling; record any remaining advisory with its dependency path and reason.
 - [ ] **Exclude mobile tooling from the Docker install.** Install the root web app and required shared workspaces without Expo/React Native; verify the standalone website and calendar worker still build and run.
 - [ ] **Remove unused dependencies.** Start with `react-beautiful-dnd`, checking source usage before removal and retaining the existing Pragmatic Drag and Drop behavior.
 - [ ] **Modernize the PDF dependency chain.** Remove the obsolete optional `canvas` install chain; keep PDF preview/highlighting and the served worker compatible, and verify a real document in the browser.
 - [ ] **Upgrade Expo/React Native together.** Follow the Expo compatibility matrix, rerun mobile typechecks/lint/bundling, and leave device checks explicitly for David.
+- [ ] **Retire framework deprecations.** Plan the web app's React 19 upgrade and Next's `middleware` → `proxy` migration, checking component-library compatibility and preserving device authorization before implementation. Both warnings appeared in the patched Docker build.
 
 ---
 
