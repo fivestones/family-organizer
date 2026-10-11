@@ -27,6 +27,33 @@ export function calculateEditableAllowanceTotal(
     return editablePeriodTotal + fixedRewardsInPrimaryCurrency;
 }
 
+/**
+ * Split what one period pays into the member's allowance currency and every
+ * other unit earned. A fixed reward in the allowance currency is added to the
+ * (editable) weight-based amount; a reward in any other unit — another
+ * currency, or a non-monetary one such as stars — is paid alongside it.
+ */
+export function buildPeriodPayoutAmounts(
+    editableAmount: number,
+    fixedRewardsEarned: Readonly<Record<string, number>> | null | undefined,
+    primaryCurrency: string
+): { amount: number; additionalAmountsByCurrency: Record<string, number> } {
+    const primary = primaryCurrency.toUpperCase();
+    let amount = editableAmount;
+    const additionalAmountsByCurrency: Record<string, number> = {};
+
+    for (const [currency, reward] of Object.entries(fixedRewardsEarned || {})) {
+        const unit = currency.toUpperCase();
+        if (unit === primary) {
+            amount += reward;
+        } else if (reward !== 0) {
+            additionalAmountsByCurrency[unit] = (additionalAmountsByCurrency[unit] || 0) + reward;
+        }
+    }
+
+    return { amount, additionalAmountsByCurrency };
+}
+
 export type AllowanceAmountWarning = {
     kind: 'direction-change' | 'zero-baseline' | 'tenfold-increase';
     calculatedAmount: number;

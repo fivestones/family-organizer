@@ -116,7 +116,8 @@ Everything above this line in Scope 2 is built. None of it has been run in a bro
 
 Four of these are filed in [the idea backlog](docs/organized-aspirational-features.md) under "Bugs, Correctness Issues, and Behavior Gaps", which is the wrong place for them — they are defects, not aspirations. The fifth resolves a flag that currently does nothing. Small, bounded, and worth clearing before anything larger starts.
 
-- [ ] **Non-monetary up-for-grabs rewards are never deposited.** They appear in the allowance-distribution calculation but no deposit follows, while monetary rewards pay correctly. This is money that is earned and not paid, so it leads the scope.
+- [x] **Non-monetary up-for-grabs rewards are never deposited.** They appear in the allowance-distribution calculation but no deposit follows, while monetary rewards pay correctly. This is money that is earned and not paid, so it leads the scope.
+  - Already fixed when this was written: the July finance audit paid fixed rewards in every earned unit ([§1.4](docs/audit-2026-07-finance-allowance.md)), and a non-monetary unit is paid the same way as a foreign currency. Checked on 11 October 2026 from the calculation through to the ledger write. The one untested link — the page splitting a period into its allowance amount and its other units — is now a single helper with tests, used by both payout buttons.
 - [ ] **`familyMemberDetail` Total Balance hangs when a unit is undefined.** Create a currency with no exchange rate or type, deposit money in it, and Total Balance never finishes loading. Needs a defined behavior for an undefined unit rather than an unresolved promise.
 - [ ] **Up-for-grabs completion tells the truth to everyone.**
   - A kid who finds the chore disabled is told who claimed it, instead of just being blocked.

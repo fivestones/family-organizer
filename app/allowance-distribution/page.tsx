@@ -26,6 +26,7 @@ import { requestFinanceMutation } from '@/lib/finance-mutation-client';
 import type { AtomicAllowancePayoutResult } from '@/lib/allowance-payout';
 import {
     addProcessedPeriodIds,
+    buildPeriodPayoutAmounts,
     calculateEditableAllowanceTotal,
     excludeProcessedPeriods,
     getAllowanceAmountWarning,
@@ -505,13 +506,11 @@ export default function AllowanceDistributionPage() {
             return;
         }
 
-        // Calculate total for this period including fixed rewards in primary currency
-        const fixedRewardThisPeriodPrimary = period.fixedRewardsEarned?.[primaryCurrency.toUpperCase()] || 0;
-        const finalPeriodTotal = editableAmount + fixedRewardThisPeriodPrimary;
-        const additionalAmountsByCurrency = Object.fromEntries(
-            Object.entries(period.fixedRewardsEarned || {}).filter(
-                ([currency, amount]) => currency.toUpperCase() !== primaryCurrency.toUpperCase() && amount !== 0
-            )
+        // Fixed rewards in the allowance currency join the period total; any other unit is paid alongside it.
+        const { amount: finalPeriodTotal, additionalAmountsByCurrency } = buildPeriodPayoutAmounts(
+            editableAmount,
+            period.fixedRewardsEarned,
+            primaryCurrency
         );
 
         const description = `Allowance distribution for period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}`;
@@ -624,18 +623,11 @@ export default function AllowanceDistributionPage() {
                     if (!Number.isFinite(editableAmount)) {
                         throw new Error(`Enter a valid amount for the period ending ${format(period.periodEndDate, 'yyyy-MM-dd')}.`);
                     }
-                    const primaryFixedReward = period.fixedRewardsEarned?.[currency.toUpperCase()] || 0;
-                    const additionalAmountsByCurrency = Object.fromEntries(
-                        Object.entries(period.fixedRewardsEarned || {}).filter(
-                            ([rewardCurrency, amount]) => rewardCurrency.toUpperCase() !== currency.toUpperCase() && amount !== 0
-                        )
-                    );
                     return {
                         id: period.id,
                         periodStartDate: period.periodStartDate,
                         periodEndDate: period.periodEndDate,
-                        amount: editableAmount + primaryFixedReward,
-                        additionalAmountsByCurrency,
+                        ...buildPeriodPayoutAmounts(editableAmount, period.fixedRewardsEarned, currency),
                         completionsToMark: period.completionsToMark,
                         description,
                     };
