@@ -47,6 +47,34 @@ export function renderStarCount(numericValue: number, highValue: number): number
     return Math.round(Math.max(0, Math.min(highValue, numericValue)));
 }
 
+export interface QuickGradeOption {
+    label: string;
+    numericValue: number;
+}
+
+/**
+ * The grades that can be given with a single tap: every step of a letter
+ * scale, or every star count. A numeric or freeform scale has no short list
+ * of answers, so it offers none and is graded from the full panel instead.
+ */
+export function getQuickGradeOptions(gradeType: GradeTypeLike | null | undefined): QuickGradeOption[] {
+    if (!gradeType) return [];
+    if (gradeType.kind === 'letter') {
+        return [...(gradeType.steps || [])]
+            .sort((a, b) => b.value - a.value)
+            .map((step) => ({ label: step.label, numericValue: step.value }));
+    }
+    if (gradeType.kind === 'stars') {
+        const highest = Math.min(10, Math.max(0, Math.round(gradeType.highValue)));
+        const lowest = Math.max(1, Math.round(gradeType.lowValue));
+        return Array.from({ length: Math.max(0, highest - lowest + 1) }, (_, index) => {
+            const stars = highest - index;
+            return { label: `${stars}★`, numericValue: stars };
+        });
+    }
+    return [];
+}
+
 /**
  * Get the default grade type from a list, or null if none.
  */

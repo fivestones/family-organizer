@@ -122,3 +122,17 @@ describe('normalizeGrade', () => {
         expect(normalizeGrade(5, starType)).toBe(1);
     });
 });
+
+describe('getQuickGradeOptions', () => {
+    const base = { id: 'g', name: 'G', highValue: 5, lowValue: 1, highLabel: '', lowLabel: '', isDefault: true, order: 0 };
+
+    it('offers every letter step from the top down, every star count, and nothing for open scales', async () => {
+        const { getQuickGradeOptions } = await import('@/lib/grade-utils');
+        expect(
+            getQuickGradeOptions({ ...base, kind: 'letter', steps: [{ label: 'B', value: 80 }, { label: 'A', value: 90 }] }).map((o) => o.label),
+        ).toEqual(['A', 'B']);
+        expect(getQuickGradeOptions({ ...base, kind: 'stars' }).map((o) => o.numericValue)).toEqual([5, 4, 3, 2, 1]);
+        expect(getQuickGradeOptions({ ...base, kind: 'number' })).toEqual([]);
+        expect(getQuickGradeOptions(null)).toEqual([]);
+    });
+});

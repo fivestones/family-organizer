@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/components/AuthProvider';
 import {
+    ClipboardCheck,
     AlertCircle,
     ArrowLeft,
     Bell,
@@ -49,6 +50,7 @@ import {
     type TaskWorkflowState,
 } from '@/lib/task-progress';
 import {
+    getReviewQueue,
     buildTaskBinEntries,
     sortTaskBinEntries,
     groupByAttention,
@@ -63,6 +65,7 @@ import {
     buildClearNotedTransactions,
 } from '@/lib/task-update-mutations';
 import { TaskUpdatePanel, type TaskUpdatePanelSubmission } from '@/components/task-updates/TaskUpdatePanel';
+import { getDefaultGradeType, getQuickGradeOptions, type QuickGradeOption } from '@/lib/grade-utils';
 import { UpdateHistory } from '@/components/task-updates/UpdateHistory';
 import { AttachmentThumbnailRow } from '@/components/attachments/AttachmentThumbnail';
 import { getLocalDateKey, getTodayKey } from '@family-organizer/shared-core';
@@ -131,7 +134,9 @@ export const TaskBinsReview: React.FC = () => {
     const [sort, setSort] = useState<TaskBinSort>('status');
     const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
     const [showFilters, setShowFilters] = useState(!!initialSeriesId);
-    const [view, setView] = useState<'attention' | 'all'>(initialSeriesId ? 'all' : 'attention');
+    const [view, setView] = useState<'review' | 'attention' | 'all'>(
+        searchParams.get('view') === 'review' ? 'review' : initialSeriesId ? 'all' : 'attention'
+    );
 
     // ---- Queries ----
     const { data, isLoading } = db.useQuery({
@@ -161,7 +166,7 @@ export const TaskBinsReview: React.FC = () => {
     // ---- Build entries ----
     // In "All Tasks" view, always include noted tasks regardless of the filter toggle.
     const effectiveFilters = useMemo(
-        () => (view === 'all' ? { ...filters, showNoted: true } : filters),
+        () => (view === 'attention' ? filters : { ...filters, showNoted: true }),
         [filters, view]
     );
     const entries = useMemo(
@@ -170,8 +175,16 @@ export const TaskBinsReview: React.FC = () => {
     );
     const sorted = useMemo(() => sortTaskBinEntries(entries, sort), [entries, sort]);
     const { needsAttention, all } = useMemo(() => groupByAttention(sorted), [sorted]);
+    // The review queue ignores the status filter: it is its own status, and it
+    // should say how much is waiting whichever view is open.
+    const reviewQueue = useMemo(
+        () => getReviewQueue(buildTaskBinEntries(tasks as any[], { ...filters, status: 'all', showNoted: true })),
+        [tasks, filters]
+    );
 
-    const visibleEntries = view === 'attention' ? needsAttention : all;
+    const visibleEntries = view === 'review' ? reviewQueue : view === 'attention' ? needsAttention : all;
+    const quickGradeType = useMemo(() => getDefaultGradeType(gradeTypes as any[]), [gradeTypes]);
+    const quickGradeOptions = useMemo(() => getQuickGradeOptions(quickGradeType), [quickGradeType]);
 
     // ---- Status counts for badges ----
     const statusCounts = useMemo(() => {
@@ -287,6 +300,24 @@ export const TaskBinsReview: React.FC = () => {
 
                 {/* View tabs */}
                 <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+                    <button
+                        type="button"
+                        onClick={() => setView('review')}
+                        className={cn(
+                            'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
+                            view === 'review'
+                                ? 'bg-white text-slate-900 shadow-sm'
+                                : 'text-slate-500 hover:text-slate-700'
+                        )}
+                    >
+                        <ClipboardCheck className="h-3.5 w-3.5" />
+                        To Review
+                        {reviewQueue.length > 0 && (
+                            <span className="rounded-full bg-violet-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                {reviewQueue.length}
+                            </span>
+                        )}
+                    </button>
                     <button
                         type="button"
                         onClick={() => setView('attention')}
@@ -482,12 +513,18 @@ export const TaskBinsReview: React.FC = () => {
                         <Check className="h-6 w-6 text-emerald-600" />
                     </div>
                     <h3 className="mt-4 text-sm font-semibold text-slate-700">
-                        {view === 'attention' ? 'Nothing needs attention' : 'No tasks match filters'}
+                        {view === 'review'
+                            ? 'Nothing is waiting for you'
+                            : view === 'attention'
+                              ? 'Nothing needs attention'
+                              : 'No tasks match filters'}
                     </h3>
                     <p className="mt-1 text-xs text-slate-500">
-                        {view === 'attention'
-                            ? 'All tasks are on track. Switch to "All Tasks" to see everything.'
-                            : 'Try adjusting your filters to see more tasks.'}
+                        {view === 'review'
+                            ? 'Work handed in for review shows up here, across every series.'
+                            : view === 'attention'
+                              ? 'All tasks are on track. Switch to "All Tasks" to see everything.'
+                              : 'Try adjusting your filters to see more tasks.'}
                     </p>
                 </div>
             ) : (
@@ -520,6 +557,27 @@ export const TaskBinsReview: React.FC = () => {
                                     handleUpdateTask(entry.task.id, submission)
                                 }
                                 onNote={handleNote}
+                                quickReview={
+                                    view === 'review'
+                                        ? {
+                                              gradeOptions: quickGradeOptions,
+                                              onApprove: (option) =>
+                                                  handleUpdateTask(entry.task.id, {
+                                                      nextState: 'done',
+                                                      responseFieldValues: [],
+                                                      grade:
+                                                          option && quickGradeType
+                                                              ? {
+                                                                    numericValue: option.numericValue,
+                                                                    displayValue: option.label,
+                                                                    gradeTypeId: quickGradeType.id,
+                                                                    isProvisional: false,
+                                                                }
+                                                              : null,
+                                                  }),
+                                          }
+                                        : undefined
+                                }
                             />
                         );
                     })}
@@ -542,6 +600,11 @@ interface TaskBinCardProps {
     ownerName: string | null;
     onUpdate: (submission: TaskUpdatePanelSubmission) => Promise<void>;
     onNote: (taskId: string, mode: 'indefinite' | 'date' | 'clear', untilDate?: string) => Promise<void>;
+    /** One-tap approval, shown on the card itself in the review queue. */
+    quickReview?: {
+        gradeOptions: QuickGradeOption[];
+        onApprove: (grade?: QuickGradeOption) => Promise<void>;
+    };
 }
 
 const TaskBinCard: React.FC<TaskBinCardProps> = ({
@@ -552,7 +615,18 @@ const TaskBinCard: React.FC<TaskBinCardProps> = ({
     ownerName,
     onUpdate,
     onNote,
+    quickReview,
 }) => {
+    const [isApproving, setIsApproving] = useState(false);
+    const approve = async (grade?: QuickGradeOption) => {
+        if (!quickReview || isApproving) return;
+        setIsApproving(true);
+        try {
+            await quickReview.onApprove(grade);
+        } finally {
+            setIsApproving(false);
+        }
+    };
     const { task, latestUpdate, seriesName, isNoted, lateness } = entry;
     const currentState = getTaskWorkflowState(task) as TaskWorkflowState;
     const actorName = latestUpdate ? getTaskUpdateActorName(latestUpdate) : null;
@@ -637,6 +711,42 @@ const TaskBinCard: React.FC<TaskBinCardProps> = ({
                     )}
                 </div>
             </button>
+
+            {/* One tap to approve, with or without a grade. Anything more goes through the panel below. */}
+            {quickReview && (
+                <div
+                    className="flex flex-wrap items-center gap-2 border-t border-violet-100 bg-violet-50/50 px-4 py-2.5"
+                    data-testid={`quick-review-${task.id}`}
+                >
+                    <Button
+                        size="sm"
+                        disabled={isApproving}
+                        onClick={() => approve()}
+                        className="h-8 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                    >
+                        <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                        Approve
+                    </Button>
+                    {quickReview.gradeOptions.length > 0 && (
+                        <>
+                            <span className="text-[11px] text-slate-500">or approve with</span>
+                            {quickReview.gradeOptions.map((option) => (
+                                <button
+                                    key={option.label}
+                                    type="button"
+                                    disabled={isApproving}
+                                    onClick={() => approve(option)}
+                                    aria-label={`Approve ${task.text} with ${option.label}`}
+                                    className="h-8 min-w-8 rounded-full border border-violet-200 bg-white px-2.5 text-xs font-semibold text-violet-700 transition-colors hover:border-violet-400 hover:bg-violet-100 disabled:opacity-50"
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </>
+                    )}
+                    {ownerName && <span className="ml-auto text-[11px] text-slate-500">{ownerName}</span>}
+                </div>
+            )}
 
             {/* Expanded detail panel */}
             {isExpanded && (

@@ -2,4 +2,4 @@
 
 Claim an item here before starting it, and release it when you stop. One line per session.
 
-- Claude (roadmap session, 11 October 2026): nothing claimed. [Scope 2](../roadmap.md#scope-2--the-countdown-redesign) is built end to end — 2.1 to 2.5 — and its schema is on the hosted app. What is left in it is [2.6](../roadmap.md#26-checks-for-you), the checks only David can do, which now include deleting the hosted `choreManualStarts` after the new build is deployed. Nothing in it has been run in a browser or on a device. [Scope 3](../roadmap.md#scope-3--the-correctness-sweep) is the next unstarted work.
+- Claude (roadmap session, 11 October 2026): nothing claimed; the session ended at its usage limit. Scope 2 is built (2.6 is David's checks). Scope 3 is done bar two decisions for David. Scope 4 is audited and waits on the two questions in its plan. Scope 5: nav grouping done; the review inbox is built except its nav badge; the up-for-grabs Claim state is not started. Nothing has been run in a browser or on a device.

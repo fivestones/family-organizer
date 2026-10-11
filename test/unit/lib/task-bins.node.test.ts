@@ -90,3 +90,20 @@ describe('buildTaskBinEntries', () => {
         expect(grouped.all).toHaveLength(1);
     });
 });
+
+describe('review queue', () => {
+    it('lists submitted work across series, longest-waiting first, and counts it', async () => {
+        const { getReviewQueue, countTasksNeedingReview } = await import('@/lib/task-bins');
+        const tasks: TaskBinTask[] = [
+            makeTask('newer', { workflowState: 'needs_review', updates: [{ id: 'u2', createdAt: '2026-03-20T10:00:00Z' } as any] }),
+            makeTask('older', { workflowState: 'needs_review', updates: [{ id: 'u1', createdAt: '2026-03-19T10:00:00Z' } as any] }),
+            makeTask('done', { workflowState: 'done', isCompleted: true }),
+            makeTask('todo'),
+            makeTask('break', { workflowState: 'needs_review', isDayBreak: true }),
+        ];
+
+        const queue = getReviewQueue(buildTaskBinEntries(tasks, { showNoted: true }, '2026-03-20'));
+        expect(queue.map((entry) => entry.task.id)).toEqual(['older', 'newer']);
+        expect(countTasksNeedingReview(tasks)).toBe(2);
+    });
+});

@@ -214,6 +214,23 @@ export function sortTaskBinEntries(entries: TaskBinEntry[], sort: TaskBinSort): 
 }
 
 /**
+ * Everything a child has handed in and a parent has not yet looked at, the
+ * longest-waiting first. This is "what needs me now" — unlike "needs
+ * attention", which is about lateness, it is about a submission sitting
+ * unanswered, so a noted task still belongs here.
+ */
+export function getReviewQueue(entries: TaskBinEntry[]): TaskBinEntry[] {
+    return entries
+        .filter((entry) => !entry.task.isDayBreak && getTaskWorkflowState(entry.task) === 'needs_review')
+        .sort((a, b) => getUpdateTime(a.latestUpdate) - getUpdateTime(b.latestUpdate));
+}
+
+/** How many tasks are waiting for review, for the navigation badge. */
+export function countTasksNeedingReview(tasks: Array<Pick<TaskBinTask, 'workflowState' | 'isDayBreak' | 'isCompleted'>>): number {
+    return tasks.filter((task) => !task.isDayBreak && getTaskWorkflowState(task) === 'needs_review').length;
+}
+
+/**
  * Groups entries into "needs attention" (late, not noted) and "all".
  */
 export function groupByAttention(entries: TaskBinEntry[]) {
