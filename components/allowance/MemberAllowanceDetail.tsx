@@ -41,7 +41,6 @@ import {
     withdrawFromEnvelope,
     transferFundsToPerson,
     fetchExternalExchangeRates,
-    getExchangeRate,
     setLastDisplayCurrencyPref,
     CachedExchangeRate,
     UnitDefinition,
@@ -52,6 +51,7 @@ import {
     reconcileEnvelopes,
 } from '@/lib/currency-utils';
 import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
+import { calculateCombinedBalance, claimRateRefresh } from '@/lib/combined-balance';
 
 // +++ NEW IMPORTS +++
 import { useAuth } from '@/components/AuthProvider';
@@ -150,6 +150,8 @@ export default function MemberAllowanceDetail({
     // const itemSelectedRef = useRef(false);
     const [hasFetchedInitialPrefs, setHasFetchedInitialPrefs] = useState(false);
     const [combinedValue, setCombinedValue] = useState<number | null>(null);
+    /** When each currency pair was last sent for a background rate refresh. */
+    const rateRefreshAttempts = useRef(new Map<string, number>());
     const [tooltipLines, setTooltipLines] = useState<string[]>([]);
     const [nonMonetaryBalances, setNonMonetaryBalances] = useState<{ [c: string]: number }>({});
 
@@ -432,81 +434,33 @@ export default function MemberAllowanceDetail({
         setNonMonetaryBalances({});
 
         const calculate = async () => {
-            let combinedTotal = 0;
-            const lines: string[] = [];
-            const nonMonetary: { [c: string]: number } = {};
-            let needsApiFetch = false;
-            const unitDefMap = new Map(unitDefinitions.map((def) => [def.code.toUpperCase(), def]));
+            const result = await calculateCombinedBalance({
+                db,
+                totalBalances,
+                displayCurrency: selectedDisplayCurrency,
+                unitDefinitions,
+                cachedRates: allCachedRates,
+                signal,
+            });
+            if (!result || signal.aborted) return;
 
-            for (const code in totalBalances) {
-                if (signal.aborted) return; // Check for abort
-                const amount = totalBalances[code];
-                if (amount === 0) continue;
+            // The figure is complete as soon as the cached rates have been applied.
+            // A unit with no rate is shown apart from the total rather than waited for,
+            // so nothing after this point may hold the display on "Calculating…".
+            setCombinedValue(result.combinedTotal);
+            setTooltipLines(result.lines);
+            setNonMonetaryBalances(result.separateBalances);
+            setIsLoadingRates(false);
 
-                const definition = unitDefMap.get(code.toUpperCase());
-                // Determine if monetary (definition first, then fallback)
-                const isMonetary = definition?.isMonetary ?? code.length === 3;
-
-                if (isMonetary) {
-                    const rateResult = await getExchangeRate(db, code, selectedDisplayCurrency, allCachedRates);
-                    if (signal.aborted) return; // Check for abort
-
-                    if (rateResult.rate !== null) {
-                        const convertedAmount = amount * rateResult.rate;
-                        combinedTotal += convertedAmount;
-
-                        // Add tooltip line based on how the rate was obtained
-                        const formattedOriginal = formatBalances({ [code]: amount }, unitDefinitions);
-                        const formattedConverted = formatBalances({ [selectedDisplayCurrency]: convertedAmount }, unitDefinitions);
-                        let sourceText = '';
-                        if (rateResult.source === 'identity') sourceText = `already in ${selectedDisplayCurrency}`;
-                        else if (rateResult.source === 'cache') sourceText = `from ${formattedOriginal}`; // removed " (cached rate)" from the end of the string
-                        else if (rateResult.source === 'calculated')
-                            sourceText = `from ${formattedOriginal}`; // removed " (calculated rate)" from the edn of the string
-                        else sourceText = `from ${formattedOriginal}`; // Default if source unclear
-
-                        lines.push(`${formattedConverted} ${sourceText}`);
-                    } else {
-                        // Rate unavailable, add note to tooltip
-                        lines.push(`${formatBalances({ [code]: amount }, unitDefinitions)} (rate to ${selectedDisplayCurrency} unavailable)`);
-                    }
-                    if (rateResult.needsApiFetch) {
-                        needsApiFetch = true;
-                    }
-                } else {
-                    nonMonetary[code] = amount;
-                }
-            }
-
-            if (signal.aborted) return; // Check for abort
-
-            // Update state with results
-            setCombinedValue(combinedTotal);
-            setTooltipLines(lines);
-            setNonMonetaryBalances(nonMonetary);
-            console.log('Calculation complete. Combined:', combinedTotal, 'Tooltips:', lines.length, 'Needs Fetch:', needsApiFetch);
-
-            // Trigger API fetch if needed
-            if (needsApiFetch) {
-                console.log('Triggering background API fetch...');
-                //setIsLoadingRates(true); // Already true or will be handled by useQuery refresh
-                try {
-                    const apiData = await fetchExternalExchangeRates();
-                    if (signal.aborted) return;
-                    if (apiData?.rates) console.log('Background exchange-rate refresh complete.');
-                } catch (fetchError: any) {
-                    if (fetchError.name !== 'AbortError') {
-                        console.error('Error during background rate fetch:', fetchError);
-                        toast({ title: 'Error', description: 'Could not update exchange rates.', variant: 'destructive' });
-                        setIsLoadingRates(false); // Stop loading on error only if fetch fails
-                    } else {
-                        console.log('Background fetch aborted.');
-                    }
-                } finally {
-                    // setIsLoadingRates(false); // Let useQuery handle final loading state
-                }
-            } else {
-                setIsLoadingRates(false);
+            // Refreshing rates is background work. New rates arrive through the
+            // live query and recalculate the figure by themselves.
+            if (claimRateRefresh(result.pairsNeedingRefresh, rateRefreshAttempts.current).length === 0) return;
+            try {
+                await fetchExternalExchangeRates();
+            } catch (fetchError: any) {
+                if (signal.aborted || fetchError.name === 'AbortError') return;
+                console.error('Error during background rate fetch:', fetchError);
+                toast({ title: 'Error', description: 'Could not update exchange rates.', variant: 'destructive' });
             }
         };
 
