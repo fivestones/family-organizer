@@ -1,6 +1,6 @@
 # Family Organizer roadmap
 
-11 October 2026. The ordered list of everything left to build, and where each piece is specified.
+12 October 2026. The ordered list of everything left to build, and where each piece is specified.
 
 This file says **what to do next and how far along it is**. It does not define behavior. Each item links to the document that says when it is done.
 
@@ -14,6 +14,7 @@ This file says **what to do next and how far along it is**. It does not define b
 | [docs/organized-aspirational-features.md](docs/organized-aspirational-features.md) | The unordered idea backlog. Items graduate from there into a numbered scope here once they have a specification |
 | [docs/audit-2026-07-*.md](docs/) | What the July 2026 audits found, fixed, and deliberately left alone. Their implementation logs are the record of what was built |
 | [CLAUDE.md](CLAUDE.md) | Architecture, commands, and conventions |
+| [docs/dependency-maintenance.md](docs/dependency-maintenance.md) | Security updates and deployment dependency cleanup ([Scope 0](#scope-0--dependency-maintenance)) |
 
 **How to use it**
 
@@ -30,12 +31,26 @@ Status marks: `[ ]` not started · `[~]` partly done, with a note saying what is
 
 ## Scopes
 
+0. **Dependency maintenance.** Critical security updates first, at David's request on 12 October 2026; the remaining dependency cleanup follows in the order below.
 1. **Done.** The shipped app and the four July 2026 audits.
 2. **The countdown redesign.** Current work. Specified in full; nothing blocks it.
 3. **The correctness sweep.** The real defects filed in the idea backlog, plus resolving `isJoint`. Small and bounded.
 4. **Chore scheduling extras.** End dates, extra days and breaks. The specification exists but predates two quarters of change, so it is audited before it is followed.
 5. **Promoted audit ideas.** The three the July audits left open that are worth doing next.
 6. **Unscheduled.** Everything else talked through but neither built nor ordered. Items move from here into numbered scopes after David decides where they belong.
+
+---
+
+## Scope 0 — Dependency maintenance
+
+[docs/dependency-maintenance.md](docs/dependency-maintenance.md) defines the checks and records the updates. Deprecation warnings and security advisories are tracked separately; the first item takes priority over product work.
+
+- [ ] **Resolve critical audit findings.** Patch Next.js, XML parsing (including inherited copies), Vitest/coverage, and the `tar` and `shell-quote` dependency chains. Verify with a fresh audit, typechecks, tests and a production build.
+- [ ] **Review and resolve the remaining web/server security findings.** Prioritize reachable production code, then build/test tooling; record any remaining advisory with its dependency path and reason.
+- [ ] **Exclude mobile tooling from the Docker install.** Install the root web app and required shared workspaces without Expo/React Native; verify the standalone website and calendar worker still build and run.
+- [ ] **Remove unused dependencies.** Start with `react-beautiful-dnd`, checking source usage before removal and retaining the existing Pragmatic Drag and Drop behavior.
+- [ ] **Modernize the PDF dependency chain.** Remove the obsolete optional `canvas` install chain; keep PDF preview/highlighting and the served worker compatible, and verify a real document in the browser.
+- [ ] **Upgrade Expo/React Native together.** Follow the Expo compatibility matrix, rerun mobile typechecks/lint/bundling, and leave device checks explicitly for David.
 
 ---
 
