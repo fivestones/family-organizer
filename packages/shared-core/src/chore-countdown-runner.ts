@@ -253,7 +253,7 @@ export function buildRunnerQueue(input: CountdownEngineInput, options: RunnerQue
 
   const plan = options.plan ?? computeCountdownTimelines(input);
   const plannedSlots = new Map(
-    (plan.timelines[personId]?.slots ?? []).filter((slot) => !slot.isResume).map((slot) => [slot.choreId, slot]),
+    (plan.timelines[personId]?.slots ?? []).map((slot) => [slot.choreId, slot]),
   );
 
   const context = buildCountdownTimingContext(input);

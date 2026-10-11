@@ -64,8 +64,6 @@ function makeInput(
         scheduleSettings: overrides.scheduleSettings ?? SCHEDULE,
         now: overrides.now ?? new Date('2026-03-31T07:00:00'), // 7 AM local
         date: overrides.date ?? TEST_DATE,
-        manualStarts: overrides.manualStarts,
-        collisionDecisions: overrides.collisionDecisions,
     };
 }
 
@@ -419,7 +417,7 @@ describe('chore-countdown-engine', () => {
     });
 
     describe('anytime chores', () => {
-        it('excludes anytime chores unless manually started', () => {
+        it('has no slot for an anytime chore, which has nothing to pack against', () => {
             const chore = makeChoreInput({
                 timingMode: 'anytime',
                 timingConfig: { mode: 'anytime' },
@@ -428,26 +426,10 @@ describe('chore-countdown-engine', () => {
             const result = computeCountdownTimelines(makeInput([chore]));
             expect(result.timelines['person-a']).toBeUndefined();
         });
-
-        it('includes anytime chores when manually started', () => {
-            const chore = makeChoreInput({
-                id: 'anytime-chore',
-                timingMode: 'anytime',
-                timingConfig: { mode: 'anytime' },
-            });
-
-            const result = computeCountdownTimelines(
-                makeInput([chore], {
-                    manualStarts: { 'anytime-chore': '2026-03-31T08:00:00' },
-                }),
-            );
-            expect(result.timelines['person-a']?.slots).toHaveLength(1);
-            expect(result.timelines['person-a'].slots[0].scheduleType).toBe('manual');
-        });
     });
 
-    describe('collision detection', () => {
-        it('detects overlap between start-driven and deadline-driven slots', () => {
+    describe('overlapping slots', () => {
+        it('plans a start-driven and a deadline-driven slot where each was meant to be', () => {
             const chores = [
                 // Start-driven: starts at 8:30 + 0 delay, 60 min → 8:30-9:30
                 makeChoreInput({
@@ -478,10 +460,17 @@ describe('chore-countdown-engine', () => {
                 makeInput(chores, { countdownSettings: settings }),
             );
             const timeline = result.timelines['person-a'];
+            const startSlot = timeline.slots.find((s) => s.choreId === 'start-chore')!;
+            const deadlineSlot = timeline.slots.find((s) => s.choreId === 'deadline-chore')!;
 
-            expect(timeline.collisions).toHaveLength(1);
-            expect(timeline.collisions[0].startDrivenChoreId).toBe('start-chore');
-            expect(timeline.collisions[0].deadlineDrivenChoreId).toBe('deadline-chore');
+            // Neither is moved or split around the other, and nothing waits on a
+            // decision: the overlap is the runner's to forecast.
+            expect(startSlot.targetStartMs).toBe(localTimeToMs('08:30'));
+            expect(startSlot.targetEndMs).toBe(localTimeToMs('09:30'));
+            expect(deadlineSlot.targetStartMs).toBe(localTimeToMs('09:05'));
+            expect(deadlineSlot.targetEndMs).toBe(localTimeToMs('09:15'));
+            expect(timeline.slots.map((s) => s.state)).toEqual(['upcoming', 'upcoming']);
+            expect(timeline).not.toHaveProperty('collisions');
         });
     });
 
@@ -551,7 +540,7 @@ describe('chore-countdown-engine', () => {
         });
     });
 
-    describe('target timestamps, manual starts, and stacked chaining', () => {
+    describe('target timestamps and stacked chaining', () => {
         it('populates targetStartMs/targetEndMs equal to initial countdown times when no shift', () => {
             const chore = makeChoreInput({
                 estimatedDurationSecs: 300,
@@ -563,63 +552,6 @@ describe('chore-countdown-engine', () => {
             expect(slot.targetStartMs).toBe(localTimeToMs('09:00') - 300_000);
             expect(slot.countdownStartMs).toBe(slot.targetStartMs);
             expect(slot.countdownEndMs).toBe(slot.targetEndMs);
-        });
-
-        it('manual start shifts effective start and end for a single chore', () => {
-            const chore = makeChoreInput({
-                estimatedDurationSecs: 300,
-                timingConfig: { mode: 'before_time', time: '09:00' },
-            });
-            // Target start is 08:55, target end is 09:00.
-            // Manually start at 08:50 (5 min early).
-            const manualStartIso = '2026-03-31T08:50:00';
-            const result = computeCountdownTimelines(
-                makeInput([chore], { manualStarts: { 'chore-1': manualStartIso } }),
-            );
-            const slot = result.timelines['person-a'].slots[0];
-            const manualMs = new Date(manualStartIso).getTime();
-
-            // Effective times are shifted.
-            expect(slot.countdownStartMs).toBe(manualMs);
-            expect(slot.countdownEndMs).toBe(manualMs + 300_000);
-            // Target times are unchanged.
-            expect(slot.targetStartMs).toBe(localTimeToMs('09:00') - 300_000);
-            expect(slot.targetEndMs).toBe(localTimeToMs('09:00'));
-        });
-
-        it('manual start without completion does not shift stacked successor', () => {
-            // Two stacked chores (brush then bed, same deadline).
-            const chores = [
-                makeChoreInput({
-                    id: 'bed',
-                    estimatedDurationSecs: 60,
-                    sortOrder: 1,
-                }),
-                makeChoreInput({
-                    id: 'brush',
-                    estimatedDurationSecs: 60,
-                    sortOrder: 0,
-                }),
-            ];
-
-            // Manually start brush early but don't complete it.
-            // Bed stays at its target time until brush is completed.
-            const manualStartIso = '2026-03-31T08:57:00';
-            const result = computeCountdownTimelines(
-                makeInput(chores, {
-                    countdownSettings: { ...DEFAULT_COUNTDOWN_SETTINGS, stackBufferSecs: 15 },
-                    manualStarts: { brush: manualStartIso },
-                }),
-            );
-            const brush = result.timelines['person-a'].slots.find((s) => s.choreId === 'brush')!;
-            const bed = result.timelines['person-a'].slots.find((s) => s.choreId === 'bed')!;
-
-            const manualMs = new Date(manualStartIso).getTime();
-            expect(brush.countdownStartMs).toBe(manualMs);
-            expect(brush.countdownEndMs).toBe(manualMs + 60_000);
-            // Bed stays at target — brush isn't completed yet.
-            expect(bed.countdownStartMs).toBe(bed.targetStartMs);
-            expect(bed.countdownEndMs).toBe(bed.targetEndMs);
         });
 
         it('completing a stacked chore late pushes the successor', () => {
@@ -763,30 +695,6 @@ describe('chore-countdown-engine', () => {
             const bCompletedMs = new Date('2026-03-31T08:57:45').getTime();
             expect(slotC.countdownStartMs).toBe(bCompletedMs + 15_000);
             expect(slotC.countdownEndMs).toBe(bCompletedMs + 15_000 + 60_000);
-        });
-
-        it('ignores stale manual start for a completed chore', () => {
-            // A chore was started early via "Start Now", then completed. The
-            // manual start record still exists but should be ignored since the
-            // chore is already done — otherwise the countdown page would show
-            // the chore as hours overdue on its next occurrence.
-            const chore = makeChoreInput({
-                estimatedDurationSecs: 300,
-                timingConfig: { mode: 'before_time', time: '09:00' },
-                memberCompletions: {
-                    'person-a': '2026-03-31T08:56:00',
-                },
-            });
-            const manualStartIso = '2026-03-31T07:00:00'; // stale: 2 hours early
-            const result = computeCountdownTimelines(
-                makeInput([chore], { manualStarts: { 'chore-1': manualStartIso } }),
-            );
-            const slot = result.timelines['person-a'].slots[0];
-
-            // Manual start should be ignored — chore uses target times.
-            expect(slot.countdownStartMs).toBe(slot.targetStartMs);
-            expect(slot.countdownEndMs).toBe(slot.targetEndMs);
-            expect(slot.state).toBe('completed');
         });
 
         it('after_chore chains with buffer (not afterDelay) when anchor completes during countdown', () => {
@@ -992,55 +900,6 @@ describe('chore-countdown-engine', () => {
 
             expect(timeline.warnings.length).toBeGreaterThan(0);
             expect(timeline.warnings[0].severity).toBe('warning');
-        });
-    });
-
-    describe('collision decisions', () => {
-        it('applies deadline_driven_first decision by pushing start-driven chore later', () => {
-            const chores = [
-                makeChoreInput({
-                    id: 'start-chore',
-                    title: 'Long task',
-                    estimatedDurationSecs: 3600,
-                    timingMode: 'after_time',
-                    timingConfig: { mode: 'after_time', time: '08:30' },
-                }),
-                makeChoreInput({
-                    id: 'deadline-chore',
-                    title: 'Quick task',
-                    estimatedDurationSecs: 600,
-                    timingMode: 'before_time',
-                    timingConfig: { mode: 'before_time', time: '09:15' },
-                }),
-            ];
-
-            const settings: CountdownSettings = {
-                ...DEFAULT_COUNTDOWN_SETTINGS,
-                afterAnchorDefaultDelaySecs: 0,
-                stackBufferSecs: 0,
-            };
-            const result = computeCountdownTimelines(
-                makeInput(chores, {
-                    countdownSettings: settings,
-                    collisionDecisions: {
-                        'start-chore:deadline-chore': 'deadline_driven_first',
-                    },
-                }),
-            );
-            const slots = result.timelines['person-a'].slots;
-
-            // Deadline chore should be in its original position (ends at 9:15).
-            const deadlineSlot = slots.find((s) => s.choreId === 'deadline-chore');
-            expect(deadlineSlot).toBeDefined();
-            expect(deadlineSlot!.countdownEndMs).toBe(localTimeToMs('09:15'));
-
-            // Start-driven chore should be pushed to after deadline chore ends.
-            const startSlot = slots.find((s) => s.choreId === 'start-chore');
-            expect(startSlot).toBeDefined();
-            expect(startSlot!.countdownStartMs).toBeGreaterThanOrEqual(deadlineSlot!.countdownEndMs);
-
-            // No unresolved collisions.
-            expect(result.timelines['person-a'].collisions).toHaveLength(0);
         });
     });
 

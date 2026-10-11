@@ -1,12 +1,19 @@
 # Countdown Redesign
 
 **Date:** 2026-08-02
-**Status:** Agreed design, being implemented. Phases 1 to 3 are built; see the implementation log.
+**Status:** Agreed design, being implemented. Phases 1 to 4 are built; see the implementation log.
 **Supersedes:** the countdown behaviour described in `audit-2026-07-chores.md` §5.2.
 
 ---
 
 ## Implementation log
+
+- **2026-10-11 — Completed: the old machinery is removed (phase 4). One hosted deletion is deliberately left.**
+  The planner no longer takes manual starts or collision decisions. `detectCollisions`, `applyCollisionDecisions`, the split/resume `isResume` handling and `CollisionDecisionDialog` are deleted; a start-driven slot and a deadline-driven slot that overlap are now simply both planned, and the runner's forecast says what the overlap costs. The `buffer` and `waiting_decision` slot states are gone from the types, the pill, the sequence graph and the chore list, and `scheduleType` loses `manual`. An `anytime` chore has no plan slot at all; it is the runner that queues it. The engine is 706 lines, down from 903.
+  `autoMarkCompleteOnCountdownEnd` is retired: removed from the settings type, its parser and the settings form. A stored value is ignored.
+  Countdown pills show for today only. The chore form builds its timing config in one place, used by the save path, the live preview and the pre-save lint, so a "between two times" chore is now included in its own overflow warning instead of being silently skipped.
+  `choreManualStarts` is removed from the schema file, the rules file and every call site. **The hosted entity and its rule are still there on purpose.** The build deployed today still writes a manual start when someone presses Start Now, and removing the entity under it would break that button until the new build is live. Deploy first, then push — see the roadmap.
+  Verification: the planner keeps 32 focused tests and 5 golden scenarios (five tests for removed features went with them, and the split scenario became an overlap scenario); 1 new chore-list test and 1 new chore-form regression test — 1,032 local tests in all; `tsc --noEmit` passes.
 
 - **2026-10-11 — Completed and deployed: routines (phase 3).**
   `routines` and `routineSteps` are in the schema and the hosted app. A step is a join row carrying `position`, linked to one routine and one chore and cascading from both, which mirrors `choreAssignments`. Parents manage routines; the family can read them. `chores` gains the optional `hideFromDayList` flag.

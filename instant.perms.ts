@@ -911,25 +911,6 @@ const rules = {
             update: 'isParent',
         },
     },
-    choreManualStarts: {
-        bind: {
-            isKid: "'kid' in auth.ref('$user.type')",
-            isParent: "'parent' in auth.ref('$user.type')",
-            isFamilyPrincipal: "'parent' in auth.ref('$user.type') || 'kid' in auth.ref('$user.type')",
-        },
-        allow: {
-            link: {
-                $default: 'isFamilyPrincipal',
-            },
-            view: 'isFamilyPrincipal',
-            create: 'isFamilyPrincipal',
-            delete: 'isFamilyPrincipal',
-            unlink: {
-                $default: 'isFamilyPrincipal',
-            },
-            update: 'isFamilyPrincipal',
-        },
-    },
     familyRules: {
         bind: {
             isKid: "'kid' in auth.ref('$user.type')",

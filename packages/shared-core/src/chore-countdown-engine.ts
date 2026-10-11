@@ -16,11 +16,9 @@ import type {
   CountdownEngineOutput,
   CountdownSlot,
   CountdownSlotState,
-  CountdownCollision,
   CountdownWarning,
   PersonCountdownTimeline,
   ResolvedCountdownChore,
-  CollisionDecision,
 } from './chore-countdown-types';
 
 // ---------------------------------------------------------------------------
@@ -158,20 +156,9 @@ function resolveChores(input: CountdownEngineInput): ResolvedCountdownChore[] {
     const choreLike = toCountdownTimingChore(chore, input.date);
 
     const timingMode = getChoreTimingMode(choreLike);
-    if (timingMode === 'anytime') {
-      // Anytime chores only participate if manually started.
-      if (input.manualStarts?.[chore.id]) {
-        results.push({
-          input: chore,
-          durationSecs,
-          timingMode,
-          deadlineOffset: null,
-          startAnchorOffset: null,
-          scheduleType: 'start',
-        });
-      }
-      continue;
-    }
+    // An anytime chore has no deadline to pack against and no anchor to start
+    // from, so the plan has no slot for it. The runner queues it all the same.
+    if (timingMode === 'anytime') continue;
 
     const resolved = resolveChoreTimingForDate(choreLike, context);
 
@@ -252,8 +239,7 @@ interface PlacedSlot {
   isJoint: boolean;
   jointParticipantIds: string[];
   deadlineOffset: number | null;
-  scheduleType: 'deadline' | 'start' | 'manual';
-  isResume: boolean;
+  scheduleType: 'deadline' | 'start';
   /** Original sortOrder for tie-breaking. */
   sortOrder: number;
   /** For after_chore slots: the chore ID this slot is anchored to. */
@@ -332,7 +318,6 @@ function packDeadlineDriven(
       jointParticipantIds: chore.input.isJoint ? chore.input.assigneeIds : [],
       deadlineOffset: chore.deadlineOffset,
       scheduleType: 'deadline',
-      isResume: false,
       sortOrder: chore.input.sortOrder ?? Number.MAX_SAFE_INTEGER,
       anchorChoreId: getCountdownAnchorChoreId(chore.input),
     });
@@ -401,9 +386,7 @@ function packStartDriven(
   const choreInputMap = new Map(input.chores.map((c) => [c.id, c]));
 
   for (const chore of startChores) {
-    const afterDelay = chore.timingMode === 'anytime'
-      ? 0
-      : getAfterDelay(chore, input);
+    const afterDelay = getAfterDelay(chore, input);
 
     // For after_chore slots, use the anchor chore's completion timestamp
     // with second precision instead of the minute-truncated offset from the
@@ -439,7 +422,7 @@ function packStartDriven(
 
     const targetEnd = targetStart + chore.durationSecs * 1000;
     // Effective start/end are equal to target at this stage — the chain-shift
-    // pass runs later and may move them based on completions or manual starts.
+    // pass runs later and may move them based on completions.
     const startMs = targetStart;
     const endMs = targetEnd;
 
@@ -455,8 +438,7 @@ function packStartDriven(
       isJoint: chore.input.isJoint,
       jointParticipantIds: chore.input.isJoint ? chore.input.assigneeIds : [],
       deadlineOffset: chore.deadlineOffset,
-      scheduleType: chore.timingMode === 'anytime' ? 'manual' : 'start',
-      isResume: false,
+      scheduleType: 'start',
       sortOrder: chore.input.sortOrder ?? Number.MAX_SAFE_INTEGER,
       anchorChoreId: getCountdownAnchorChoreId(chore.input),
     });
@@ -466,140 +448,7 @@ function packStartDriven(
 }
 
 // ---------------------------------------------------------------------------
-// Step 5: Detect collisions between start-driven and deadline-driven
-// ---------------------------------------------------------------------------
-
-function detectCollisions(
-  deadlineSlots: PlacedSlot[],
-  startSlots: PlacedSlot[],
-  personId: string,
-): CountdownCollision[] {
-  const collisions: CountdownCollision[] = [];
-
-  for (const ss of startSlots) {
-    for (const ds of deadlineSlots) {
-      // Check overlap.
-      const overlapStart = Math.max(ss.startMs, ds.startMs);
-      const overlapEnd = Math.min(ss.endMs, ds.endMs);
-      if (overlapStart < overlapEnd) {
-        collisions.push({
-          startDrivenChoreId: ss.choreId,
-          startDrivenChoreTitle: ss.choreTitle,
-          deadlineDrivenChoreId: ds.choreId,
-          deadlineDrivenChoreTitle: ds.choreTitle,
-          personId,
-          overlapStartMs: overlapStart,
-          overlapEndMs: overlapEnd,
-        });
-      }
-    }
-  }
-
-  return collisions;
-}
-
-// ---------------------------------------------------------------------------
-// Step 6: Apply collision decisions
-// ---------------------------------------------------------------------------
-
-function applyCollisionDecisions(
-  deadlineSlots: PlacedSlot[],
-  startSlots: PlacedSlot[],
-  collisions: CountdownCollision[],
-  decisions: Record<string, CollisionDecision> | undefined,
-  bufferSecs: number,
-): { resolvedSlots: PlacedSlot[]; unresolvedCollisions: CountdownCollision[] } {
-  if (!decisions || collisions.length === 0) {
-    return {
-      resolvedSlots: [...deadlineSlots, ...startSlots],
-      unresolvedCollisions: collisions,
-    };
-  }
-
-  const resolved: PlacedSlot[] = [...deadlineSlots];
-  const unresolvedCollisions: CountdownCollision[] = [];
-
-  for (const ss of startSlots) {
-    const collision = collisions.find(
-      (c) => c.startDrivenChoreId === ss.choreId,
-    );
-    if (!collision) {
-      resolved.push(ss);
-      continue;
-    }
-
-    const decisionKey = `${collision.startDrivenChoreId}:${collision.deadlineDrivenChoreId}`;
-    const decision = decisions[decisionKey];
-
-    if (!decision) {
-      resolved.push(ss);
-      unresolvedCollisions.push(collision);
-      continue;
-    }
-
-    if (decision === 'deadline_driven_first') {
-      // Push the start-driven chore to after the deadline-driven chore.
-      const ds = deadlineSlots.find(
-        (d) => d.choreId === collision.deadlineDrivenChoreId,
-      );
-      if (ds) {
-        const newStart = ds.endMs + bufferSecs * 1000;
-        const newEnd = newStart + ss.durationSecs * 1000;
-        resolved.push({
-          ...ss,
-          startMs: newStart,
-          endMs: newEnd,
-          targetStartMs: newStart,
-          targetEndMs: newEnd,
-        });
-      } else {
-        resolved.push(ss);
-      }
-    } else {
-      // 'start_driven_first': split start-driven chore around the deadline-driven.
-      const ds = deadlineSlots.find(
-        (d) => d.choreId === collision.deadlineDrivenChoreId,
-      );
-      if (ds) {
-        const firstPartEnd = ds.startMs - bufferSecs * 1000;
-        const firstPartDuration = Math.max(0, (firstPartEnd - ss.startMs) / 1000);
-        const remainingDuration = ss.durationSecs - firstPartDuration;
-
-        if (firstPartDuration > 0) {
-          resolved.push({
-            ...ss,
-            endMs: firstPartEnd,
-            targetStartMs: ss.startMs,
-            targetEndMs: firstPartEnd,
-            durationSecs: firstPartDuration,
-            isResume: false,
-          });
-        }
-
-        if (remainingDuration > 0) {
-          const resumeStart = ds.endMs + bufferSecs * 1000;
-          const resumeEnd = resumeStart + remainingDuration * 1000;
-          resolved.push({
-            ...ss,
-            startMs: resumeStart,
-            endMs: resumeEnd,
-            targetStartMs: resumeStart,
-            targetEndMs: resumeEnd,
-            durationSecs: remainingDuration,
-            isResume: true,
-          });
-        }
-      } else {
-        resolved.push(ss);
-      }
-    }
-  }
-
-  return { resolvedSlots: resolved, unresolvedCollisions };
-}
-
-// ---------------------------------------------------------------------------
-// Step 7: Joint chore constraint propagation
+// Step 5: Joint chore constraint propagation
 // ---------------------------------------------------------------------------
 
 function propagateJointConstraints(
@@ -626,7 +475,7 @@ function propagateJointConstraints(
 
       for (const [personId, slots] of Array.from(allTimelines)) {
         for (let i = 0; i < slots.length; i++) {
-          if (slots[i].choreId === choreId && !slots[i].isResume) {
+          if (slots[i].choreId === choreId) {
             participantSlots.push({ personId, slot: slots[i], index: i });
             earliestStart = Math.min(earliestStart, slots[i].startMs);
           }
@@ -675,15 +524,10 @@ function propagateJointConstraints(
 }
 
 // ---------------------------------------------------------------------------
-// Step 8: Compute slot states
+// Step 6: Compute slot states
 // ---------------------------------------------------------------------------
 
-function computeSlotState(
-  slot: PlacedSlot,
-  nowMs: number,
-  hasUnresolvedCollision: boolean,
-): CountdownSlotState {
-  if (hasUnresolvedCollision) return 'waiting_decision';
+function computeSlotState(slot: PlacedSlot, nowMs: number): CountdownSlotState {
   if (nowMs < slot.startMs) return 'upcoming';
   if (nowMs >= slot.startMs && nowMs < slot.endMs) return 'active';
   // Past end time.
@@ -691,14 +535,12 @@ function computeSlotState(
 }
 
 // ---------------------------------------------------------------------------
-// Step 9: Apply manual starts + chain stacked completions
+// Step 7: Chain stacked completions
 // ---------------------------------------------------------------------------
 
 /**
- * Mutates each slot's effective `startMs` / `endMs` based on:
- *   1. Manual starts (user clicked "Start Now").
- *   2. Stacked-chore chaining: when a chore is completed, the next stacked
- *      chore starts at `completionTime + buffer`.
+ * Mutates each slot's effective `startMs` / `endMs` so that when a chore in a
+ * stack is completed, the next stacked chore starts at `completionTime + buffer`.
  *
  * Two adjacent slots are "stacked" when either:
  *   - The earlier slot's targetEnd + buffer exactly equals the later slot's
@@ -709,11 +551,10 @@ function computeSlotState(
  * The static planned times (`targetStartMs` / `targetEndMs`) are NOT modified
  * — they remain the reference point for the ahead/behind delta.
  */
-function applyStartsAndChain(
+function chainStackedCompletions(
   slots: PlacedSlot[],
   chores: CountdownChoreInput[],
   personId: string,
-  manualStarts: Record<string, string> | undefined,
   bufferSecs: number,
 ): void {
   if (slots.length === 0) return;
@@ -723,48 +564,30 @@ function applyStartsAndChain(
   const bufferMs = bufferSecs * 1000;
   const choreMap = new Map(chores.map((c) => [c.id, c]));
 
-  for (let i = 0; i < slots.length; i++) {
+  for (let i = 0; i < slots.length - 1; i++) {
     const slot = slots[i];
-    const chore = choreMap.get(slot.choreId);
-    const isCompleted = !!chore?.memberCompletions[personId];
+    const next = slots[i + 1];
+    const packerStacked = slot.targetEndMs + bufferMs === next.targetStartMs;
+    const anchorStacked = next.anchorChoreId === slot.choreId;
+    if (!packerStacked && !anchorStacked) continue;
 
-    // 1. Apply manual start if present — but skip for completed chores
-    //    since the manual start was for a run that already finished.
-    const manualStartStr = manualStarts?.[slot.choreId];
-    if (manualStartStr && !isCompleted) {
-      const manualStartMs = new Date(manualStartStr).getTime();
-      slot.startMs = manualStartMs;
-      slot.endMs = manualStartMs + slot.durationSecs * 1000;
-    }
-
-    // 2. Chain: if this slot is completed and the next slot is stacked,
-    //    shift the next slot to start at completionTime + buffer — but only
-    //    if the completion happened during or after the slot's countdown
-    //    (i.e. the countdown was running). If the chore was completed before
-    //    its countdown started (e.g. marked done from the chores list), the
-    //    normal afterDelay placement already accounts for the completion
-    //    timestamp, so we don't override it with a buffer-only chain.
-    if (i < slots.length - 1) {
-      const next = slots[i + 1];
-      const packerStacked = slot.targetEndMs + bufferMs === next.targetStartMs;
-      const anchorStacked = next.anchorChoreId === slot.choreId;
-      if (!packerStacked && !anchorStacked) continue;
-
-      const completionStr = chore?.memberCompletions[personId];
-      if (completionStr) {
-        const completionMs = new Date(completionStr).getTime();
-        const completedDuringCountdown = completionMs >= slot.startMs;
-        if (completedDuringCountdown) {
-          next.startMs = completionMs + bufferMs;
-          next.endMs = next.startMs + next.durationSecs * 1000;
-        }
-      }
+    // Shift the next slot only if the completion happened during or after
+    // this slot's countdown. If the chore was completed before its countdown
+    // started (e.g. marked done from the chores list), the normal afterDelay
+    // placement already accounts for the completion timestamp, so it is not
+    // overridden with a buffer-only chain.
+    const completionStr = choreMap.get(slot.choreId)?.memberCompletions[personId];
+    if (!completionStr) continue;
+    const completionMs = new Date(completionStr).getTime();
+    if (completionMs >= slot.startMs) {
+      next.startMs = completionMs + bufferMs;
+      next.endMs = next.startMs + next.durationSecs * 1000;
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Step 10: Generate warnings
+// Step 8: Generate warnings
 // ---------------------------------------------------------------------------
 
 function generateWarnings(
@@ -814,30 +637,17 @@ export function computeCountdownTimelines(
   const bufferSecs = input.countdownSettings.stackBufferSecs;
 
   const allTimelines = new Map<string, PlacedSlot[]>();
-  const allCollisions = new Map<string, CountdownCollision[]>();
-  const allUnresolvedCollisions = new Map<string, CountdownCollision[]>();
 
-  // Phase 1: Pack each person's timeline independently.
+  // Phase 1: Pack each person's timeline independently. Deadline-driven and
+  // start-driven slots may overlap; the plan reports where things were meant
+  // to be, and the runner turns an overlap into a forecast.
   for (const [personId, personChores] of Array.from(byPerson)) {
-    const deadlineSlots = packDeadlineDriven(personChores, personId, input);
-    const startSlots = packStartDriven(personChores, personId, input);
-
-    const collisions = detectCollisions(deadlineSlots, startSlots, personId);
-    allCollisions.set(personId, collisions);
-
-    const { resolvedSlots, unresolvedCollisions } = applyCollisionDecisions(
-      deadlineSlots,
-      startSlots,
-      collisions,
-      input.collisionDecisions,
-      bufferSecs,
-    );
-
-    allUnresolvedCollisions.set(personId, unresolvedCollisions);
-
-    // Sort by start time.
-    resolvedSlots.sort((a, b) => a.startMs - b.startMs);
-    allTimelines.set(personId, resolvedSlots);
+    const placedSlots = [
+      ...packDeadlineDriven(personChores, personId, input),
+      ...packStartDriven(personChores, personId, input),
+    ];
+    placedSlots.sort((a, b) => a.startMs - b.startMs);
+    allTimelines.set(personId, placedSlots);
   }
 
   // Phase 2: Propagate joint constraints across all people.
@@ -847,21 +657,8 @@ export function computeCountdownTimelines(
   const output: CountdownEngineOutput = { timelines: {} };
 
   for (const [personId, placedSlots] of Array.from(allTimelines)) {
-    const unresolvedCollisionChoreIds = new Set(
-      (allUnresolvedCollisions.get(personId) ?? []).map(
-        (c) => c.startDrivenChoreId,
-      ),
-    );
-
-    // Apply manual starts and chain stacked completions forward.
-    // Leaves targetStartMs/targetEndMs untouched.
-    applyStartsAndChain(
-      placedSlots,
-      input.chores,
-      personId,
-      input.manualStarts,
-      bufferSecs,
-    );
+    // Chain stacked completions forward. Leaves targetStartMs/targetEndMs untouched.
+    chainStackedCompletions(placedSlots, input.chores, personId, bufferSecs);
 
     const slots: CountdownSlot[] = placedSlots.map((ps) => ({
       choreId: ps.choreId,
@@ -872,14 +669,9 @@ export function computeCountdownTimelines(
       targetStartMs: ps.targetStartMs,
       targetEndMs: ps.targetEndMs,
       durationSecs: ps.durationSecs,
-      state: computeSlotState(
-        ps,
-        nowMs,
-        unresolvedCollisionChoreIds.has(ps.choreId),
-      ),
+      state: computeSlotState(ps, nowMs),
       isJoint: ps.isJoint,
       jointParticipantIds: ps.jointParticipantIds,
-      isResume: ps.isResume,
       deadlineOffset: ps.deadlineOffset,
       scheduleType: ps.scheduleType,
     }));
@@ -904,7 +696,6 @@ export function computeCountdownTimelines(
     const timeline: PersonCountdownTimeline = {
       personId,
       slots,
-      collisions: allUnresolvedCollisions.get(personId) ?? [],
       warnings,
     };
 

@@ -13,8 +13,6 @@ export interface CountdownSettings {
   stackBufferSecs: number;
   /** Default delay in seconds after an `after_*` anchor fires (default 300). */
   afterAnchorDefaultDelaySecs: number;
-  /** Whether to auto-mark chores done when countdown reaches zero (default false). */
-  autoMarkCompleteOnCountdownEnd: boolean;
   /** Per-marker overrides for the after-anchor delay, keyed by marker key. */
   perMarkerAfterDelaySecs?: Record<string, number>;
   /** Seconds one "+5 min" grant adds to the running step (default 300). */
@@ -32,7 +30,6 @@ export interface CountdownSettings {
 export const DEFAULT_COUNTDOWN_SETTINGS: CountdownSettings = {
   stackBufferSecs: 30,
   afterAnchorDefaultDelaySecs: 300,
-  autoMarkCompleteOnCountdownEnd: false,
   stepExtensionSecs: 300,
   overrunPromptMinSecs: 300,
   overrunPromptFraction: 0.5,
@@ -62,9 +59,6 @@ export function parseCountdownSettings(value?: string | null | unknown): Countdo
     overrunPromptFraction: nonNegative('overrunPromptFraction'),
     overrunPromptGraceSecs: nonNegative('overrunPromptGraceSecs'),
     overrunStopOfferAfterExtensions: Math.floor(nonNegative('overrunStopOfferAfterExtensions', 1)),
-    autoMarkCompleteOnCountdownEnd: typeof obj.autoMarkCompleteOnCountdownEnd === 'boolean'
-      ? obj.autoMarkCompleteOnCountdownEnd
-      : DEFAULT_COUNTDOWN_SETTINGS.autoMarkCompleteOnCountdownEnd,
     perMarkerAfterDelaySecs: obj.perMarkerAfterDelaySecs && typeof obj.perMarkerAfterDelaySecs === 'object' && !Array.isArray(obj.perMarkerAfterDelaySecs)
       ? Object.fromEntries(
           Object.entries(obj.perMarkerAfterDelaySecs as Record<string, unknown>)
@@ -114,10 +108,6 @@ export interface CountdownEngineInput {
   now: Date;
   /** The family day being computed (UTC date, e.g. 2026-03-31T00:00:00Z). */
   date: Date;
-  /** Chore IDs that were manually started early → ISO timestamp. */
-  manualStarts?: Record<string, string>;
-  /** Previously resolved collision decisions. */
-  collisionDecisions?: Record<string, CollisionDecision>;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,9 +118,7 @@ export type CountdownSlotState =
   | 'upcoming'
   | 'active'
   | 'overdue_active'
-  | 'buffer'
-  | 'completed'
-  | 'waiting_decision';
+  | 'completed';
 
 export interface CountdownSlot {
   choreId: string;
@@ -139,8 +127,7 @@ export interface CountdownSlot {
   /**
    * Absolute timestamp in ms when this slot's countdown starts.
    * This is the *effective* start time after the completion-driven chain
-   * shift has been applied (and any manual early start). Use this to drive
-   * the running countdown UI.
+   * shift has been applied.
    */
   countdownStartMs: number;
   /**
@@ -149,9 +136,9 @@ export interface CountdownSlot {
    */
   countdownEndMs: number;
   /**
-   * Static planned start time (before any completion-driven shift or manual
-   * early start). Represents "what time should this chore have started if
-   * everything ran exactly on schedule".
+   * Static planned start time, before any completion-driven shift. Represents
+   * "what time should this chore have started if everything ran exactly on
+   * schedule".
    */
   targetStartMs: number;
   /**
@@ -165,29 +152,11 @@ export interface CountdownSlot {
   isJoint: boolean;
   /** All member IDs participating in a joint chore. */
   jointParticipantIds: string[];
-  /** True if this slot is a resumed portion of a split chore. */
-  isResume: boolean;
   /** The effective deadline minute offset (family-day relative) this slot packs against. */
   deadlineOffset: number | null;
   /** Whether this is a deadline-driven or start-driven slot. */
-  scheduleType: 'deadline' | 'start' | 'manual';
+  scheduleType: 'deadline' | 'start';
 }
-
-export interface CountdownCollision {
-  /** The start-driven chore that collides with a deadline-driven chore. */
-  startDrivenChoreId: string;
-  startDrivenChoreTitle: string;
-  /** The deadline-driven chore that takes priority. */
-  deadlineDrivenChoreId: string;
-  deadlineDrivenChoreTitle: string;
-  personId: string;
-  /** When the overlap begins (absolute ms). */
-  overlapStartMs: number;
-  /** When the overlap ends (absolute ms). */
-  overlapEndMs: number;
-}
-
-export type CollisionDecision = 'start_driven_first' | 'deadline_driven_first';
 
 export interface CountdownWarning {
   personId: string;
@@ -198,7 +167,6 @@ export interface CountdownWarning {
 export interface PersonCountdownTimeline {
   personId: string;
   slots: CountdownSlot[];
-  collisions: CountdownCollision[];
   warnings: CountdownWarning[];
 }
 

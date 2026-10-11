@@ -66,8 +66,6 @@ function input(
         scheduleSettings: overrides.scheduleSettings || SCHEDULE,
         now: overrides.now || new Date('2026-03-31T07:00:00'),
         date: overrides.date || TEST_DATE,
-        manualStarts: overrides.manualStarts,
-        collisionDecisions: overrides.collisionDecisions,
     };
 }
 
@@ -79,8 +77,7 @@ function clock(timestampMs: number) {
 }
 
 function slotLayout(slot: CountdownSlot) {
-    const resume = slot.isResume ? ':resume' : '';
-    return `${slot.choreId}${resume} ${clock(slot.countdownStartMs)}-${clock(slot.countdownEndMs)} target ${clock(slot.targetStartMs)}-${clock(slot.targetEndMs)}`;
+    return `${slot.choreId} ${clock(slot.countdownStartMs)}-${clock(slot.countdownEndMs)} target ${clock(slot.targetStartMs)}-${clock(slot.targetEndMs)}`;
 }
 
 function normalize(result: ReturnType<typeof computeCountdownTimelines>) {
@@ -89,12 +86,7 @@ function normalize(result: ReturnType<typeof computeCountdownTimelines>) {
             .sort(([left], [right]) => left.localeCompare(right))
             .map(([personId, timeline]) => [
                 personId,
-                {
-                    slots: timeline.slots.map(slotLayout),
-                    collisions: timeline.collisions.map(
-                        (collision) => `${collision.startDrivenChoreId}:${collision.deadlineDrivenChoreId}`
-                    ),
-                },
+                { slots: timeline.slots.map(slotLayout) },
             ])
     );
 }
@@ -102,7 +94,7 @@ function normalize(result: ReturnType<typeof computeCountdownTimelines>) {
 const scenarios: Array<{
     name: string;
     buildInput: () => CountdownEngineInput;
-    expected: Record<string, { slots: string[]; collisions: string[] }>;
+    expected: Record<string, { slots: string[] }>;
 }> = [
     {
         name: 'packs a three-chore deadline stack right-to-left with buffers',
@@ -119,7 +111,6 @@ const scenarios: Array<{
                     'three-minutes 08:52:30-08:55:30 target 08:52:30-08:55:30',
                     'four-minutes 08:56:00-09:00:00 target 08:56:00-09:00:00',
                 ],
-                collisions: [],
             },
         },
     },
@@ -159,7 +150,6 @@ const scenarios: Array<{
                     'first 08:00:00-08:02:00 target 08:00:00-08:02:00',
                     'second 08:01:42-08:04:42 target 08:02:30-08:05:30',
                 ],
-                collisions: [],
             },
         },
     },
@@ -198,12 +188,11 @@ const scenarios: Array<{
                     'anchor 08:05:00-08:10:00 target 08:05:00-08:10:00',
                     'dependent 08:08:45-08:13:45 target 08:08:45-08:13:45',
                 ],
-                collisions: [],
             },
         },
     },
     {
-        name: 'splits a start-driven chore around a deadline collision',
+        name: 'plans an overlapping start-driven and deadline-driven chore without splitting either',
         buildInput: () =>
             input(
                 [
@@ -226,17 +215,17 @@ const scenarios: Array<{
                         stackBufferSecs: 30,
                         afterAnchorDefaultDelaySecs: 0,
                     },
-                    collisionDecisions: { 'start-driven:deadline': 'start_driven_first' },
                 }
             ),
         expected: {
             'person-a': {
                 slots: [
-                    'start-driven 07:50:00-07:54:30 target 07:50:00-07:54:30',
+                    // Twenty minutes from 07:50 runs straight through the ten-minute
+                    // chore due at 08:05. Each keeps its own slot; the runner
+                    // forecasts the miss instead of asking which to split.
+                    'start-driven 07:50:00-08:10:00 target 07:50:00-08:10:00',
                     'deadline 07:55:00-08:05:00 target 07:55:00-08:05:00',
-                    'start-driven:resume 08:05:30-08:21:00 target 08:05:30-08:21:00',
                 ],
-                collisions: [],
             },
         },
     },
@@ -264,11 +253,9 @@ const scenarios: Array<{
                     'joint 08:29:30-08:39:30 target 08:29:30-08:39:30',
                     'person-a-blocker 08:40:00-09:00:00 target 08:40:00-09:00:00',
                 ],
-                collisions: [],
             },
             'person-b': {
                 slots: ['joint 08:29:30-08:39:30 target 08:29:30-08:39:30'],
-                collisions: [],
             },
         },
     },

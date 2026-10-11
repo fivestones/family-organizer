@@ -341,6 +341,36 @@ function DetailedChoreForm({
         });
     };
 
+    /**
+     * The timing config for the form as it stands. The save path, the live
+     * preview and the pre-save lint all read this one shape, so the chore being
+     * edited is resolved the same way it will be once it is stored.
+     */
+    const buildTimingConfig = (): Record<string, any> => {
+        if (timingMode === 'named_window') {
+            return { mode: 'named_window', namedWindowKey: timeBucket || null };
+        }
+        if (timingMode === 'before_time' || timingMode === 'after_time') {
+            return { mode: timingMode, time: triggerTime || null };
+        }
+        if (timingMode === 'between_times') {
+            return { mode: 'between_times', window: { startTime: windowStartTime || null, endTime: windowEndTime || null } };
+        }
+        if (timingMode === 'before_marker' || timingMode === 'after_marker') {
+            return {
+                mode: timingMode,
+                anchor: { sourceType: 'routine', routineKey: anchorRoutineKey || null, fallbackTime: anchorFallbackTime || null },
+            };
+        }
+        if (timingMode === 'before_chore' || timingMode === 'after_chore') {
+            return {
+                mode: timingMode,
+                anchor: { sourceType: 'chore', sourceChoreId: anchorChoreId || null, fallbackTime: anchorFallbackTime || null },
+            };
+        }
+        return { mode: 'anytime' };
+    };
+
     /** Check if saving this chore would cause timeline overflow warnings. */
     const checkTimelineOverflow = (): string[] => {
         if (!scheduleSettings || !availableChoreAnchors || availableChoreAnchors.length === 0) return [];
@@ -359,20 +389,7 @@ function DetailedChoreForm({
             const totalDurSecs = durH * 3600 + durM * 60 + durS;
             const parsedWeight = parseFloat(weight) || 0;
 
-            // Build timing config from form state
-            let formTimingConfig: any = { mode: timingMode };
-            if (timingMode === 'before_time' || timingMode === 'after_time') {
-                formTimingConfig.time = triggerTime;
-            } else if (timingMode === 'between_times') {
-                formTimingConfig.startTime = windowStartTime;
-                formTimingConfig.endTime = windowEndTime;
-            } else if (timingMode === 'before_marker' || timingMode === 'after_marker') {
-                formTimingConfig.anchor = { relation: timingMode === 'before_marker' ? 'before' : 'after', routineKey: anchorRoutineKey };
-            } else if (timingMode === 'before_chore' || timingMode === 'after_chore') {
-                formTimingConfig.anchor = { relation: timingMode === 'before_chore' ? 'before' : 'after', sourceChoreId: anchorChoreId, fallbackTime: anchorFallbackTime };
-            } else if (timingMode === 'named_window') {
-                formTimingConfig.timeBucket = timeBucket;
-            }
+            const formTimingConfig = buildTimingConfig();
 
             const syntheticId = initialChore?.id || '__new_chore__';
             const syntheticChoreInput: CountdownChoreInput = {
@@ -563,53 +580,9 @@ function DetailedChoreForm({
             }
         }
 
-        let finalTimeBucket: string | null = null;
-        let finalTimingMode: ChoreSaveData['timingMode'] = timingMode;
-        let finalTimingConfig: ChoreSaveData['timingConfig'] = null;
-
-        if (timingMode === 'named_window') {
-            finalTimeBucket = timeBucket || null;
-            finalTimingConfig = {
-                mode: 'named_window',
-                namedWindowKey: finalTimeBucket,
-            };
-        } else if (timingMode === 'before_time' || timingMode === 'after_time') {
-            finalTimingConfig = {
-                mode: timingMode,
-                time: triggerTime || null,
-            };
-        } else if (timingMode === 'between_times') {
-            finalTimingConfig = {
-                mode: 'between_times',
-                window: {
-                    startTime: windowStartTime || null,
-                    endTime: windowEndTime || null,
-                },
-            };
-        } else if (timingMode === 'before_marker' || timingMode === 'after_marker') {
-            finalTimingConfig = {
-                mode: timingMode,
-                anchor: {
-                    sourceType: 'routine',
-                    routineKey: anchorRoutineKey,
-                    fallbackTime: anchorFallbackTime || null,
-                },
-            };
-        } else if (timingMode === 'before_chore' || timingMode === 'after_chore') {
-            finalTimingConfig = {
-                mode: timingMode,
-                anchor: {
-                    sourceType: 'chore',
-                    sourceChoreId: anchorChoreId,
-                    fallbackTime: anchorFallbackTime || null,
-                },
-            };
-        } else {
-            finalTimingMode = 'anytime';
-            finalTimingConfig = {
-                mode: 'anytime',
-            };
-        }
+        const finalTimingConfig: ChoreSaveData['timingConfig'] = buildTimingConfig();
+        const finalTimingMode: ChoreSaveData['timingMode'] = finalTimingConfig.mode;
+        const finalTimeBucket: string | null = timingMode === 'named_window' ? timeBucket || null : null;
 
         const saveData: ChoreSaveData = {
             title,
@@ -706,46 +679,7 @@ function DetailedChoreForm({
         rewardCurrency: isUpForGrabs && rewardType === 'fixed' ? rewardCurrency : null,
         timeBucket: timingMode === 'named_window' ? timeBucket || null : null,
         timingMode: timingMode,
-        timingConfig:
-            timingMode === 'named_window'
-                ? {
-                      mode: 'named_window',
-                      namedWindowKey: timeBucket || null,
-                  }
-                : timingMode === 'before_time' || timingMode === 'after_time'
-                ? {
-                      mode: timingMode,
-                      time: triggerTime || null,
-                  }
-                : timingMode === 'between_times'
-                ? {
-                      mode: 'between_times',
-                      window: {
-                          startTime: windowStartTime || null,
-                          endTime: windowEndTime || null,
-                      },
-                  }
-                : timingMode === 'before_marker' || timingMode === 'after_marker'
-                ? {
-                      mode: timingMode,
-                      anchor: {
-                          sourceType: 'routine',
-                          routineKey: anchorRoutineKey || null,
-                          fallbackTime: anchorFallbackTime || null,
-                      },
-                  }
-                : timingMode === 'before_chore' || timingMode === 'after_chore'
-                ? {
-                      mode: timingMode,
-                      anchor: {
-                          sourceType: 'chore',
-                          sourceChoreId: anchorChoreId || null,
-                          fallbackTime: anchorFallbackTime || null,
-                      },
-                  }
-                : {
-                      mode: 'anytime',
-                  },
+        timingConfig: buildTimingConfig(),
         weight: !isUpForGrabs || rewardType === 'weight' ? parseFloat(weight) || 0 : 0, // Use weight if not up for grabs OR if type is weight
         // Add any other fields needed by ChoreCalendarView, ensure they match expected types
         completions: initialChore?.completions || [], // Pass existing completions if editing

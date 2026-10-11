@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
 import {
     COUNTDOWN_SETTINGS_NAME,
@@ -82,7 +81,6 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
     const [bufferSec, setBufferSec] = useState('');
     const [delayMin, setDelayMin] = useState('');
     const [delaySec, setDelaySec] = useState('');
-    const [autoComplete, setAutoComplete] = useState(false);
     const [overrun, setOverrun] = useState<OverrunForm>(() => toOverrunForm(DEFAULT_COUNTDOWN_SETTINGS));
     const [isSaving, setIsSaving] = useState(false);
 
@@ -93,7 +91,6 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
         const del = secsToMinSec(parsed.afterAnchorDefaultDelaySecs);
         setDelayMin(del.min);
         setDelaySec(del.sec);
-        setAutoComplete(parsed.autoMarkCompleteOnCountdownEnd);
         setOverrun(toOverrunForm(parsed));
     }, [parsed]);
 
@@ -104,7 +101,6 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
         const del = secsToMinSec(DEFAULT_COUNTDOWN_SETTINGS.afterAnchorDefaultDelaySecs);
         setDelayMin(del.min);
         setDelaySec(del.sec);
-        setAutoComplete(DEFAULT_COUNTDOWN_SETTINGS.autoMarkCompleteOnCountdownEnd);
         setOverrun(toOverrunForm(DEFAULT_COUNTDOWN_SETTINGS));
     };
 
@@ -117,7 +113,6 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
             ...parsed,
             stackBufferSecs,
             afterAnchorDefaultDelaySecs,
-            autoMarkCompleteOnCountdownEnd: autoComplete,
             stepExtensionSecs: wholeNumber(overrun.extensionMin, 1, parsed.stepExtensionSecs / 60) * 60,
             overrunPromptMinSecs: wholeNumber(overrun.promptMin, 0, parsed.overrunPromptMinSecs / 60) * 60,
             overrunPromptFraction: wholeNumber(overrun.promptPercent, 0, parsed.overrunPromptFraction * 100) / 100,
@@ -139,7 +134,7 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
             ]);
             toast({
                 title: 'Countdown settings saved',
-                description: 'Buffer, delay, overrun and auto-complete settings are updated.',
+                description: 'Buffer, delay and overrun settings are updated.',
             });
         } catch (saveError: any) {
             console.error('Failed to save countdown settings:', saveError);
@@ -162,7 +157,7 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
                 <div>
                     <CardTitle>Countdown Timer</CardTitle>
                     <p className="mt-2 text-sm text-muted-foreground">
-                        Configure how the chore countdown system packs and schedules chores.
+                        Configure how the countdown plans the day and what it does when a step runs over.
                     </p>
                 </div>
                 <div className="flex gap-2">
@@ -280,20 +275,6 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
                             </div>
                         ))}
                     </div>
-                </section>
-
-                <section className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                    <div>
-                        <h3 className="text-sm font-semibold">Auto-Complete on Countdown End</h3>
-                        <p className="text-sm text-muted-foreground">
-                            Automatically mark chores as done when their countdown reaches zero.
-                            This is a global default — can be toggled per session on the countdown page.
-                        </p>
-                    </div>
-                    <Switch
-                        checked={autoComplete}
-                        onCheckedChange={setAutoComplete}
-                    />
                 </section>
             </CardContent>
         </Card>

@@ -101,7 +101,6 @@ interface GapMarker {
 
 function getLiveState(slot: CountdownSlot, nowMs: number): CountdownSlotState {
     if (slot.state === 'completed') return 'completed';
-    if (slot.state === 'waiting_decision') return 'waiting_decision';
     if (nowMs >= slot.countdownEndMs) return 'overdue_active';
     if (nowMs >= slot.countdownStartMs) return 'active';
     return 'upcoming';
@@ -138,9 +137,7 @@ const STATE_ICON: Record<CountdownSlotState, string> = {
     upcoming: '○',
     active: '●',
     overdue_active: '⚠',
-    buffer: '·',
     completed: '✓',
-    waiting_decision: '⏸',
 };
 
 // ---------------------------------------------------------------------------
@@ -200,7 +197,6 @@ function computeLayout(
 
     for (const person of visiblePeople) {
         for (const slot of person.timeline.slots) {
-            if (slot.state === 'buffer') continue;
             if (slot.isJoint) {
                 const list = jointChoreSlots.get(slot.choreId) || [];
                 list.push(slot);
@@ -269,9 +265,7 @@ function computeLayout(
     for (const person of visiblePeople) {
         const chain: LayoutNode[] = [];
         const seenChoreIds = new Set<string>();
-        const sortedSlots = [...person.timeline.slots]
-            .filter(s => s.state !== 'buffer')
-            .sort((a, b) => a.countdownStartMs - b.countdownStartMs);
+        const sortedSlots = [...person.timeline.slots].sort((a, b) => a.countdownStartMs - b.countdownStartMs);
 
         for (const slot of sortedSlots) {
             if (!visiblePersonIds.has(slot.personId)) continue;
@@ -557,7 +551,6 @@ function getStateBg(state: CountdownSlotState): string {
         case 'active': return 'bg-amber-50 border-amber-300';
         case 'overdue_active': return 'bg-red-50 border-red-300';
         case 'completed': return 'bg-emerald-50 border-emerald-200';
-        case 'waiting_decision': return 'bg-violet-50 border-violet-200';
         default: return 'bg-white border-slate-200';
     }
 }
@@ -1069,7 +1062,7 @@ export default function SequenceTimeline({
                     {/* Column headers */}
                     {visiblePeople.map((p, i) => {
                         const color = colorMap[p.personId] || '#94A3B8';
-                        const total = p.timeline.slots.filter(s => s.state !== 'buffer').length;
+                        const total = p.timeline.slots.length;
                         const completed = p.timeline.slots.filter(s => s.state === 'completed').length;
                         return (
                             <ColumnHeader

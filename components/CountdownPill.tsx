@@ -25,18 +25,14 @@ const STATE_STYLES: Record<CountdownSlotState, string> = {
     upcoming: 'bg-slate-100 text-slate-600 border-slate-200',
     active: 'bg-amber-100 text-amber-800 border-amber-300 animate-pulse',
     overdue_active: 'bg-red-100 text-red-700 border-red-300 animate-pulse',
-    buffer: 'bg-slate-50 text-slate-400 border-slate-150',
     completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    waiting_decision: 'bg-violet-100 text-violet-700 border-violet-200',
 };
 
 const STATE_LABELS: Record<CountdownSlotState, string> = {
     upcoming: '',
     active: '⏱',
     overdue_active: '⚠️',
-    buffer: '',
     completed: '✓',
-    waiting_decision: '⏸',
 };
 
 export default function CountdownPill({ slot, now: nowProp, className }: CountdownPillProps) {
@@ -44,7 +40,7 @@ export default function CountdownPill({ slot, now: nowProp, className }: Countdo
 
     // Tick every second for live countdown when active/overdue.
     useEffect(() => {
-        if (slot.state === 'completed' || slot.state === 'buffer' || slot.state === 'waiting_decision') return;
+        if (slot.state === 'completed') return;
         const interval = setInterval(() => setNowMs(Date.now()), 1000);
         return () => clearInterval(interval);
     }, [slot.state]);
@@ -59,7 +55,7 @@ export default function CountdownPill({ slot, now: nowProp, className }: Countdo
 
     // Determine effective state (live recalculation).
     let effectiveState = slot.state;
-    if (slot.state !== 'completed' && slot.state !== 'waiting_decision') {
+    if (slot.state !== 'completed') {
         if (nowMs >= slot.countdownStartMs && nowMs < slot.countdownEndMs) {
             effectiveState = 'active';
         } else if (nowMs >= slot.countdownEndMs) {
@@ -72,8 +68,6 @@ export default function CountdownPill({ slot, now: nowProp, className }: Countdo
     const stateIcon = STATE_LABELS[effectiveState];
     const timeText = effectiveState === 'completed'
         ? 'Done'
-        : effectiveState === 'waiting_decision'
-        ? 'Pending'
         : effectiveState === 'upcoming'
         ? `in ${formatCountdown(slot.countdownStartMs - nowMs)}`
         : isOverdue

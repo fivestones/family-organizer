@@ -86,12 +86,14 @@ The current `/countdown` page keeps working off the planner while the runner lan
 
 ### 2.4 Cleanup
 
-- [ ] **Delete `choreManualStarts`** — entity, permissions and both call sites. It is keyed by `choreId` alone so one kid's start shifts everyone's timeline, is never upserted, and is writable by any family principal.
-- [ ] **Delete the collision machinery** — `CollisionDecisionDialog`, `detectCollisions`, `applyCollisionDecisions` and the split/resume `isResume` handling. An overlap becomes a forecast line.
-- [ ] **Delete the `buffer` slot state.** Declared, styled and filtered for in five places; never emitted by the engine.
-- [ ] **Stop showing countdown pills on non-today dates.**
-- [ ] **Fix the chore form's pre-save lint.** It builds `between_times` as flat `{startTime, endTime}` while the save path and resolver both use `window: {…}`, so the chore being edited is excluded from its own overflow warning.
-- [ ] **Retire `autoMarkCompleteOnCountdownEnd`** ([decision 8](docs/countdown-redesign.md#decisions)) and remove it from [CountdownSettings](components/CountdownSettings.tsx).
+- [~] **Delete `choreManualStarts`** — entity, permissions and both call sites. It is keyed by `choreId` alone so one kid's start shifts everyone's timeline, is never upserted, and is writable by any family principal.
+  - Done in the code, [instant.schema.ts](instant.schema.ts) and [instant.perms.ts](instant.perms.ts).
+  - **Left: the hosted entity and its rule**, which is the last check in [2.6](#26-checks-for-you). It waits for a deploy because the build running today still writes a manual start when someone presses Start Now.
+- [x] **Delete the collision machinery** — `CollisionDecisionDialog`, `detectCollisions`, `applyCollisionDecisions` and the split/resume `isResume` handling. An overlap becomes a forecast line.
+- [x] **Delete the `buffer` slot state.** Declared, styled and filtered for in five places; never emitted by the engine.
+- [x] **Stop showing countdown pills on non-today dates.**
+- [x] **Fix the chore form's pre-save lint.** It builds `between_times` as flat `{startTime, endTime}` while the save path and resolver both use `window: {…}`, so the chore being edited is excluded from its own overflow warning.
+- [x] **Retire `autoMarkCompleteOnCountdownEnd`** ([decision 8](docs/countdown-redesign.md#decisions)) and remove it from [CountdownSettings](components/CountdownSettings.tsx).
 
 ### 2.5 Mobile
 
@@ -103,6 +105,7 @@ The current `/countdown` page keeps working off the planner while the runner lan
 - [ ] **(you)** Work four afternoon chores forward from the morning and say whether the queue carries you the way you described it.
 - [ ] **(you)** Tune the overrun numbers after a week of real use — the 5 min / 50% / 10 min / 2–3 extensions figures in the specification are starting values.
 - [ ] **(you)** Say whether a gated step mid-queue should be skipped and resurfaced, or should block the queue.
+- [ ] **(you)** Deploy the new build, then delete the hosted `choreManualStarts`. Once nothing deployed writes to it, run `npx instant-cli@latest push schema < /dev/null` to preview and then with `--yes`, and the same for `push perms`. The schema plan should list the `choreManualStarts` attributes and its two links as deletions and nothing else — but until the two undeclared calendar attributes in [Scope 3](#scope-3--the-correctness-sweep) are settled it will list those as deletions too, so settle them first.
 
 ---
 

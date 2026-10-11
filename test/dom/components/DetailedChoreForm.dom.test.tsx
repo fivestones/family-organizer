@@ -84,6 +84,7 @@ vi.mock('@/components/ui/tooltip', () => ({
 }));
 
 import DetailedChoreForm from '@/components/DetailedChoreForm';
+import { getDefaultScheduleSettings } from '@family-organizer/shared-core';
 
 type FamilyMember = { id: string; name: string };
 
@@ -274,5 +275,29 @@ describe('DetailedChoreForm', () => {
                 }),
             })
         );
+    });
+
+    it('lints a time-window chore with the same shape it is saved with', async () => {
+        const { onSave } = renderForm({
+            availableChoreAnchors: [{ id: 'other-chore', title: 'Wash dishes', startDate: '2026-01-15' }] as any,
+            scheduleSettings: getDefaultScheduleSettings(),
+        });
+        const user = userEvent.setup();
+
+        await user.type(screen.getByLabelText('Title *'), 'Night Check');
+        await user.click(screen.getByRole('button', { name: 'Ava' }));
+        await user.type(document.getElementById('durationMinutes')!, '10');
+        await user.click(screen.getByLabelText(/between two times/i));
+        // Ten minutes of work in a five-minute window that opens as the family day begins.
+        await user.type(screen.getByLabelText('Window Start'), '03:00');
+        await user.type(screen.getByLabelText('Window End'), '03:05');
+
+        await user.click(screen.getByRole('button', { name: /save chore/i }));
+
+        // The lint used to read a flat { startTime, endTime } that the resolver
+        // ignores, so the chore being edited never appeared in its own warning.
+        expect(screen.getByText('Timeline warnings')).toBeInTheDocument();
+        expect(screen.getByText(/Ava: "Night Check" is scheduled to start before the family day begins/)).toBeInTheDocument();
+        expect(onSave).not.toHaveBeenCalled();
     });
 });

@@ -590,4 +590,40 @@ describe('ChoreList', () => {
         expect(screen.queryByText('Finished curriculum')).not.toBeInTheDocument();
         expect(screen.queryByTestId('task-series-checklist')).not.toBeInTheDocument();
     });
+    it('shows countdown pills for today only', () => {
+        const countdownTimelines = {
+            timelines: {
+                'kid-a': {
+                    personId: 'kid-a',
+                    warnings: [],
+                    slots: [
+                        {
+                            choreId: 'chore-1',
+                            choreTitle: 'Test Chore',
+                            personId: 'kid-a',
+                            countdownStartMs: 0,
+                            countdownEndMs: 60_000,
+                            targetStartMs: 0,
+                            targetEndMs: 60_000,
+                            durationSecs: 60,
+                            state: 'completed',
+                            isJoint: false,
+                            jointParticipantIds: [],
+                            deadlineOffset: null,
+                            scheduleType: 'deadline',
+                        },
+                    ],
+                },
+            },
+        };
+
+        const today = renderChoreList({ countdownTimelines, selectedDateKey: '2026-04-02', todayDateKey: '2026-04-02' });
+        // The row renders in more than one layout, so there may be several pills.
+        expect(screen.getAllByTitle(/60s duration/)[0]).toHaveTextContent('Done');
+        today.unmount();
+
+        // A countdown for another day means nothing, so the same plan shows no pill.
+        renderChoreList({ countdownTimelines, selectedDateKey: '2026-04-02', todayDateKey: '2026-04-03' });
+        expect(screen.queryAllByTitle(/60s duration/)).toHaveLength(0);
+    });
 });

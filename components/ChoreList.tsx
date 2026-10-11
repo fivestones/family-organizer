@@ -983,8 +983,9 @@ function ChoreList({
                                     </span>
                                 ) : null}
                                 <span className="text-xs text-muted-foreground whitespace-nowrap">XP: {chore.weight ?? 0}</span>
-                                {/* Countdown pills */}
+                                {/* Countdown pills — today only: a countdown for another day means nothing. */}
                                 {(() => {
+                                    if (!selectedDateIsToday) return null;
                                     const slots = countdownSlotsByChore.get(chore.id);
                                     if (!slots || slots.length === 0) return null;
                                     // If a specific member is selected, show only their slot
@@ -994,9 +995,9 @@ function ChoreList({
                                         return null;
                                     }
                                     // "All" view: show the most urgent incomplete slot.
-                                    // Priority: overdue > active > upcoming > waiting > completed.
+                                    // Priority: overdue > active > upcoming > completed.
                                     const statePriority: Record<string, number> = {
-                                        overdue_active: 0, active: 1, upcoming: 2, waiting_decision: 3, buffer: 4, completed: 5,
+                                        overdue_active: 0, active: 1, upcoming: 2, completed: 3,
                                     };
                                     const sorted = [...slots].sort(
                                         (a, b) => (statePriority[a.slot.state] ?? 9) - (statePriority[b.slot.state] ?? 9)

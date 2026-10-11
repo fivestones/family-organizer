@@ -195,12 +195,6 @@ const _schema = i.schema({
             dateDue: i.string().indexed(),
             notDone: i.boolean().optional(),
         }),
-        choreManualStarts: i.entity({
-            choreId: i.string().indexed(),
-            date: i.string().indexed(),
-            familyMemberId: i.string().indexed(),
-            startedAt: i.string(),
-        }),
         chores: i.entity({
             advanceCompletionLimit: i.any().optional(),
             allowExtraDays: i.any().optional(),
@@ -790,30 +784,6 @@ const _schema = i.schema({
                 on: 'familyMembers',
                 has: 'many',
                 label: 'markedCompletions',
-            },
-        },
-        choreManualStartsChore: {
-            forward: {
-                on: 'choreManualStarts',
-                has: 'one',
-                label: 'chore',
-            },
-            reverse: {
-                on: 'chores',
-                has: 'many',
-                label: 'manualStarts',
-            },
-        },
-        choreManualStartsFamilyMember: {
-            forward: {
-                on: 'choreManualStarts',
-                has: 'one',
-                label: 'familyMember',
-            },
-            reverse: {
-                on: 'familyMembers',
-                has: 'many',
-                label: 'choreManualStarts',
             },
         },
         choresAssignments: {
