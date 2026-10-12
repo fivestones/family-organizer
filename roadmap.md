@@ -250,15 +250,21 @@ It gets there in two moves on `main`, so the app stays shippable ([how](docs/pow
 
 A throwaway branch; its output is findings in the specification's log ([Phase 0](docs/powersync-migration.md#phase-0--the-spike)).
 
-- [ ] **Web**: PowerSync's web SDK in this app under Turbopack, in development and in the Docker build, with the service worker caching its files. Run it under Playwright in Chromium, Firefox and WebKit, in ordinary and private windows, with two tabs open.
+- [x] **Web**: PowerSync's web SDK in this app under Turbopack, in development and in the Docker build, with the service worker caching its files. Run it under Playwright in Chromium, Firefox and WebKit, in ordinary and private windows, with two tabs open.
+  - Done on 12 October 2026 in a minimal Next 16.4 app with this app's build settings, not in the app itself, and with the standalone production build run directly rather than inside Docker. Every storage mode works in all three engines. Two findings for Safari: its private file system is unusable in a throwaway profile, so the fallback is needed; and its first sync over HTTP streaming took twenty seconds, so the web client connects by WebSocket ([log](docs/powersync-migration.md#implementation-log)).
 - [ ] **(you)** Open the spike on an iPad and an iPhone — in a Safari tab, as a home-screen app, and in Orion — and in Firefox wherever the family uses it. Does it load, work offline, and survive being closed and reopened? Leave one untouched for eight days and say whether its data is still there ([why the browser matters](docs/powersync-migration.md#browsers-and-devices)).
+  - Waiting on a way to reach the spike from those devices over HTTPS — a browser only allows the storage and the service worker this needs on a secure address, so the Mac's plain LAN address will not do. `spike/README.md` on the `spike/powersync` branch says what to point the reverse proxy at.
 - [ ] **Phone**: the React Native SDK on Expo 54. **(you)** Install the build.
-- [ ] **Service**: self-hosted, Postgres storage, `edition: 3` and the timestamp text a device receives, a token signed with our own key, the three streams, a join table.
-- [ ] **Latency**: measure one device to another, and the replay of writes queued offline.
+- [x] **Service**: self-hosted, Postgres storage, `edition: 3` and the timestamp text a device receives, a token signed with our own key, the three streams, a join table.
+  - All as planned, on service 1.26.1 and Postgres 17. Timestamps need `timestamp_max_precision: milliseconds` to match what the app writes.
+- [x] **Latency**: measure one device to another, and the replay of writes queued offline.
+  - On one machine, so without a network: 1–3 ms locally; 870 ms to another device with the SDK's default upload throttle and 43 ms with it lowered; about 30 ms from a change made in Postgres. **(you)** The same over the real network is still to be felt on real devices.
 - [ ] **The query layer**: the chore-day read and the complete-a-chore write over an export of the real data, in Kysely, Drizzle and plain SQL, timed on a phone and in a browser. Choose one.
-- [ ] **Switching principal** on a shared device, and **a refused write** end to end.
+- [x] **Switching principal** on a shared device, and **a refused write** end to end.
+  - A refused write reverts on the device in under a tenth of a second. Switching principal works without clearing the device, but only once the device has caught up: one that switched the moment its upload queue emptied stopped applying downloads until its next upload. The rule is now in [the specification](docs/powersync-migration.md#which-principal-a-queued-write-belongs-to).
 - [ ] **Test tooling**: choose the in-memory SQLite and in-process Postgres.
-- [ ] Write the findings into the specification and revise the later phases.
+- [~] Write the findings into the specification and revise the later phases.
+  - Done for everything above. Left: the phone, the query layer and the test tooling, and every check marked **(you)**.
 
 ### 7.1 The data layer, over Instant
 

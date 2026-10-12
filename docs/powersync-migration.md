@@ -11,6 +11,17 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-12 — Spike, first pass: the service, the sync rules and all three browser engines behave. Four things in the plan change.**
+  What was run. PowerSync service 1.26.1 against Postgres 17, with its own storage in a second database on the same server. Scripted clients on the Node SDK playing a kid's device, a parent's device and a shared device. A minimal Next 16.4 app with this app's build settings — standalone output, Turbopack — and web SDK 2.4.2, driven by Playwright in Chromium, Firefox 146 and WebKit 26, each in a throwaway and a persistent profile, with each storage mode, against both the dev server and the standalone production build. The code is on branch `spike/powersync`, under `spike/`. Everything ran on one machine, so every latency below is without a network; Playwright's WebKit is not Safari on an iPad; and the web app was a minimal page, not this app.
+  **S3, the service: as planned.** One Postgres for both databases works. A token signed with our own RSA key, its public half given to the service inline, is accepted. `auth.parameter('type')` and `auth.parameter('family_member_id')` filter as intended: a kid's device received no parent-only rows and only its own thread; a parent's received everything. Membership through `INNER JOIN` works, and so does a join table with a composite key whose `id` the stream builds as `chore_id || '.' || family_member_id` — in both directions. A generated `has_pin` column syncs and the hash beside it does not. On the device a boolean is 0 or 1, a `date` is `2026-10-01`, `jsonb` is text that `json_extract` reads, and a `timestamptz` is `2026-03-04T05:06:07.000Z` once the configuration sets `timestamp_max_precision: milliseconds`. Without that setting it carries six fractional digits, which is not what `toISOString()` produces.
+  **S4, latency: the default upload throttle is the whole delay.** A local write takes 1–3 ms. With defaults, another device saw it after a median of 870 ms, almost all of it the SDK's one-second upload throttle. With `crudUploadThrottleMs: 50` the median was 43 ms. A change made directly in Postgres reached a device in about 30 ms. Five writes queued offline reached the other device 71 ms after the Node client reconnected; in a browser the same took four to five seconds, which is the SDK's wait before it retries a dropped connection.
+  **S7, refusal: as planned.** A `PATCH` carries exactly the changed columns, which the kid-safe rules depend on. A write the server refused, answered as success, showed locally at once and reverted 74 ms later; Postgres never changed. A table option, `trackMetadata`, lets a write carry a label through to the upload, which is a way to record which principal made it.
+  **S6, switching principal: the plan's rule was not enough.** Changing the token without clearing the database works — a kid's thread was replaced by another kid's in 35 ms and nothing else was re-downloaded. But a device that switched as soon as its upload queue was empty **stopped applying downloads entirely**: it was still waiting for confirmation of its last upload, which the service issues per user, and under the new user it never came. Parent-only rows stayed and later server changes did not arrive, until the device made another upload. Waiting until a sync had completed after the last upload, then switching, worked every time (about 40 ms). Clearing the device and syncing again as the new principal also works.
+  **S1, the web SDK: works in all three engines, with two findings for Safari.** Under Turbopack in development and in the standalone production build, every storage mode opened, synced, wrote through to Postgres, shared its database with a second tab, queued a write offline and uploaded it on return, and kept its data across a reload and a full browser restart — in Chromium, Firefox and WebKit. Starting the app with no network worked in all three, even with today's service worker unchanged. The two findings: in a throwaway WebKit profile, which is the nearest thing to a private window, the browser's private file system is unusable and that storage mode fails to open, so the fallback to IndexedDB is needed and works. And over HTTP streaming, WebKit's first sync took **twenty seconds** — the stream's first bytes were held until the service's next keep-alive — while later changes arrived in about 10 ms. Over WebSocket WebKit's first sync took 50–100 ms, the same as the others. On an iPad every return to the app is a reconnection, so this would have been felt constantly.
+  Two smaller things. The web SDK's README shows constructor options that no longer exist; the working form is a plain `database: { dbFilename, vfs, worker }`. And React's development double-run of effects opened the database twice, so it must be opened once at module level.
+  **What changes in the plan.** The web client connects by WebSocket. A device may change its syncing session only once it has caught up, not merely emptied its queue. The sync configuration sets millisecond timestamps. The upload throttle is lowered. Each is written into its section below.
+  **Not done.** S2, the phone, which needs a build installed. S5, the choice of query layer, and S8, the test tooling. And every **(you)** check: the real iPad and iPhone, whether Safari itself shows the twenty-second delay, and the eight-day storage test.
+
 - **2026-10-12 — Plan revised before any work began: no compatibility layer.**
   The first version of this plan kept the app's Instant-shaped queries and `transact` calls and put a compatibility layer underneath them, on the grounds that it made the job much smaller. David rejected that: the finished app is to read as though it had been written for PowerSync from the start, with nothing left in an Instant shape because it used to be Instant's. The plan now rebuilds the data access natively — a relational schema designed as one, SQL reads, SQL writes, the server on database transactions — and the only adapter code ever written faces Instant and is deleted at the end.
   The same revision removed the plan's references to a wall tablet. There is not one; the claim came from other documents.
@@ -249,7 +260,7 @@ The same pattern holds on the server: each service gets a Postgres implementatio
 
 ## Reads: the sync configuration
 
-PowerSync decides what reaches a device from a configuration of named streams, each a SQL query, filtered by claims in the device's token ([Sync Streams](https://docs.powersync.com/sync/streams/overview)). The configuration uses `edition: 3`, which PowerSync recommends for new Sync Streams projects. Today's 55 `view` rules reduce to three streams.
+PowerSync decides what reaches a device from a configuration of named streams, each a SQL query, filtered by claims in the device's token ([Sync Streams](https://docs.powersync.com/sync/streams/overview)). The configuration uses `edition: 3`, which PowerSync recommends for new Sync Streams projects, and `timestamp_max_precision: milliseconds`, so a timestamp reaches a device in exactly the form `toISOString()` writes. Today's 55 `view` rules reduce to three streams.
 
 | Stream | Who | What |
 | --- | --- | --- |
@@ -280,6 +291,8 @@ For each transaction the route:
 
 **Retries are safe.** Every operation is idempotent, so an upload that is retried after a dropped connection applies once.
 
+**The upload throttle is lowered.** The SDK waits up to a second before uploading by default, and in the spike that wait was nearly all of the time a write took to reach another device: a median of 870 ms with the default, 43 ms with `crudUploadThrottleMs` at 50. The connector sets it to 100.
+
 ### The write rules
 
 `packages/data/policy/` holds one entry per table. It is a faithful translation of `instant.perms.ts`: **no rule is tightened or loosened by this migration**, with the single exception of the tables that stop syncing. [Appendix B](#appendix-b--the-write-rules-today) gives today's rules in the form they are translated from.
@@ -292,7 +305,13 @@ The two contract suites and the live permission matrix are the executable defini
 
 A shared device switches between a parent and a kid, and a parent session is demoted after 15 idle minutes. A write is checked against the session that uploads it, not the one that made it. If a parent's writes were still queued when the device demoted, they would be uploaded as a kid and refused.
 
-So the session shown in the interface and the session used for sync are separate. The interface switches at once. The sync connection keeps the previous session until the upload queue is empty, and only then switches. Parent writes upload as the parent; the kid's view of messages changes a moment later. The spike confirms the SDK allows this.
+So the session shown in the interface and the session used for sync are separate. The interface switches at once. The sync connection keeps the previous session until the device has caught up, and only then switches. Parent writes upload as the parent; the kid's view of messages changes a moment later.
+
+"Caught up" has a precise meaning, found in the spike: the upload queue is empty **and** a sync has completed since the last upload. An empty queue alone is not enough. The service confirms each upload per user, and a device that changes user before that confirmation arrives stops applying downloads altogether until its next upload — it looks connected and shows stale data. The session module owns this rule so no screen can get it wrong:
+
+- Switch when the queue is empty and the last completed sync is later than the last upload. Online this takes tens of milliseconds.
+- If that cannot be reached — the previous session has expired or been revoked — and the queue is empty, clear the local database and sync again as the new principal. Nothing is lost, since nothing is waiting to upload.
+- If writes are still queued under a session that can no longer upload them, they are reported to the user as refused, not silently dropped.
 
 ## Identity and sessions
 
@@ -335,7 +354,9 @@ The messaging area gains `useThreadPresence(threadId)`. Behind it is a small in-
 ## The web client
 
 - **Workers and WebAssembly.** PowerSync's web SDK runs SQLite in a worker. On Next 16 with Turbopack the worker files are copied into `public/@powersync/` by a `postinstall` step, and `next.config.js` gains `turbopack: {}` and `images.disableStaticImages: true` ([Next.js guide](https://docs.powersync.com/client-sdks/frameworks/next-js)). The app imports no static images, so the second setting costs nothing.
-- **The service worker** must cache the worker and WebAssembly files, or the app will not start offline.
+- **The connection is a WebSocket.** PowerSync's web SDK defaults to HTTP streaming. In the spike WebKit held the start of that stream for twenty seconds, so a first sync, and every reconnection after it, would wait that long; over WebSocket it took under a tenth of a second, and Chromium and Firefox were equally quick either way. The connector asks for WebSocket on every browser.
+- **The database is opened once**, at module level, with the plain `database: { dbFilename, vfs, worker }` options. The SDK's README shows an older form that fails, and opening inside a React effect opens it twice in development.
+- **The service worker** caches the worker and WebAssembly files explicitly. In the spike the app started offline in all three engines without that, on the browser's own cache, which is not something to depend on.
 - **Server rendering.** The SDK does nothing during server rendering. The app's data components are already client components behind the session provider.
 
 ### Browsers and devices
@@ -383,7 +404,7 @@ Added to `docker-compose.yml`:
 
 Postgres gets a replication role for PowerSync with read-only access and a publication named `powersync` listing the synced tables ([source database setup](https://docs.powersync.com/configuration/source-db/setup)).
 
-**The PowerSync service needs a public address**, as MinIO has one: a hostname through the reverse proxy with response buffering turned off, because sync is a long-lived streaming response.
+**The PowerSync service needs a public address**, as MinIO has one: a hostname through the reverse proxy that passes WebSocket upgrades and has response buffering turned off, since sync can also run as a long-lived streaming response.
 
 New environment variables: `DATABASE_URL`, `DATA_BACKEND` and `NEXT_PUBLIC_DATA_BACKEND`, `NEXT_PUBLIC_POWERSYNC_URL`, `POWERSYNC_JWT_PRIVATE_KEY`, `POWERSYNC_JWT_KID`, and the `PS_`-prefixed values the PowerSync configuration reads.
 

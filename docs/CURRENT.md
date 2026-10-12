@@ -2,7 +2,7 @@
 
 Claim an item here before starting it, and release it when you stop. One line per session.
 
-- Claude (PowerSync plan session, 12 October 2026): nothing claimed. [docs/powersync-migration.md](powersync-migration.md) and [Scope 7](../roadmap.md#scope-7--the-move-to-powersync) were revised after David's review: there is no compatibility layer — the app is rebuilt on PowerSync and Postgres natively, by first moving every screen to a shared data layer over Instant (7.1) and then implementing that layer on PowerSync (7.6). Also corrected: there is no wall tablet. Documentation only — no application code, schema or permissions were touched, and nothing was run against the live Instant app. 7.0 (the spike) and 7.1 are the next unchecked items and can start at once.
+- Claude (PowerSync session, 12 October 2026): **claimed Scope 7.0 (the spike) and 7.1 (the data layer over Instant, starting with family and settings).** The spike is on branch `spike/powersync` in the worktree `.claude/worktrees/powersync-spike` and touches nothing on `main`; its Docker project is `fo-spike`. 7.1 work lands on `main` in `packages/data`.
 
 - Codex (12 October 2026): nothing claimed; Scope 0 critical dependency updates completed with zero critical audit findings, 1,074 tests, typechecking, a production Docker build and container/worker smoke checks passing. Remaining advisories and deprecation cleanup are recorded in Scope 0.
 
