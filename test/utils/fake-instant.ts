@@ -12,6 +12,7 @@ type Chunk = { namespace: string; id: string; op: 'update' | 'delete'; values?: 
 export function createFakeInstant(initial: Record<string, Row[]> = {}) {
     let state: Record<string, Row[]> = Object.fromEntries(Object.entries(initial).map(([name, rows]) => [name, rows.map((row) => ({ ...row }))]));
     let version = 0;
+    let offline = false;
     let nextId = 1;
     const listeners = new Set<() => void>();
     const queries: unknown[] = [];
@@ -70,6 +71,8 @@ export function createFakeInstant(initial: Record<string, Row[]> = {}) {
             },
             async queryOnce(query: unknown) {
                 oneOffQueries.push(query);
+                // Instant refuses a one-off query without a connection; live queries and writes carry on locally.
+                if (offline) throw new Error("We can't run `queryOnce`, because the device is offline.");
                 return { data: run(query) };
             },
             async transact(chunks: unknown) {
@@ -107,5 +110,14 @@ export function createFakeInstant(initial: Record<string, Row[]> = {}) {
         /** Every transaction the implementation sent, in order. */
         transactions,
         rows: (namespace: string) => state[namespace] ?? [],
+        setOffline(value: boolean) {
+            offline = value;
+        },
+        /** Replaces a namespace's rows as a change arriving from another device would, and tells live queries. */
+        replaceRows(namespace: string, rows: Row[]) {
+            state = { ...state, [namespace]: rows.map((row) => ({ ...row })) };
+            version += 1;
+            listeners.forEach((listener) => listener());
+        },
     };
 }

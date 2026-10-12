@@ -11,11 +11,15 @@ const text = (value: unknown): string | null => (typeof value === 'string' && va
 const numeric = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const flag = (value: unknown): boolean | null => (typeof value === 'boolean' ? value : null);
 
-/** Instant's date type hands back whatever was stored: an ISO string or epoch milliseconds. */
+/**
+ * Instant's date type hands back whatever was stored: a date string or epoch milliseconds.
+ * Either becomes an ISO 8601 instant; anything that is not a date becomes `null` rather than being passed off as one.
+ */
 function isoInstant(value: unknown): string | null {
-    if (typeof value === 'string' && value !== '') return value;
-    if (typeof value === 'number' && Number.isFinite(value)) return new Date(value).toISOString();
-    return null;
+    if (typeof value !== 'string' && typeof value !== 'number') return null;
+    if (value === '') return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function photoUrls(value: unknown): MemberPhotoUrls | null {
@@ -32,9 +36,9 @@ export function toFamilyMember(row: any): FamilyMember {
         color: text(row.color),
         photoUrls: photoUrls(row.photoUrls),
         sortOrder: numeric(row.order) ?? 0,
-        // Instant hides the hash from everyone but a parent and the member themselves, so on this
-        // implementation a kid's device sees `false` for other people. Sign-in asks the server instead.
-        hasPin: Boolean(row.pinHash),
+        // Instant hides the hash from everyone but a parent and the member themselves. A hash that is visible
+        // means a PIN is set; one that is not could be either, so this implementation says it does not know.
+        hasPin: row.pinHash ? true : null,
         allowanceAmount: numeric(row.allowanceAmount),
         allowanceCurrency: text(row.allowanceCurrency),
         allowanceRrule: text(row.allowanceRrule),

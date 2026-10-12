@@ -110,6 +110,60 @@ describe('settings, over Instant', () => {
         expect(JSON.parse(fake.rows('settings')[0].value as string).dayBoundaryTime).toBe('04:30');
     });
 
+    it('saves a setting that has never been saved while offline, as the panels always could', async () => {
+        const fake = bind();
+        // A screen showing the setting has seen that nothing is stored.
+        renderHook(() => useSetting('enabledCurrencies'));
+        fake.setOffline(true);
+
+        await saveSetting('enabledCurrencies', ['NPR']);
+
+        expect(fake.oneOffQueries).toEqual([]);
+        expect(fake.rows('settings')).toEqual([{ id: 'generated-1', name: 'enabledCurrencies', value: '["NPR"]' }]);
+    });
+
+    it('still saves offline when no screen has read the setting yet', async () => {
+        const fake = bind();
+        fake.setOffline(true);
+
+        await saveSetting('dashboardTheme', 'dark');
+
+        expect(fake.rows('settings')).toEqual([{ id: 'generated-1', name: 'dashboard_theme', value: 'dark' }]);
+    });
+
+    it('makes one row when an unset setting is saved twice at once', async () => {
+        const fake = bind();
+
+        await Promise.all([saveSetting('enabledCurrencies', ['USD']), saveSetting('enabledCurrencies', ['USD', 'NPR'])]);
+
+        expect(fake.rows('settings')).toEqual([{ id: 'generated-1', name: 'enabledCurrencies', value: '["USD","NPR"]' }]);
+    });
+
+    it('follows the row when another device has deleted the setting and saved it again', async () => {
+        const fake = bind({ settings: [{ id: 'old', name: 'familyPhotoUrls', value: '{"64":"old.png"}' }] });
+        const { result } = renderHook(() => useSetting('familyPhoto'));
+        expect(result.current.data).toEqual({ '64': 'old.png' });
+
+        act(() => fake.replaceRows('settings', [{ id: 'new', name: 'familyPhotoUrls', value: '{"64":"theirs.png"}' }]));
+        await waitFor(() => expect(result.current.data).toEqual({ '64': 'theirs.png' }));
+        await act(() => saveSetting('familyPhoto', { '64': 'mine.png' }));
+
+        expect(fake.rows('settings')).toEqual([{ id: 'new', name: 'familyPhotoUrls', value: '{"64":"mine.png"}' }]);
+    });
+
+    it('creates the setting afresh after another device has deleted it', async () => {
+        const fake = bind({ settings: [{ id: 'old', name: 'familyPhotoUrls', value: '{"64":"old.png"}' }] });
+        const { result } = renderHook(() => useSetting('familyPhoto'));
+
+        act(() => fake.replaceRows('settings', []));
+        await waitFor(() => expect(result.current.data).toBeNull());
+        await act(() => clearSetting('familyPhoto'));
+        expect(fake.transactions).toEqual([]);
+
+        await act(() => saveSetting('familyPhoto', { '64': 'mine.png' }));
+        expect(fake.rows('settings')).toEqual([{ id: 'generated-1', name: 'familyPhotoUrls', value: '{"64":"mine.png"}' }]);
+    });
+
     it('stores the theme as the bare word and everything else as JSON', async () => {
         const fake = bind();
 

@@ -17,8 +17,11 @@ export interface FamilyMember {
     photoUrls: MemberPhotoUrls | null;
     /** The member's place in the family's own ordering. A roster is always returned in this order. */
     sortOrder: number;
-    /** Whether a PIN is set. The PIN's hash itself never leaves the server. */
-    hasPin: boolean;
+    /**
+     * Whether a PIN is set; `null` when this device cannot tell. The PIN's hash itself never leaves the server.
+     * Over Instant only a parent's device and the member's own can tell. Over PowerSync every device can.
+     */
+    hasPin: boolean | null;
 
     // Allowance
     allowanceAmount: number | null;

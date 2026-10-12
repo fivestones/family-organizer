@@ -3,9 +3,18 @@
 import React from 'react';
 import { useDashboardTheme } from '@/lib/freeform-dashboard/useDashboardTheme';
 import { DASHBOARD_THEMES, type DashboardTheme } from '@/lib/freeform-dashboard/dashboard-theme';
+import { useToast } from '@/components/ui/use-toast';
 
 export default function DashboardThemeSelector() {
     const { theme, setTheme } = useDashboardTheme();
+    const { toast } = useToast();
+
+    const chooseTheme = (next: DashboardTheme) => {
+        setTheme(next).catch((error: unknown) => {
+            console.error('Failed to save the dashboard theme:', error);
+            toast({ title: 'Theme not saved', description: 'The dashboard theme could not be saved. Try again.', variant: 'destructive' });
+        });
+    };
 
     return (
         <div>
@@ -19,7 +28,7 @@ export default function DashboardThemeSelector() {
                     return (
                         <button
                             key={t.id}
-                            onClick={() => setTheme(t.id as DashboardTheme)}
+                            onClick={() => chooseTheme(t.id as DashboardTheme)}
                             className={`flex flex-col items-center gap-2 rounded-xl border-2 p-3 transition-colors ${
                                 isActive ? 'border-blue-500' : 'border-slate-200 hover:border-slate-300'
                             }`}

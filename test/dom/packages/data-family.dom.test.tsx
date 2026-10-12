@@ -63,10 +63,25 @@ describe('the family roster, over Instant', () => {
             messageDigestWindowMinutes: null,
         });
         expect(ada.role).toBe('child');
-        expect(ada.hasPin).toBe(false);
+        // No hash is visible for Ada. Over Instant that can mean no PIN or a hidden one, so it is not known.
+        expect(ada.hasPin).toBeNull();
         expect(ada.sortOrder).toBe(1);
         expect(ada.allowanceAmount).toBe(5);
         expect(ada.allowanceStartDate).toBe('2026-02-03T00:00:00.000Z');
+    });
+
+    it('turns a stored date into an ISO instant, and anything that is not a date into null', () => {
+        bind({
+            familyMembers: [
+                { id: 'a', name: 'A', order: 0, allowanceStartDate: '2026-02-03' },
+                { id: 'b', name: 'B', order: 1, allowanceStartDate: 'soon' },
+                { id: 'c', name: 'C', order: 2, allowanceStartDate: '' },
+            ],
+        });
+
+        const dates = renderHook(() => useFamilyMembers()).result.current.data.map((member) => member.allowanceStartDate);
+
+        expect(dates).toEqual(['2026-02-03T00:00:00.000Z', null, null]);
     });
 
     it('never hands the PIN hash to a screen', () => {

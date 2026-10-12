@@ -20,7 +20,15 @@ const listPath = path.join(root, 'test/contracts/instant-coupled-files.json');
 const SCANNED = ['app', 'components', 'lib', 'mobile/app', 'mobile/src', 'scripts'];
 
 /** The places that are allowed to know about Instant: the client entry points and the data layer's implementation. */
-const DOORS = new Set(['lib/db.ts', 'lib/data.ts', 'lib/instant-admin.ts', 'mobile/src/lib/instant-db.js', 'mobile/src/lib/instant-mmkv-store.js']);
+const DOORS = new Set([
+    'lib/db.ts',
+    'lib/data.ts',
+    'lib/instant-admin.ts',
+    'mobile/src/lib/instant-db.js',
+    'mobile/src/lib/instant-mmkv-store.js',
+    // The migration's own reader: it exists to take the data out of Instant, and only reads.
+    'scripts/migrate/export.mjs',
+]);
 
 const REACHES_INSTANT = [
     /from\s+['"]@instantdb\//,
@@ -70,6 +78,19 @@ describe('the Instant boundary', () => {
     it('drops a file from the list once it has been converted', () => {
         const converted = recorded.filter((file) => !actual.includes(file));
         expect(converted, 'These files no longer reach InstantDB. Regenerate the list (see the top of this test) so they cannot slip back.').toEqual([]);
+    });
+
+    it('lets nothing reach a converted area around the data layer', () => {
+        // The file list above cannot see a file that already reaches Instant gaining a query for an area that has
+        // moved. Each area is added here when it converts. The server's own modules move in a later phase.
+        const CONVERTED = ['settings', 'unitDefinitions'];
+        const SERVER_SIDE = new Set(['lib/mobile-shortcut-chore-service.ts']);
+        const names = CONVERTED.join('|');
+        const reachesConvertedArea = [new RegExp(`\\btx\\.(${names})\\[`), new RegExp(`\\b(${names}):\\s*\\{\\s*(\\$:|\\})`)];
+        const offenders = SCANNED.flatMap(sourceFiles)
+            .filter((file) => !SERVER_SIDE.has(file))
+            .filter((file) => reachesConvertedArea.some((pattern) => pattern.test(readFileSync(path.join(root, file), 'utf8'))));
+        expect(offenders, `These files query or write ${CONVERTED.join(' or ')} directly. Use the data layer's hooks and mutations.`).toEqual([]);
     });
 
     it('keeps the data layer itself free of Instant outside its Instant implementation', () => {
