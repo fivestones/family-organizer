@@ -274,7 +274,8 @@ On `main`, Instant still the only backend ([Phase 1](docs/powersync-migration.md
 
 - [~] Family and settings — first, because it is small and sets the pattern.
   - Done: `packages/data` exists, with its Instant implementation and the test that lists every file still reaching Instant directly (117 now). The five household settings and the unit definitions are on it everywhere they are read or written, web and phone.
-  - **Left: family members.**
+  - Started: `FamilyMember`, `useFamilyMembers()` and `useFamilyMember(id)` exist and are tested; the dashboard and the message screen read the roster through them.
+  - **Left: family members.** The other two dozen plain roster reads; the signed-in member in `AuthProvider`, with the session module; and creating, editing, reordering and removing members in `FamilyMembersList`.
   - **(you)** Not seen in a browser or on a device. On the web: Settings — toggle a currency, save household scheduling, save countdown settings, switch the dashboard theme, set and remove the family photo — then the chore day and the countdown, which read those settings. Anywhere a balance is shown — the family list, Finance, the dashboards, allowance distribution — to see that amounts still carry their symbols, and define a new unit from a currency picker. On the phone: Chores, Routine markers, the countdown, Finance and the dashboard balances, and in More → Settings create a unit and look at the raw list at the bottom.
 - [ ] Chores, routines and the countdown.
 - [ ] Task series.

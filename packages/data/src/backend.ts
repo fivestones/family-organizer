@@ -1,8 +1,10 @@
+import type { FamilyBackend } from './family/backend';
 import type { SettingsBackend } from './settings/backend';
 import type { UnitsBackend } from './units/backend';
 
 /** Everything an implementation of the data layer provides, one member per area. */
 export interface DataBackend {
+    family: FamilyBackend;
     settings: SettingsBackend;
     units: UnitsBackend;
 }

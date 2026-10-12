@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { AttachmentCollection } from '@/components/attachments/AttachmentCollection';
 import { useAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/db';
+import { useFamilyMembers } from '@/lib/data';
 import { uploadFilesToS3 } from '@/lib/file-uploads';
 import { acknowledge, bootstrapMessages, createThread, editMessage, getMessageServerTime, joinThreadWatch, leaveThreadWatch, markRead, removeMessage, sendMessage, toggleReaction, updateThreadPreferences } from '@/lib/message-client';
 import { createMessageServerTimeAnchor, getMessageServerNowMs, getMonotonicNowMs, type MessageServerTimeAnchor } from '@/lib/message-server-time';
@@ -297,21 +298,9 @@ export default function FamilyMessagesPage() {
             : (null as any)
     ) as any;
 
-    const familyMembersQuery = (db as any).useQuery(
-        currentUser
-            ? {
-                  familyMembers: {
-                      $: {
-                          order: {
-                              order: 'asc',
-                          },
-                      },
-                  },
-              }
-            : (null as any)
-    ) as any;
+    const familyMembersQuery = useFamilyMembers({ enabled: Boolean(currentUser) });
 
-    const familyMembers = useMemo(() => (familyMembersQuery?.data?.familyMembers as any[]) || [], [familyMembersQuery?.data?.familyMembers]);
+    const familyMembers = familyMembersQuery.data;
     const familyMemberNamesById = useMemo(
         () => new Map(familyMembers.map((member: any) => [member.id, member.name || 'Unknown'])),
         [familyMembers]

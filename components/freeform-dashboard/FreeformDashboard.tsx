@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { id } from '@instantdb/react';
 import { db } from '@/lib/db';
+import { useFamilyMembers } from '@/lib/data';
 import { useParentMode } from '@/components/auth/useParentMode';
 import { useActiveBreakpoint } from '@/lib/freeform-dashboard/useActiveBreakpoint';
 import { useFamilyDashboardLayout } from '@/lib/freeform-dashboard/useFamilyDashboardLayout';
@@ -47,20 +48,16 @@ export default function FreeformDashboard({ editMode }: FreeformDashboardProps) 
     const hasInitializedRef = useRef(false);
 
     // Query family members for default layout generation + person card config
-    const { data: familyData } = db.useQuery({
-        familyMembers: {
-            $: { order: { order: 'asc' } },
-        },
-    });
+    const { data: roster } = useFamilyMembers();
 
     const familyMembers = useMemo(
         () =>
-            (familyData?.familyMembers ?? []).map((m: any) => ({
-                id: m.id,
-                name: m.name,
-                photoUrls: m.photoUrls as Record<string, string> | null | undefined,
+            roster.map((member) => ({
+                id: member.id,
+                name: member.name,
+                photoUrls: member.photoUrls as Record<string, string> | null,
             })),
-        [familyData]
+        [roster]
     );
 
     // Initialize default layouts on first load if none exist
