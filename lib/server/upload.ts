@@ -71,6 +71,7 @@ function valueFor(operation: CheckedOperation, column: string, value: unknown): 
     const kind = policyFor(operation.table).columns[column]?.kind;
     if (kind === 'json') return sql`${JSON.stringify(value)}::jsonb`;
     if (kind === 'days') return sql`${`{${(value as string[]).join(',')}}`}::date[]`;
+    if (kind === 'uuids') return sql`${`{${(value as string[]).join(',')}}`}::uuid[]`;
     return sql`${value}`;
 }
 

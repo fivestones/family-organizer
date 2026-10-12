@@ -4,7 +4,7 @@ import type { Principal } from '../session/principal';
  * How a value is held in a column, which decides how one that arrives from a device is checked and read.
  * A device holds every value as SQLite does: a boolean as 0 or 1, a JSON document and a list of days as JSON text.
  */
-export type ColumnKind = 'text' | 'uuid' | 'boolean' | 'integer' | 'number' | 'day' | 'instant' | 'time' | 'json' | 'days';
+export type ColumnKind = 'text' | 'uuid' | 'boolean' | 'integer' | 'number' | 'day' | 'instant' | 'time' | 'json' | 'days' | 'uuids';
 
 export interface ColumnRule {
     kind: ColumnKind;

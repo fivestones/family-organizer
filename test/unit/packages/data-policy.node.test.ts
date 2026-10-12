@@ -127,6 +127,9 @@ describe('what parents write and everyone reads', () => {
         ['unit_definitions', id(20), { code: 'STARS' }],
         ['chores', id(10), { title: 'Dishes' }],
         ['chore_assignees', `${id(10)}.${ELI}`, { position: 0 }],
+        ['routines', id(80), { name: 'Evening' }],
+        ['routine_steps', `${id(80)}.${id(10)}`, { position: 0 }],
+        ['routine_marker_statuses', '2026-03-09.dinner', { started_at: '2026-03-09T18:00:00.000Z' }],
     ])('%s: a parent may insert, change and delete; nobody else may do any of it', (table, rowId, data) => {
         const current = { name: 'dashboardTheme', id: rowId };
         expect(forEveryone({ op: 'PUT', table, id: rowId, data })).toEqual({ parent: 'insert', eli: 'not_allowed', fay: 'not_allowed', sharedKid: 'not_allowed' });
@@ -202,6 +205,35 @@ describe('chore completions', () => {
     it('never move to another chore or another day', () => {
         expect(decide(parent, { op: 'PATCH', table: 'chore_completions', id: id(40), data: { date_due: '2026-03-10' } }, completion(ELI))).toBe('column_not_allowed');
         expect(decide(parent, { op: 'PATCH', table: 'chore_completions', id: id(40), data: { chore_id: id(11) } }, completion(ELI))).toBe('column_not_allowed');
+    });
+});
+
+describe('countdown runs', () => {
+    const run = (member: string) => ({ id: id(90), family_member_id: member, day: '2026-03-09', status: 'running', started_at: '2026-03-09T15:00:00.000Z' });
+    const start = (member: string): DeviceOperation => ({ op: 'PUT', table: 'countdown_runs', id: id(90), data: { family_member_id: member, day: '2026-03-09', status: 'running', started_at: '2026-03-09T15:00:00.000Z', skipped_chore_ids: '[]' } });
+
+    it('are started by a kid for themselves only', () => {
+        expect(forEveryone(start(ELI))).toEqual({ parent: 'insert', eli: 'insert', fay: 'not_yours', sharedKid: 'not_allowed' });
+    });
+
+    it('are driven by the kid whose run it is, in every part but whose it is and which day', () => {
+        const step: DeviceOperation = { op: 'PATCH', table: 'countdown_runs', id: id(90), data: { status: 'stopped', stopped_reason: 'finished', skipped_chore_ids: JSON.stringify([id(10)]), step_extension_secs: 30 } };
+        expect(forEveryone(step, run(ELI))).toEqual({ parent: 'update', eli: 'update', fay: 'not_yours', sharedKid: 'not_allowed' });
+        expect(decide(eli, { op: 'PATCH', table: 'countdown_runs', id: id(90), data: { family_member_id: FAY } }, run(ELI))).toBe('column_not_allowed');
+        expect(decide(parent, { op: 'PATCH', table: 'countdown_runs', id: id(90), data: { day: '2026-03-10' } }, run(ELI))).toBe('column_not_allowed');
+    });
+
+    it('are removed by parents only', () => {
+        expect(forEveryone({ op: 'DELETE', table: 'countdown_runs', id: id(90) }, run(ELI))).toEqual({ parent: 'delete', eli: 'not_allowed', fay: 'not_allowed', sharedKid: 'not_allowed' });
+    });
+});
+
+describe('a key made of more than an id', () => {
+    it('is read part by part, each as its column\'s kind', () => {
+        expect(keyOf('routine_marker_statuses', '2026-03-09.dinner')).toEqual({ day: '2026-03-09', marker_key: 'dinner' });
+        expect(keyOf('routine_marker_statuses', '2026-02-30.dinner')).toBeNull();
+        expect(keyOf('routine_marker_statuses', 'dinner')).toBeNull();
+        expect(keyOf('routine_steps', `${id(80)}.not-an-id`)).toBeNull();
     });
 });
 

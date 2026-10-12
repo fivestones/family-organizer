@@ -42,6 +42,24 @@ const chore_completions = new Table(
     { indexes: { day: ['date_due'], chore_day: ['chore_id', 'date_due'] } }
 );
 
+const routines = new Table({ name: text, on_step_overrun: text, sort_order: integer, created_at: text });
+
+const routine_steps = new Table({ routine_id: text, chore_id: text, position: integer }, { indexes: { routine: ['routine_id'], chore: ['chore_id'] } });
+
+const routine_marker_statuses = new Table(
+    { day: text, marker_key: text, started_at: text, started_by: text, completed_at: text, completed_by: text },
+    { indexes: { day: ['day'] } }
+);
+
+const countdown_runs = new Table(
+    {
+        family_member_id: text, day: text, routine_id: text, status: text, current_chore_id: text, skipped_chore_ids: text, started_at: text,
+        step_started_at: text, step_extension_secs: integer, step_extension_count: integer, last_interaction_at: text, stopped_at: text,
+        stopped_reason: text,
+    },
+    { indexes: { member_day: ['family_member_id', 'day'] } }
+);
+
 const history_events = new Table(
     {
         occurred_at: text, domain: text, action_type: text, summary: text, source: text, actor_id: text, chore_id: text, task_series_id: text,
@@ -68,7 +86,8 @@ const write_refusals = new Table({
 const local_transactions = new Table({ mutation: text }, { insertOnly: true });
 
 export const AppSchema = new Schema({
-    settings, unit_definitions, family_members, chores, chore_assignees, chore_completions, history_events, history_event_members,
+    settings, unit_definitions, family_members, chores, chore_assignees, chore_completions, routines, routine_steps, routine_marker_statuses,
+    countdown_runs, history_events, history_event_members,
     write_refusals, local_transactions,
 });
 

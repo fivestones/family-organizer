@@ -328,7 +328,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [x] The export script and its census, run read-only against the live app.
   - Run on 12 October 2026: 64,895 rows, of which 61,111 are the server's calendar sync log; what a device would hold is about 3,800 rows. The data is clean, and all ten references that are held twice agree with themselves ([log](docs/powersync-migration.md#implementation-log)).
   - **(you)** For an official copy as well, sign the Instant CLI in and run `npx instant-cli@latest backup download --latest`. Instant keeps seven nightly backups.
-- [ ] The rest of the schema as SQL migrations, following [the design rules](docs/powersync-migration.md#design-rules), with the mapping from every Instant attribute and link to its column, and a delete rule chosen for every relation.
+- [~] The rest of the schema as SQL migrations, following [the design rules](docs/powersync-migration.md#design-rules), with the mapping from every Instant attribute and link to its column, and a delete rule chosen for every relation.
+  - Done: the chore area is whole, with routines, their steps, the day's routine markers and countdown runs added on 13 October 2026, each with its stream, device table, rules, mapping and verification. Left, area by area: task series, calendar, finance, messaging, content, dashboards, calendar sync.
 - [ ] Postgres and PowerSync in the production `docker-compose.yml`, with the cap on what replication may hold back, the health report, and the nightly dump copied off the machine.
 - [ ] The client schema and its indexes, for every table.
 - [ ] The import script for everything, with [verification](docs/powersync-migration.md#moving-the-data) of rows, relations and money worked out from the raw export. Done when a fresh import of the live data verifies clean.

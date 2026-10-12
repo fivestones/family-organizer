@@ -122,6 +122,49 @@ export const POLICY = {
         delete: parentsOnly,
     },
 
+    routines: {
+        key: ['id'],
+        columns: { id: uuid, name: text, on_step_overrun: oneOf('wait', 'advance'), sort_order: integer, created_at: instant },
+        ...parentsWrite,
+    },
+
+    routine_steps: {
+        key: ['routine_id', 'chore_id'],
+        columns: { routine_id: uuid, chore_id: uuid, position: integer },
+        ...parentsWrite,
+    },
+
+    routine_marker_statuses: {
+        key: ['day', 'marker_key'],
+        columns: { day, marker_key: text, started_at: instant, started_by: uuid, completed_at: instant, completed_by: uuid },
+        ...parentsWrite,
+    },
+
+    countdown_runs: {
+        key: ['id'],
+        columns: {
+            id: uuid, family_member_id: uuid, day, routine_id: uuid, status: oneOf('running', 'stopped'), current_chore_id: uuid,
+            skipped_chore_ids: { kind: 'uuids' }, started_at: instant, step_started_at: instant, step_extension_secs: integer,
+            step_extension_count: integer, last_interaction_at: instant, stopped_at: instant, stopped_reason: text,
+        },
+        // A kid runs their own countdown and nobody else's.
+        insert(principal, next) {
+            if (isParent(principal)) return null;
+            const self = kidSelf(principal);
+            if (self === null) return 'not_allowed';
+            return next.family_member_id === self ? null : 'not_yours';
+        },
+        update(principal, current, _next, changed) {
+            // Whose run it is, and for which day, never change.
+            if (changed.includes('family_member_id') || changed.includes('day')) return 'column_not_allowed';
+            if (isParent(principal)) return null;
+            const self = kidSelf(principal);
+            if (self === null) return 'not_allowed';
+            return current.family_member_id === self ? null : 'not_yours';
+        },
+        delete: parentsOnly,
+    },
+
     // The record of what happened is added to and never changed.
     history_events: {
         key: ['id'],
@@ -151,7 +194,7 @@ export const POLICY = {
     // A refusal is written by the server. A person can only say they have seen theirs.
     write_refusals: {
         key: ['id'],
-        columns: { dismissed_at: instant },
+        columns: { id: uuid, dismissed_at: instant },
         insert: nobody,
         update(principal, current, _next, changed) {
             if (!only(changed, ['dismissed_at'])) return 'column_not_allowed';

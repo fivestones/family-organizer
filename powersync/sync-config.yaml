@@ -30,6 +30,13 @@ streams:
       # A join table has two columns for a key; its id is built from them.
       - SELECT chore_id || '.' || family_member_id AS id, chore_id, family_member_id, position FROM chore_assignees
       - SELECT id, chore_id, completed_by, marked_by, date_due, completed_at, not_done, allowance_awarded FROM chore_completions
+      - SELECT id, name, on_step_overrun, sort_order, created_at FROM routines
+      - SELECT routine_id || '.' || chore_id AS id, routine_id, chore_id, position FROM routine_steps
+      - SELECT day || '.' || marker_key AS id, day, marker_key, started_at, started_by, completed_at, completed_by FROM routine_marker_statuses
+      - >-
+        SELECT id, family_member_id, day, routine_id, status, current_chore_id, skipped_chore_ids, started_at, step_started_at,
+        step_extension_secs, step_extension_count, last_interaction_at, stopped_at, stopped_reason
+        FROM countdown_runs
       - >-
         SELECT id, occurred_at, domain, action_type, summary, source, actor_id, chore_id, task_series_id, task_id, calendar_item_id,
         allowance_transaction_id, message_thread_id, message_id, scheduled_for, restore_timing, metadata

@@ -11,6 +11,13 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — The rest of the chore area has its tables: routines, their steps, the day's routine markers, and countdown runs.**
+  The first step of [Phase 3](#phase-3--the-schema-and-the-data), taken by following the list the slice left for adding a table: a migration that also adds the table to the publication, its columns in the stream, its table in the device's schema, its rules, and its part of the mapping and the verification. Each of those is held to the others by a test, and they caught the one thing that was forgotten.
+  A routine's steps were an entity of their own carrying a position; they are the join between a routine and its chores, with the position on it. A routine marker's status was keyed by a string of its day and its marker joined together, stored beside both; the day and the marker are the key. A countdown run keeps the id worked out from its person and day, with a constraint behind it that there is one run per person per day. Its list of skipped chores is an array of ids.
+  A key made of two parts is now read part by part, each as its column's kind, so a marker's key must hold a real day. The rules gained a kind for a list of ids. A kid starts and drives their own run and nobody else's, as today; whose run it is and for which day cannot be changed by anyone.
+  On the real export: 1 routine, 10 steps and 8 marker statuses load and verify, and there are no runs. Through the real sync service, a device is sent a routine's steps and a day's marker under their two-part keys, and a kid's run goes up and comes back with its list intact.
+  One caution from doing it. The live test was once pointed at a stack that still held the real import, and its first failure printed real first names into a terminal. Nothing was written anywhere. The live tests now refuse to run against any family that is not their own fixture.
+
 - **2026-10-13 — The slice has a web client, and it runs in three browsers against the real sync service.**
   `/sync` is the app on PowerSync as far as it is built: a day's chores, ticked and un-ticked, and the currency and countdown settings, with a person switcher, a sync badge and the list of changes that did not go through. Underneath is everything the entry below describes, with nothing stood in for.
   **How it sits beside the live app.** The root layout no longer hard-wires the InstantDB frame. A small shell picks the frame by page: every existing page gets the InstantDB frame as before, loaded on demand, and `/sync` brings its own. What the server sends for a live page is unchanged: the same "Connecting to family data" splash, rendered by the same provider. The data layer's InstantDB binding moved from `lib/data.ts`, where importing any hook opened a connection to InstantDB, into that frame. A deployment started with `DATA_BACKEND=powersync` sends every page to `/sync`, because its other pages still need InstantDB.
@@ -783,7 +790,7 @@ Everything else in the app is absent from staging until its area arrives in Phas
 ### Phase 3 — The schema and the data
 
 - The export script and the census, run against the live app, read-only. *Done on 12 October 2026.*
-- The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation.
+- The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation. *Begun: the chore area is whole. Task series, calendar, finance, messaging, content, dashboards and calendar sync are left.*
 - Postgres and PowerSync in the production `docker-compose.yml`, with the cap on replication, the health report, the nightly dump and its copy off the machine.
 - The client schema and its indexes, for every table.
 - The import script for everything, and [verification at all five levels](#moving-the-data).

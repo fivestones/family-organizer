@@ -7,7 +7,10 @@
 // reason, and every conversion that changed a value's meaning is counted under `notes`.
 
 /** The tables this mapping fills, in an order their foreign keys allow. */
-export const TABLES = ['settings', 'unit_definitions', 'family_members', 'chores', 'chore_assignees', 'chore_completions', 'history_events', 'history_event_members'];
+export const TABLES = [
+    'settings', 'unit_definitions', 'family_members', 'chores', 'chore_assignees', 'chore_completions',
+    'routines', 'routine_steps', 'routine_marker_statuses', 'countdown_runs', 'history_events', 'history_event_members',
+];
 
 /** The columns written to each table. One the database fills in for itself, such as family_members.has_pin, is not among them. */
 export const COLUMNS = {
@@ -28,6 +31,13 @@ export const COLUMNS = {
     ],
     chore_assignees: ['chore_id', 'family_member_id', 'position'],
     chore_completions: ['id', 'chore_id', 'completed_by', 'marked_by', 'date_due', 'completed_at', 'not_done', 'allowance_awarded'],
+    routines: ['id', 'name', 'on_step_overrun', 'sort_order', 'created_at'],
+    routine_steps: ['routine_id', 'chore_id', 'position'],
+    routine_marker_statuses: ['day', 'marker_key', 'started_at', 'started_by', 'completed_at', 'completed_by'],
+    countdown_runs: [
+        'id', 'family_member_id', 'day', 'routine_id', 'status', 'current_chore_id', 'skipped_chore_ids', 'started_at', 'step_started_at',
+        'step_extension_secs', 'step_extension_count', 'last_interaction_at', 'stopped_at', 'stopped_reason',
+    ],
     history_events: [
         'id', 'occurred_at', 'domain', 'action_type', 'summary', 'source', 'actor_id', 'chore_id', 'task_series_id', 'task_id',
         'calendar_item_id', 'allowance_transaction_id', 'message_thread_id', 'message_id', 'scheduled_for', 'restore_timing', 'metadata',
@@ -60,6 +70,9 @@ export const LEFT_BEHIND = {
     },
     choreCompletions: {
         completed: 'A completion is done when completed_at is set.',
+    },
+    routineMarkerStatuses: {
+        key: 'The day and the marker are the key.',
     },
 };
 
@@ -378,6 +391,91 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The id something had, kept even though the thing may be gone. Anything that is not an id is left out. */
 const idOrNull = (value) => (typeof value === 'string' && UUID.test(value) ? value : null);
 
+/** A routine, and its chores in order. Instant held the order on a join entity of its own; here the join is the table. */
+function routines(rowsOf, out) {
+    const chores = new Set(out.tables.chores.map((row) => row.id));
+    const kept = new Set();
+    for (const row of rowsOf('routines')) {
+        kept.add(row.id);
+        out.tables.routines.push({
+            id: row.id,
+            name: trimmed(row.name) || 'Untitled',
+            on_step_overrun: oneOf(row.onStepOverrun, ['wait', 'advance']),
+            sort_order: optionalInteger(row.sortOrder) ?? 0,
+            created_at: instant(row.createdAt, out.notes, 'routines.createdAt') ?? new Date(0).toISOString(),
+        });
+    }
+    const routineOf = new Map(pairs(rowsOf, ['routineSteps', 'routine'], ['routines', 'steps']));
+    const choreOf = new Map(pairs(rowsOf, ['routineSteps', 'chore'], ['chores', 'routineSteps']));
+    const seen = new Set();
+    for (const row of [...rowsOf('routineSteps')].sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.id).localeCompare(String(b.id)))) {
+        const routine = routineOf.get(row.id);
+        const chore = choreOf.get(row.id);
+        if (!kept.has(routine)) { hold(out, 'routineSteps', row, 'It belongs to no routine.'); continue; }
+        if (!chores.has(chore)) { hold(out, 'routineSteps', row, 'It names no chore.'); continue; }
+        if (seen.has(`${routine}\n${chore}`)) { hold(out, 'routineSteps', row, 'The chore is already a step of this routine.'); continue; }
+        seen.add(`${routine}\n${chore}`);
+        out.tables.routine_steps.push({ routine_id: routine, chore_id: chore, position: optionalInteger(row.position) ?? 0 });
+    }
+}
+
+/** When a routine marker started and finished on a day. Its key was a string of the two joined; it is the two. */
+function routineMarkerStatuses(rowsOf, out) {
+    const members = new Set(out.tables.family_members.map((row) => row.id));
+    const seen = new Set();
+    for (const row of rowsOf('routineMarkerStatuses')) {
+        const dayOf = day(row.date, out.notes, 'routineMarkerStatuses.date');
+        const marker = slug(row.markerKey);
+        if (!dayOf || !marker) { hold(out, 'routineMarkerStatuses', row, 'It has no day or no marker.'); continue; }
+        if (seen.has(`${dayOf}\n${marker}`)) { hold(out, 'routineMarkerStatuses', row, 'Another row already covers this marker and day.'); continue; }
+        seen.add(`${dayOf}\n${marker}`);
+        out.tables.routine_marker_statuses.push({
+            day: dayOf,
+            marker_key: marker,
+            started_at: instant(row.startedAt, out.notes, 'routineMarkerStatuses.startedAt'),
+            started_by: members.has(row.startedById) ? row.startedById : null,
+            completed_at: instant(row.completedAt, out.notes, 'routineMarkerStatuses.completedAt'),
+            completed_by: members.has(row.completedById) ? row.completedById : null,
+        });
+    }
+}
+
+/** One person's countdown on one day. */
+function countdownRuns(rowsOf, out) {
+    const members = new Set(out.tables.family_members.map((row) => row.id));
+    const chores = new Set(out.tables.chores.map((row) => row.id));
+    const routinesKept = new Set(out.tables.routines.map((row) => row.id));
+    const kept = new Map();
+    for (const row of rowsOf('countdownRuns')) {
+        const dayOf = day(row.date, out.notes, 'countdownRuns.date');
+        const startedAt = instant(row.startedAt, out.notes, 'countdownRuns.startedAt');
+        if (!members.has(row.familyMemberId)) { hold(out, 'countdownRuns', row, 'It belongs to nobody in the family.'); continue; }
+        if (!dayOf || !startedAt) { hold(out, 'countdownRuns', row, 'It has no day or no start.'); continue; }
+        const next = {
+            id: row.id,
+            family_member_id: row.familyMemberId,
+            day: dayOf,
+            routine_id: routinesKept.has(row.routineId) ? row.routineId : null,
+            status: oneOf(row.status, ['running', 'stopped']) ?? 'stopped',
+            current_chore_id: chores.has(row.currentChoreId) ? row.currentChoreId : null,
+            skipped_chore_ids: asList(row.skippedChoreIds).filter((id) => chores.has(id)),
+            started_at: startedAt,
+            step_started_at: instant(row.stepStartedAt, out.notes, 'countdownRuns.stepStartedAt'),
+            step_extension_secs: optionalInteger(row.stepExtensionSecs) ?? 0,
+            step_extension_count: optionalInteger(row.stepExtensionCount) ?? 0,
+            last_interaction_at: instant(row.lastInteractionAt, out.notes, 'countdownRuns.lastInteractionAt'),
+            stopped_at: instant(row.stoppedAt, out.notes, 'countdownRuns.stoppedAt'),
+            stopped_reason: optionalText(row.stoppedReason),
+        };
+        // One run per person and day. Of several, the one started last is kept.
+        const key = `${next.family_member_id}\n${dayOf}`;
+        const current = kept.get(key);
+        if (current) hold(out, 'countdownRuns', next.started_at > current.next.started_at ? current.row : row, 'Another run already covers this person and day.');
+        if (!current || next.started_at > current.next.started_at) kept.set(key, { row, next });
+    }
+    for (const { next } of kept.values()) out.tables.countdown_runs.push(next);
+}
+
 const HISTORY_DOMAINS = ['tasks', 'chores', 'calendar', 'finance', 'messages', 'system'];
 
 /**
@@ -445,6 +543,13 @@ function unmappedAttributes(rowsOf, out) {
         ],
         choreAssignments: ['order'],
         choreCompletions: ['dateDue', 'dateCompleted', 'notDone', 'allowanceAwarded'],
+        routines: ['name', 'onStepOverrun', 'sortOrder', 'createdAt'],
+        routineSteps: ['position'],
+        routineMarkerStatuses: ['date', 'markerKey', 'startedAt', 'startedById', 'completedAt', 'completedById'],
+        countdownRuns: [
+            'familyMemberId', 'date', 'routineId', 'status', 'currentChoreId', 'skippedChoreIds', 'startedAt', 'stepStartedAt',
+            'stepExtensionSecs', 'stepExtensionCount', 'lastInteractionAt', 'stoppedAt', 'stoppedReason',
+        ],
         historyEvents: [
             'occurredAt', 'domain', 'actionType', 'summary', 'source', 'actorFamilyMemberId', 'choreId', 'taskSeriesId', 'taskId', 'calendarItemId',
             'allowanceTransactionId', 'messageThreadId', 'messageId', 'scheduledForDate', 'restoreTiming', 'metadata',
@@ -474,6 +579,8 @@ const LINK_LABELS = {
     chores: ['assignees', 'assignments', 'completions', 'routineSteps', 'taskSeries'],
     choreAssignments: ['familyMember', 'chore'],
     choreCompletions: ['chore', 'completedBy', 'markedBy'],
+    routines: ['steps'],
+    routineSteps: ['routine', 'chore'],
     // An event's attachments are a table of their own, mapped with the history area.
     historyEvents: ['actor', 'affectedFamilyMembers', 'attachments', 'message'],
 };
@@ -490,6 +597,9 @@ export function buildRows(rowsOf) {
     chores(rowsOf, out);
     choreAssignees(rowsOf, out);
     choreCompletions(rowsOf, out);
+    routines(rowsOf, out);
+    routineMarkerStatuses(rowsOf, out);
+    countdownRuns(rowsOf, out);
     historyEvents(rowsOf, out);
     unmappedAttributes(rowsOf, out);
     return out;

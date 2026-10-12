@@ -1,7 +1,7 @@
 import type { Principal } from '../session/principal';
 import { isWritableTable, policyFor, type WritableTable } from './tables';
 import type { RefusalReason, Row, Verdict } from './types';
-import { isUuid, readValue, sameValue } from './values';
+import { readValue, sameValue } from './values';
 
 export { isWritableTable, POLICY, policyFor, type WritableTable } from './tables';
 export type { ColumnKind, ColumnRule, RefusalReason, Row, TablePolicy, Verdict } from './types';
@@ -35,11 +35,12 @@ export function keyOf(table: WritableTable, id: string): Record<string, string> 
     for (let index = 0; index < policy.key.length; index += 1) {
         const column = policy.key[index];
         const part = parts[index];
-        if (column === undefined || part === undefined || part === '') return null;
-        // A key that is an id must look like one. A setting's key is its name.
-        const isId = policy.columns[column]?.kind === 'uuid';
-        if (isId ? !isUuid(part) : part.length > 200) return null;
-        key[column] = isId ? part.toLowerCase() : part;
+        const rule = column === undefined ? undefined : policy.columns[column];
+        if (column === undefined || !rule || part === undefined || part === '' || part.length > 200) return null;
+        // Each part of a key is of its column's kind: an id must look like one, a day must be a day.
+        const read = readValue(rule, part);
+        if (!read.valid || typeof read.value !== 'string') return null;
+        key[column] = read.value;
     }
     return key;
 }

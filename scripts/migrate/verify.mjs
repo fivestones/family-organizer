@@ -222,6 +222,57 @@ export async function verifyImport(db, rowsOf, timing) {
         doneBy(raw.id, before === after);
     }
 
+    // ---- Routines, their steps, the day's markers, and countdown runs ----
+    const rawRoutines = rowsOf('routines');
+    const routines = new Map((await table('routines')).map((row) => [row.id, row]));
+    const routine = check('routines: every routine, field by field');
+    for (const raw of rawRoutines) {
+        const row = routines.get(raw.id);
+        routine(raw.id, Boolean(row) && row.name === String(raw.name ?? '').trim() && (row.on_step_overrun ?? null) === (raw.onStepOverrun ?? null)
+            && row.sort_order === (raw.sortOrder ?? 0) && (blank(raw.createdAt) || instantOf(row.created_at) === instantOf(raw.createdAt)));
+    }
+    const rawSteps = rowsOf('routineSteps');
+    const stepRoutine = new Map(rawSteps.map((raw) => [raw.id, raw.routine ?? null]));
+    for (const raw of rawRoutines) for (const stepId of asList(raw.steps)) stepRoutine.set(stepId, raw.id);
+    const stepChore = new Map(rawSteps.map((raw) => [raw.id, raw.chore ?? null]));
+    for (const raw of rawChores) for (const stepId of asList(raw.routineSteps)) stepChore.set(stepId, raw.id);
+    const stepRows = await table('routine_steps');
+    const steps = check('routine_steps: each routine has its chores, in their order');
+    for (const raw of rawRoutines) {
+        const expected = rawSteps
+            .filter((step) => stepRoutine.get(step.id) === raw.id && chores.has(stepChore.get(step.id)))
+            .sort((a, b) => a.position - b.position || String(a.id).localeCompare(String(b.id)))
+            .map((step) => stepChore.get(step.id));
+        const got = stepRows.filter((row) => row.routine_id === raw.id).sort((a, b) => a.position - b.position).map((row) => row.chore_id);
+        steps(raw.id, sameJson(got, [...new Set(expected)]));
+    }
+
+    const markerRows = new Map((await table('routine_marker_statuses')).map((row) => [`${row.day}\n${row.marker_key}`, row]));
+    const marker = check('routine_marker_statuses: every marker on every day, field by field');
+    const markersSeen = new Set();
+    for (const raw of rowsOf('routineMarkerStatuses')) {
+        const key = `${dayOf(raw.date)}\n${String(raw.markerKey ?? '').trim().toLowerCase()}`;
+        if (markersSeen.has(key)) continue; // A second row for the same marker and day is held back.
+        markersSeen.add(key);
+        const row = markerRows.get(key);
+        marker(raw.id, Boolean(row) && instantOf(row.started_at) === instantOf(raw.startedAt) && instantOf(row.completed_at) === instantOf(raw.completedAt)
+            && (row.started_by ?? null) === (members.has(raw.startedById) ? raw.startedById : null)
+            && (row.completed_by ?? null) === (members.has(raw.completedById) ? raw.completedById : null));
+    }
+    check('routine_marker_statuses: one for each marker and day that had one')('count', markerRows.size === markersSeen.size);
+
+    const runs = new Map((await table('countdown_runs')).map((row) => [row.id, row]));
+    const run = check('countdown_runs: every run loaded, field by field');
+    for (const raw of rowsOf('countdownRuns')) {
+        const row = runs.get(raw.id);
+        if (!row) continue; // Held back: nobody's, or a second run for one person and day.
+        run(raw.id, row.family_member_id === raw.familyMemberId && row.day === dayOf(raw.date) && row.status === raw.status
+            && instantOf(row.started_at) === instantOf(raw.startedAt) && instantOf(row.stopped_at) === instantOf(raw.stoppedAt)
+            && (row.stopped_reason ?? null) === (raw.stoppedReason || null) && (row.step_extension_secs ?? 0) === (raw.stepExtensionSecs ?? 0));
+    }
+    const runSlots = new Set(rowsOf('countdownRuns').filter((raw) => members.has(raw.familyMemberId) && dayOf(raw.date) && !blank(raw.startedAt)).map((raw) => `${raw.familyMemberId}\n${dayOf(raw.date)}`));
+    check('countdown_runs: one for each person and day that had one')('count', runs.size === runSlots.size);
+
     // ---- History ----
     const rawEvents = rowsOf('historyEvents');
     const events = new Map((await table('history_events')).map((row) => [row.id, row]));

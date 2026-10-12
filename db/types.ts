@@ -114,6 +114,46 @@ export interface ChoreCompletionsTable {
     allowance_awarded: Generated<boolean>;
 }
 
+export interface RoutinesTable {
+    id: string;
+    name: string;
+    on_step_overrun: 'wait' | 'advance' | null;
+    sort_order: Generated<number>;
+    created_at: InstantWithDefault;
+}
+
+export interface RoutineStepsTable {
+    routine_id: string;
+    chore_id: string;
+    position: number;
+}
+
+export interface RoutineMarkerStatusesTable {
+    day: Day;
+    marker_key: string;
+    started_at: Instant | null;
+    started_by: string | null;
+    completed_at: Instant | null;
+    completed_by: string | null;
+}
+
+export interface CountdownRunsTable {
+    id: string;
+    family_member_id: string;
+    day: Day;
+    routine_id: string | null;
+    status: 'running' | 'stopped';
+    current_chore_id: string | null;
+    skipped_chore_ids: Generated<string[]>;
+    started_at: Instant;
+    step_started_at: Instant | null;
+    step_extension_secs: Generated<number>;
+    step_extension_count: Generated<number>;
+    last_interaction_at: Instant | null;
+    stopped_at: Instant | null;
+    stopped_reason: string | null;
+}
+
 export type HistoryDomain = 'tasks' | 'chores' | 'calendar' | 'finance' | 'messages' | 'system';
 
 export interface HistoryEventsTable {
@@ -199,6 +239,10 @@ export interface Database {
     chores: ChoresTable;
     chore_assignees: ChoreAssigneesTable;
     chore_completions: ChoreCompletionsTable;
+    routines: RoutinesTable;
+    routine_steps: RoutineStepsTable;
+    routine_marker_statuses: RoutineMarkerStatusesTable;
+    countdown_runs: CountdownRunsTable;
     history_events: HistoryEventsTable;
     history_event_members: HistoryEventMembersTable;
     installation: InstallationTable;
@@ -231,6 +275,14 @@ export const DATABASE_COLUMNS = {
     },
     chore_assignees: { chore_id: true, family_member_id: true, position: true },
     chore_completions: { id: true, chore_id: true, completed_by: true, marked_by: true, date_due: true, completed_at: true, not_done: true, allowance_awarded: true },
+    routines: { id: true, name: true, on_step_overrun: true, sort_order: true, created_at: true },
+    routine_steps: { routine_id: true, chore_id: true, position: true },
+    routine_marker_statuses: { day: true, marker_key: true, started_at: true, started_by: true, completed_at: true, completed_by: true },
+    countdown_runs: {
+        id: true, family_member_id: true, day: true, routine_id: true, status: true, current_chore_id: true, skipped_chore_ids: true,
+        started_at: true, step_started_at: true, step_extension_secs: true, step_extension_count: true, last_interaction_at: true,
+        stopped_at: true, stopped_reason: true,
+    },
     history_events: {
         id: true, occurred_at: true, domain: true, action_type: true, summary: true, source: true, actor_id: true, chore_id: true,
         task_series_id: true, task_id: true, calendar_item_id: true, allowance_transaction_id: true, message_thread_id: true, message_id: true,

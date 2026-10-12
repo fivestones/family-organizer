@@ -37,11 +37,11 @@ function family(): Rows {
             { id: CAL, name: 'Cal', role: 'child', order: 2, email: '', assignedChores: [TRASH], completedChores: [id(43)] },
         ],
         chores: [
-            { id: DISHES, title: 'Dishes', description: '', startDate: '2026-01-01T00:00:00.000Z', createdAt: '2025-12-31T18:00:00.000Z', rrule: 'FREQ=DAILY', rotationType: 'none', done: false, isJoint: true, isUpForGrabs: false, sortOrder: 1, weight: 2, exdates: ['2026-01-03', '2026-01-02'], timingMode: 'named_window', timingConfig: { mode: 'named_window', namedWindowKey: 'Evening' }, completions: [id(40), id(41)] },
+            { id: DISHES, title: 'Dishes', description: '', startDate: '2026-01-01T00:00:00.000Z', createdAt: '2025-12-31T18:00:00.000Z', rrule: 'FREQ=DAILY', rotationType: 'none', done: false, isJoint: true, isUpForGrabs: false, sortOrder: 1, weight: 2, exdates: ['2026-01-03', '2026-01-02'], timingMode: 'named_window', timingConfig: { mode: 'named_window', namedWindowKey: 'Evening' }, completions: [id(40), id(41)], routineSteps: [id(81)] },
             // Rotates between three people, in an order that is not the family's.
             { id: TRASH, title: 'Trash', startDate: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T08:00:00.000Z', rrule: 'FREQ=WEEKLY', rotationType: 'weekly', done: false, sortOrder: 2, assignments: [id(30), id(31), id(32)], timingMode: null, timeBucket: 'morning', completions: [id(43)] },
             // An earlier generation's name for "after a routine marker", with the fallback on the old start field.
-            { id: PIANO, title: 'Piano', startDate: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T08:00:00.000Z', rrule: null, rotationType: 'none', done: false, sortOrder: 3, timingMode: 'routine_anchor', timingConfig: { mode: 'routine_anchor', anchor: { sourceType: 'routine', relation: 'after', routineKey: 'Dinner', fallbackStartTime: '18:30' } }, completions: [id(42)] },
+            { id: PIANO, title: 'Piano', startDate: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T08:00:00.000Z', rrule: null, rotationType: 'none', done: false, sortOrder: 3, timingMode: 'routine_anchor', timingConfig: { mode: 'routine_anchor', anchor: { sourceType: 'routine', relation: 'after', routineKey: 'Dinner', fallbackStartTime: '18:30' } }, completions: [id(42)], routineSteps: [id(82)] },
             // Due after another chore.
             { id: LAUNDRY, title: 'Laundry', startDate: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T08:00:00.000Z', rotationType: 'none', done: false, sortOrder: 4, isUpForGrabs: true, rewardType: 'fixed', rewardAmount: 1.5, rewardCurrency: 'USD', estimatedDurationSecs: 600, pauseState: { mode: 'bounded', intent: 'vacation', pauseStartDate: '2026-02-01', resumeOnDate: '2026-02-08', generatedExdates: [], originalEndCondition: { type: 'none' }, createdAt: '2026-01-20T00:00:00.000Z' }, timingMode: 'after_chore', timingConfig: { mode: 'after_chore', anchor: { sourceType: 'chore', sourceChoreId: DISHES, fallbackTime: '19:00', event: 'completed' } } },
         ],
@@ -49,6 +49,15 @@ function family(): Rows {
             { id: id(30), order: 0, familyMember: CAL },
             { id: id(31), order: 1, familyMember: ADA },
             { id: id(32), order: 2, familyMember: BEN },
+        ],
+        routines: [{ id: id(80), name: 'Evening', onStepOverrun: 'advance', sortOrder: 1, createdAt: '2026-01-01T08:00:00.000Z', steps: [id(81), id(82)] }],
+        // Stored out of order, as the export may hold them: piano is second.
+        routineSteps: [{ id: id(82), position: 1 }, { id: id(81), position: 0 }],
+        routineMarkerStatuses: [
+            { id: id(85), key: '2026-01-04:dinner', date: '2026-01-04', markerKey: 'dinner', startedAt: '2026-01-04T18:00:00.000Z', startedById: ADA, completedAt: null, completedById: null },
+        ],
+        countdownRuns: [
+            { id: id(90), familyMemberId: BEN, date: '2026-01-05', routineId: id(80), status: 'stopped', currentChoreId: null, skippedChoreIds: [PIANO], startedAt: '2026-01-05T15:00:00.000Z', stepStartedAt: null, stepExtensionSecs: 30, stepExtensionCount: 1, lastInteractionAt: '2026-01-05T15:20:00.000Z', stoppedAt: '2026-01-05T15:30:00.000Z', stoppedReason: 'finished' },
         ],
         historyEvents: [
             // Ada ticked the dishes; a calendar sync, which nobody did; and Ada ticking Ben's piano for him.
@@ -109,7 +118,10 @@ describe('importing an export', () => {
     it('loads a family and passes a verification that shares no code with the mapping', async () => {
         const { rowsOf, report } = await importInto(db, family());
 
-        expect(report.rows).toEqual({ settings: 2, unit_definitions: 1, family_members: 3, chores: 4, chore_assignees: 7, chore_completions: 4, history_events: 3, history_event_members: 2 });
+        expect(report.rows).toEqual({
+            settings: 2, unit_definitions: 1, family_members: 3, chores: 4, chore_assignees: 7, chore_completions: 4,
+            routines: 1, routine_steps: 2, routine_marker_statuses: 1, countdown_runs: 1, history_events: 3, history_event_members: 2,
+        });
         expect(report.heldBack).toEqual({});
         expect(report.storedButNotMapped).toEqual({});
         const result = await verifyImport(db, rowsOf, choreTiming);
@@ -198,6 +210,19 @@ describe('importing an export', () => {
         // A chore can go; what happened to it stays.
         await db.query(`DELETE FROM chores WHERE id = $1`, [PIANO]);
         expect((await one(db, `SELECT chore_id FROM history_events WHERE id = $1`, [id(62)])).chore_id).toBe(PIANO);
+    });
+
+    it('keeps a routine\'s chores in order, a marker by its day, and a countdown run by its person and day', async () => {
+        await importInto(db, family());
+
+        const steps = (await db.query<{ chore: string }>(`SELECT chore_id AS chore FROM routine_steps WHERE routine_id = $1 ORDER BY position`, [id(80)])).rows;
+        expect(steps.map((row) => row.chore)).toEqual([DISHES, PIANO]);
+        expect(await one(db, `SELECT day::text AS day, marker_key, started_by, completed_at FROM routine_marker_statuses`)).toEqual({ day: '2026-01-04', marker_key: 'dinner', started_by: ADA, completed_at: null });
+        expect(await one(db, `SELECT family_member_id, day::text AS day, routine_id, status, skipped_chore_ids::text[] AS skipped, step_extension_secs, stopped_reason FROM countdown_runs`)).toEqual({
+            family_member_id: BEN, day: '2026-01-05', routine_id: id(80), status: 'stopped', skipped: [PIANO], step_extension_secs: 30, stopped_reason: 'finished',
+        });
+        // A second run for the same person and day cannot be stored.
+        await expect(db.query(`INSERT INTO countdown_runs (id, family_member_id, day, status, started_at) VALUES ($1, $2, '2026-01-05', 'running', now())`, [id(91), BEN])).rejects.toThrow();
     });
 
     it('holds a completion done, marked not done, or cleared, and never two of those at once', async () => {
@@ -304,6 +329,9 @@ describe('the verification', () => {
         ['a completion moved to another person', `UPDATE chore_completions SET completed_by = '${CAL}' WHERE id = '${id(42)}'`, 'chore_completions: every completion loaded, field by field'],
         ['a completion that is missing', `DELETE FROM chore_completions WHERE id = '${id(43)}'`, 'chore_completions: one for each chore, person and day that had one'],
         ['a completion undone', `UPDATE chore_completions SET completed_at = NULL WHERE id = '${id(40)}'`, 'chore_completions: each person has done as many chores as before'],
+        ['a routine\'s steps out of order', `UPDATE routine_steps SET position = 5 WHERE chore_id = '${DISHES}'`, 'routine_steps: each routine has its chores, in their order'],
+        ['a marker credited to someone else', `UPDATE routine_marker_statuses SET started_by = '${BEN}'`, 'routine_marker_statuses: every marker on every day, field by field'],
+        ['a countdown run on another day', `UPDATE countdown_runs SET day = day + 1`, 'countdown_runs: every run loaded, field by field'],
         ['a history entry reworded', `UPDATE history_events SET summary = 'Completed "Trash"' WHERE id = '${id(60)}'`, 'history_events: every event, field by field'],
         ['a history entry credited to someone else', `UPDATE history_events SET actor_id = '${BEN}' WHERE id = '${id(62)}'`, 'history_events: every event, field by field'],
         ['a history entry that is missing', `DELETE FROM history_events WHERE id = '${id(61)}'`, 'history_events: as many as were exported'],

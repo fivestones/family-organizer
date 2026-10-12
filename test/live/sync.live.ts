@@ -50,14 +50,22 @@ async function device() {
     return { platform, manager, db: () => manager.getSnapshot().device!.db, device: () => manager.getSnapshot().device! };
 }
 
+/**
+ * Waits until a device holds the family this test seeded. A first sync alone is not enough to wait for: the sync
+ * service may still be a moment behind the rows a test has just put into Postgres.
+ */
 const synced = async (database: AbstractPowerSyncDatabase) => {
     await database.waitForFirstSync();
+    await until(async () => (await database.getAll<{ name: string }>(`SELECT name FROM family_members ORDER BY sort_order`)).map((row) => row.name).join() === 'Dana,Eli,Fay', 'the device holds the seeded family');
     return database;
 };
 const has = async (database: AbstractPowerSyncDatabase, text: string, parameters: unknown[] = []) => (await database.getAll(text, parameters as any[])).length > 0;
 
 beforeAll(async () => {
     db = getDb();
+    // These tests empty the tables they use. They are for the throwaway stack and nothing else.
+    const rows = await sql<{ members: number }>`SELECT count(*)::int AS members FROM family_members WHERE name NOT IN ('Dana', 'Eli', 'Fay')`.execute(db);
+    if (rows.rows[0]!.members > 0) throw new Error('This database holds a family that is not the test fixture. Refusing to run against it.');
     const installation = await db.selectFrom('installation').selectAll().executeTakeFirstOrThrow();
     config = { installationId: installation.id, dataGeneration: installation.data_generation, powersyncUrl: process.env.POWERSYNC_URL! };
 });
@@ -65,7 +73,7 @@ afterAll(() => db.destroy());
 
 beforeEach(async () => {
     __resetParentElevationRateLimitForTests();
-    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'history_event_members', 'history_events', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
+    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
         await sql.raw(`DELETE FROM ${table}`).execute(db);
     }
     await seedFamily({ sql: query } as any);
@@ -100,6 +108,42 @@ describe('what a device is sent', () => {
         await db.updateTable('family_members').set({ pin_hash: hashPinServer('9999') }).where('id', '=', ELI).execute();
 
         await until(() => has(local, `SELECT 1 FROM family_members WHERE id = ? AND has_pin = 1`, [ELI]), 'the device sees the PIN is set');
+    });
+});
+
+describe('routines and the countdown', () => {
+    it('reach a device with keys made of two parts, and a kid\'s own run goes up with its list of skipped chores', async () => {
+        const ROUTINE = '00000000-0000-4000-8000-000000000080';
+        const RUN = '00000000-0000-4000-8000-000000000090';
+        await sql.raw(`INSERT INTO routines (id, name, on_step_overrun) VALUES ('${ROUTINE}', 'Evening', 'advance')`).execute(db);
+        await sql.raw(`INSERT INTO routine_steps (routine_id, chore_id, position) VALUES ('${ROUTINE}', '${DISHES}', 0), ('${ROUTINE}', '${LAUNDRY}', 1)`).execute(db);
+        await sql.raw(`INSERT INTO routine_marker_statuses (day, marker_key, started_at, started_by) VALUES ('${DAY}', 'dinner', '2026-03-09T18:00:00Z', '${DANA}')`).execute(db);
+        const kid = await device();
+        await kid.manager.signIn({ familyMemberId: ELI });
+        const local = await synced(kid.db());
+
+        expect(await local.getAll(`SELECT id, routine_id, chore_id FROM routine_steps ORDER BY position`)).toEqual([
+            { id: `${ROUTINE}.${DISHES}`, routine_id: ROUTINE, chore_id: DISHES }, { id: `${ROUTINE}.${LAUNDRY}`, routine_id: ROUTINE, chore_id: LAUNDRY },
+        ]);
+        expect(await local.getAll(`SELECT id, day, marker_key, started_at, started_by FROM routine_marker_statuses`)).toEqual([
+            { id: `${DAY}.dinner`, day: DAY, marker_key: 'dinner', started_at: '2026-03-09T18:00:00.000Z', started_by: DANA },
+        ]);
+
+        // No mutation for a run exists yet, so this is written as one would write it: the row, and the transaction's name.
+        await local.writeTransaction(async (transaction) => {
+            await transaction.execute(
+                `INSERT INTO countdown_runs (id, family_member_id, day, routine_id, status, skipped_chore_ids, started_at, step_extension_secs, step_extension_count) VALUES (?, ?, ?, ?, 'running', ?, ?, 0, 0)`,
+                [RUN, ELI, DAY, ROUTINE, JSON.stringify([LAUNDRY]), '2026-03-09T15:00:00.000Z']
+            );
+            await transaction.execute(`INSERT INTO local_transactions (id, mutation) VALUES (?, 'startCountdown')`, ['00000000-0000-4000-8000-0000000000aa']);
+        });
+
+        await until(async () => (await serverRows(`SELECT 1 FROM countdown_runs`)).length === 1, 'the run has reached the server');
+        expect(await serverRows(`SELECT family_member_id, day, routine_id, status, skipped_chore_ids FROM countdown_runs`)).toEqual([
+            { family_member_id: ELI, day: DAY, routine_id: ROUTINE, status: 'running', skipped_chore_ids: [LAUNDRY] },
+        ]);
+        // And comes back as the server holds it, the list as JSON text.
+        await until(() => has(local, `SELECT 1 FROM countdown_runs WHERE skipped_chore_ids = ?`, [JSON.stringify([LAUNDRY])]), 'the device holds the run as the server sent it');
     });
 });
 
