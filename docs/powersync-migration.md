@@ -11,6 +11,11 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — Three answers from David.**
+  **The default envelope stays a device write.** The revision had moved choosing it to the server, which would have made it need a connection. David wants it to work offline as it does now. It does, and more simply than before: the choice becomes one column on the member in place of a flag on every envelope, so there is no "exactly one default" for anyone to enforce. The money rule now takes nothing from a person at all; what is server-only is the ledger, balances, and creating and archiving envelopes.
+  **The 46 completions with no chore are left out**, as proposed. They carry no chore at all, not even an id: the link was held on the chore's side and went with it. What each does carry is a due day, a time, and who. 44 are recorded against David and 2 against nobody; none is a child's, none had allowance awarded, and all were due between 25 February and 8 April 2026. 14 were ticked and then un-ticked. Of the 32 marked done, the history log names the chore for 15, by a history entry written for the same person and due day within two minutes, 9 of them in the same second. Every one of those chores has since been deleted, and their names read like chores made while the countdown was being tried out. The names themselves are the family's own and are not written here. The file they are kept in stays beside the import's report.
+  **One address, not two.** The plan asked for a hostname for the PowerSync service. Budgeter, David's other app, serves PowerSync from a path on the app's own address, and that is better here too: no second hostname or certificate, and no cross-origin rules. The service is reached at `/powersync/`. Only staging needs a new hostname, for the app itself.
+
 - **2026-10-12 — Postgres and PowerSync run from the repository's own compose file, and a device was sent the real data through them.**
   `docker-compose.yml` gains two services behind a profile, so `docker compose up` does what it did and `docker compose --profile powersync up` adds Postgres 17 and the PowerSync service. Postgres is on a network private to the project, where only PowerSync and, later, the app can reach it; the compose file's own network is the reverse proxy's, shared with whatever else is on it. Neither service has a fixed container name, so a second copy of the project can run beside the first for staging. Postgres runs with logical replication and with the cap on what a stalled replication slot may hold back.
   `db/init/10-powersync.sh` runs once, when Postgres first starts: it makes PowerSync's own database and the one role PowerSync uses, which can replicate and read and change nothing. A second migration creates the `powersync` publication, so what is published lives with the schema and a later migration that adds a synced table adds it there. `powersync/service.yaml` and `powersync/sync-config.yaml` are the service's configuration and the `family` stream for the six tables, every column named. `scripts/powersync/setup-env.mjs` prints the secrets a deployment needs — two database passwords and the signing key in its two halves — and writes nothing.
@@ -131,7 +136,7 @@ Added after the review of 12 October 2026. David approved the direction, and dec
 15. **One local database per person.** A device keeps a separate database for each person signed in on it. A write waits in the database of the person who made it and is uploaded under that person's own session. See [one database per person](#one-database-per-person).
 16. **The server decides what an upload is.** An uploaded write is judged against the row as Postgres holds it, under a lock, never by what the device called it. Every uploaded transaction is recorded once, so a retry is answered from the record instead of being applied again. See [the upload endpoint](#writes-the-upload-endpoint).
 17. **First claim wins.** When two devices create the same up-for-grabs completion offline, the first to reach the server holds it and the second is refused.
-18. **Money is written only by the server.** Ledger rows, balances, creating and archiving an envelope, and choosing the default one go through the finance routes and nowhere else. An envelope's name, description and goal stay ordinary device writes. This applies at cutover; the live Instant rules are not touched. See [what it changes](#money-is-written-only-by-the-server).
+18. **Money is written only by the server.** Ledger rows, balances, and creating and archiving an envelope go through the finance routes and nowhere else. An envelope's name, description and goal, and which envelope is a member's default, stay ordinary device writes, so they go on working offline. This applies at cutover; the live Instant rules are not touched. See [what it changes](#money-is-written-only-by-the-server).
 19. **One slice before the rest.** One feature runs on PowerSync end to end, on staging, on a copy of the real data, before more screens are converted.
 
 **Licence.** The PowerSync service is under the Functional Source License: source-available, free to self-host and modify, not to be resold as a competing sync service, and each release becomes Apache-2.0 after two years ([licence text](https://github.com/powersync-ja/powersync-service/blob/main/LICENSE)). It runs as a container this project pulls, so the repository stays MIT. The README should say that one runtime dependency is source-available rather than open source ([Phase 9](#phase-9--cleanup)).
@@ -229,6 +234,7 @@ These exist only because of how Instant works, and do not survive.
 - **`choreAssignments` and `routineSteps`**, entities that exist to carry a position on a relation, become what they are: join tables with a `position` column.
 - **Balances as one JSON value.** `allowanceEnvelopes.balances` maps a currency to an amount, and every money operation reaches inside it. It becomes one row per envelope and currency.
 - **A setting found by name but keyed by a random id.** Nothing stops two rows sharing a name today. The name becomes the key.
+- **A default flag on every envelope.** Which envelope is a member's default is a flag on each of them, and code keeps exactly one set. It becomes one column on the member.
 - **`calendarSyncLocks`.** A table of lock rows, because Instant has no locks. A Postgres advisory lock replaces it: one per calendar account, held for the length of a sync run on a connection taken for that run alone, and released when the run ends, or by Postgres itself if the process dies. A sync run makes network calls, so the lock is held by the session and never inside an open transaction.
 - **`$users`, `$files`, `$streams`, and the presence room.** Principals become token claims; nothing reads or writes `$files` or `$streams`.
 - **Stringly-typed dates and loosely-typed scalars**, per the rules above.
@@ -315,7 +321,7 @@ A mutation resolves when the write is saved on the device, not when the server h
 
 **A mutation checks what it is given.** The app's TypeScript is not strict and the phone's screens are JavaScript, so types alone do not protect a write. Each mutation validates its arguments at run time before it touches the database, and a test compiles the package itself under strict settings.
 
-Money, sending a message and PIN elevation are not local writes. Their mutations call the server routes they call today, per decision 4. From cutover that covers everything that writes the ledger, a balance, or the choice of default envelope ([money](#money-is-written-only-by-the-server)).
+Money, sending a message and PIN elevation are not local writes. Their mutations call the server routes they call today, per decision 4. From cutover that covers everything that writes the ledger or a balance, or creates or archives an envelope ([money](#money-is-written-only-by-the-server)).
 
 **Changing backend, or person.** The implementation is bound once, before anything renders. Nothing swaps it under a running screen: a change of backend is a restart ([the cutover protocol](#the-cutover-protocol)), and a change of person remounts everything below the session provider on that person's database ([one database per person](#one-database-per-person)).
 
@@ -409,7 +415,7 @@ Writes that could not be sent at all are a different case, covered under [one da
 
 `packages/data/src/policy/` holds one entry per table a device may write: who may insert, who may update and which columns, and who may delete, given the principal and the row. Anything not listed is denied.
 
-It starts from `instant.perms.ts`; [Appendix B](#appendix-b--the-write-rules-today) gives today's rules in the form they are translated from. **A person keeps every ability the app gives them today, bar one**: choosing a default envelope offline. Four things are stricter than the Instant rules, each on purpose:
+It starts from `instant.perms.ts`; [Appendix B](#appendix-b--the-write-rules-today) gives today's rules in the form they are translated from. **A person keeps every ability the app gives them today.** Four things are stricter than the Instant rules, each on purpose:
 
 - **Tables that stop syncing** cannot be written from a device ([which](#tables-that-never-reach-a-device)).
 - **The PIN hash** is set through a server route, never by a device.
@@ -433,17 +439,17 @@ From cutover:
 | | A device may | Only the finance routes may |
 | --- | --- | --- |
 | Ledger rows | Read | Insert. Nobody updates or deletes |
-| Envelopes | Change the name, description and goal — a parent on any envelope, a kid on their own | Create, archive, choose the default |
+| Envelopes | Change the name, description and goal, and choose which is the default — a parent for anyone, a kid for their own | Create, archive |
 | Balances | Read | Write, in the same transaction as the ledger row |
 
 Four places in the app write these from a device today, and each moves:
 
 - **A new member's first envelope** is created with the member, in `FamilyMembersList`. The device still creates the member. The envelope is made by the server's existing `create-initial` operation, which the form calls once the member has uploaded, and which the allowance page already calls for any member who has none.
 - **Editing an envelope** (`updateEnvelope`) writes the name, the goal and the default flag together. Name, description and goal become device mutations, `renameEnvelope` and `setEnvelopeGoal`, with their history event. The default flag leaves it.
-- **Choosing the default envelope** (`setDefaultEnvelope`) clears one row's flag and sets another's, from the device. That there is exactly one default per member is an invariant across rows, and the finance routes already keep it when they create and archive envelopes; it gets one writer. The route gains `set-default`: a parent for anyone, a kid for themselves.
+- **Choosing the default envelope** (`setDefaultEnvelope`) clears one row's flag and sets another's, from the device. It stays a device write, by David's decision of 13 October 2026, so a kid can still do it offline. What changes is where the choice is kept: it becomes one column on the member, `default_envelope_id`, in place of a flag on every envelope. That a member has exactly one default then needs no rule to keep it, on a device or on the server, and two devices that choose differently offline leave one default, the later, not two. A parent may set it for anyone and a kid for themselves, to an envelope of that member's that is not archived. The finance routes read it, and move it when they archive the envelope it names.
 - **Reconciling a balance** (`reconcileEnvelope`) replays an envelope's ledger on a parent's device when the allowance page opens, and rewrites a balance that disagrees. The route gains `reconcile`, for a parent, which does the same under the envelope's lock; the page calls it and shows the same notice. With ledger and balance written in one database transaction, a disagreement should no longer arise from the app at all — only from an edit made by hand in Postgres.
 
-**What a person notices.** Choosing a default envelope needs a connection, as every other money operation does; today a kid can do it offline. Nothing else changes for anyone using the app as built.
+**What a person notices.** Nothing. Everything the app lets someone do with money today, it lets them do afterwards, online or off as now.
 
 **What does not change yet.** The live app keeps today's Instant rules until cutover. Tightening them there would be a second change to a database that is about to be left, with its own risk and nothing gained.
 
@@ -496,7 +502,7 @@ A parent's database is therefore on a shared device only while the parent is sig
 
 `lib/server/db.ts` exposes a typed Kysely connection. Each server module that uses the Admin SDK today is rewritten against it, keeping its exported functions so the routes that call it do not change.
 
-- **Finance.** A mutation becomes one transaction that locks the envelope rows it touches — always in the same order, by id, so two transfers in opposite directions cannot deadlock — reads them, checks the invariants, and writes the ledger row and the balance together. It gains two operations, `set-default` and `reconcile` ([money](#money-is-written-only-by-the-server)). The transaction-building in `lib/currency-utils.ts` and `lib/allowance-payout.ts` retires; their pure calculations stay shared. The in-process lock in `lib/finance-mutation-lock.ts` is no longer what protects the ledger. The roadmap's rule against [running more than one instance](../roadmap.md#decided-against) is left standing — presence, below, still assumes one.
+- **Finance.** A mutation becomes one transaction that locks the envelope rows it touches — always in the same order, by id, so two transfers in opposite directions cannot deadlock — reads them, checks the invariants, and writes the ledger row and the balance together. It gains one operation, `reconcile` ([money](#money-is-written-only-by-the-server)). The transaction-building in `lib/currency-utils.ts` and `lib/allowance-payout.ts` retires; their pure calculations stay shared. The in-process lock in `lib/finance-mutation-lock.ts` is no longer what protects the ledger. The roadmap's rule against [running more than one instance](../roadmap.md#decided-against) is left standing — presence, below, still assumes one.
 - **Messaging.** Thread, membership, reaction and acknowledgement uniqueness move from key lookups to constraints, and an idempotent send becomes an insert that does nothing on conflict.
 - **Calendar sync.** One advisory lock per account replaces the lock table, held on a connection taken from the pool for the run and given back when it ends ([designed out](#what-is-designed-out)).
 - **Members and PINs.** `lib/instant-admin.ts` splits into a members module that reads Postgres and the session module.
@@ -515,7 +521,7 @@ The messaging area gains `useThreadPresence(threadId)`. Behind it is a small in-
 - **Workers and WebAssembly.** PowerSync's web SDK runs SQLite in a worker. On Next 16 with Turbopack the worker files are copied into `public/@powersync/` by a `postinstall` step, and `next.config.js` gains `turbopack: {}` and `images.disableStaticImages: true` ([Next.js guide](https://docs.powersync.com/client-sdks/frameworks/next-js)). The app imports no static images, so the second setting costs nothing.
 - **The connection is a WebSocket**, for now. PowerSync's web SDK defaults to HTTP streaming. In the spike Playwright's WebKit held the start of that stream for twenty seconds, so a first sync, and every reconnection after it, would wait that long; over WebSocket it took under a tenth of a second, and Chromium and Firefox were equally quick either way. That is one engine build on one machine with no proxy in between. It stands until Safari itself has been tried through the real reverse proxy, which confirms it or changes it.
 - **A database is opened once per person**, outside React's effects, with the plain `database: { dbFilename, vfs, worker }` options. The SDK's README shows an older form that fails, and opening inside an effect opens it twice in development.
-- **The service worker** caches the app's shell and PowerSync's worker and WebAssembly files, so the app can start with no network. In the spike Chromium and Firefox do, from a browser process started offline. Playwright's WebKit does not load the page at all in that test, with or without the extra caching, so whether an iPad starts offline is not known until one is tried.
+- **The service worker** leaves everything under `/powersync/` alone, since the sync stream shares the app's address, and caches the app's shell and PowerSync's worker and WebAssembly files, so the app can start with no network. In the spike Chromium and Firefox do, from a browser process started offline. Playwright's WebKit does not load the page at all in that test, with or without the extra caching, so whether an iPad starts offline is not known until one is tried.
 - **Server rendering.** The SDK does nothing during server rendering. The app's data components are already client components behind the session provider.
 
 ### Browsers and devices
@@ -545,7 +551,7 @@ PowerSync supports all three ([supported platforms](https://docs.powersync.com/r
 
 **How it is checked.** Playwright runs only Chromium today. It gains Firefox and WebKit, and the sync and offline end-to-end tests run on all three, which covers engines the family does not use. Playwright's WebKit is not iOS Safari, so real devices are still needed: an iPad and an iPhone, each in a Safari tab, as a home-screen app and in Orion, and Firefox wherever the family uses it.
 
-**For other people running the app** the larger change is on the server, not the device: their deployment gains Postgres and the PowerSync service, and needs a public address for sync. The upgrade guide says so first.
+**For other people running the app** the larger change is on the server, not the device: their deployment gains Postgres and the PowerSync service, and their reverse proxy one more rule, sending a path to it. The upgrade guide says so first.
 
 ## The phone
 
@@ -569,9 +575,9 @@ Postgres gets a replication role for PowerSync with read-only access and a publi
 
 **Health.** `/api/health` reports the replication slot's lag and the age of the newest dump, so a stalled sync or a missed backup is seen before it matters.
 
-**The PowerSync service needs a public address**, as MinIO has one: a hostname through the reverse proxy that passes WebSocket upgrades and has response buffering turned off, since sync can also run as a long-lived streaming response.
+**Devices reach the PowerSync service at a path on the app's own address**, `/powersync/`, which the reverse proxy sends to the service with the prefix removed, WebSocket upgrades passed and response buffering off. It needs no hostname or certificate of its own, and because the browser sees one origin there are no cross-origin rules to get right. This is the arrangement David's other app, Budgeter, runs PowerSync 1.26.1 under behind Caddy; here the proxy is nginx, and the equivalent rule has still to be tried. A staging copy does need a hostname of its own for the app, since a browser keeps storage, the service worker and the activation cookie per address, and staging must not share them with the live app.
 
-New environment variables: `DATABASE_URL`, `POWERSYNC_URL`, `POWERSYNC_JWT_PRIVATE_KEY`, `POWERSYNC_JWT_KID`, and the `PS_`-prefixed values the PowerSync configuration reads. **Nothing about the backend is compiled into the web build.** One image runs on Instant or on PowerSync, on staging or in production; what differs is read by the server from its environment and from Postgres, and given to the client when it starts. A deployment with no `DATABASE_URL` is on Instant, which is every deployment today, including other people's until they follow the upgrade guide.
+New environment variables: `DATABASE_URL`, `POWERSYNC_JWT_PRIVATE_KEY`, `POWERSYNC_JWT_KID`, and the `PS_`-prefixed values the PowerSync configuration reads. **Nothing about the backend is compiled into the web build.** One image runs on Instant or on PowerSync, on staging or in production; what differs is read by the server from its environment and from Postgres, and given to the client when it starts. A deployment with no `DATABASE_URL` is on Instant, which is every deployment today, including other people's until they follow the upgrade guide.
 
 **Browsing the data.** The equivalent of Instant's Explorer is any Postgres client. An edit made there reaches devices the same way an Explorer edit does today. PowerSync's own dashboard is not available when self-hosting; its [Sync Diagnostics Client](https://docs.powersync.com/tools/devtools-overview) shows what one token has synced.
 
@@ -726,7 +732,7 @@ One feature on PowerSync, on a staging deployment, on a copy of the family's rea
 - The data layer's PowerSync implementation for settings, units, the roster and the chore day, beside the Instant one; and the chore day's types and mutations, designed with both in view.
 - The web provider: worker files, storage chosen per browser, the connection, the configuration route that says which backend to use, the sync badge and the list of refusals.
 - The same on the phone, in a development build. **(you)** Install it.
-- **(you)** A staging hostname for the app and one for the PowerSync service, both over HTTPS, since a browser allows the storage and the service worker this needs only on a secure address.
+- **(you)** One staging hostname over HTTPS, with `/powersync/` on it sent to the PowerSync service. A browser allows the storage and the service worker this needs only on a secure address, and staging needs an address of its own so that it shares nothing with the live app.
 
 Everything else in the app is absent from staging until its area arrives in Phase 7. The slice has the real settings screens and a plain chore-day screen of its own.
 
@@ -751,7 +757,7 @@ Everything else in the app is absent from staging until its area arrives in Phas
 - Postgres and PowerSync in the production `docker-compose.yml`, with the cap on replication, the health report, the nightly dump and its copy off the machine.
 - The client schema and its indexes, for every table.
 - The import script for everything, and [verification at all five levels](#moving-the-data).
-- **(you)** A hostname for the PowerSync service through the reverse proxy, and somewhere off the machine for backups.
+- **(you)** `/powersync/` on the app's address sent to the PowerSync service by the reverse proxy, and somewhere off the machine for backups.
 
 Any design choice that would change what the app does, as opposed to how it stores it, is asked of David first.
 
@@ -780,7 +786,7 @@ Done when every case passes against a real Postgres.
 
 ### Phase 6 — The server on Postgres
 
-- `lib/server/db.ts`; finance as locked transactions, with `set-default` and `reconcile`; messaging on constraints; calendar sync on advisory locks; members and PINs; shortcuts, the content queue, exchange rates, the server actions.
+- `lib/server/db.ts`; finance as locked transactions, with `reconcile`; messaging on constraints; calendar sync on advisory locks; members and PINs; shortcuts, the content queue, exchange rates, the server actions.
 - The report scripts rewritten; the backfill scripts removed.
 
 Done when the integration suites for those areas pass on Postgres, the concurrency cases among them on the real one.
@@ -960,6 +966,6 @@ The five many-to-many links, which become join tables:
 
 A kid session with no family member id — the shared kid principal — fails every "their own" test, as it does today.
 
-**What changes at cutover.** The `allowanceTransactions` row goes: no device inserts or deletes a ledger row. On an envelope a device changes only the name, description and goal — a parent on any envelope, a kid on their own — and no longer creates or deletes one, writes a balance, or sets `isDefault` ([money](#money-is-written-only-by-the-server)). And no update, by a parent or a kid, changes who completed a completion that stands.
+**What changes at cutover.** The `allowanceTransactions` row goes: no device inserts or deletes a ledger row. On an envelope a device changes only the name, description and goal — a parent on any envelope, a kid on their own — and no longer creates or deletes one or writes a balance ([money](#money-is-written-only-by-the-server)). Which envelope is the default moves from `isDefault` on the envelope to a column on the member, which a parent may set for anyone and a kid for themselves, as each may today. And no update, by a parent or a kid, changes who completed a completion that stands.
 
 Instant checks a `link` separately from the row it joins; in a relational schema the link is a column on a row, so each link rule becomes a rule on the value written to that column. The column-by-column table is produced in Phase 5, with a behavioral case for every cell.

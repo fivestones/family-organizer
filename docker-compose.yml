@@ -189,9 +189,17 @@ services:
     volumes:
       - ./powersync:/config:ro
     mem_limit: 512m
-    # Devices connect to this service directly, so it needs a public address of its own through the reverse proxy
-    # (http://family-organizer-powersync:8080 unless POWERSYNC_HOST_ALIAS says otherwise), with WebSocket upgrades
-    # passed and response buffering off.
+    # Devices reach this service at /powersync/ on the app's own address. The reverse proxy sends that path here
+    # (http://family-organizer-powersync:8080 unless POWERSYNC_HOST_ALIAS says otherwise) with the prefix removed,
+    # WebSocket upgrades passed and response buffering off. In nginx:
+    #   location /powersync/ {
+    #       proxy_pass http://family-organizer-powersync:8080/;
+    #       proxy_http_version 1.1;
+    #       proxy_set_header Upgrade $http_upgrade;
+    #       proxy_set_header Connection "upgrade";
+    #       proxy_buffering off;
+    #       proxy_read_timeout 1h;
+    #   }
     networks:
       data:
       default:

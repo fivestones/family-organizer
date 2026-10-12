@@ -256,7 +256,7 @@ A throwaway branch; its output is findings in the specification's log ([Phase 0]
   - Done on 12 October 2026 in a minimal Next 16.4 app with this app's build settings, not in the app itself, and with the standalone production build run directly rather than inside Docker. The storage modes work in all three engines; the in-memory one keeps nothing across a restart. Two findings for Safari, both from Playwright's WebKit and both provisional until tried on a real device: its private file system is unusable in a throwaway profile, so the fallback is needed; and its first sync over HTTP streaming took twenty seconds, so the web client connects by WebSocket ([log](docs/powersync-migration.md#implementation-log)).
   - Corrected by the review: starting with no network works in Chromium and Firefox, and **fails in Playwright's WebKit**. The first pass's test could pass on a leftover page.
 - [ ] **(you)** Open the spike on an iPad and an iPhone — in a Safari tab, as a home-screen app, and in Orion — and in Firefox wherever the family uses it. Does it load, work offline, **start with no network**, and survive being closed and reopened? Leave one untouched for eight days and say whether its data is still there ([why the browser matters](docs/powersync-migration.md#browsers-and-devices)).
-  - Waiting on a way to reach the spike from those devices over HTTPS — a browser only allows the storage and the service worker this needs on a secure address, so the Mac's plain LAN address will not do. `spike/README.md` on the `spike/powersync` branch says what to point the reverse proxy at. The same hostnames serve the slice in 7.2, so this check can be made there instead.
+  - Waiting on a way to reach the spike from those devices over HTTPS — a browser only allows the storage and the service worker this needs on a secure address, so the Mac's plain LAN address will not do. `spike/README.md` on the `spike/powersync` branch says what to point the reverse proxy at. The staging hostname in 7.2 serves for this too, so the check can be made there instead.
 - [ ] **Phone**: the React Native SDK on Expo 54. **(you)** Install the build.
 - [x] **Service**: self-hosted, Postgres storage, `edition: 3` and the timestamp text a device receives, a token signed with our own key, the three streams, a join table.
   - All as planned, on service 1.26.1 and Postgres 17. Timestamps need `timestamp_max_precision: milliseconds` to match what the app writes.
@@ -302,7 +302,7 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 
 - [x] The tables those touch, as SQL migrations, with their part of the mapping and the import, loaded from the export already taken.
   - Done on 12 October 2026: six tables in `db/migrations/`, a migration runner, the mapping, the import and a verification that shares no code with the mapping. The real export loads and all fourteen checks pass ([log](docs/powersync-migration.md#implementation-log)).
-  - **(you)** One decision: 46 of the 357 chore completions belong to no chore, which the new table will not accept. The import leaves them out of the table and keeps them in a file beside its report. Say if they should be handled another way.
+  - 46 of the 357 chore completions belong to no chore. David confirmed on 13 October 2026 that they are left out; the import keeps them in a file beside its report.
 - [x] Postgres and the PowerSync service in a compose profile for staging, with the setup of keys, roles and the publication.
   - Done on 12 October 2026 and run on this machine against the real export: a scripted device was sent all six tables. It showed that a generated column is sent once and never updated, so `has_pin` is now kept by a trigger ([log](docs/powersync-migration.md#implementation-log)). Not yet run on your server.
 - [ ] The app's own sessions for the kid, shared-kid and parent principals, the token route, and [one database per person](docs/powersync-migration.md#one-database-per-person): switching, the resting database, draining.
@@ -311,7 +311,7 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [ ] Web: the provider, worker files, storage chosen per browser, the configuration route that says which backend to use, the sync badge, the list of refusals, and a plain chore-day screen for staging.
 - [ ] Phone: the same in a development build. **(you)** Install it.
 - [ ] The tests of [what the slice must show](docs/powersync-migration.md#phase-2--one-slice-end-to-end): a completion crossing between devices, online and offline; a kid's hostile uploads refused; two claims for one chore; a lost answer not applied twice; a parent signed out with writes waiting; a session ending with a queue; two tabs.
-- [ ] **(you)** Two staging hostnames over HTTPS through the reverse proxy: one for the app, one for the PowerSync service with response buffering off.
+- [ ] **(you)** One staging hostname over HTTPS through the reverse proxy, with `/powersync/` on it sent to the PowerSync service: prefix removed, WebSocket upgrades passed, response buffering off. The live app's address needs nothing yet.
 - [ ] **(you)** Use it on an iPad and an iPhone, in Safari, as a home-screen app and in Orion: does it load, sync, work offline, and start with no network? Compare a few real chore days with the live app.
 - [ ] Revise the specification's later phases from what building it showed.
 
@@ -326,7 +326,7 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [ ] Postgres and PowerSync in the production `docker-compose.yml`, with the cap on what replication may hold back, the health report, and the nightly dump copied off the machine.
 - [ ] The client schema and its indexes, for every table.
 - [ ] The import script for everything, with [verification](docs/powersync-migration.md#moving-the-data) of rows, relations and money worked out from the raw export. Done when a fresh import of the live data verifies clean.
-- [ ] **(you)** A public hostname for the PowerSync service through the reverse proxy, with response buffering off; and somewhere off the machine for backups.
+- [ ] **(you)** `/powersync/` on the app's own address sent to the PowerSync service by the reverse proxy, with response buffering off; and somewhere off the machine for backups.
 
 ### 7.4 Identity
 
@@ -349,7 +349,7 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 
 [Phase 6](docs/powersync-migration.md#phase-6--the-server-on-postgres). Each service is rewritten against Postgres beside its Instant version, keeping its function signatures.
 
-- [ ] Finance as locked database transactions, with the two operations [the money rule](docs/powersync-migration.md#money-is-written-only-by-the-server) adds: choosing the default envelope and reconciling a balance.
+- [ ] Finance as locked database transactions, with the operation [the money rule](docs/powersync-migration.md#money-is-written-only-by-the-server) adds: reconciling a balance.
 - [ ] Messaging on unique constraints; calendar sync on advisory locks.
 - [ ] Members and PINs, shortcuts, the content queue, exchange rates, the server actions.
 - [ ] The report scripts rewritten; the backfill scripts removed.

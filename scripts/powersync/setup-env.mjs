@@ -27,7 +27,5 @@ const lines = [
     `POWERSYNC_JWT_PRIVATE_KEY=${Buffer.from(privateKey.export({ type: 'pkcs8', format: 'pem' })).toString('base64')}`,
     `POWERSYNC_JWK_N=${jwk.n}`,
     `POWERSYNC_JWK_E=${jwk.e}`,
-    '# The public address devices reach the PowerSync service at, through the reverse proxy.',
-    'POWERSYNC_URL=',
 ];
 console.log(lines.join('\n'));
