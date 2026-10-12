@@ -10,10 +10,9 @@ import {
     getAssignedMembersForChoreOnDate,
     getCompletedChoreCompletionsForDate,
     getMemberCompletionForDate,
-    HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
-    parseSharedScheduleSettings,
     sortChoresForDisplay,
 } from '@family-organizer/shared-core';
+import { useSetting } from '@/lib/data';
 import { getPhotoUrl, toInitials, buildCalendarPreviews, addUtcDays, buildMemberBalanceLabel } from '@/lib/dashboard-utils';
 import type { DashboardFamilyMember } from '@/lib/dashboard-utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -48,10 +47,8 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         calendarItems: { pertainsTo: {} },
         messageThreads: {},
         routineMarkerStatuses: {},
-        settings: {
-            $: { where: { name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME } },
-        },
     });
+    const { data: scheduleSettings } = useSetting('householdSchedule');
 
     const members = (data?.familyMembers ?? []) as any[];
 
@@ -70,7 +67,6 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
         const calendarItems = (data.calendarItems ?? []) as any[];
         const unitDefs = (data.unitDefinitions ?? []) as any[];
         const routineMarkerStatuses = (data.routineMarkerStatuses ?? []) as any[];
-        const scheduleSettings = parseSharedScheduleSettings(((data.settings ?? []) as any[])?.[0]?.value ?? null);
 
         // Filter to chores assigned to this member today
         const memberChores: any[] = [];
@@ -141,7 +137,7 @@ function PersonCardWidget({ config, width, height, todayUtc }: FreeformWidgetPro
             nextCalendarItem: memberCalendar[0] ?? null,
             balanceLabel,
         };
-    }, [member, data, todayUtc]);
+    }, [member, data, todayUtc, scheduleSettings]);
 
     const detailEvent = useMemo(() => {
         if (!detailEventId || !data?.calendarItems) return null;

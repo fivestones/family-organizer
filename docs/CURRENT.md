@@ -2,7 +2,7 @@
 
 Claim an item here before starting it, and release it when you stop. One line per session.
 
-- Claude (PowerSync session, 12 October 2026): **claimed Scope 7.0 (the spike) and 7.1 (the data layer over Instant, starting with family and settings).** The spike is on branch `spike/powersync` in the worktree `.claude/worktrees/powersync-spike` and touches nothing on `main`; its Docker project is `fo-spike`. 7.1 work lands on `main` in `packages/data`.
+- Claude (PowerSync session, 12 October 2026): **claimed Scope 7.1, the data layer over Instant — family and settings.** Settings are done and committed; family members and unit definitions are next. Scope 7.0, the spike, is finished as far as it can be without David's devices; its code is on branch `spike/powersync` in the worktree `.claude/worktrees/powersync-spike`, and its Docker project `fo-spike` is stopped.
 
 - Codex (12 October 2026): nothing claimed; Scope 0 critical dependency updates completed with zero critical audit findings, 1,074 tests, typechecking, a production Docker build and container/worker smoke checks passing. Remaining advisories and deprecation cleanup are recorded in Scope 0.
 

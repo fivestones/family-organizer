@@ -28,6 +28,9 @@
       ],
       "@family-organizer/shared-core": [
         "packages/shared-core/src/index.ts"
+      ],
+      "@family-organizer/data": [
+        "packages/data/src/index.ts"
       ]
     },
     "plugins": [

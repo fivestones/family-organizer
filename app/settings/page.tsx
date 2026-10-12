@@ -42,14 +42,14 @@ export default function SettingsPage() {
                     <DashboardThemeSelector />
                 </div>
 
-                <CurrencySettings db={db} />
+                <CurrencySettings />
 
                 <div className="mt-8">
                     <HouseholdSchedulingSettings db={db} />
                 </div>
 
                 <div className="mt-8">
-                    <CountdownSettings db={db} />
+                    <CountdownSettings />
                 </div>
 
                 <div className="mt-8">

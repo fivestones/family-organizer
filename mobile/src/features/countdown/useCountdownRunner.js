@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState } from 'react-native';
 import { id, tx } from '@instantdb/react-native';
 import {
-  COUNTDOWN_SETTINGS_NAME,
-  HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
   buildCountdownChoreInputs,
   buildRunAdvancePatch,
   buildRunExtendPatch,
@@ -20,13 +18,12 @@ import {
   isChoreHiddenFromDayList,
   isCountdownRunLive,
   isCountdownRunStale,
-  parseCountdownSettings,
-  parseSharedScheduleSettings,
   resolveRunnerState,
   selectNextRunnerStep,
   shouldRecordRunInteraction,
   sortRoutines,
 } from '@family-organizer/shared-core';
+import { useSetting } from '../../lib/data';
 import { useAppSession } from '../../providers/AppProviders';
 import { buildCountdownCompletion } from './completion';
 
@@ -66,24 +63,10 @@ export function useCountdownRunner() {
   const queueTick = Math.floor(nowMs / QUEUE_REFRESH_MS);
   const canQuery = isAuthenticated && instantReady;
 
-  const settingsQuery = db.useQuery(
-    canQuery
-      ? {
-          settings: {
-            $: { where: { or: [{ name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME }, { name: COUNTDOWN_SETTINGS_NAME }] } },
-          },
-        }
-      : null
-  );
-
-  const scheduleSettings = useMemo(() => {
-    const row = (settingsQuery.data?.settings || []).find((entry) => entry.name === HOUSEHOLD_SCHEDULE_SETTINGS_NAME);
-    return parseSharedScheduleSettings(row?.value || null);
-  }, [settingsQuery.data?.settings]);
-  const settings = useMemo(() => {
-    const row = (settingsQuery.data?.settings || []).find((entry) => entry.name === COUNTDOWN_SETTINGS_NAME);
-    return parseCountdownSettings(row?.value || null);
-  }, [settingsQuery.data?.settings]);
+  const scheduleSetting = useSetting('householdSchedule', { enabled: canQuery });
+  const countdownSetting = useSetting('countdown', { enabled: canQuery });
+  const scheduleSettings = scheduleSetting.data;
+  const settings = countdownSetting.data;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const today = useMemo(() => getFamilyDayDateUTC(new Date(), scheduleSettings), [scheduleSettings, queueTick]);
@@ -397,8 +380,8 @@ export function useCountdownRunner() {
   const actions = useMemo(() => ({ start, markDone, extend, stop }), [start, markDone, extend, stop]);
 
   return {
-    isLoading: !canQuery || settingsQuery.isLoading || dayQuery.isLoading,
-    error: settingsQuery.error || dayQuery.error || null,
+    isLoading: !canQuery || scheduleSetting.isLoading || countdownSetting.isLoading || dayQuery.isLoading,
+    error: scheduleSetting.error || countdownSetting.error || dayQuery.error || null,
     nowMs,
     runners,
     settings,

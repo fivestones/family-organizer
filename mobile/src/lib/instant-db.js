@@ -1,4 +1,5 @@
-import { init } from '@instantdb/react-native';
+import { id, init, tx } from '@instantdb/react-native';
+import { createInstantBackend, setDataBackend } from '@family-organizer/data';
 import schema from '../../../instant.schema';
 import { ensureInstantMmkvMigration } from './instant-mmkv-store';
 
@@ -46,6 +47,7 @@ export async function initInstantDb({ appId, apiURI, websocketURI } = {}, option
     ...(Store ? { Store } : {}),
     ...connectionConfig,
   });
+  setDataBackend(createInstantBackend({ db, tx, id }));
   activeConfig = {
     appId: resolvedAppId,
     ...(resolvedApiURI ? { apiURI: resolvedApiURI } : {}),

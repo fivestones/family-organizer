@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { tx, id } from '@instantdb/react';
+import { tx } from '@instantdb/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -8,17 +8,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import {
-    HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
     getChoreTimingMode,
     getChoreTimingRuleKey,
     getDefaultScheduleSettings,
     getFamilyDayDateUTC,
-    parseSharedScheduleSettings,
     parseTimeOfDayToMinutes,
     resolveChoreTimingForDate,
     type SharedScheduleSettings,
 } from '@family-organizer/shared-core';
 import { PlusCircle, RefreshCcw, Trash2 } from 'lucide-react';
+import { saveSetting, useSetting } from '@/lib/data';
 
 interface HouseholdSchedulingSettingsProps {
     db: any;
@@ -53,20 +52,13 @@ function toFamilyDayOffset(minute: number, boundaryMinute: number) {
 
 export default function HouseholdSchedulingSettings({ db }: HouseholdSchedulingSettingsProps) {
     const { toast } = useToast();
-    const { data, isLoading, error } = db.useQuery({
-        settings: {
-            $: {
-                where: {
-                    name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
-                },
-            },
-        },
-        chores: {},
-    });
+    const schedule = useSetting('householdSchedule');
+    const choresQuery = db.useQuery({ chores: {} });
+    const isLoading = schedule.isLoading || choresQuery.isLoading;
+    const error = schedule.error || choresQuery.error;
 
-    const storedRow = data?.settings?.[0] || null;
-    const chores = useMemo(() => (data?.chores as any[]) || [], [data?.chores]);
-    const parsedSettings = useMemo<SharedScheduleSettings>(() => parseSharedScheduleSettings(storedRow?.value || null), [storedRow?.value]);
+    const chores = useMemo(() => (choresQuery.data?.chores as any[]) || [], [choresQuery.data?.chores]);
+    const parsedSettings = schedule.data;
     const [draft, setDraft] = useState<SharedScheduleSettings>(() => getDefaultScheduleSettings());
     const [isSaving, setIsSaving] = useState(false);
     const [windowToDelete, setWindowToDelete] = useState<WindowDeleteState>(null);
@@ -362,13 +354,7 @@ export default function HouseholdSchedulingSettings({ db }: HouseholdSchedulingS
 
         setIsSaving(true);
         try {
-            const settingId = storedRow?.id || id();
-            await db.transact([
-                tx.settings[settingId].update({
-                    ...(storedRow?.id ? {} : { name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME }),
-                    value: JSON.stringify(normalizedDraft),
-                }),
-            ]);
+            await saveSetting('householdSchedule', normalizedDraft);
 
             toast({
                 title: 'Scheduling settings saved',

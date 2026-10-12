@@ -3,12 +3,11 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { id, tx } from '@instantdb/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import {
-  HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
   SHARED_ROUTINE_MARKER_PRESETS,
   formatDateKeyUTC,
   getFamilyDayDateUTC,
-  parseSharedScheduleSettings,
 } from '@family-organizer/shared-core';
+import { useSetting } from '../../src/lib/data';
 import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/SubscreenScaffold';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
@@ -80,24 +79,14 @@ export default function RoutineMarkersScreen() {
     isAuthenticated && instantReady
       ? {
           routineMarkerStatuses: {},
-          settings: {
-            $: {
-              where: {
-                name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
-              },
-            },
-          },
         }
       : null
   );
+  const { data: scheduleSettings } = useSetting('householdSchedule', { enabled: isAuthenticated && instantReady });
 
   const routineMarkerStatuses = useMemo(
     () => routineQuery.data?.routineMarkerStatuses || [],
     [routineQuery.data?.routineMarkerStatuses]
-  );
-  const scheduleSettings = useMemo(
-    () => parseSharedScheduleSettings(routineQuery.data?.settings?.[0]?.value || null),
-    [routineQuery.data?.settings]
   );
   const routineMarkers = scheduleSettings?.routineMarkers || SHARED_ROUTINE_MARKER_PRESETS;
   const todayDateKey = formatDateKeyUTC(getFamilyDayDateUTC(new Date(), scheduleSettings));

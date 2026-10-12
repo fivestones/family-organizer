@@ -272,7 +272,10 @@ A throwaway branch; its output is findings in the specification's log ([Phase 0]
 
 On `main`, Instant still the only backend ([Phase 1](docs/powersync-migration.md#phase-1--the-data-layer-over-instant)). For each area: design its types, reads and mutations for the relational end state; implement them over Instant; move every web and phone screen to them; rewrite its tests. Each ends with **(you)** a look over that area's screens on the live app.
 
-- [ ] Family and settings — first, because it is small and sets the pattern.
+- [~] Family and settings — first, because it is small and sets the pattern.
+  - Done: `packages/data` exists, with its Instant implementation and the test that lists every file still reaching Instant directly (119). The five household settings are on it everywhere they are read or written, web and phone.
+  - **Left: family members and unit definitions.**
+  - **(you)** Not seen in a browser or on a device. On the web: Settings — toggle a currency, save household scheduling, save countdown settings, switch the dashboard theme, set and remove the family photo — then the chore day and the countdown, which read those settings. On the phone: Chores, Routine markers, the countdown, and the raw list at the bottom of More → Settings.
 - [ ] Chores, routines and the countdown.
 - [ ] Task series.
 - [ ] Calendar.

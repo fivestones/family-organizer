@@ -2,31 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { tx, id } from '@instantdb/react';
+import { saveSetting, useSetting } from '@/lib/data';
 import { useToast } from '@/components/ui/use-toast';
 
-interface CurrencySettingsProps {
-  db: any;
-}
-
-const ENABLED_CURRENCIES_SETTING = 'enabledCurrencies';
-
-const CurrencySettings: React.FC<CurrencySettingsProps> = ({ db }) => {
+const CurrencySettings: React.FC = () => {
   const { toast } = useToast();
-  const [initialized, setInitialized] = useState(false);
   const [lastCurrencyMessage, setLastCurrencyMessage] = useState<string | null>(null);
   const [isMessageVisible, setIsMessageVisible] = useState(false);
-  
-  // Query existing settings
-  const { data, isLoading, error } = db.useQuery({
-    settings: {
-      $: {
-        where: {
-          name: ENABLED_CURRENCIES_SETTING
-        }
-      }
-    },
-  });
+
+  // USD is enabled until the family chooses otherwise, so nothing needs to be stored before the first change.
+  const { data: enabledCurrencies, isLoading, error } = useSetting('enabledCurrencies');
 
   // Handle the message timeout
   useEffect(() => {
@@ -43,62 +28,21 @@ const CurrencySettings: React.FC<CurrencySettingsProps> = ({ db }) => {
     }
   }, [lastCurrencyMessage]);
 
-  // Initialize settings if none exist
-  useEffect(() => {
-    const initializeSettings = async () => {
-      if (!initialized && !isLoading && !error) {
-        if (!data?.settings || data.settings.length === 0) {
-          const settingId = id();
-          try {
-            await db.transact([
-              tx.settings[settingId].update({
-                name: ENABLED_CURRENCIES_SETTING,
-                value: JSON.stringify(['USD']),
-              }),
-            ]);
-          } catch (error) {
-            console.error('Error initializing settings:', error);
-            toast({
-              title: "Error",
-              description: "Failed to initialize settings.",
-              variant: "destructive",
-            });
-          }
-        }
-        setInitialized(true);
-      }
-    };
-
-    initializeSettings();
-  }, [data?.settings, isLoading, error, initialized, db, toast]);
-
   const toggleCurrency = async (currency: string) => {
-    const currentSetting = data?.settings?.[0];
-    if (!currentSetting?.id) {
-      console.error('No settings found');
-      return;
-    }
-
-    const currentCurrencies = JSON.parse(currentSetting.value || '["USD"]');
-    const currencyIndex = currentCurrencies.indexOf(currency);
     let newEnabledCurrencies: string[];
 
-    if (currencyIndex === -1) {
-      newEnabledCurrencies = [...currentCurrencies, currency];
+    if (!enabledCurrencies.includes(currency)) {
+      newEnabledCurrencies = [...enabledCurrencies, currency];
     } else {
-      if (currentCurrencies.length === 1) {
+      if (enabledCurrencies.length === 1) {
         setLastCurrencyMessage(currency);
         return;
       }
-      newEnabledCurrencies = currentCurrencies.filter(c => c !== currency);
+      newEnabledCurrencies = enabledCurrencies.filter((code) => code !== currency);
     }
 
     try {
-      await db.transact([
-        tx.settings[currentSetting.id].update({
-          value: JSON.stringify(newEnabledCurrencies),
-        }),
-      ]);
+      await saveSetting('enabledCurrencies', newEnabledCurrencies);
     } catch (error) {
       console.error('Error updating currency settings:', error);
       toast({
@@ -116,9 +60,6 @@ const CurrencySettings: React.FC<CurrencySettingsProps> = ({ db }) => {
   if (error) {
     return <div>Error loading settings: {error.message}</div>;
   }
-
-  const currentSetting = data?.settings?.[0];
-  const enabledCurrencies = currentSetting ? JSON.parse(currentSetting.value || '["USD"]') : ['USD'];
 
   return (
     <Card className="w-full max-w-2xl">

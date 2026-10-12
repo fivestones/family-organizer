@@ -213,6 +213,12 @@ const instantMocks = vi.hoisted(() => ({
     ),
 }));
 
+vi.mock('@/lib/data', () => ({
+    useSetting: () => ({ data: null, isLoading: false, error: undefined }),
+    saveSetting: vi.fn(),
+    clearSetting: vi.fn(),
+}));
+
 vi.mock('@instantdb/react', () => ({
     tx: instantMocks.tx,
     id: familyMemberMocks.id,

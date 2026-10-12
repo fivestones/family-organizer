@@ -50,15 +50,11 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils'; // Import cn for class merging
 import Link from 'next/link';
 import {
-    HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
     getFamilyDayDateUTC,
     getNextChoreSortOrder,
     localDateToUTC,
-    parseSharedScheduleSettings,
     sortChoresForDisplay,
     computeCountdownTimelines,
-    COUNTDOWN_SETTINGS_NAME,
-    parseCountdownSettings,
     getChoreTimingMode,
     isChoreHiddenFromDayList,
     summarizeRoutinesForDay,
@@ -68,6 +64,7 @@ import {
     type CountdownChoreInput,
     type PersonCountdownTimeline,
 } from '@family-organizer/shared-core';
+import { useSetting } from '@/lib/data';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -290,24 +287,20 @@ function ChoresTracker({
             },
             routineMarkerStatuses: {},
             routines: { steps: { chore: {} } },
-            settings: {
-                $: {
-                    where: {
-                        or: [
-                            { name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME },
-                            { name: COUNTDOWN_SETTINGS_NAME },
-                        ],
-                    },
-                },
-            },
         };
     }, [pageMode, selectedDateKey]);
 
-    const { isLoading, error, data } = (db.useQuery as any)(trackerQuery) as {
+    const trackerResult = (db.useQuery as any)(trackerQuery) as {
         isLoading: boolean;
         error?: { message?: string } | null;
         data?: any;
     };
+    const { data } = trackerResult;
+    const scheduleSetting = useSetting('householdSchedule');
+    const countdownSetting = useSetting('countdown');
+    // The day is drawn against the family's own day boundary, so it waits for the settings as it always has.
+    const isLoading = trackerResult.isLoading || scheduleSetting.isLoading || countdownSetting.isLoading;
+    const error = trackerResult.error || scheduleSetting.error || countdownSetting.error;
 
     // --- Derived Data ---
     // Use 'as any' casting if strict schema typing conflicts with the generic interface,
@@ -342,20 +335,8 @@ function ChoresTracker({
         [data?.allowanceEnvelopes]
     );
     const routineMarkerStatuses: RoutineMarkerStatus[] = useMemo(() => (data?.routineMarkerStatuses as any) || [], [data?.routineMarkerStatuses]);
-    const scheduleSettings: SharedScheduleSettings = useMemo(
-        () => {
-            const row = (data?.settings as any[])?.find((s: any) => s.name === HOUSEHOLD_SCHEDULE_SETTINGS_NAME);
-            return parseSharedScheduleSettings(row?.value || null);
-        },
-        [data?.settings]
-    );
-    const countdownSettings = useMemo(
-        () => {
-            const row = (data?.settings as any[])?.find((s: any) => s.name === COUNTDOWN_SETTINGS_NAME);
-            return parseCountdownSettings(row?.value || null);
-        },
-        [data?.settings]
-    );
+    const scheduleSettings: SharedScheduleSettings = scheduleSetting.data;
+    const countdownSettings = countdownSetting.data;
 
     // --- Compute Balances (existing logic) ---
     const membersBalances = useMemo(() => {

@@ -14,6 +14,7 @@ COPY package.json package-lock.json ./
 # Copy workspace package.json files so npm ci can resolve them
 COPY packages/shared-core/package.json ./packages/shared-core/
 COPY packages/mobile-contracts/package.json ./packages/mobile-contracts/
+COPY packages/data/package.json ./packages/data/
 COPY mobile/package.json ./mobile/
 
 # Install dependencies (ci ensures strict adherence to the lockfile)

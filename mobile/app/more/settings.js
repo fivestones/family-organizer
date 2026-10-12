@@ -15,6 +15,7 @@ import { useAppSession } from '../../src/providers/AppProviders';
 import { radii, spacing, withAlpha } from '../../src/theme/tokens';
 import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/SubscreenScaffold';
 import { clearPendingParentAction } from '../../src/lib/session-prefs';
+import { useStoredSettings } from '../../src/lib/data';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 import { TaskSeriesGradeSettingsSection } from '../../src/features/task-series/grade-settings';
@@ -217,13 +218,12 @@ export default function SettingsScreen() {
           unitDefinitions: {
             $: { order: { code: 'asc' } },
           },
-          settings: {},
         }
       : null
   );
+  const { data: settingsRows } = useStoredSettings({ enabled: isAuthenticated && instantReady && principalType === 'parent' });
 
   const unitDefinitions = useMemo(() => settingsQuery.data?.unitDefinitions || [], [settingsQuery.data?.unitDefinitions]);
-  const settingsRows = useMemo(() => settingsQuery.data?.settings || [], [settingsQuery.data?.settings]);
   const currentThemeLabel = useMemo(
     () => themeOptions.find((option) => option.id === themeName)?.label || 'Warm Classic',
     [themeName, themeOptions]
@@ -784,12 +784,12 @@ export default function SettingsScreen() {
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>Raw Settings Rows</Text>
               {settingsRows.length === 0 ? (
-                <Text style={styles.helperText}>No raw `settings` rows found in this Instant app yet.</Text>
+                <Text style={styles.helperText}>No settings have been saved yet.</Text>
               ) : (
-                settingsRows.map((row) => (
-                  <View key={row.id} style={styles.settingRow}>
+                settingsRows.map((row, index) => (
+                  <View key={`${row.name}-${index}`} style={styles.settingRow}>
                     <Text style={styles.settingName}>{row.name}</Text>
-                    <Text style={styles.settingValue}>{row.value}</Text>
+                    <Text style={styles.settingValue}>{typeof row.value === 'string' ? row.value : JSON.stringify(row.value)}</Text>
                   </View>
                 ))
               )}

@@ -10,9 +10,8 @@ import {
     formatDateKeyUTC,
     getAssignedMembersForChoreOnDate,
     sortChoresForDisplay,
-    parseSharedScheduleSettings,
-    HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
 } from '@family-organizer/shared-core';
+import { useSetting } from '@/lib/data';
 import { toInitials } from '@/lib/dashboard-utils';
 import { getPhotoUrl } from '@/lib/photo-urls';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -89,24 +88,14 @@ function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetPr
             completions: { completedBy: {} },
         },
         routineMarkerStatuses: {},
-        settings: {
-            $: {
-                where: {
-                    name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
-                },
-            },
-        },
     });
+    const { data: scheduleSettings } = useSetting('householdSchedule');
 
     const members = (data?.familyMembers ?? []) as any[];
     const todayKey = formatDateKeyUTC(todayUtc);
     const routineMarkerStatuses = useMemo(
         () => (data?.routineMarkerStatuses as any[]) || [],
         [data?.routineMarkerStatuses],
-    );
-    const scheduleSettings = useMemo(
-        () => parseSharedScheduleSettings((data?.settings as any[])?.[0]?.value || null),
-        [data?.settings],
     );
 
     const colorMap = useMemo(() => buildMemberColorMap(members), [members]);

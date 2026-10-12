@@ -24,6 +24,8 @@ npm run test:coverage    # Vitest with coverage report
 npm run test:e2e         # Playwright E2E tests (auto-starts dev server on port 3000)
 npm run test:all         # Vitest + Playwright
 
+# The suite needs Node 24 or 20. Node 25 ships its own localStorage and breaks every jsdom test.
+
 # Run a single test file
 npx vitest run test/unit/lib/task-scheduler-date-logic.node.test.ts
 
@@ -44,6 +46,8 @@ This is a **Next.js 16 + InstantDB** family management app. InstantDB is the sol
 ### Key architectural layers
 
 **Client DB** (`lib/db.ts`): the single `@instantdb/react` entrypoint, initialized with `instant.schema.ts` for typed queries and transactions. Components use `db.useQuery(...)` for live data; writes stay client-side only when Instant permissions are the complete authorization/integrity boundary.
+
+**Data layer** (`packages/data`, bound for the web in `lib/data.ts` and for the phone in `mobile/src/lib/instant-db.js`): the app is moving off InstantDB to PowerSync ([docs/powersync-migration.md](docs/powersync-migration.md), roadmap Scope 7), and screens are moving, area by area, to typed reads and mutations in this package — `useSetting('countdown')`, `saveSetting(...)`. An area that has moved is reached only through it; do not add a query or a `transact` for it to a component. `test/contracts/instant-boundary.contract.node.test.ts` lists every file that still reaches Instant directly and fails if a new one does. Read `packages/data/README.md` before adding to it.
 
 **Server/Admin** (`lib/instant-admin.ts`): `@instantdb/admin` for verified principal-token minting, finance ledger mutations, messaging, calendar sync, file finalization, and other workflows that require fresh reads, cross-row invariants, or elevated writes. Used by routes under `app/api/` and authenticated server actions in `app/actions.ts`.
 

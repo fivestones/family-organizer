@@ -24,6 +24,7 @@ import {
     pickRandomMemberColor,
 } from '@/lib/family-member-colors';
 import { getPhotoKeys, getPhotoUrl, type PhotoUrls } from '@/lib/photo-urls';
+import { clearSetting, saveSetting, useSetting } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { requireCachedMemberToken } from '@/lib/instant-principal-storage';
 import {
@@ -84,7 +85,6 @@ interface FamilyMembersListProps {
 }
 
 const noopSetSelectedMember = () => {};
-const FAMILY_PHOTO_SETTING = 'familyPhotoUrls';
 const AVATAR_UPLOAD_SIZES = ['64', '320', '1200'] as const;
 
 type AvatarUploadSize = (typeof AVATAR_UPLOAD_SIZES)[number];
@@ -332,31 +332,7 @@ function FamilyMembersList({
               }
             : null
     );
-    const { data: familyPhotoData } = db.useQuery({
-        settings: {
-            $: {
-                where: {
-                    name: FAMILY_PHOTO_SETTING,
-                },
-            },
-        },
-    });
-
-    const familyPhotoUrls = useMemo<PhotoUrls | null>(() => {
-        const setting = familyPhotoData?.settings?.[0];
-        if (!setting?.value) return null;
-        try {
-            const parsed = JSON.parse(setting.value);
-            if (!parsed || typeof parsed !== 'object') return null;
-            return {
-                '64': typeof parsed['64'] === 'string' ? parsed['64'] : undefined,
-                '320': typeof parsed['320'] === 'string' ? parsed['320'] : undefined,
-                '1200': typeof parsed['1200'] === 'string' ? parsed['1200'] : undefined,
-            };
-        } catch {
-            return null;
-        }
-    }, [familyPhotoData?.settings]);
+    const { data: familyPhotoUrls } = useSetting('familyPhoto');
 
     // +++ INTERNAL CALCULATIONS +++
 
@@ -1079,27 +1055,10 @@ function FamilyMembersList({
     const activeMemberId = alwaysEditMode ? (isCreatingMember ? null : isEditingAll ? 'All' : editingMember?.id ?? null) : selectedMember;
 
     const handleSaveFamilyPhoto = async (nextPhotoUrls: PhotoUrls | null) => {
-        const currentSetting = familyPhotoData?.settings?.[0];
-        if (currentSetting?.id) {
-            if (nextPhotoUrls) {
-                await db.transact([
-                    tx.settings[currentSetting.id].update({
-                        value: JSON.stringify(nextPhotoUrls),
-                    }),
-                ]);
-            } else {
-                await db.transact([tx.settings[currentSetting.id].delete()]);
-            }
-            return;
-        }
         if (nextPhotoUrls) {
-            const settingId = id();
-            await db.transact([
-                tx.settings[settingId].update({
-                    name: FAMILY_PHOTO_SETTING,
-                    value: JSON.stringify(nextPhotoUrls),
-                }),
-            ]);
+            await saveSetting('familyPhoto', nextPhotoUrls);
+        } else {
+            await clearSetting('familyPhoto');
         }
     };
 

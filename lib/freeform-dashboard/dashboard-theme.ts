@@ -1,8 +1,6 @@
-export type DashboardTheme = 'light' | 'dark';
+import { DEFAULT_DASHBOARD_THEME, isDashboardTheme, type DashboardTheme } from '@family-organizer/data';
 
-export const DEFAULT_DASHBOARD_THEME: DashboardTheme = 'light';
-
-export const DASHBOARD_THEME_SETTING_NAME = 'dashboard_theme';
+export { DEFAULT_DASHBOARD_THEME, isDashboardTheme, type DashboardTheme };
 
 export interface DashboardThemeDefinition {
     id: DashboardTheme;
@@ -26,7 +24,3 @@ export const DASHBOARD_THEMES: DashboardThemeDefinition[] = [
         previewColors: ['#08090f', '#111827', '#fafbff', '#8e8bff'],
     },
 ];
-
-export function isDashboardTheme(value: string): value is DashboardTheme {
-    return DASHBOARD_THEMES.some((t) => t.id === value);
-}

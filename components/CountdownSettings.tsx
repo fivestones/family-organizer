@@ -1,21 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { tx, id } from '@instantdb/react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import {
-    COUNTDOWN_SETTINGS_NAME,
-    DEFAULT_COUNTDOWN_SETTINGS,
-    parseCountdownSettings,
-    type CountdownSettings as CountdownSettingsType,
-} from '@family-organizer/shared-core';
+import { DEFAULT_COUNTDOWN_SETTINGS, type CountdownSettings as CountdownSettingsType } from '@family-organizer/shared-core';
+import { saveSetting, useSetting } from '@/lib/data';
 import { RefreshCcw } from 'lucide-react';
-
-interface CountdownSettingsProps {
-    db: any;
-}
 
 function secsToMinSec(secs: number): { min: string; sec: string } {
     const m = Math.floor(secs / 60);
@@ -61,21 +52,9 @@ const OVERRUN_FIELDS: Array<{ key: keyof OverrunForm; label: string; unit: strin
     { key: 'stopOfferAfter', label: 'Offer to stop after', unit: 'extensions', hint: 'On the same step.', min: 1, max: 20 },
 ];
 
-export default function CountdownSettings({ db }: CountdownSettingsProps) {
+export default function CountdownSettings() {
     const { toast } = useToast();
-    const { data, isLoading, error } = db.useQuery({
-        settings: {
-            $: {
-                where: { name: COUNTDOWN_SETTINGS_NAME },
-            },
-        },
-    });
-
-    const storedRow = data?.settings?.[0] || null;
-    const parsed = useMemo<CountdownSettingsType>(
-        () => parseCountdownSettings(storedRow?.value || null),
-        [storedRow?.value]
-    );
+    const { data: parsed, isLoading, error } = useSetting('countdown');
 
     const [bufferMin, setBufferMin] = useState('');
     const [bufferSec, setBufferSec] = useState('');
@@ -125,13 +104,7 @@ export default function CountdownSettings({ db }: CountdownSettingsProps) {
 
         setIsSaving(true);
         try {
-            const settingId = storedRow?.id || id();
-            await db.transact([
-                tx.settings[settingId].update({
-                    ...(storedRow?.id ? {} : { name: COUNTDOWN_SETTINGS_NAME }),
-                    value: JSON.stringify(settings),
-                }),
-            ]);
+            await saveSetting('countdown', settings);
             toast({
                 title: 'Countdown settings saved',
                 description: 'Buffer, delay and overrun settings are updated.',

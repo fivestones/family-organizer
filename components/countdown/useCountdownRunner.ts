@@ -8,8 +8,6 @@ import { useParentMode } from '@/components/auth/useParentMode';
 import { useToast } from '@/components/ui/use-toast';
 import { buildChoreCompletionChange } from '@/lib/chore-completion';
 import {
-    COUNTDOWN_SETTINGS_NAME,
-    HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
     buildCountdownChoreInputs,
     buildRunAdvancePatch,
     buildRunExtendPatch,
@@ -27,8 +25,6 @@ import {
     isChoreHiddenFromDayList,
     isCountdownRunLive,
     isCountdownRunStale,
-    parseCountdownSettings,
-    parseSharedScheduleSettings,
     resolveRunnerState,
     shouldRecordRunInteraction,
     sortRoutines,
@@ -43,6 +39,7 @@ import {
     type SharedRoutineLike,
     type SharedScheduleSettings,
 } from '@family-organizer/shared-core';
+import { useSetting } from '@/lib/data';
 
 /** How often the queue itself is rebuilt; the clock on top of it ticks every second. */
 const QUEUE_REFRESH_MS = 30_000;
@@ -128,24 +125,10 @@ export function useCountdownRunner(): CountdownRunner {
     // The family day can only be known once the schedule settings have loaded,
     // so the day-scoped rows are fetched against the calendar's best guess and
     // filtered again below.
-    const settingsQuery = db.useQuery({
-        settings: {
-            $: {
-                where: {
-                    or: [{ name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME }, { name: COUNTDOWN_SETTINGS_NAME }],
-                },
-            },
-        },
-    });
-
-    const scheduleSettings: SharedScheduleSettings = useMemo(() => {
-        const row = (settingsQuery.data?.settings as any[])?.find((s) => s.name === HOUSEHOLD_SCHEDULE_SETTINGS_NAME);
-        return parseSharedScheduleSettings(row?.value || null);
-    }, [settingsQuery.data?.settings]);
-    const settings: CountdownSettings = useMemo(() => {
-        const row = (settingsQuery.data?.settings as any[])?.find((s) => s.name === COUNTDOWN_SETTINGS_NAME);
-        return parseCountdownSettings(row?.value || null);
-    }, [settingsQuery.data?.settings]);
+    const scheduleSetting = useSetting('householdSchedule');
+    const countdownSetting = useSetting('countdown');
+    const scheduleSettings: SharedScheduleSettings = scheduleSetting.data;
+    const settings: CountdownSettings = countdownSetting.data;
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const today = useMemo(() => getFamilyDayDateUTC(new Date(), scheduleSettings), [scheduleSettings, queueTick]);
@@ -482,8 +465,8 @@ export function useCountdownRunner(): CountdownRunner {
     const actions = useMemo(() => ({ start, markDone, extend, stop }), [start, markDone, extend, stop]);
 
     return {
-        isLoading: settingsQuery.isLoading || dayQuery.isLoading,
-        error: settingsQuery.error || dayQuery.error || null,
+        isLoading: scheduleSetting.isLoading || countdownSetting.isLoading || dayQuery.isLoading,
+        error: scheduleSetting.error || countdownSetting.error || dayQuery.error || null,
         nowMs,
         runners,
         settings,

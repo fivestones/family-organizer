@@ -5,7 +5,6 @@ import { id, tx } from '@instantdb/react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import {
-  HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
   calculateDailyXP,
   createChoreCompletionRecordId,
   formatDateKeyUTC,
@@ -14,10 +13,10 @@ import {
   getCompletedChoreCompletionsForDate,
   getMemberCompletionForDate,
   isChoreHiddenFromDayList,
-  parseSharedScheduleSettings,
   sortChoresForDisplay,
   summarizeRoutinesForDay,
 } from '@family-organizer/shared-core';
+import { useSetting } from '../../src/lib/data';
 import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
@@ -148,25 +147,15 @@ export default function ChoresTab() {
           },
           routines: { steps: { chore: {} } },
           routineMarkerStatuses: {},
-          settings: {
-            $: {
-              where: {
-                name: HOUSEHOLD_SCHEDULE_SETTINGS_NAME,
-              },
-            },
-          },
         }
       : null
   );
+  const { data: scheduleSettings } = useSetting('householdSchedule', { enabled: isAuthenticated && instantReady });
 
   const chores = useMemo(() => choresQuery.data?.chores || [], [choresQuery.data?.chores]);
   const routineMarkerStatuses = useMemo(
     () => choresQuery.data?.routineMarkerStatuses || [],
     [choresQuery.data?.routineMarkerStatuses]
-  );
-  const scheduleSettings = useMemo(
-    () => parseSharedScheduleSettings(choresQuery.data?.settings?.[0]?.value || null),
-    [choresQuery.data?.settings]
   );
 
   const familyMemberNameById = useMemo(
