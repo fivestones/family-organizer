@@ -167,8 +167,7 @@ export interface AuthSessionsTable {
 }
 
 export interface SyncUploadsTable {
-    client_id: string;
-    transaction_id: number;
+    upload_id: string;
     session_id: string | null;
     principal: string;
     mutation: string | null;
@@ -243,7 +242,7 @@ export const DATABASE_COLUMNS = {
         id: true, token_hash: true, principal_type: true, family_member_id: true, state: true, created_at: true, last_seen_at: true,
         expires_at: true, drain_until: true, ended_at: true,
     },
-    sync_uploads: { client_id: true, transaction_id: true, session_id: true, principal: true, mutation: true, outcome: true, received_at: true },
+    sync_uploads: { upload_id: true, session_id: true, principal: true, mutation: true, outcome: true, received_at: true },
     write_refusals: {
         id: true, family_member_id: true, principal_type: true, mutation: true, reason: true, table_name: true, row_id: true, refused_at: true,
         dismissed_at: true,

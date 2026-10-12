@@ -11,12 +11,15 @@ import type { Session } from './sessions';
 //
 // A device sends one of its local transactions at a time. What it calls each write is a hint: every write is
 // judged against the row as Postgres holds it, under a lock, by the shared write rules. A transaction is applied
-// wholly or not at all, and exactly once: its outcome is recorded with it, and a retry is answered from the record.
+// wholly or not at all, and exactly once: its outcome is recorded with it, under the id its mutation gave it, and a
+// retry is answered from the record.
 
 export interface UploadedTransaction {
-    /** The device database the transaction came from, and its number in that database. Together they name it. */
-    clientId: string;
-    transactionId: number;
+    /**
+     * The id the mutation gave the transaction when it made it. A device's own numbering starts again when its
+     * database is emptied, so it cannot be what tells one transaction from another; a random id can.
+     */
+    uploadId: string;
     /** The data generation the device's database belongs to. */
     dataGeneration: number;
     /** The name of the mutation that made it, so a refusal can say what was refused. */
@@ -48,13 +51,12 @@ const MAX_OPERATIONS = 2000;
 /** Reads a request body as an uploaded transaction, or `null` when it is not one. */
 export function parseUpload(body: unknown): UploadedTransaction | null {
     if (!body || typeof body !== 'object') return null;
-    const { clientId, transactionId, dataGeneration, mutation, operations } = body as Record<string, unknown>;
-    if (typeof clientId !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(clientId)) return null;
-    if (typeof transactionId !== 'number' || !Number.isSafeInteger(transactionId) || transactionId < 0) return null;
+    const { uploadId, dataGeneration, mutation, operations } = body as Record<string, unknown>;
+    if (typeof uploadId !== 'string' || !/^[A-Za-z0-9_-]{16,100}$/.test(uploadId)) return null;
     if (typeof dataGeneration !== 'number' || !Number.isSafeInteger(dataGeneration)) return null;
     if (mutation != null && (typeof mutation !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(mutation))) return null;
     if (!Array.isArray(operations) || operations.length === 0 || operations.length > MAX_OPERATIONS) return null;
-    return { clientId, transactionId, dataGeneration, mutation: (mutation as string | null) ?? null, operations: operations as DeviceOperation[] };
+    return { uploadId, dataGeneration, mutation: (mutation as string | null) ?? null, operations: operations as DeviceOperation[] };
 }
 
 type Trx = Transaction<Database>;
@@ -121,23 +123,21 @@ async function claim(trx: Trx, session: Session, upload: UploadedTransaction, ou
     const claimed = await trx
         .insertInto('sync_uploads')
         .values({
-            client_id: upload.clientId,
-            transaction_id: upload.transactionId,
+            upload_id: upload.uploadId,
             session_id: session.id,
             principal: principalKey(session.principal),
             mutation: upload.mutation,
             outcome: outcome ? sql`${JSON.stringify(outcome)}::jsonb` : null,
         })
-        .onConflict((conflict) => conflict.columns(['client_id', 'transaction_id']).doNothing())
-        .returning('client_id')
+        .onConflict((conflict) => conflict.column('upload_id').doNothing())
+        .returning('upload_id')
         .executeTakeFirst();
     if (claimed) return null;
     // Uploaded before. Postgres has already waited for that attempt to finish, so its outcome is settled.
     const earlier = await trx
         .selectFrom('sync_uploads')
         .select('outcome')
-        .where('client_id', '=', upload.clientId)
-        .where('transaction_id', '=', upload.transactionId)
+        .where('upload_id', '=', upload.uploadId)
         .executeTakeFirstOrThrow();
     if (!earlier.outcome) throw new Error('An upload is on record with no outcome.');
     return { outcome: earlier.outcome as UploadOutcome, replayed: true };
@@ -172,8 +172,7 @@ export async function applyUpload(db: AppDatabase, session: Session, upload: Upl
             await trx
                 .updateTable('sync_uploads')
                 .set({ outcome: sql`${JSON.stringify(outcome)}::jsonb` })
-                .where('client_id', '=', upload.clientId)
-                .where('transaction_id', '=', upload.transactionId)
+                .where('upload_id', '=', upload.uploadId)
                 .execute();
             return { outcome, replayed: false };
         });

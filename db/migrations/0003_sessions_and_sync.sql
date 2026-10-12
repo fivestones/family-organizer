@@ -41,16 +41,15 @@ CREATE INDEX auth_sessions_member ON auth_sessions (family_member_id);
 -- Every transaction a device has uploaded, once. A retry finds its row here and is answered with the outcome it
 -- was given the first time, in place of being applied again.
 CREATE TABLE sync_uploads (
-    -- The device database the transaction came from, and its number in that database.
-    client_id      text NOT NULL,
-    transaction_id bigint NOT NULL,
-    session_id     uuid REFERENCES auth_sessions (id) ON DELETE SET NULL,
-    principal      text NOT NULL,
-    mutation       text,
+    -- The id the mutation gave its transaction when it made it. It is random, so it is the same on every retry
+    -- and never the same for two transactions, whatever happens to the device's database in between.
+    upload_id   text PRIMARY KEY,
+    session_id  uuid REFERENCES auth_sessions (id) ON DELETE SET NULL,
+    principal   text NOT NULL,
+    mutation    text,
     -- Empty only while the transaction is being applied.
-    outcome        jsonb,
-    received_at    timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (client_id, transaction_id)
+    outcome     jsonb,
+    received_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX sync_uploads_received ON sync_uploads (received_at);

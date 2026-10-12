@@ -29,7 +29,7 @@ const asEli = () => signedIn({ type: 'kid', familyMemberId: ELI });
 const asFay = () => signedIn({ type: 'kid', familyMemberId: FAY });
 
 const transaction = (operations: DeviceOperation[], overrides: Partial<UploadedTransaction> = {}): UploadedTransaction => ({
-    clientId: 'device-database-1', transactionId: nextTransaction++, dataGeneration: 1, mutation: 'completeChore', operations, ...overrides,
+    uploadId: `upload-${String(nextTransaction++).padStart(12, '0')}`, dataGeneration: 1, mutation: 'completeChore', operations, ...overrides,
 });
 const send = (session: Session, operations: DeviceOperation[], overrides: Partial<UploadedTransaction> = {}) => applyUpload(database.db, session, transaction(operations, overrides));
 
@@ -91,7 +91,7 @@ describe('what a device calls a write', () => {
         await send(await asEli(), completing(ELI, { completionId: id(40) }));
 
         // Fay sends Eli's completion again, as hers.
-        const stolen = await send(await asFay(), completing(FAY, { completionId: id(40), at: ONE }), { clientId: 'device-database-2' });
+        const stolen = await send(await asFay(), completing(FAY, { completionId: id(40), at: ONE }));
         expect(stolen.outcome).toMatchObject({ ok: false, reason: 'already_claimed' });
         // Eli sends his own again, marked as paid.
         const paid = await send(await asEli(), completing(ELI, { completionId: id(40), awarded: 1 }));
@@ -103,7 +103,7 @@ describe('what a device calls a write', () => {
     it('does not let a delete and a re-creation do what a change could not', async () => {
         await send(await asEli(), completing(ELI, { completionId: id(40) }));
 
-        const result = await send(await asFay(), [{ op: 'DELETE', table: 'chore_completions', id: id(40) }, ...completing(FAY, { completionId: id(40) })], { clientId: 'device-database-2' });
+        const result = await send(await asFay(), [{ op: 'DELETE', table: 'chore_completions', id: id(40) }, ...completing(FAY, { completionId: id(40) })]);
 
         expect(result.outcome).toMatchObject({ ok: false, reason: 'not_allowed' });
         expect(await completion(id(40))).toMatchObject({ completed_by: ELI });
@@ -120,7 +120,7 @@ describe('two kids claiming one chore', () => {
     it('gives it to the first to arrive and tells the second', async () => {
         const claim = id(41); // The id both devices worked out for this chore and day.
         const first = await send(await asEli(), completing(ELI, { completionId: claim, chore: LAUNDRY }));
-        const second = await send(await asFay(), completing(FAY, { completionId: claim, chore: LAUNDRY, at: ONE }), { clientId: 'device-database-2' });
+        const second = await send(await asFay(), completing(FAY, { completionId: claim, chore: LAUNDRY, at: ONE }));
 
         expect(first.outcome).toEqual({ ok: true });
         expect(second.outcome).toEqual({ ok: false, reason: 'already_claimed', table: 'chore_completions', rowId: claim });
@@ -136,7 +136,7 @@ describe('two kids claiming one chore', () => {
         await send(eli, completing(ELI, { completionId: claim, chore: LAUNDRY }));
         await send(eli, [{ op: 'PATCH', table: 'chore_completions', id: claim, data: { completed_at: null } }]);
 
-        const taken = await send(await asFay(), completing(FAY, { completionId: claim, chore: LAUNDRY, at: ONE, markedBy: FAY }), { clientId: 'device-database-2' });
+        const taken = await send(await asFay(), completing(FAY, { completionId: claim, chore: LAUNDRY, at: ONE, markedBy: FAY }));
 
         expect(taken.outcome).toEqual({ ok: true });
         expect(await completion(claim)).toMatchObject({ completed_by: FAY, marked_by: FAY, completed_at: ONE });
@@ -151,7 +151,7 @@ describe('a transaction that is sent again', () => {
         const untick = transaction([{ op: 'PATCH', table: 'chore_completions', id: id(40), data: { completed_at: null } }]);
         await applyUpload(database.db, eli, untick);
         // A parent puts it back, from another device.
-        await send(await asParent(), [{ op: 'PATCH', table: 'chore_completions', id: id(40), data: { completed_at: ONE } }], { clientId: 'device-database-2' });
+        await send(await asParent(), [{ op: 'PATCH', table: 'chore_completions', id: id(40), data: { completed_at: ONE } }]);
 
         // Eli's device, having heard nothing, sends the same transaction again.
         const retry = await applyUpload(database.db, eli, untick);
@@ -170,11 +170,12 @@ describe('a transaction that is sent again', () => {
         expect(await rows(`SELECT 1 FROM write_refusals`)).toHaveLength(1);
     });
 
-    it('is told apart from another device\'s transaction with the same number', async () => {
+    it('is known by the id its mutation gave it, so another transaction is never taken for it', async () => {
         const eli = await asEli();
-        await send(eli, completing(ELI, { completionId: id(40) }), { transactionId: 7 });
-        const other = await send(eli, completing(ELI, { completionId: id(41), chore: LAUNDRY }), { transactionId: 7, clientId: 'device-database-2' });
+        await send(eli, completing(ELI, { completionId: id(40) }), { uploadId: 'aaaaaaaa-0000-4000-8000-000000000001' });
+        const other = await send(eli, completing(ELI, { completionId: id(41), chore: LAUNDRY }), { uploadId: 'aaaaaaaa-0000-4000-8000-000000000002' });
         expect(other).toEqual({ outcome: { ok: true }, replayed: false });
+        expect(await rows(`SELECT upload_id FROM sync_uploads ORDER BY upload_id`)).toEqual([{ upload_id: 'aaaaaaaa-0000-4000-8000-000000000001' }, { upload_id: 'aaaaaaaa-0000-4000-8000-000000000002' }]);
     });
 });
 
@@ -208,7 +209,7 @@ describe('a write overtaken by another device', () => {
         const eli = await asEli();
         await send(eli, completing(ELI, { completionId: id(40) }));
         // The same chore, person and day again, under another id: two devices that each made one while offline.
-        const result = await send(eli, completing(ELI, { completionId: id(41) }), { clientId: 'device-database-2' });
+        const result = await send(eli, completing(ELI, { completionId: id(41) }));
         expect(result.outcome).toMatchObject({ ok: false, reason: 'conflict' });
         expect(await rows(`SELECT id FROM chore_completions`)).toEqual([{ id: id(40) }]);
     });
@@ -288,7 +289,7 @@ describe('POST /api/sync/upload', () => {
 
     it('turns away what is not an uploaded transaction at all', async () => {
         const { token } = await tokenFor({ type: 'kid', familyMemberId: ELI });
-        for (const body of [{}, { clientId: 'x', transactionId: 1, dataGeneration: 1, operations: [] }, { ...transaction(completing(ELI)), transactionId: '1' }, { ...transaction(completing(ELI)), mutation: 'DROP TABLE' }]) {
+        for (const body of [{}, { uploadId: 'upload-000000000001', dataGeneration: 1, operations: [] }, { ...transaction(completing(ELI)), uploadId: 'short' }, { ...transaction(completing(ELI)), mutation: 'DROP TABLE' }]) {
             expect((await post(token, body)).status).toBe(400);
         }
         expect(await rows(`SELECT 1 FROM sync_uploads`)).toEqual([]);
