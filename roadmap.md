@@ -317,9 +317,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 [Phase 3](docs/powersync-migration.md#phase-3--the-schema-and-the-data).
 
 - [x] The export script and its census, run read-only against the live app.
-  - Run on 12 October 2026: 64,895 rows, of which 61,111 are the server's calendar sync log; what a device would hold is about 3,800 rows. The data is clean. The census still has to compare nine of the ten references that are held twice ([log](docs/powersync-migration.md#implementation-log)).
+  - Run on 12 October 2026: 64,895 rows, of which 61,111 are the server's calendar sync log; what a device would hold is about 3,800 rows. The data is clean, and all ten references that are held twice agree with themselves ([log](docs/powersync-migration.md#implementation-log)).
   - **(you)** For an official copy as well, sign the Instant CLI in and run `npx instant-cli@latest backup download --latest`. Instant keeps seven nightly backups.
-- [ ] The census finished: the other nine doubled references, compared from the far side.
 - [ ] The rest of the schema as SQL migrations, following [the design rules](docs/powersync-migration.md#design-rules), with the mapping from every Instant attribute and link to its column, and a delete rule chosen for every relation.
 - [ ] Postgres and PowerSync in the production `docker-compose.yml`, with the cap on what replication may hold back, the health report, and the nightly dump copied off the machine.
 - [ ] The client schema and its indexes, for every table.

@@ -25,7 +25,8 @@ Record each completed phase here, newest first, in the prose style the audits us
   Corrections of fact: where shared workers are off, one tab syncs at a time, not each for itself. A phone starts from cached configuration, so relaunching it does not change its backend. The two permission contract suites pin the text of the rules and do not test their behavior. `numeric` was never ruled out by how it syncs. What a delete does is chosen relationship by relationship. An advisory lock for calendar sync needs a connection of its own. Backups must leave the machine, and a stalled PowerSync must not be able to fill Postgres's disk. Self-hosting Instant is a project, not a setting.
   **The order changes too.** Converting screens is paused after the first area. Next is [one slice end to end](#phase-2--one-slice-end-to-end): settings, units, the family roster, the chore day and completing a chore, on PowerSync, on staging, on the exported data, with real sessions, the real upload route and the real rules. The data layer's API has so far been designed against one backend. The slice is where it meets the other, before a hundred more files are shaped by it. The slice is now Phase 2, so the phases after it are renumbered: what the entries below call Phases 2 to 8 are now Phases 3 to 9.
   **Two things a person will notice from the money rule.** Choosing which envelope is the default will need a connection, as every other money operation does. And a balance that disagrees with its ledger is put right by the server when a parent opens the page, not by the parent's device.
-  **Left.** None of this revision is built; it is a plan. The census still has nine of the ten doubled references to compare. Every **(you)** check stands, and a real iPad starting with no network is now the most important of them.
+  **The census is finished.** The ten references the schema holds twice, as a link and as an attribute, were all compared, reading each link from whichever side the export keeps it on. Every one agrees: 143 rows carry both and name the same row, none disagrees, and none has only one of the two. Two of the ten have no rows at all. So each becomes one foreign-key column with nothing to reconcile.
+  **Left.** None of this revision is built; it is a plan. Every **(you)** check stands, and a real iPad starting with no network is now the most important of them.
 
 - **2026-10-12 — The first export and census of the live data.**
   `scripts/migrate/export.mjs` reads every entity through the Admin SDK and writes it under `.migration/exports/`, which git and Docker both ignore. It can only read: the SDK is wrapped so nothing in the file can reach a write. `scripts/migrate/census.mjs` then reports what the data holds against what the schema declares, printing counts and attribute names and never a stored value, so what follows is safe to keep here.
@@ -564,7 +565,7 @@ The export uses the layout of Instant's own nightly backups, so the import reads
 - values that would violate a planned constraint, so each is resolved before the constraint is written;
 - row counts and sizes per table, which settled [that history and messages sync in full](#reads-the-sync-configuration).
 
-It was first run on 12 October 2026 and its findings are in the log. One part is unfinished: nine of the ten doubled references still have to be compared from the far side.
+It was run on 12 October 2026 and its findings are in the log.
 
 Because the schema is redesigned, a row is not expected to look the same after the move, so **verification** is done at five levels. An import and a check that shared one mapping would share its mistakes, so the checks compute what they expect from the export's raw files, without the mapping.
 
@@ -721,7 +722,7 @@ Everything else in the app is absent from staging until its area arrives in Phas
 
 ### Phase 3 — The schema and the data
 
-- The export script and the census, run against the live app, read-only. *Done on 12 October 2026, bar nine of the ten doubled references.*
+- The export script and the census, run against the live app, read-only. *Done on 12 October 2026.*
 - The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation.
 - Postgres and PowerSync in the production `docker-compose.yml`, with the cap on replication, the health report, the nightly dump and its copy off the machine.
 - The client schema and its indexes, for every table.

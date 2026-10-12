@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Reads an export (scripts/migrate/export.mjs, or an unzipped Instant backup) and reports what the data actually
 // holds, against what instant.schema.ts declares. It prints counts and attribute names only — never a stored value —
-// so its output is safe to paste into the migration log. The schema design in Phase 2 is decided from this.
+// so its output is safe to paste into the migration log. The schema design is decided from this.
 //
 //   node scripts/migrate/census.mjs                 -> the newest export under .migration/exports/
 //   node scripts/migrate/census.mjs <export-dir>
@@ -103,19 +103,39 @@ for (const [entity, rows] of Object.entries(rowsByEntity)) {
     };
 }
 
-// A relation the schema holds twice: as a link, and as a plain attribute carrying the same id.
+// A relation the schema holds twice: as a link, and as a plain attribute carrying the same id. The export keeps a
+// link on its forward side only, so for an entity on the reverse side the link is read back from the far rows.
+const asList = (value) => (Array.isArray(value) ? value : value ? [value] : []);
+function linkedIdByRow(link, side) {
+    const linked = new Map();
+    if (side === 'forward') {
+        for (const row of rowsByEntity[link.forward.on] ?? []) linked.set(row.id, asList(row[link.forward.label]));
+    } else {
+        for (const row of rowsByEntity[link.forward.on] ?? []) {
+            for (const nearId of asList(row[link.forward.label])) linked.set(nearId, [...(linked.get(nearId) ?? []), row.id]);
+        }
+    }
+    return linked;
+}
 report.duplicatedReferences = {};
-for (const [entity, info] of Object.entries(report.entities)) {
-    for (const link of forwardLinks(entity).filter((candidate) => candidate.hasOne)) {
-        const attribute = `${link.label}Id`;
-        if (!(attribute in info.attributes)) continue;
-        const rows = rowsByEntity[entity];
-        report.duplicatedReferences[`${entity}.${attribute} vs ${entity}.${link.label}`] = {
-            agree: rows.filter((row) => row[attribute] && row[attribute] === row[link.label]).length,
-            disagree: rows.filter((row) => row[attribute] && row[link.label] && row[attribute] !== row[link.label]).length,
-            onlyAttribute: rows.filter((row) => row[attribute] && !row[link.label]).length,
-            onlyLink: rows.filter((row) => !row[attribute] && row[link.label]).length,
-        };
+for (const link of Object.values(schema.links)) {
+    for (const side of ['forward', 'reverse']) {
+        const end = link[side];
+        const attribute = `${end.label}Id`;
+        if (end.has !== 'one' || !(attribute in (schema.entities[end.on]?.attrs ?? {}))) continue;
+        const linked = linkedIdByRow(link, side);
+        const stats = { rows: 0, agree: 0, disagree: 0, onlyAttribute: 0, onlyLink: 0, linkedToMoreThanOne: 0 };
+        for (const row of rowsByEntity[end.on] ?? []) {
+            const viaLink = linked.get(row.id) ?? [];
+            const viaAttribute = row[attribute] || null;
+            stats.rows += 1;
+            if (viaLink.length > 1) stats.linkedToMoreThanOne += 1;
+            if (viaAttribute && viaLink.includes(viaAttribute)) stats.agree += 1;
+            else if (viaAttribute && viaLink.length) stats.disagree += 1;
+            else if (viaAttribute) stats.onlyAttribute += 1;
+            else if (viaLink.length) stats.onlyLink += 1;
+        }
+        report.duplicatedReferences[`${end.on}.${attribute} vs ${end.on}.${end.label}`] = stats;
     }
 }
 const settingNames = new Map();
@@ -167,7 +187,10 @@ let dangling = 0;
 for (const [entity, info] of entities) for (const [label, stats] of Object.entries(info.links)) if (stats.dangling) { dangling += stats.dangling; console.log(`  ${entity}.${label} -> ${stats.target}: ${stats.dangling} of ${stats.ids}`); }
 if (!dangling) console.log('  none');
 console.log('\nA reference held twice, as a link and as an attribute');
-for (const [pair, stats] of Object.entries(report.duplicatedReferences)) console.log(`  ${pair.padEnd(64)} agree ${stats.agree}, disagree ${stats.disagree}, attribute only ${stats.onlyAttribute}, link only ${stats.onlyLink}`);
+for (const [pair, stats] of Object.entries(report.duplicatedReferences)) {
+    const neither = stats.rows - stats.agree - stats.disagree - stats.onlyAttribute - stats.onlyLink;
+    console.log(`  ${pair.padEnd(72)} ${String(stats.rows).padStart(5)} rows: agree ${stats.agree}, disagree ${stats.disagree}, attribute only ${stats.onlyAttribute}, link only ${stats.onlyLink}, neither ${neither}, linked to more than one ${stats.linkedToMoreThanOne}`);
+}
 console.log('\nUnique attributes with a value used more than once');
 let repeated = 0;
 for (const [entity, info] of entities) for (const [name, stats] of Object.entries(info.unique)) if (stats.valuesUsedMoreThanOnce) { repeated += 1; console.log(`  ${entity}.${name}: ${stats.valuesUsedMoreThanOnce}`); }
