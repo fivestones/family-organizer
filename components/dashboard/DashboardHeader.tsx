@@ -4,8 +4,9 @@ import React, { useMemo } from 'react';
 import { Users, Zap } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { db } from '@/lib/db';
+import { useUnitDefinitions } from '@/lib/data';
 import { calculateDailyXP } from '@family-organizer/shared-core';
-import { formatBalances, type UnitDefinition } from '@/lib/currency-utils';
+import { formatBalances } from '@/lib/currency-utils';
 import { buildMemberTotalBalances, getPhotoUrl, toInitials, type DashboardFamilyMember } from '@/lib/dashboard-utils';
 import { activeAllowanceEnvelopesQuery } from '@/lib/allowance-envelopes';
 
@@ -53,7 +54,6 @@ export default function DashboardHeader({
             ...(activeMemberId ? { $: { where: { id: activeMemberId } } } : {}),
             allowanceEnvelopes: activeAllowanceEnvelopesQuery,
         },
-        unitDefinitions: {},
     });
 
     const balMember = useMemo(
@@ -61,10 +61,7 @@ export default function DashboardHeader({
         [balData?.familyMembers]
     );
 
-    const unitDefinitions = useMemo(
-        () => (balData?.unitDefinitions || []) as UnitDefinition[],
-        [balData?.unitDefinitions]
-    );
+    const { data: unitDefinitions } = useUnitDefinitions();
 
     const balanceText = useMemo(() => {
         if (!balMember) return null;

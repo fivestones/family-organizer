@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react';
 import { Wallet2 } from 'lucide-react';
 import { db } from '@/lib/db';
-import { type UnitDefinition } from '@/lib/currency-utils';
+import { useUnitDefinitions } from '@/lib/data';
 import { buildMemberTotalBalances, type DashboardFamilyMember } from '@/lib/dashboard-utils';
 import type { WidgetProps } from './types';
 import { registerWidget } from './widget-store';
@@ -16,7 +16,6 @@ function BalancesWidget({ memberId }: WidgetProps) {
             $: { where: { id: memberId } },
             allowanceEnvelopes: activeAllowanceEnvelopesQuery,
         },
-        unitDefinitions: {},
     });
 
     const member = useMemo(
@@ -24,10 +23,7 @@ function BalancesWidget({ memberId }: WidgetProps) {
         [data?.familyMembers]
     );
 
-    const unitDefinitions = useMemo(
-        () => (data?.unitDefinitions || []) as UnitDefinition[],
-        [data?.unitDefinitions]
-    );
+    const { data: unitDefinitions } = useUnitDefinitions();
 
     const balances = useMemo(() => {
         if (!member) return {} as Record<string, number>;

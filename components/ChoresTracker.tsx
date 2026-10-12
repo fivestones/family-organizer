@@ -64,7 +64,7 @@ import {
     type CountdownChoreInput,
     type PersonCountdownTimeline,
 } from '@family-organizer/shared-core';
-import { useSetting } from '@/lib/data';
+import { useSetting, useUnitDefinitions } from '@/lib/data';
 
 // import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -275,7 +275,6 @@ function ChoresTracker({
                       },
                   }
                 : {}),
-            unitDefinitions: {},
             allowanceEnvelopes: activeAllowanceEnvelopesQuery,
             choreAssignments: {
                 chore: {},
@@ -298,9 +297,10 @@ function ChoresTracker({
     const { data } = trackerResult;
     const scheduleSetting = useSetting('householdSchedule');
     const countdownSetting = useSetting('countdown');
+    const unitsResult = useUnitDefinitions();
     // The day is drawn against the family's own day boundary, so it waits for the settings as it always has.
-    const isLoading = trackerResult.isLoading || scheduleSetting.isLoading || countdownSetting.isLoading;
-    const error = trackerResult.error || scheduleSetting.error || countdownSetting.error;
+    const isLoading = trackerResult.isLoading || scheduleSetting.isLoading || countdownSetting.isLoading || unitsResult.isLoading;
+    const error = trackerResult.error || scheduleSetting.error || countdownSetting.error || unitsResult.error;
 
     // --- Derived Data ---
     // Use 'as any' casting if strict schema typing conflicts with the generic interface,
@@ -328,7 +328,7 @@ function ChoresTracker({
             completions: completionsByChoreId.get(chore.id) || [],
         })) as Chore[]);
     }, [dailyChoreCompletions, data?.chores]);
-    const unitDefinitions: UnitDefinition[] = useMemo(() => (data?.unitDefinitions as any) || [], [data?.unitDefinitions]);
+    const unitDefinitions: UnitDefinition[] = unitsResult.data;
     const gradeTypes = useMemo(() => (data?.gradeTypes as any[]) || [], [data?.gradeTypes]);
     const allEnvelopes: Envelope[] = useMemo(
         () => filterActiveAllowanceEnvelopes((data?.allowanceEnvelopes as any) || []),

@@ -1,6 +1,7 @@
 import type { DataBackend } from '../backend';
 import type { InstantClient } from './client';
 import { createInstantSettingsBackend } from './settings';
+import { createInstantUnitsBackend } from './units';
 
 export type { InstantClient } from './client';
 
@@ -8,5 +9,6 @@ export type { InstantClient } from './client';
 export function createInstantBackend(client: InstantClient): DataBackend {
     return {
         settings: createInstantSettingsBackend(client),
+        units: createInstantUnitsBackend(client),
     };
 }

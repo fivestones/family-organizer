@@ -884,7 +884,6 @@ function DetailedChoreForm({
                         </Label>
                         {/* +++ Use CurrencySelector Component +++ */}
                         <CurrencySelector
-                            db={db} // Pass db instance from props
                             value={rewardCurrency}
                             onChange={setRewardCurrency} // Pass setter for rewardCurrency state
                             currencyOptions={currencyOptions} // Pass options from props

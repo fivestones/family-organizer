@@ -29,6 +29,15 @@ vi.mock('@instantdb/react', () => ({
     id: vi.fn(() => 'generated-id'),
 }));
 
+// Unit definitions come from the data layer. The fixture keeps them beside the rest of the family's data.
+vi.mock('@/lib/data', () => ({
+    useUnitDefinitions: () => ({
+        data: mocks.queryState.data?.unitDefinitions ?? [],
+        isLoading: mocks.queryState.isLoading,
+        error: undefined,
+    }),
+}));
+
 vi.mock('@/lib/db', () => ({
     db: {
         useQuery: () => ({

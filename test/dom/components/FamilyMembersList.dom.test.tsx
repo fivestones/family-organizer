@@ -215,6 +215,7 @@ const instantMocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/data', () => ({
     useSetting: () => ({ data: null, isLoading: false, error: undefined }),
+    useUnitDefinitions: () => ({ data: [], isLoading: false, error: undefined }),
     saveSetting: vi.fn(),
     clearSetting: vi.fn(),
 }));

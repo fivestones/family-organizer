@@ -24,7 +24,7 @@ import {
     pickRandomMemberColor,
 } from '@/lib/family-member-colors';
 import { getPhotoKeys, getPhotoUrl, type PhotoUrls } from '@/lib/photo-urls';
-import { clearSetting, saveSetting, useSetting } from '@/lib/data';
+import { clearSetting, saveSetting, useSetting, useUnitDefinitions } from '@/lib/data';
 import { cn } from '@/lib/utils';
 import { requireCachedMemberToken } from '@/lib/instant-principal-storage';
 import {
@@ -327,19 +327,18 @@ function FamilyMembersList({
                   familyMembers: {
                       allowanceEnvelopes: activeAllowanceEnvelopesQuery,
                   },
-                  // Fetch Units for formatting
-                  unitDefinitions: {},
               }
             : null
     );
+    const { data: fetchedUnitDefinitions } = useUnitDefinitions({ enabled: !propUnitDefs });
     const { data: familyPhotoUrls } = useSetting('familyPhoto');
 
     // +++ INTERNAL CALCULATIONS +++
 
     // 1. Resolve Unit Definitions
     const unitDefinitions = useMemo(() => {
-        return propUnitDefs || (internalData?.unitDefinitions as UnitDefinition[]) || [];
-    }, [propUnitDefs, internalData?.unitDefinitions]);
+        return propUnitDefs || fetchedUnitDefinitions;
+    }, [propUnitDefs, fetchedUnitDefinitions]);
 
     // 2. Resolve Balances
     const membersBalances = useMemo(() => {

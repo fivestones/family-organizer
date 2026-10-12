@@ -9,13 +9,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { id, tx } from '@instantdb/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useAppSession } from '../../src/providers/AppProviders';
 import { radii, spacing, withAlpha } from '../../src/theme/tokens';
 import { ParentAccessNotice, SubscreenScaffold } from '../../src/components/SubscreenScaffold';
 import { clearPendingParentAction } from '../../src/lib/session-prefs';
-import { useStoredSettings } from '../../src/lib/data';
+import { defineUnit, useStoredSettings, useUnitDefinitions } from '../../src/lib/data';
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 import { TaskSeriesGradeSettingsSection } from '../../src/features/task-series/grade-settings';
@@ -120,7 +119,6 @@ export default function SettingsScreen() {
   const isDark = themeName === 'dark';
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const {
-    db,
     isAuthenticated,
     instantReady,
     principalType,
@@ -212,18 +210,10 @@ export default function SettingsScreen() {
     };
   }, [calendarSyncCredentialsDirty, calendarSyncSelectionDirty, canManageUnits]);
 
-  const settingsQuery = db.useQuery(
-    isAuthenticated && instantReady && principalType === 'parent'
-      ? {
-          unitDefinitions: {
-            $: { order: { code: 'asc' } },
-          },
-        }
-      : null
-  );
-  const { data: settingsRows } = useStoredSettings({ enabled: isAuthenticated && instantReady && principalType === 'parent' });
-
-  const unitDefinitions = useMemo(() => settingsQuery.data?.unitDefinitions || [], [settingsQuery.data?.unitDefinitions]);
+  const canReadSettings = isAuthenticated && instantReady && principalType === 'parent';
+  const unitsResult = useUnitDefinitions({ enabled: canReadSettings });
+  const unitDefinitions = unitsResult.data;
+  const { data: settingsRows } = useStoredSettings({ enabled: canReadSettings });
   const currentThemeLabel = useMemo(
     () => themeOptions.find((option) => option.id === themeName)?.label || 'Warm Classic',
     [themeName, themeOptions]
@@ -331,18 +321,15 @@ export default function SettingsScreen() {
     setError('');
 
     try {
-      const unitId = id();
-      await db.transact([
-        tx.unitDefinitions[unitId].update({
-          code,
-          name,
-          symbol,
-          isMonetary: form.isMonetary,
-          decimalPlaces,
-          symbolPlacement: form.symbolPlacement,
-          symbolSpacing: form.symbolSpacing,
-        }),
-      ]);
+      await defineUnit({
+        code,
+        name,
+        symbol,
+        isMonetary: form.isMonetary,
+        decimalPlaces,
+        symbolPlacement: form.symbolPlacement,
+        symbolSpacing: form.symbolSpacing,
+      });
       setForm(initialFormState());
       setIsModalOpen(false);
     } catch (nextError) {
@@ -739,7 +726,7 @@ export default function SettingsScreen() {
 
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>Unit Definitions</Text>
-              {settingsQuery.isLoading ? (
+              {unitsResult.isLoading ? (
                 <Text style={styles.helperText}>Loading unit definitions…</Text>
               ) : unitDefinitions.length === 0 ? (
                 <Text style={styles.helperText}>No units defined yet.</Text>

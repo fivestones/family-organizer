@@ -20,6 +20,7 @@ import { clearPendingParentAction, getPendingParentAction } from '../../src/lib/
 import { useParentActionGate } from '../../src/hooks/useParentActionGate';
 import { useAppTheme } from '../../src/theme/ThemeProvider';
 import { runFinanceMutation } from '../../src/lib/api-client';
+import { useUnitDefinitions } from '../../src/lib/data';
 
 function firstRef(value) {
   if (!value) return null;
@@ -231,10 +232,10 @@ export default function FinanceTab() {
             $: { order: { order: 'asc' } },
             allowanceEnvelopes: {},
           },
-          unitDefinitions: {},
         }
       : null
   );
+  const { data: unitDefinitions } = useUnitDefinitions({ enabled: isAuthenticated && instantReady });
 
   const transactionsQuery = db.useQuery(
     isAuthenticated && instantReady
@@ -250,7 +251,6 @@ export default function FinanceTab() {
   );
 
   const familyMembers = useMemo(() => financeBaseQuery.data?.familyMembers || [], [financeBaseQuery.data?.familyMembers]);
-  const unitDefinitions = useMemo(() => financeBaseQuery.data?.unitDefinitions || [], [financeBaseQuery.data?.unitDefinitions]);
   const transactions = useMemo(() => transactionsQuery.data?.allowanceTransactions || [], [transactionsQuery.data?.allowanceTransactions]);
   const unitMap = useMemo(() => buildUnitMap(unitDefinitions), [unitDefinitions]);
   const financeLoading = (financeBaseQuery.isLoading && familyMembers.length === 0) || (transactionsQuery.isLoading && transactions.length === 0);

@@ -17,7 +17,6 @@ interface CurrencyOption {
 }
 
 interface CurrencySelectorProps {
-    db: any; // InstantDB instance
     value: string | null | undefined; // Currently selected currency code
     onChange: (value: string) => void; // Callback to update parent state
     currencyOptions: CurrencyOption[]; // Array of { value, label } options, including '__DEFINE_NEW__'
@@ -27,7 +26,6 @@ interface CurrencySelectorProps {
 }
 
 const CurrencySelector: React.FC<CurrencySelectorProps> = ({
-    db,
     value,
     onChange,
     currencyOptions,
@@ -123,7 +121,7 @@ const CurrencySelector: React.FC<CurrencySelectorProps> = ({
             </Popover>
 
             {/* Define Unit Modal */}
-            <DefineUnitForm db={db} isOpen={isDefineUnitModalOpen} onClose={() => setIsDefineUnitModalOpen(false)} onUnitDefined={handleUnitDefined} />
+            <DefineUnitForm isOpen={isDefineUnitModalOpen} onClose={() => setIsDefineUnitModalOpen(false)} onUnitDefined={handleUnitDefined} />
         </>
     );
 };

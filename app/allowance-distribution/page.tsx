@@ -21,7 +21,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { formatBalances, UnitDefinition, Envelope } from '@/lib/currency-utils';
+import { formatBalances, Envelope } from '@/lib/currency-utils';
 import PeriodBreakdown from '@/components/allowance/PeriodBreakdown';
 import { requestFinanceMutation } from '@/lib/finance-mutation-client';
 import type { AtomicAllowancePayoutResult } from '@/lib/allowance-payout';
@@ -51,6 +51,7 @@ import { cn } from '@/lib/utils';
 import { ParentGate } from '@/components/auth/ParentGate'; // +++ Added
 import { PendingAllowancePolicyNotice } from '@/components/allowance/PendingAllowancePolicyNotice';
 import { db } from '@/lib/db';
+import { useUnitDefinitions } from '@/lib/data';
 
 // --- Component Types ---
 
@@ -170,7 +171,6 @@ export default function AllowanceDistributionPage() {
                 familyMember: {},
             },
         },
-        unitDefinitions: {},
         allowanceEnvelopes: {
             ...activeAllowanceEnvelopesQuery,
             familyMember: {},
@@ -183,10 +183,10 @@ export default function AllowanceDistributionPage() {
               familyMembers: FamilyMemberWithAllowance[];
               choreCompletions: ChoreCompletion[];
               chores: Chore[];
-              unitDefinitions: UnitDefinition[];
               allowanceEnvelopes: Envelope[];
           }
         | undefined;
+    const { data: unitDefinitions } = useUnitDefinitions();
 
     // --- Calculation and Processing Logic ---
     const processAllowanceData = useCallback(
@@ -198,7 +198,7 @@ export default function AllowanceDistributionPage() {
             setIsLoading(true);
             setError(null);
 
-            const { familyMembers, choreCompletions: allUnawardedCompletions, chores, unitDefinitions, allowanceEnvelopes } = typedData;
+            const { familyMembers, choreCompletions: allUnawardedCompletions, chores, allowanceEnvelopes } = typedData;
             const upForGrabsClaims = buildUpForGrabsClaimDeduplication(allUnawardedCompletions, chores);
             const results: MemberAllowanceInfo[] = [];
             // +++ NEW: Reset period amounts on each process run +++
@@ -549,7 +549,7 @@ export default function AllowanceDistributionPage() {
             );
             toast({
                 title: Object.values(result.amountsByCurrency).some((amount) => amount < 0) ? 'Period Processed' : 'Period Deposited',
-                description: `${formatBalances(processedAmounts, typedData?.unitDefinitions || [])} for period ending ${format(
+                description: `${formatBalances(processedAmounts, unitDefinitions)} for period ending ${format(
                     period.periodEndDate,
                     'yyyy-MM-dd'
                 )} processed.`,
@@ -657,7 +657,7 @@ export default function AllowanceDistributionPage() {
                 title: Object.values(result.amountsByCurrency).some((amount) => amount < 0)
                     ? 'Allowance Processed'
                     : 'Allowance Deposited',
-                description: `${formatBalances(processedAmounts, typedData?.unitDefinitions || [])} processed successfully.`,
+                description: `${formatBalances(processedAmounts, unitDefinitions)} processed successfully.`,
             });
 
         } catch (err: any) {
@@ -803,7 +803,7 @@ export default function AllowanceDistributionPage() {
                                           {
                                               [member.allowanceCurrency]: member.allowanceAmount,
                                           },
-                                          typedData?.unitDefinitions || []
+                                          unitDefinitions
                                       )} / period`
                                     : 'Not Configured';
 
@@ -874,7 +874,7 @@ export default function AllowanceDistributionPage() {
                                                             <PeriodBreakdown
                                                                 period={period}
                                                                 currency={allowanceInfo.member.allowanceCurrency!}
-                                                                unitDefinitions={typedData?.unitDefinitions || []}
+                                                                unitDefinitions={unitDefinitions}
                                                                 editedAmount={
                                                                     isInProgress || !editablePeriodAmounts[period.id]?.trim()
                                                                         ? null
@@ -951,9 +951,9 @@ export default function AllowanceDistributionPage() {
                                                                             (Deposit includes{' '}
                                                                             {formatBalances(
                                                                                 { [allowanceInfo.member.allowanceCurrency!]: periodFixedPrimary },
-                                                                                typedData?.unitDefinitions || []
+                                                                                unitDefinitions
                                                                             )}
-                                                                            . Also includes {formatBalances(periodFixedOther, typedData?.unitDefinitions || [])}
+                                                                            . Also includes {formatBalances(periodFixedOther, unitDefinitions)}
                                                                             .)
                                                                         </span>
                                                                     )}
@@ -963,7 +963,7 @@ export default function AllowanceDistributionPage() {
                                                                             (Deposit includes{' '}
                                                                             {formatBalances(
                                                                                 { [allowanceInfo.member.allowanceCurrency!]: periodFixedPrimary },
-                                                                                typedData?.unitDefinitions || []
+                                                                                unitDefinitions
                                                                             )}{' '}
                                                                             from fixed rewards.)
                                                                         </span>
@@ -971,7 +971,7 @@ export default function AllowanceDistributionPage() {
                                                                     {/* Case 3: Only other currency fixed rewards */}
                                                                     {periodFixedPrimary === 0 && Object.keys(periodFixedOther).length > 0 && (
                                                                         <span>
-                                                                            (Also includes {formatBalances(periodFixedOther, typedData?.unitDefinitions || [])}{' '}
+                                                                            (Also includes {formatBalances(periodFixedOther, unitDefinitions)}{' '}
                                                                             from fixed rewards.)
                                                                         </span>
                                                                     )}
@@ -1042,7 +1042,7 @@ export default function AllowanceDistributionPage() {
                                                                             [allowanceInfo.member.allowanceCurrency!]:
                                                                                 allowanceInfo.totalFixedRewardsInPrimaryCurrency,
                                                                         },
-                                                                        typedData?.unitDefinitions || []
+                                                                        unitDefinitions
                                                                     )}
                                                                 </span>
                                                             )}
@@ -1054,7 +1054,7 @@ export default function AllowanceDistributionPage() {
                                                                     Also depositing{' '}
                                                                     {formatBalances(
                                                                         allowanceInfo.totalFixedRewardsInOtherCurrencies,
-                                                                        typedData?.unitDefinitions || []
+                                                                        unitDefinitions
                                                                     )}
                                                                 </span>
                                                             )}

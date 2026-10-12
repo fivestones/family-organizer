@@ -4,8 +4,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { CalendarDays, CheckCircle2, ListTodo, Sparkles, Users, Wallet2 } from 'lucide-react';
 import { db } from '@/lib/db';
+import { useUnitDefinitions } from '@/lib/data';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { type UnitDefinition } from '@/lib/currency-utils';
 import {
     calculateDailyXP,
     formatDateKeyUTC,
@@ -152,7 +152,6 @@ function FamilyOverviewDashboard() {
             $: { order: { order: 'asc' } },
             allowanceEnvelopes: activeAllowanceEnvelopesQuery,
         },
-        unitDefinitions: {},
         chores: {
             assignees: {},
             assignments: {
@@ -182,10 +181,10 @@ function FamilyOverviewDashboard() {
 
     const todayUtc = useMemo(() => localDateToUTC(new Date()), []);
     const todayKey = useMemo(() => formatDateKeyUTC(todayUtc), [todayUtc]);
+    const { data: unitDefinitions } = useUnitDefinitions();
 
     const snapshot = useMemo(() => {
         const familyMembers = ((data?.familyMembers || []) as unknown as FamilyMember[]).filter((member) => !!member?.id);
-        const unitDefinitions = (data?.unitDefinitions || []) as UnitDefinition[];
         const chores = (data?.chores || []) as unknown as ChoreRecord[];
         const calendarItems = (data?.calendarItems || []) as unknown as CalendarItem[];
 
@@ -375,7 +374,7 @@ function FamilyOverviewDashboard() {
             calendarPreview,
             generatedAt: new Date(),
         };
-    }, [data, todayKey, todayUtc]);
+    }, [data, todayKey, todayUtc, unitDefinitions]);
 
     const memberGrid = useMemo(() => {
         const count = snapshot.memberSnapshots.length;

@@ -16,6 +16,7 @@ import {
 import { AvatarPhotoImage } from '../../src/components/AvatarPhotoImage';
 import { usePhotoUri } from '../../src/hooks/usePhotoUri';
 import { getPhotoKey } from '../../src/lib/photo-urls';
+import { useUnitDefinitions } from '../../src/lib/data';
 import { findUnreadMembershipsForMember } from '../../src/lib/message-memberships';
 import { radii, shadows, spacing, withAlpha } from '../../src/theme/tokens';
 import { useAppSession } from '../../src/providers/AppProviders';
@@ -224,10 +225,10 @@ export default function DashboardTab() {
             $: { order: { order: 'asc' } },
             allowanceEnvelopes: {},
           },
-          unitDefinitions: {},
         }
       : null
   );
+  const { data: unitDefinitions } = useUnitDefinitions({ enabled: isAuthenticated && instantReady });
 
   const choresQuery = db.useQuery(
     isAuthenticated && instantReady
@@ -304,7 +305,6 @@ export default function DashboardTab() {
     [taskSeriesQuery.data?.chores]
   );
   const members = useMemo(() => householdQuery.data?.familyMembers || familyMembers || [], [householdQuery.data?.familyMembers, familyMembers]);
-  const unitDefinitions = useMemo(() => householdQuery.data?.unitDefinitions || [], [householdQuery.data?.unitDefinitions]);
   const chores = useMemo(
     () =>
       (choresQuery.data?.chores || []).map((chore) => ({

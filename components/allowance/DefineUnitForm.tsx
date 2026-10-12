@@ -21,13 +21,12 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2 } from "lucide-react";
-import { id, tx } from '@instantdb/react';
+import { defineUnit } from '@/lib/data';
 
 // Assuming UnitDefinition type is available or redefine here based on schema
 // import { UnitDefinition } from '@/lib/currency-utils';
 
 interface DefineUnitFormProps {
-  db: any; // InstantDB instance
   isOpen: boolean;
   onClose: () => void;
   // Callback to notify parent when a unit is successfully defined
@@ -35,7 +34,6 @@ interface DefineUnitFormProps {
 }
 
 const DefineUnitForm: React.FC<DefineUnitFormProps> = ({
-  db,
   isOpen,
   onClose,
   onUnitDefined,
@@ -105,10 +103,7 @@ const DefineUnitForm: React.FC<DefineUnitFormProps> = ({
     try {
       // TODO: Add check if code already exists in unitDefinitions before creating?
 
-      const newId = id();
-      await db.transact([
-        tx.unitDefinitions[newId].update(definitionData)
-      ]);
+      await defineUnit(definitionData);
 
       toast({
         title: "Success",

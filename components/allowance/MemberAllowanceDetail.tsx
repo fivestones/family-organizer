@@ -875,7 +875,6 @@ export default function MemberAllowanceDetail({
                                         <Label htmlFor="allowance-currency-input">Currency/Unit</Label>
                                         {/* +++ Use CurrencySelector for Allowance +++ */}
                                         <CurrencySelector
-                                            db={db}
                                             value={allowanceCurrencyInput}
                                             onChange={setAllowanceCurrencyInput}
                                             currencyOptions={depositAndAllowanceCurrencyOptions} // Use same options as deposit
@@ -979,7 +978,6 @@ export default function MemberAllowanceDetail({
                                     <Label htmlFor="deposit-currency-input">Currency/Unit</Label>
                                     {/* +++ Use CurrencySelector for Deposit +++ */}
                                     <CurrencySelector
-                                        db={db}
                                         value={depositCurrency}
                                         onChange={setDepositCurrency}
                                         currencyOptions={depositAndAllowanceCurrencyOptions}

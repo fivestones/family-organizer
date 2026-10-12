@@ -1,8 +1,10 @@
 import type { SettingsBackend } from './settings/backend';
+import type { UnitsBackend } from './units/backend';
 
 /** Everything an implementation of the data layer provides, one member per area. */
 export interface DataBackend {
     settings: SettingsBackend;
+    units: UnitsBackend;
 }
 
 let activeBackend: DataBackend | null = null;

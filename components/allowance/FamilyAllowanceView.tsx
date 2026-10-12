@@ -5,13 +5,14 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { tx, id } from '@instantdb/react'; // Import InstantDB hooks
 import { useToast } from '@/components/ui/use-toast'; // +++ ADDED IMPORT
 import { db } from '@/lib/db';
+import { useUnitDefinitions } from '@/lib/data';
 
 // Import the child components
 import FamilyMembersList from '@/components/FamilyMembersList'; // Your existing component
 import MemberAllowanceDetail from '@/components/allowance/MemberAllowanceDetail'; // The new detail component
 
 // **** Import types ****
-import { UnitDefinition, Envelope, computeMonetaryCurrencies } from '@/lib/currency-utils';
+import { Envelope, computeMonetaryCurrencies } from '@/lib/currency-utils';
 import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 
 // Define FamilyMember type based on query
@@ -57,7 +58,6 @@ export default function FamilyAllowanceView() {
         },
         // Fetch all envelopes separately to easily get all balances if needed elsewhere (or remove if redundant)
         allowanceEnvelopes: activeAllowanceEnvelopesQuery, // Keep this for calculating allMonetaryCurrenciesInUse
-        unitDefinitions: {},
     });
 
     // --- Derived Data ---
@@ -66,7 +66,7 @@ export default function FamilyAllowanceView() {
         () => filterActiveAllowanceEnvelopes((appData?.allowanceEnvelopes || []) as unknown as Envelope[]),
         [appData?.allowanceEnvelopes]
     );
-    const unitDefinitions = useMemo(() => (appData?.unitDefinitions || []) as unknown as UnitDefinition[], [appData?.unitDefinitions]);
+    const { data: unitDefinitions } = useUnitDefinitions();
 
     // +++ Use the new utility function +++
     const allMonetaryCurrenciesInUse = useMemo(() => {
