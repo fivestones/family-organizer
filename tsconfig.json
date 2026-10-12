@@ -31,6 +31,9 @@
       ],
       "@family-organizer/data": [
         "packages/data/src/index.ts"
+      ],
+      "@family-organizer/data/*": [
+        "packages/data/src/*"
       ]
     },
     "plugins": [

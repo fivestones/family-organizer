@@ -25,7 +25,9 @@ describe('the sync configuration', () => {
     });
 
     it.each(queries)('runs against the schema and yields an id: %s', async (query) => {
-        const result = await db.query(`SELECT * FROM (${query}) AS synced LIMIT 0`);
+        // What a token claims is PowerSync's to supply. Any value will do to check the query against the schema.
+        const runnable = query.replace(/auth\.parameter\('[a-z_]+'\)/g, 'NULL');
+        const result = await db.query(`SELECT * FROM (${runnable}) AS synced LIMIT 0`);
         expect(result.fields.map((field) => field.name)).toContain('id');
     });
 
@@ -35,6 +37,11 @@ describe('the sync configuration', () => {
 
     it('never sends a PIN hash', () => {
         expect(queries.filter((query) => /pin_hash/i.test(query))).toEqual([]);
+    });
+
+    it('filters only by what a token is known to carry', () => {
+        const claims = queries.flatMap((query) => Array.from(query.matchAll(/auth\.parameter\('([a-z_]+)'\)/g), (match) => match[1]));
+        expect(Array.from(new Set(claims)).sort()).toEqual(['family_member_id', 'type']);
     });
 
     it('reads exactly the tables that are published to PowerSync', async () => {

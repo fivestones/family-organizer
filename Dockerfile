@@ -52,6 +52,8 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+# The SQL migrations, which the server applies when it starts and Postgres is configured.
+COPY --from=builder --chown=nextjs:nodejs /app/db ./db
 
 USER nextjs
 

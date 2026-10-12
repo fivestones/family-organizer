@@ -30,3 +30,17 @@ streams:
       # A join table has two columns for a key; its id is built from them.
       - SELECT chore_id || '.' || family_member_id AS id, chore_id, family_member_id, position FROM chore_assignees
       - SELECT id, chore_id, completed_by, marked_by, date_due, completed_at, not_done, allowance_awarded FROM chore_completions
+
+  # What the server refused, for the person who made the write.
+  refusals_member:
+    auto_subscribe: true
+    query: >-
+      SELECT id, family_member_id, mutation, reason, table_name, row_id, refused_at, dismissed_at
+      FROM write_refusals WHERE family_member_id = auth.parameter('family_member_id')
+
+  # A parent sees everyone's.
+  refusals_parent:
+    auto_subscribe: true
+    query: >-
+      SELECT id, family_member_id, mutation, reason, table_name, row_id, refused_at, dismissed_at
+      FROM write_refusals WHERE auth.parameter('type') = 'parent'

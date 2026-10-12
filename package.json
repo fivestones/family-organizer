@@ -72,6 +72,7 @@
     "file-type": "^21.3.2",
     "formidable": "^3.5.2",
     "ical.js": "^2.2.1",
+    "kysely": "^0.29.6",
     "lucide-react": "^0.437.0",
     "minio": "^8.0.7",
     "nepali-date-converter": "^3.4.0",
