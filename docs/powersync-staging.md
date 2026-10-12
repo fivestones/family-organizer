@@ -7,7 +7,7 @@ This puts a second copy of the app beside the live one, running on Postgres and 
 
 What you get at the end is one address. Every page on it leads to `/sync`: a day's chores, ticked and un-ticked, and the currency and countdown settings, with sign-in, a sync badge and a list of changes that did not go through.
 
-**What has and has not been tried.** The app, the compose profile, sessions, sync and the browser client have been run on a Mac against the real PowerSync service, in Chromium, Firefox and WebKit. The steps below have not been run on your server, and the nginx rule in step 4 has not been run anywhere: Budgeter's working equivalent is Caddy's. Expect step 4 to be where something needs adjusting.
+**What has and has not been tried.** Steps 2, 3, 5, 6 and 7 have been run on a Mac exactly as written, from the Docker image built from a clean copy of the repository, with the real export: the app created its tables as it started, the import ran inside the container, and Chromium, Firefox and WebKit each landed on `/sync` and showed the family's chores within three seconds. What has not been tried is your server, and step 4: the Mac had no reverse proxy, so the browser reached the sync service directly, and the nginx rule has not been run anywhere. Budgeter's working equivalent is Caddy's. Expect step 4 to be where something needs adjusting.
 
 ## What you need
 
