@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { db } from '@/lib/db';
+import { useFamilyMembers } from '@/lib/data';
 import { registerFreeformWidget } from '@/lib/freeform-dashboard/freeform-widget-registry';
 import type { FreeformWidgetProps } from '@/lib/freeform-dashboard/types';
 import { formatTimeAgo, getPhotoUrl, toInitials } from '@/lib/dashboard-utils';
@@ -19,8 +20,8 @@ function FamilyChatWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                 author: {},
             },
         },
-        familyMembers: {},
     });
+    const { data: familyMembers } = useFamilyMembers();
 
     const MESSAGE_HEIGHT = s(52);
     const HEADER_HEIGHT = s(32);
@@ -36,9 +37,7 @@ function FamilyChatWidget({ width, height, todayUtc }: FreeformWidgetProps) {
         );
         if (!familyThread?.messages) return [];
 
-        const membersMap = new Map(
-            ((data.familyMembers ?? []) as any[]).map((m) => [m.id, m])
-        );
+        const membersMap = new Map(familyMembers.map((m) => [m.id, m]));
 
         return familyThread.messages
             .filter((m) => !(m as Record<string, unknown>).deletedAt)
@@ -56,7 +55,7 @@ function FamilyChatWidget({ width, height, todayUtc }: FreeformWidgetProps) {
                 };
             })
             .reverse(); // Show oldest first (chronological)
-    }, [data, maxMessages]);
+    }, [data, familyMembers, maxMessages]);
 
     const avatarSize = s(24);
 

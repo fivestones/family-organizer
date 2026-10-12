@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import { Zap } from 'lucide-react';
 import { db } from '@/lib/db';
+import { useFamilyMembers } from '@/lib/data';
 import {
     calculateDailyXP,
     localDateToUTC,
@@ -12,8 +13,8 @@ import { registerWidget } from './widget-store';
 import WidgetShell from './WidgetShell';
 
 function XPBarWidget({ memberId, todayUtc }: WidgetProps) {
+    const { data: familyMembers, isLoading: isRosterLoading } = useFamilyMembers();
     const { data } = db.useQuery({
-        familyMembers: { $: { order: { order: 'asc' } } },
         chores: {
             assignees: {},
             assignments: { familyMember: {} },
@@ -22,10 +23,10 @@ function XPBarWidget({ memberId, todayUtc }: WidgetProps) {
     });
 
     const xp = useMemo(() => {
-        if (!data?.chores || !data?.familyMembers) return { current: 0, possible: 0 };
-        const xpByMember = calculateDailyXP(data.chores as any, data.familyMembers as any, todayUtc);
+        if (!data?.chores || isRosterLoading) return { current: 0, possible: 0 };
+        const xpByMember = calculateDailyXP(data.chores as any, familyMembers as any, todayUtc);
         return xpByMember[memberId] || { current: 0, possible: 0 };
-    }, [data?.chores, data?.familyMembers, memberId, todayUtc]);
+    }, [data?.chores, familyMembers, isRosterLoading, memberId, todayUtc]);
 
     const xpPercent = xp.possible > 0 ? Math.round((xp.current / xp.possible) * 100) : 0;
 

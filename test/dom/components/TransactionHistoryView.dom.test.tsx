@@ -6,11 +6,17 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const txHistoryMocks = vi.hoisted(() => ({
+    // Family names come from the data layer's roster, not from the database handed to the component.
+    roster: [] as Array<{ id: string; name: string }>,
     formatBalances: vi.fn((balances: Record<string, number>) =>
         Object.entries(balances)
             .map(([currency, amount]) => `${currency} ${amount}`)
             .join(', ')
     ),
+}));
+
+vi.mock('@/lib/data', () => ({
+    useFamilyMembers: () => ({ data: txHistoryMocks.roster, isLoading: false, error: undefined }),
 }));
 
 vi.mock('@instantdb/react', () => ({
@@ -113,6 +119,7 @@ vi.mock('@/components/ui/select', async () => {
 import TransactionHistoryView from '@/components/allowance/TransactionHistoryView';
 
 function createDb(mainResult: any, familyNamesResult?: any) {
+    txHistoryMocks.roster = familyNamesResult?.data?.familyMembers ?? [];
     return {
         useQuery: vi.fn((query: any, options?: any) => {
             if (options) {

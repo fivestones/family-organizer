@@ -11,7 +11,7 @@ import {
     getAssignedMembersForChoreOnDate,
     sortChoresForDisplay,
 } from '@family-organizer/shared-core';
-import { useSetting } from '@/lib/data';
+import { useFamilyMembers, useSetting } from '@/lib/data';
 import { toInitials } from '@/lib/dashboard-utils';
 import { getPhotoUrl } from '@/lib/photo-urls';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -78,10 +78,8 @@ function XpRing({
 /* ── Main widget ─────────────────────────────────────────────── */
 
 function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetProps) {
+    const { data: members } = useFamilyMembers();
     const { data } = db.useQuery({
-        familyMembers: {
-            $: { order: { order: 'asc' } },
-        },
         chores: {
             assignees: {},
             assignments: { familyMember: {} },
@@ -91,7 +89,6 @@ function ChoreMatrixWidget({ width, height, todayUtc, config }: FreeformWidgetPr
     });
     const { data: scheduleSettings } = useSetting('householdSchedule');
 
-    const members = (data?.familyMembers ?? []) as any[];
     const todayKey = formatDateKeyUTC(todayUtc);
     const routineMarkerStatuses = useMemo(
         () => (data?.routineMarkerStatuses as any[]) || [],

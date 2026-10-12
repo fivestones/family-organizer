@@ -4,8 +4,9 @@ import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { MessageCircle } from 'lucide-react';
 import { db } from '@/lib/db';
+import { useFamilyMembers } from '@/lib/data';
 import { getThreadDisplayName, getThreadPreviewText } from '@/lib/message-thread-display';
-import { formatTimeAgo, type DashboardFamilyMember } from '@/lib/dashboard-utils';
+import { formatTimeAgo } from '@/lib/dashboard-utils';
 import type { WidgetProps } from './types';
 import { registerWidget } from './widget-store';
 import WidgetShell from './WidgetShell';
@@ -18,17 +19,15 @@ type UnreadThread = {
 };
 
 function UnreadMessagesWidget({ memberId }: WidgetProps) {
+    const { data: familyMembers, isLoading: isRosterLoading } = useFamilyMembers();
     const { data } = db.useQuery({
-        familyMembers: { $: { order: { order: 'asc' } } },
         messageThreads: { members: {} },
     });
 
     const unreadThreads = useMemo(() => {
-        if (!data?.messageThreads || !data?.familyMembers) return [] as UnreadThread[];
+        if (!data?.messageThreads || isRosterLoading) return [] as UnreadThread[];
 
-        const familyMemberNamesById = new Map(
-            (data.familyMembers as unknown as DashboardFamilyMember[]).map((m) => [m.id, m.name])
-        );
+        const familyMemberNamesById = new Map(familyMembers.map((m) => [m.id, m.name]));
         const threads = data.messageThreads as any[];
         const result: UnreadThread[] = [];
 
@@ -53,7 +52,7 @@ function UnreadMessagesWidget({ memberId }: WidgetProps) {
         }
 
         return result.sort((a, b) => b.latestMessageAt.localeCompare(a.latestMessageAt));
-    }, [data?.messageThreads, data?.familyMembers, memberId]);
+    }, [data?.messageThreads, familyMembers, isRosterLoading, memberId]);
 
     if (unreadThreads.length === 0) return null;
 

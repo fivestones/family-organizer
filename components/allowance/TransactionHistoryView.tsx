@@ -6,6 +6,7 @@ import { ArrowLeft, Filter } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatBalances, UnitDefinition } from '@/lib/currency-utils';
+import { useFamilyMembers } from '@/lib/data';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge'; // For transaction type
 
@@ -26,7 +27,6 @@ interface Transaction {
     destinationEnvelope?: { id: string; name: string; familyMember?: { id: string; name: string } };
 }
 
-type FamilyMemberName = { id: string; name?: string | null };
 
 interface TransactionHistoryViewProps {
     db: any;
@@ -212,11 +212,11 @@ const TransactionHistoryView: React.FC<TransactionHistoryViewProps> = ({ db, mod
     }, [mode, familyMemberId]);
 
     const { isLoading, error, data } = db.useQuery(query, { enabled: mode === 'all' || (mode === 'member' && !!familyMemberId) });
-    const familyNamesQuery = db.useQuery({ familyMembers: {} });
-    const familyMemberNamesById = useMemo(() => {
-        const members = (familyNamesQuery.data?.familyMembers as FamilyMemberName[]) || [];
-        return new Map(members.map((member) => [member.id, member.name || 'Unknown']));
-    }, [familyNamesQuery.data]);
+    const { data: familyMembers } = useFamilyMembers();
+    const familyMemberNamesById = useMemo(
+        () => new Map(familyMembers.map((member) => [member.id, member.name || 'Unknown'])),
+        [familyMembers]
+    );
 
     // --- Data Processing & Filtering ---
     const processedTransactions: Transaction[] = useMemo(() => {
