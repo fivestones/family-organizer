@@ -22,7 +22,7 @@ const SCANNED = ['app', 'components', 'lib', 'mobile/app', 'mobile/src', 'script
 /** The places that are allowed to know about Instant: the client entry points and the data layer's implementation. */
 const DOORS = new Set([
     'lib/db.ts',
-    'lib/data.ts',
+    'lib/data-instant.ts',
     'lib/instant-admin.ts',
     'mobile/src/lib/instant-db.js',
     'mobile/src/lib/instant-mmkv-store.js',

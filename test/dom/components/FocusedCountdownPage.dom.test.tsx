@@ -70,6 +70,8 @@ vi.mock('next/link', () => ({
 }));
 
 import FocusedCountdownPage from '@/components/countdown/FocusedCountdownPage';
+// The component reads through the data layer, which the app's Instant frame binds. Here the test does.
+import '@/lib/data-instant';
 
 // ---------------------------------------------------------------------------
 // Fixtures

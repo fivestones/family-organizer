@@ -251,6 +251,8 @@ vi.mock('@instantdb/react', () => ({
 }));
 
 import ChoresTracker from '@/components/ChoresTracker';
+// The component reads through the data layer, which the app's Instant frame binds. Here the test does.
+import '@/lib/data-instant';
 
 function makeData(overrides: Partial<any> = {}) {
     const familyMembers = overrides.familyMembers ?? [

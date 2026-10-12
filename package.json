@@ -5,7 +5,10 @@
     "packages/*"
   ],
   "scripts": {
+    "sync:assets": "powersync-web copy-assets -o public",
+    "predev": "npm run sync:assets",
     "dev": "next dev --turbo",
+    "prebuild": "npm run sync:assets",
     "build": "next build",
     "start": "next start",
     "mobile:start": "npm --workspace mobile run start",

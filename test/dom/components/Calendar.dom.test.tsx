@@ -204,6 +204,8 @@ vi.mock('@/lib/db', () => ({
 }));
 
 import Calendar from '@/components/Calendar';
+// The component reads through the data layer, which the app's Instant frame binds. Here the test does.
+import '@/lib/data-instant';
 
 function renderCalendarWithData(
     { calendarItems = [], chores = [], familyMembers = [] }: { calendarItems?: any[]; chores?: any[]; familyMembers?: any[] },

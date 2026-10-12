@@ -18,6 +18,10 @@ const PUBLIC_ALLOWLIST_PATHS = [
 const PUBLIC_ALLOWLIST_PREFIXES = ['/api/mobile/'];
 const API_ROUTE_AUTH_PREFIXES = ['/api/calendar-sync/'];
 
+const POWERSYNC_HOME = '/sync';
+/** A page of the app, as opposed to an API route or one of the files a page loads. */
+const isAppPage = (pathname: string) => !pathname.startsWith('/api/') && !pathname.startsWith('/_next/') && !pathname.startsWith('/@powersync/') && !/\.[a-z0-9]+$/i.test(pathname);
+
 export async function middleware(request: NextRequest) {
     // 1. Read the key INSIDE the function to ensure we get the runtime value
     const SECRET_KEY = process.env.DEVICE_ACCESS_KEY;
@@ -44,6 +48,11 @@ export async function middleware(request: NextRequest) {
         // --- B. PASS: Check if device is already authenticated ---
         const deviceCookie = request.cookies.get(DEVICE_AUTH_COOKIE_NAME);
         if (deviceCookie && deviceCookie.value === expectedToken) {
+            // A deployment on PowerSync has one page so far. Every other page still needs InstantDB, which such
+            // a deployment does not have, so it is sent to the page that works.
+            if (process.env.DATA_BACKEND === 'powersync' && isAppPage(pathname) && pathname !== POWERSYNC_HOME) {
+                return NextResponse.redirect(new URL(POWERSYNC_HOME, request.url));
+            }
             return NextResponse.next();
         }
 

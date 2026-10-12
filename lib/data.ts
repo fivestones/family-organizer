@@ -1,12 +1,7 @@
-// lib/data.ts
 'use client';
 
-// The web app's door to the data layer. It binds the implementation once, then re-exports the layer's API.
-// Screens import their reads and writes from here.
-import { id, tx } from '@instantdb/react';
-import { createInstantBackend, setDataBackend } from '@family-organizer/data';
-import { db } from '@/lib/db';
-
-setDataBackend(createInstantBackend({ db: db as any, tx, id }));
-
+// The web app's door to the data layer. Screens import their reads and writes from here.
+//
+// Which database is behind it is decided by the frame the page is in: `@/lib/data-instant` binds InstantDB, and
+// the page on PowerSync binds the signed-in person's local database.
 export * from '@family-organizer/data';
