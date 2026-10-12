@@ -5,3 +5,4 @@ export * from './settings';
 export * from './units';
 export { createInstantBackend, type InstantClient } from './instant';
 export { isParent, principalKey, type Principal } from './session/principal';
+export * from './policy';

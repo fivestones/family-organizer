@@ -1,0 +1,204 @@
+import 'server-only';
+
+import { sql, type RawBuilder, type Transaction } from 'kysely';
+import { checkOperation, judge, policyFor, type CheckedOperation, type DeviceOperation, type RefusalReason, type Row } from '@family-organizer/data/policy';
+import { principalKey } from '@family-organizer/data/session/principal';
+import type { Database } from '@/db/types';
+import type { AppDatabase } from './db';
+import type { Session } from './sessions';
+
+// Applying what a device uploads (docs/powersync-migration.md, "Writes: the upload endpoint").
+//
+// A device sends one of its local transactions at a time. What it calls each write is a hint: every write is
+// judged against the row as Postgres holds it, under a lock, by the shared write rules. A transaction is applied
+// wholly or not at all, and exactly once: its outcome is recorded with it, and a retry is answered from the record.
+
+export interface UploadedTransaction {
+    /** The device database the transaction came from, and its number in that database. Together they name it. */
+    clientId: string;
+    transactionId: number;
+    /** The data generation the device's database belongs to. */
+    dataGeneration: number;
+    /** The name of the mutation that made it, so a refusal can say what was refused. */
+    mutation: string | null;
+    operations: DeviceOperation[];
+}
+
+export type UploadOutcome = { ok: true } | { ok: false; reason: RefusalReason; table: string | null; rowId: string | null };
+
+export interface UploadResult {
+    outcome: UploadOutcome;
+    /** True when this transaction had been uploaded before and the answer is the one it was given then. */
+    replayed: boolean;
+}
+
+/** The server is not taking writes just now. The device keeps what it has and tries again. */
+export class WritesFrozenError extends Error {}
+/** The data under the app has been replaced since the device's database was made. */
+export class GenerationChangedError extends Error {}
+
+class Refused extends Error {
+    constructor(readonly reason: RefusalReason, readonly table: string | null, readonly rowId: string | null) {
+        super(`refused: ${reason}`);
+    }
+}
+
+const MAX_OPERATIONS = 2000;
+
+/** Reads a request body as an uploaded transaction, or `null` when it is not one. */
+export function parseUpload(body: unknown): UploadedTransaction | null {
+    if (!body || typeof body !== 'object') return null;
+    const { clientId, transactionId, dataGeneration, mutation, operations } = body as Record<string, unknown>;
+    if (typeof clientId !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(clientId)) return null;
+    if (typeof transactionId !== 'number' || !Number.isSafeInteger(transactionId) || transactionId < 0) return null;
+    if (typeof dataGeneration !== 'number' || !Number.isSafeInteger(dataGeneration)) return null;
+    if (mutation != null && (typeof mutation !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(mutation))) return null;
+    if (!Array.isArray(operations) || operations.length === 0 || operations.length > MAX_OPERATIONS) return null;
+    return { clientId, transactionId, dataGeneration, mutation: (mutation as string | null) ?? null, operations: operations as DeviceOperation[] };
+}
+
+type Trx = Transaction<Database>;
+
+// Every name below comes from the write rules' own lists, looked up by what the device sent. Nothing a device
+// sends is ever put into a statement as a name.
+const whereKey = (key: Readonly<Record<string, string>>) => sql.join(Object.entries(key).map(([column, value]) => sql`${sql.ref(column)} = ${value}`), sql` AND `);
+
+/** A value as a statement takes it. A document and a list of days are sent as text and cast. */
+function valueFor(operation: CheckedOperation, column: string, value: unknown): RawBuilder<unknown> {
+    if (value === null || value === undefined) return sql`NULL`;
+    const kind = policyFor(operation.table).columns[column]?.kind;
+    if (kind === 'json') return sql`${JSON.stringify(value)}::jsonb`;
+    if (kind === 'days') return sql`${`{${(value as string[]).join(',')}}`}::date[]`;
+    return sql`${value}`;
+}
+
+async function readForUpdate(trx: Trx, operation: CheckedOperation): Promise<Row | null> {
+    const result = await sql<Row>`SELECT * FROM ${sql.table(operation.table)} WHERE ${whereKey(operation.key)} FOR UPDATE`.execute(trx);
+    return result.rows[0] ?? null;
+}
+
+async function applyOperation(trx: Trx, session: Session, operation: CheckedOperation): Promise<void> {
+    // Twice at most: an insert that finds the row was created under it is judged again, as the update it now is.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const current = await readForUpdate(trx, operation);
+        const judged = judge(session.principal, operation, current);
+        if (judged.action === 'refuse') throw new Refused(judged.reason, operation.table, operation.id);
+        if (judged.action === 'skip') return;
+
+        const table = sql.table(operation.table);
+        if (judged.action === 'delete') {
+            await sql`DELETE FROM ${table} WHERE ${whereKey(operation.key)}`.execute(trx);
+            return;
+        }
+        if (judged.action === 'update') {
+            const assignments = judged.changed.map((column) => sql`${sql.ref(column)} = ${valueFor(operation, column, judged.row[column])}`);
+            await sql`UPDATE ${table} SET ${sql.join(assignments)} WHERE ${whereKey(operation.key)}`.execute(trx);
+            return;
+        }
+        const columns = Object.keys(judged.row);
+        const inserted = await sql`
+            INSERT INTO ${table} (${sql.join(columns.map((column) => sql.ref(column)))})
+            VALUES (${sql.join(columns.map((column) => valueFor(operation, column, judged.row[column])))})
+            ON CONFLICT (${sql.join(Object.keys(operation.key).map((column) => sql.ref(column)))}) DO NOTHING
+            RETURNING 1 AS inserted
+        `.execute(trx);
+        if (inserted.rows.length > 0) return;
+    }
+    throw new Refused('conflict', operation.table, operation.id);
+}
+
+/** What Postgres refused, as a reason. Anything that is not the write's own fault is left to be retried. */
+function refusalFromDatabase(error: unknown, operation: CheckedOperation): Refused | null {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code: unknown }).code) : '';
+    // A row another device changed first: something it points at has gone, or its place is already taken.
+    if (code === '23503' || code === '23505') return new Refused('conflict', operation.table, operation.id);
+    // The write itself cannot be held: an empty value where one is required, a failed check, a malformed value.
+    if (code.startsWith('23') || code.startsWith('22')) return new Refused('invalid', operation.table, operation.id);
+    return null;
+}
+
+async function claim(trx: Trx, session: Session, upload: UploadedTransaction, outcome: UploadOutcome | null): Promise<UploadResult | null> {
+    const claimed = await trx
+        .insertInto('sync_uploads')
+        .values({
+            client_id: upload.clientId,
+            transaction_id: upload.transactionId,
+            session_id: session.id,
+            principal: principalKey(session.principal),
+            mutation: upload.mutation,
+            outcome: outcome ? sql`${JSON.stringify(outcome)}::jsonb` : null,
+        })
+        .onConflict((conflict) => conflict.columns(['client_id', 'transaction_id']).doNothing())
+        .returning('client_id')
+        .executeTakeFirst();
+    if (claimed) return null;
+    // Uploaded before. Postgres has already waited for that attempt to finish, so its outcome is settled.
+    const earlier = await trx
+        .selectFrom('sync_uploads')
+        .select('outcome')
+        .where('client_id', '=', upload.clientId)
+        .where('transaction_id', '=', upload.transactionId)
+        .executeTakeFirstOrThrow();
+    if (!earlier.outcome) throw new Error('An upload is on record with no outcome.');
+    return { outcome: earlier.outcome as UploadOutcome, replayed: true };
+}
+
+/**
+ * Applies one uploaded transaction, or answers from the record if it has been applied before.
+ * A refusal is not an error: it is the answer, it is recorded, and the person who made the write is told.
+ */
+export async function applyUpload(db: AppDatabase, session: Session, upload: UploadedTransaction): Promise<UploadResult> {
+    const installation = await db.selectFrom('installation').select(['data_generation', 'writes_frozen']).executeTakeFirstOrThrow();
+    if (installation.writes_frozen) throw new WritesFrozenError();
+    if (installation.data_generation !== upload.dataGeneration) throw new GenerationChangedError();
+
+    let refused: Refused;
+    try {
+        return await db.transaction().execute(async (trx) => {
+            const replay = await claim(trx, session, upload, null);
+            if (replay) return replay;
+            for (const raw of upload.operations) {
+                const checked = checkOperation(raw);
+                if (!checked.valid) {
+                    throw new Refused(checked.reason, typeof raw?.table === 'string' ? raw.table.slice(0, 64) : null, typeof raw?.id === 'string' ? raw.id.slice(0, 200) : null);
+                }
+                try {
+                    await applyOperation(trx, session, checked.operation);
+                } catch (error) {
+                    throw refusalFromDatabase(error, checked.operation) ?? error;
+                }
+            }
+            const outcome: UploadOutcome = { ok: true };
+            await trx
+                .updateTable('sync_uploads')
+                .set({ outcome: sql`${JSON.stringify(outcome)}::jsonb` })
+                .where('client_id', '=', upload.clientId)
+                .where('transaction_id', '=', upload.transactionId)
+                .execute();
+            return { outcome, replayed: false };
+        });
+    } catch (error) {
+        if (!(error instanceof Refused)) throw error;
+        refused = error;
+    }
+
+    // Everything the transaction wrote has been undone. What remains is to record that it was refused, so a retry
+    // gets the same answer, and to tell the person.
+    const outcome: UploadOutcome = { ok: false, reason: refused.reason, table: refused.table, rowId: refused.rowId };
+    return db.transaction().execute(async (trx) => {
+        const replay = await claim(trx, session, upload, outcome);
+        if (replay) return replay;
+        await trx
+            .insertInto('write_refusals')
+            .values({
+                family_member_id: session.principal.familyMemberId,
+                principal_type: session.principal.type,
+                mutation: upload.mutation,
+                reason: refused.reason,
+                table_name: refused.table,
+                row_id: refused.rowId,
+            })
+            .execute();
+        return { outcome, replayed: false };
+    });
+}
