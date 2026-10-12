@@ -1,0 +1,32 @@
+# What reaches a device. Each stream is a set of queries, and a device receives the rows they select for the claims
+# in its token. Every query names its columns, so a column that must stay on the server cannot be sent by accident.
+config:
+  edition: 3
+  # A timestamp reaches a device exactly as toISOString() writes one.
+  timestamp_max_precision: milliseconds
+
+streams:
+  # Everything any signed-in member of the family may see.
+  family:
+    auto_subscribe: true
+    queries:
+      # PowerSync needs a text column named id; a setting's is its name.
+      - SELECT name AS id, value FROM settings
+      - SELECT id, code, name, symbol, is_monetary, symbol_placement, symbol_spacing, decimal_places FROM unit_definitions
+      # Without pin_hash. Devices learn only whether a PIN is set.
+      - >-
+        SELECT id, name, role, email, color, photo_urls, sort_order, has_pin,
+        allowance_amount, allowance_currency, allowance_rrule, allowance_start_date, allowance_payout_delay_days, allowance_config,
+        last_display_currency, view_show_chore_descriptions, view_show_task_details,
+        message_quiet_hours_enabled, message_quiet_hours_start, message_quiet_hours_end, message_digest_mode, message_digest_window_minutes
+        FROM family_members
+      - >-
+        SELECT id, title, description, start_date, rrule, exdates, pause_state,
+        rotation_type, is_joint, is_up_for_grabs, hide_from_day_list, sort_order,
+        weight, reward_type, reward_amount, reward_currency, estimated_duration_secs,
+        timing_mode, timing_window_key, timing_time, timing_start_time, timing_end_time,
+        timing_marker_key, timing_chore_id, timing_event, timing_fallback_time, created_at
+        FROM chores
+      # A join table has two columns for a key; its id is built from them.
+      - SELECT chore_id || '.' || family_member_id AS id, chore_id, family_member_id, position FROM chore_assignees
+      - SELECT id, chore_id, completed_by, marked_by, date_due, completed_at, not_done, allowance_awarded FROM chore_completions

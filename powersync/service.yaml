@@ -1,0 +1,33 @@
+# The PowerSync service's own configuration. Every value that differs between deployments comes from the
+# environment, set in docker-compose.yml; nothing secret is written here.
+telemetry:
+  disable_telemetry_sharing: true
+
+# Where the data is: the app's Postgres, read through a role that can only read.
+replication:
+  connections:
+    - type: postgresql
+      uri: !env PS_DATA_SOURCE_URI
+      sslmode: disable
+
+# Where PowerSync keeps its own bookkeeping: a second database on the same server.
+storage:
+  type: postgresql
+  uri: !env PS_STORAGE_SOURCE_URI
+  sslmode: disable
+
+port: !env PS_PORT
+
+sync_config:
+  path: sync-config.yaml
+
+# A device presents a short-lived token signed by the app. This is the public half of the app's key.
+client_auth:
+  jwks:
+    keys:
+      - kty: RSA
+        n: !env PS_JWK_N
+        e: !env PS_JWK_E
+        alg: RS256
+        kid: !env PS_JWK_KID
+  audience: ["family-organizer"]

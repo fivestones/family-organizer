@@ -4,7 +4,7 @@ import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import * as choreTiming from '@/packages/shared-core/src/chore-timing';
-import { applyMigrations } from '@/db/migrate.mjs';
+import { applyMigrations, listMigrations } from '@/db/migrate.mjs';
 import { describeImport, loadTables, readExport } from '@/scripts/migrate/import.mjs';
 import { buildRows } from '@/scripts/migrate/mapping.mjs';
 import { verifyImport } from '@/scripts/migrate/verify.mjs';
@@ -91,9 +91,11 @@ beforeEach(async () => {
 describe('the migrations', () => {
     it('apply once, and are recorded so a second start applies nothing', async () => {
         const fresh = new PGlite();
-        expect(await applyMigrations(fresh)).toEqual(['0001_family_and_chores']);
+        const versions = listMigrations().map((migration) => migration.version);
+        expect(versions.slice(0, 2)).toEqual(['0001_family_and_chores', '0002_powersync_publication']);
+        expect(await applyMigrations(fresh)).toEqual(versions);
         expect(await applyMigrations(fresh)).toEqual([]);
-        expect((await fresh.query('SELECT version FROM schema_migrations')).rows).toEqual([{ version: '0001_family_and_chores' }]);
+        expect((await fresh.query('SELECT version FROM schema_migrations ORDER BY version')).rows).toEqual(versions.map((version) => ({ version })));
     });
 });
 
@@ -125,6 +127,19 @@ describe('importing an export', () => {
         expect(ben).toEqual({ has_pin: false, start: '2026-01-05', delay: 2, quiet: '21:30:00' });
         const dishes = await one(db, `SELECT start_date::text AS start, exdates::text[] AS exdates, description FROM chores WHERE id = $1`, [DISHES]);
         expect(dishes).toEqual({ start: '2026-01-01', exdates: ['2026-01-02', '2026-01-03'], description: null });
+    });
+
+    it('keeps has_pin true to the hash whoever writes the row, since it is what devices are sent in the hash\'s place', async () => {
+        await importInto(db, family());
+        const hasPin = async (memberId: string) => (await one(db, `SELECT has_pin FROM family_members WHERE id = $1`, [memberId])).has_pin;
+
+        await db.query(`UPDATE family_members SET pin_hash = 'scrypt$new' WHERE id = $1`, [BEN]);
+        expect(await hasPin(BEN)).toBe(true);
+        await db.query(`UPDATE family_members SET pin_hash = NULL WHERE id = $1`, [BEN]);
+        expect(await hasPin(BEN)).toBe(false);
+        // Saying so directly changes nothing: the hash decides.
+        await db.query(`UPDATE family_members SET has_pin = true WHERE id = $1`, [BEN]);
+        expect(await hasPin(BEN)).toBe(false);
     });
 
     it('resolves each generation of timing into one mode and the columns that mode uses', async () => {

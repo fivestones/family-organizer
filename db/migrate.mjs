@@ -1,11 +1,13 @@
 // Applies the SQL files in db/migrations/, in name order, each once.
 //
+//   DATABASE_URL=postgres://… node db/migrate.mjs
+//
 // `db` is anything with `query(text, params)` and `exec(text)`: a `pg` client through `fromPgClient`, or PGlite as it
 // is. A migration runs inside a transaction with the row that records it, so a file is applied wholly or not at all.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
 
@@ -55,5 +57,21 @@ export async function applyMigrations(db, { dir = MIGRATIONS_DIR } = {}) {
         return ran;
     } finally {
         await db.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK]);
+    }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    if (!process.env.DATABASE_URL) {
+        console.error('Set DATABASE_URL to the Postgres database to migrate.');
+        process.exit(1);
+    }
+    const { default: pg } = await import('pg');
+    const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+    await client.connect();
+    try {
+        const ran = await applyMigrations(fromPgClient(client));
+        console.log(ran.length ? `Applied ${ran.join(', ')}` : 'Nothing to apply.');
+    } finally {
+        await client.end();
     }
 }

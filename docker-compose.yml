@@ -136,8 +136,71 @@ services:
     networks:
       - default
 
+  # --- 4. Postgres and PowerSync ---
+  # The app is moving off InstantDB onto these (docs/powersync-migration.md). They start only with
+  # `docker compose --profile powersync up -d`; without the profile nothing here changes and the app runs on
+  # InstantDB as before. `node scripts/powersync/setup-env.mjs` prints the variables they need.
+  # Neither has a fixed container name, and Postgres is on a network private to this project, so a second copy of
+  # the project, for staging, can run beside the first. Give that copy its own POWERSYNC_HOST_ALIAS.
+  fo-postgres:
+    image: postgres:17-alpine
+    profiles: ["powersync"]
+    restart: unless-stopped
+    # wal_level=logical lets PowerSync read changes as they happen. The cap stops a PowerSync that has been down
+    # for a long time from making Postgres keep its log until the disk is full: past the cap Postgres drops
+    # PowerSync's place in the log, and PowerSync copies the tables afresh when it returns.
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=2GB"]
+    environment:
+      - POSTGRES_USER=family_organizer
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+      - POSTGRES_DB=family_organizer
+      - POWERSYNC_DB_PASSWORD=${POWERSYNC_DB_PASSWORD:-}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Run once, on the first start: PowerSync's own database and the role it reads through.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U family_organizer -d family_organizer"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Only on the private network: nothing on the reverse proxy's network can reach the database.
+    networks:
+      - data
+
+  fo-powersync:
+    image: journeyapps/powersync-service:1.26.1
+    profiles: ["powersync"]
+    restart: unless-stopped
+    command: ["start", "-r", "unified"]
+    depends_on:
+      fo-postgres:
+        condition: service_healthy
+    environment:
+      - POWERSYNC_CONFIG_PATH=/config/service.yaml
+      - NODE_OPTIONS=--max-old-space-size=400
+      - PS_DATA_SOURCE_URI=postgres://powersync:${POWERSYNC_DB_PASSWORD:-}@fo-postgres:5432/family_organizer
+      - PS_STORAGE_SOURCE_URI=postgres://powersync:${POWERSYNC_DB_PASSWORD:-}@fo-postgres:5432/powersync_storage
+      - PS_PORT=8080
+      # The public half of the key the app signs device tokens with.
+      - PS_JWK_N=${POWERSYNC_JWK_N:-}
+      - PS_JWK_E=${POWERSYNC_JWK_E:-}
+      - PS_JWK_KID=${POWERSYNC_JWT_KID:-}
+    volumes:
+      - ./powersync:/config:ro
+    mem_limit: 512m
+    # Devices connect to this service directly, so it needs a public address of its own through the reverse proxy
+    # (http://family-organizer-powersync:8080 unless POWERSYNC_HOST_ALIAS says otherwise), with WebSocket upgrades
+    # passed and response buffering off.
+    networks:
+      data:
+      default:
+        aliases:
+          - ${POWERSYNC_HOST_ALIAS:-family-organizer-powersync}
+
 volumes:
   minio_data:
+  postgres_data:
 
 # Join an existing external network (e.g. for reverse proxying via SWAG/nginx).
 # Set DOCKER_NETWORK_NAME in your .env to match the network your reverse proxy uses.
@@ -145,3 +208,5 @@ networks:
   default:
     name: ${DOCKER_NETWORK_NAME:-docker_default}
     external: true
+  # Private to this project. Postgres is reachable from here and nowhere else.
+  data:

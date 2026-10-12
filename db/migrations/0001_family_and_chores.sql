@@ -30,9 +30,11 @@ CREATE TABLE family_members (
     photo_urls jsonb,
     sort_order integer NOT NULL,
 
-    -- The hash never reaches a device. Devices are sent has_pin.
+    -- The hash never reaches a device. Devices are sent has_pin, which the trigger below keeps true to the hash.
+    -- It is an ordinary column and not a generated one because Postgres leaves generated columns out of what it
+    -- sends PowerSync when a row changes: a device would learn it once and never see it change.
     pin_hash   text,
-    has_pin    boolean GENERATED ALWAYS AS (pin_hash IS NOT NULL) STORED,
+    has_pin    boolean NOT NULL DEFAULT false,
 
     allowance_amount            double precision,
     allowance_currency          text,
@@ -51,6 +53,17 @@ CREATE TABLE family_members (
     message_digest_mode           text CHECK (message_digest_mode IN ('immediate', 'digest')),
     message_digest_window_minutes integer CHECK (message_digest_window_minutes > 0)
 );
+
+CREATE FUNCTION family_members_keep_has_pin() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.has_pin := NEW.pin_hash IS NOT NULL;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER family_members_keep_has_pin
+    BEFORE INSERT OR UPDATE ON family_members
+    FOR EACH ROW EXECUTE FUNCTION family_members_keep_has_pin();
 
 CREATE TABLE chores (
     id          uuid PRIMARY KEY,

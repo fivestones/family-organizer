@@ -9,7 +9,7 @@
 /** The tables this mapping fills, in an order their foreign keys allow. */
 export const TABLES = ['settings', 'unit_definitions', 'family_members', 'chores', 'chore_assignees', 'chore_completions'];
 
-/** The columns written to each table. A generated column, such as family_members.has_pin, is not among them. */
+/** The columns written to each table. One the database fills in for itself, such as family_members.has_pin, is not among them. */
 export const COLUMNS = {
     settings: ['name', 'value'],
     unit_definitions: ['id', 'code', 'name', 'symbol', 'is_monetary', 'symbol_placement', 'symbol_spacing', 'decimal_places'],
