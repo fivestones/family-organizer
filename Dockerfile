@@ -1,5 +1,5 @@
 # 1. Base image
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 
 # Install libc6-compat for compatibility (needed for some Next.js deps like sharp)
 RUN apk add --no-cache libc6-compat

@@ -24,7 +24,7 @@ export interface TestDevice {
 
 export async function openTestDevice(principal: Principal, options: { now?: string; dataGeneration?: number } = {}): Promise<TestDevice> {
     const directory = mkdtempSync(path.join(tmpdir(), 'device-'));
-    const db = new PowerSyncDatabase({ schema: AppSchema, database: { dbFilename: 'device.db', dbLocation: directory } });
+    const db = new PowerSyncDatabase({ schema: AppSchema, database: { dbFilename: 'device.db', dbLocation: directory, implementation: { type: 'node:sqlite' } } });
     await db.init();
     let now = options.now ?? '2026-03-09T12:00:00.000Z';
     const device: Device = { db, principal, createId: () => randomUUID(), now: () => new Date(now) };

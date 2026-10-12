@@ -53,7 +53,7 @@ export function createTestPlatform(options: { syncUrl?: string } = {}): TestPlat
     const requests: string[] = [];
 
     const openDatabase = (fileName: string) => {
-        const db = new PowerSyncDatabase({ schema: AppSchema, database: { dbFilename: fileName, dbLocation: directory } });
+        const db = new PowerSyncDatabase({ schema: AppSchema, database: { dbFilename: fileName, dbLocation: directory, implementation: { type: 'node:sqlite' } } });
         open.set(fileName, db);
         const close = db.close.bind(db);
         db.close = async (...args: Parameters<typeof close>) => {
@@ -117,7 +117,7 @@ export function createTestPlatform(options: { syncUrl?: string } = {}): TestPlat
         },
         openFiles: () => Array.from(open.keys()).sort(),
         async peek(fileName) {
-            const db = new PowerSyncDatabase({ schema: AppSchema, database: { dbFilename: fileName, dbLocation: directory } });
+            const db = new PowerSyncDatabase({ schema: AppSchema, database: { dbFilename: fileName, dbLocation: directory, implementation: { type: 'node:sqlite' } } });
             await db.init();
             return db;
         },
