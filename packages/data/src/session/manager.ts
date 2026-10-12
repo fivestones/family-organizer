@@ -322,7 +322,9 @@ export class SessionManager {
                 throw new Error(`The upload was not taken (${response.status}).`);
             },
         });
-        await this.platform.connect(db, connector);
+        // Not waited for. Where a browser lets only one tab hold the connection, a second tab's turn does not come
+        // until the first lets go, and the app must not wait on that to show what the shared database already holds.
+        void this.platform.connect(db, connector).catch(() => undefined);
     }
 
     /**

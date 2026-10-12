@@ -22,6 +22,7 @@
     "test:perms:live": "RUN_LIVE_INSTANT_PERMS=1 vitest run test/live/instant-perms-live.node.test.ts",
     "test:all": "npm run test && npm run test:e2e",
     "test:sync:live": "node scripts/powersync/test-stack.mjs up && vitest run --config vitest.live.config.ts; status=$?; node scripts/powersync/test-stack.mjs down; exit $status",
+    "test:sync:e2e": "npm run build && playwright test --config playwright.sync.config.ts",
     "task:responses-report": "node scripts/print-task-responses.js",
     "task:feedback-report": "node scripts/print-latest-task-feedback.js",
     "task:latest-feedback": "node scripts/print-latest-task-feedback.js",

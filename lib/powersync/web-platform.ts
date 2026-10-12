@@ -119,7 +119,8 @@ export async function createWebPlatform(): Promise<WebPlatform> {
             });
             return { status: response.status, json: () => response.json().catch(() => ({})) };
         },
-        resolveUrl: (pathOrUrl) => new URL(pathOrUrl, window.location.origin).toString(),
+        // The sync client refuses an address that ends in a slash, which a bare host gets when it is made absolute.
+        resolveUrl: (pathOrUrl) => new URL(pathOrUrl, window.location.origin).toString().replace(/\/+$/, ''),
         createId: randomId,
         now: () => new Date(),
     };
