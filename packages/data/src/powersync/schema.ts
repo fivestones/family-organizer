@@ -158,6 +158,64 @@ const allowance_transactions = new Table(
 
 const exchange_rates = new Table({ base_currency: text, target_currency: text, rate: real, fetched_at: text });
 
+const announcements = new Table({
+    title: text, rich_text_content: text, link_url: text, created_by: text, expires_at: text, archived_at: text, created_at: text, updated_at: text,
+});
+
+const content_categories = new Table({
+    slug: text, name: text, default_duration_ms: integer, loop_when_empty: integer, created_at: text, updated_at: text,
+});
+
+const content_queue_items = new Table(
+    {
+        category_id: text, title: text, rich_text_content: text, link_url: text, status: text, sort_order: integer, duration_ms: integer, live_at: text,
+        live_until: text, archived_at: text, created_by: text, created_at: text, updated_at: text,
+    },
+    { indexes: { category: ['category_id', 'status'] } }
+);
+
+const family_rules = new Table({
+    title: text, sort_order: integer, is_archived: integer, active_version_id: text, created_at: text, updated_at: text,
+});
+
+const family_rule_versions = new Table(
+    {
+        rule_id: text, version_number: integer, rich_text_content: text, edit_note: text, previous_version_id: text, created_by: text, created_at: text,
+    },
+    { indexes: { rule: ['rule_id', 'version_number'] } }
+);
+
+const content_attachments = new Table(
+    {
+        announcement_id: text, queue_item_id: text, rule_version_id: text, name: text, type: text, url: text, kind: text, size_bytes: integer,
+        width: integer, height: integer, duration_sec: real, thumbnail_url: text, thumbnail_width: integer, thumbnail_height: integer, blurhash: text,
+        waveform_peaks: text, created_at: text, updated_at: text,
+    },
+    { indexes: { announcement: ['announcement_id'], queue_item: ['queue_item_id'], rule_version: ['rule_version_id'] } }
+);
+
+const family_dashboard_layouts = new Table({
+    breakpoint_key: text, label: text, min_width: integer, max_width: integer, sort_order: integer, is_default: integer, created_at: text,
+    updated_at: text,
+});
+
+const family_dashboard_widgets = new Table(
+    {
+        layout_id: text, widget_type: text, x: real, y: real, w: real, h: real, z: integer, config: text, created_at: text, updated_at: text,
+    },
+    { indexes: { layout: ['layout_id'] } }
+);
+
+const dashboard_configs = new Table({ widget_order: text, disabled_widgets: text, widget_settings: text, updated_at: text });
+
+const history_event_attachments = new Table(
+    {
+        history_event_id: text, name: text, type: text, url: text, kind: text, size_bytes: integer, width: integer, height: integer, duration_sec: real,
+        thumbnail_url: text, thumbnail_width: integer, thumbnail_height: integer, blurhash: text, waveform_peaks: text, created_at: text, updated_at: text,
+    },
+    { indexes: { event: ['history_event_id'] } }
+);
+
 const write_refusals = new Table({
     family_member_id: text, mutation: text, reason: text, table_name: text, row_id: text, refused_at: text, dismissed_at: text,
 });
@@ -174,6 +232,7 @@ export const AppSchema = new Schema({
     countdown_runs, history_events, history_event_members,
     grade_types, task_series, tasks, task_attachments, task_response_fields, task_updates, task_update_attachments, task_response_field_values,
     allowance_envelopes, envelope_balances, allowance_transactions, exchange_rates,
+    announcements, content_categories, content_queue_items, family_rules, family_rule_versions, content_attachments, family_dashboard_layouts, family_dashboard_widgets, dashboard_configs, history_event_attachments,
     write_refusals, local_transactions,
 });
 

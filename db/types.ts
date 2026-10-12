@@ -366,6 +366,142 @@ export interface ExchangeRatesTable {
     fetched_at: Instant;
 }
 
+export interface AnnouncementsTable {
+    id: string;
+    title: string;
+    rich_text_content: string | null;
+    link_url: string | null;
+    created_by: string | null;
+    expires_at: Instant | null;
+    archived_at: Instant | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface ContentCategoriesTable {
+    id: string;
+    slug: string;
+    name: string;
+    default_duration_ms: number;
+    loop_when_empty: Generated<boolean>;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface ContentQueueItemsTable {
+    id: string;
+    category_id: string;
+    title: string;
+    rich_text_content: string | null;
+    link_url: string | null;
+    status: 'queued' | 'live' | 'archived';
+    sort_order: Generated<number>;
+    duration_ms: number | null;
+    live_at: Instant | null;
+    live_until: Instant | null;
+    archived_at: Instant | null;
+    created_by: string | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface FamilyRulesTable {
+    id: string;
+    title: string;
+    sort_order: Generated<number>;
+    is_archived: Generated<boolean>;
+    active_version_id: string;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface FamilyRuleVersionsTable {
+    id: string;
+    rule_id: string;
+    version_number: number;
+    rich_text_content: string;
+    edit_note: string | null;
+    previous_version_id: string | null;
+    created_by: string | null;
+    created_at: InstantWithDefault;
+}
+
+export interface ContentAttachmentsTable {
+    id: string;
+    announcement_id: string | null;
+    queue_item_id: string | null;
+    rule_version_id: string | null;
+    name: string;
+    type: string;
+    url: string;
+    kind: string | null;
+    size_bytes: number | null;
+    width: number | null;
+    height: number | null;
+    duration_sec: number | null;
+    thumbnail_url: string | null;
+    thumbnail_width: number | null;
+    thumbnail_height: number | null;
+    blurhash: string | null;
+    waveform_peaks: Json | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface FamilyDashboardLayoutsTable {
+    id: string;
+    breakpoint_key: string;
+    label: string;
+    min_width: number;
+    max_width: number;
+    sort_order: Generated<number>;
+    is_default: Generated<boolean>;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface FamilyDashboardWidgetsTable {
+    id: string;
+    layout_id: string;
+    widget_type: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    z: Generated<number>;
+    config: Json | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface DashboardConfigsTable {
+    family_member_id: string;
+    widget_order: Json | null;
+    disabled_widgets: Json | null;
+    widget_settings: Json | null;
+    updated_at: InstantWithDefault;
+}
+
+export interface HistoryEventAttachmentsTable {
+    id: string;
+    history_event_id: string;
+    name: string;
+    type: string;
+    url: string;
+    kind: string | null;
+    size_bytes: number | null;
+    width: number | null;
+    height: number | null;
+    duration_sec: number | null;
+    thumbnail_url: string | null;
+    thumbnail_width: number | null;
+    thumbnail_height: number | null;
+    blurhash: string | null;
+    waveform_peaks: Json | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
 export interface InstallationTable {
     only_row: Generated<boolean>;
     id: Generated<string>;
@@ -442,6 +578,16 @@ export interface Database {
     envelope_balances: EnvelopeBalancesTable;
     allowance_transactions: AllowanceTransactionsTable;
     exchange_rates: ExchangeRatesTable;
+    announcements: AnnouncementsTable;
+    content_categories: ContentCategoriesTable;
+    content_queue_items: ContentQueueItemsTable;
+    family_rules: FamilyRulesTable;
+    family_rule_versions: FamilyRuleVersionsTable;
+    content_attachments: ContentAttachmentsTable;
+    family_dashboard_layouts: FamilyDashboardLayoutsTable;
+    family_dashboard_widgets: FamilyDashboardWidgetsTable;
+    dashboard_configs: DashboardConfigsTable;
+    history_event_attachments: HistoryEventAttachmentsTable;
     installation: InstallationTable;
     auth_sessions: AuthSessionsTable;
     sync_uploads: SyncUploadsTable;
@@ -531,6 +677,38 @@ export const DATABASE_COLUMNS = {
         description: true, created_by: true, distribution_key: true, created_at: true,
     },
     exchange_rates: { base_currency: true, target_currency: true, rate: true, fetched_at: true },
+    announcements: {
+        id: true, title: true, rich_text_content: true, link_url: true, created_by: true, expires_at: true, archived_at: true, created_at: true,
+        updated_at: true,
+    },
+    content_categories: { id: true, slug: true, name: true, default_duration_ms: true, loop_when_empty: true, created_at: true, updated_at: true },
+    content_queue_items: {
+        id: true, category_id: true, title: true, rich_text_content: true, link_url: true, status: true, sort_order: true, duration_ms: true,
+        live_at: true, live_until: true, archived_at: true, created_by: true, created_at: true, updated_at: true,
+    },
+    family_rules: { id: true, title: true, sort_order: true, is_archived: true, active_version_id: true, created_at: true, updated_at: true },
+    family_rule_versions: {
+        id: true, rule_id: true, version_number: true, rich_text_content: true, edit_note: true, previous_version_id: true, created_by: true,
+        created_at: true,
+    },
+    content_attachments: {
+        id: true, announcement_id: true, queue_item_id: true, rule_version_id: true, name: true, type: true, url: true, kind: true, size_bytes: true,
+        width: true, height: true, duration_sec: true, thumbnail_url: true, thumbnail_width: true, thumbnail_height: true, blurhash: true,
+        waveform_peaks: true, created_at: true, updated_at: true,
+    },
+    family_dashboard_layouts: {
+        id: true, breakpoint_key: true, label: true, min_width: true, max_width: true, sort_order: true, is_default: true, created_at: true,
+        updated_at: true,
+    },
+    family_dashboard_widgets: {
+        id: true, layout_id: true, widget_type: true, x: true, y: true, w: true, h: true, z: true, config: true, created_at: true, updated_at: true,
+    },
+    dashboard_configs: { family_member_id: true, widget_order: true, disabled_widgets: true, widget_settings: true, updated_at: true },
+    history_event_attachments: {
+        id: true, history_event_id: true, name: true, type: true, url: true, kind: true, size_bytes: true, width: true, height: true,
+        duration_sec: true, thumbnail_url: true, thumbnail_width: true, thumbnail_height: true, blurhash: true, waveform_peaks: true, created_at: true,
+        updated_at: true,
+    },
     installation: { only_row: true, id: true, data_generation: true, backend: true, writes_frozen: true, min_client_build: true },
     auth_sessions: {
         id: true, token_hash: true, principal_type: true, family_member_id: true, state: true, created_at: true, last_seen_at: true,

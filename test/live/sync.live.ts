@@ -74,7 +74,7 @@ afterAll(() => db.destroy());
 beforeEach(async () => {
     __resetParentElevationRateLimitForTests();
     await sql.raw(`UPDATE family_members SET default_envelope_id = NULL`).execute(db);
-    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'exchange_rates', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
+    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'dashboard_configs', 'family_dashboard_layouts', 'content_attachments', 'family_rules', 'content_categories', 'announcements', 'exchange_rates', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
         await sql.raw(`DELETE FROM ${table}`).execute(db);
     }
     await seedFamily({ sql: query } as any);
@@ -235,6 +235,41 @@ describe('money', () => {
         await until(async () => (await serverRows(`SELECT 1 FROM write_refusals WHERE table_name = 'envelope_balances'`)).length === 1, 'the server has refused the balance');
         await until(() => has(local, `SELECT 1 FROM envelope_balances WHERE amount = 12.505`), 'the device holds the real balance again');
         expect(await serverRows(`SELECT amount FROM envelope_balances`)).toEqual([{ amount: 12.505 }]);
+    });
+});
+
+describe('what the family posts, and the dashboards', () => {
+    it('take a rule and its first version from a parent in one transaction, and a kid\'s own dashboard under the kid\'s id', async () => {
+        const n = (last: number) => `00000000-0000-4000-8000-${String(last).padStart(12, '0')}`;
+        const [RULE, FIRST, LAYOUT, WIDGET] = [n(320), n(321), n(340), n(341)];
+        await sql.raw(`INSERT INTO family_dashboard_layouts (id, breakpoint_key, label, min_width, max_width, is_default) VALUES ('${LAYOUT}', 'phone-portrait', 'Phone', 0, 480, true)`).execute(db);
+        await sql.raw(`INSERT INTO family_dashboard_widgets (id, layout_id, widget_type, x, y, w, h, z, config) VALUES ('${WIDGET}', '${LAYOUT}', 'clock', 0, 0.5, 2, 1.25, 3, '{"format":"24h"}')`).execute(db);
+        const parent = await device();
+        await parent.manager.signIn({ familyMemberId: DANA, pin: '2468' });
+        const parentDb = await synced(parent.db());
+        const kid = await device();
+        await kid.manager.signIn({ familyMemberId: ELI });
+        const kidDb = await synced(kid.db());
+        await until(() => has(kidDb, `SELECT 1 FROM family_dashboard_widgets`), 'the kid\'s device holds the dashboard');
+        expect(await kidDb.getAll(`SELECT widget_type, y, h, z, config FROM family_dashboard_widgets`)).toEqual([{ widget_type: 'clock', y: 0.5, h: 1.25, z: 3, config: '{"format": "24h"}' }]);
+
+        // The rule names its version and the version names its rule. They are written, and sent, together.
+        await parentDb.writeTransaction(async (transaction) => {
+            await transaction.execute(`INSERT INTO family_rules (id, title, sort_order, is_archived, active_version_id, created_at, updated_at) VALUES (?, 'Screens', 1, 0, ?, ?, ?)`, [RULE, FIRST, '2026-03-09T12:00:00.000Z', '2026-03-09T12:00:00.000Z']);
+            await transaction.execute(`INSERT INTO family_rule_versions (id, rule_id, version_number, rich_text_content, created_by, created_at) VALUES (?, ?, 1, '<p>One hour a day.</p>', ?, ?)`, [FIRST, RULE, DANA, '2026-03-09T12:00:00.000Z']);
+            await transaction.execute(`INSERT INTO local_transactions (id, mutation) VALUES (?, 'createRule')`, [n(0xaf)]);
+        });
+        await until(() => has(kidDb, `SELECT 1 FROM family_rules r JOIN family_rule_versions v ON v.id = r.active_version_id WHERE v.rule_id = r.id`), 'the kid\'s device holds the rule with its words');
+        expect(await serverRows(`SELECT r.title, v.version_number, v.created_by FROM family_rules r JOIN family_rule_versions v ON v.id = r.active_version_id`)).toEqual([{ title: 'Screens', version_number: 1, created_by: DANA }]);
+
+        // A kid's own arrangement is a row known by the kid's id.
+        await kidDb.writeTransaction(async (transaction) => {
+            await transaction.execute(`INSERT INTO dashboard_configs (id, widget_order, disabled_widgets, updated_at) VALUES (?, ?, ?, ?)`, [ELI, JSON.stringify(['chores', 'balance']), JSON.stringify(['weather']), '2026-03-09T12:05:00.000Z']);
+            await transaction.execute(`INSERT INTO local_transactions (id, mutation) VALUES (?, 'arrangeDashboard')`, [n(0xb0)]);
+        });
+        await until(async () => (await serverRows(`SELECT 1 FROM dashboard_configs`)).length === 1, 'the arrangement has reached the server');
+        expect(await serverRows(`SELECT family_member_id, widget_order, disabled_widgets FROM dashboard_configs`)).toEqual([{ family_member_id: ELI, widget_order: ['chores', 'balance'], disabled_widgets: ['weather'] }]);
+        await until(() => has(parentDb, `SELECT 1 FROM dashboard_configs WHERE id = ?`, [ELI]), 'the parent\'s device holds the kid\'s arrangement');
     });
 });
 

@@ -25,7 +25,7 @@ type Rows = Record<string, Array<Record<string, unknown>>>;
 
 /** A small family as Instant would export it, with each link on the side Instant's schema declares it forward. */
 function family(): Rows {
-    return withMoney(withTaskSeries(base()));
+    return withContent(withMoney(withTaskSeries(base())));
 }
 
 function base(): Rows {
@@ -102,6 +102,37 @@ function withMoney(rows: Rows): Rows {
             entry(215, 4, { transactionType: 'allowance-distribution', amount: 3, currency: 'STARS', description: 'Allowance', envelope: id(200), destinationEnvelope: id(200), distributionKey: `${BEN}:2026-01-01:2026-01-07:STARS`, createdBy: null, createdByFamilyMemberId: null }),
         ],
         exchangeRates: [{ id: id(220), baseCurrency: 'USD', targetCurrency: 'NPR', pairKey: 'USD:NPR', rate: 133.5, lastFetchedTimestamp: '2026-01-05T00:00:00.000Z' }],
+    };
+}
+
+/**
+ * What the family posts: an announcement showing and one taken down, a verse on show from the queue with a picture,
+ * and a house rule in its second version. The phone layout of the dashboard with one widget, Ben's own
+ * arrangement of his, and a photo on the history entry for the dishes.
+ */
+function withContent(rows: Rows): Rows {
+    const made = { createdAt: '2026-01-02T08:00:00.000Z', updatedAt: '2026-01-03T08:00:00.000Z' };
+    Object.assign(rows.historyEvents.find((row) => row.id === id(60))!, { attachments: [id(360)] });
+    return {
+        ...rows,
+        announcements: [
+            { id: id(300), title: 'Grandma visits', richTextContent: '<p>On Friday.</p>', linkUrl: '', createdByFamilyMemberId: ADA, expiresAt: '2026-01-10T00:00:00.000Z', isActive: true, archivedAt: null, ...made, attachments: [] },
+            { id: id(301), title: 'Bins on Tuesday', richTextContent: '', linkUrl: 'https://example.org/bins', createdByFamilyMemberId: '', expiresAt: '', isActive: false, archivedAt: '2026-01-02T20:00:00.000Z', ...made, attachments: [] },
+        ],
+        contentCategories: [{ id: id(310), slug: 'verse', name: 'Verse of the week', defaultDurationMs: 604_800_000, loopWhenEmpty: true, ...made }],
+        contentQueueItems: [
+            { id: id(311), title: 'Psalm 23', richTextContent: '<p>The Lord is my shepherd.</p>', linkUrl: '', status: 'live', sortOrder: 1, durationMs: null, liveAt: '2026-01-04T00:00:00.000Z', liveUntil: '2026-01-11T00:00:00.000Z', archivedAt: '', ...made, category: id(310), createdBy: ADA, attachments: [id(330)] },
+        ],
+        contentAttachments: [{ id: id(330), name: 'psalm.png', type: 'image/png', url: 'content/psalm.png', kind: 'image', sizeBytes: 4096, width: 640, height: 480, ...made }],
+        familyRules: [{ id: id(320), title: 'Screens', sortOrder: 1, isArchived: false, activeVersionId: id(322), ...made, versions: [id(321), id(322)] }],
+        familyRuleVersions: [
+            { id: id(321), versionNumber: 1, richTextContent: '<p>One hour a day.</p>', editNote: '', createdByFamilyMemberId: ADA, createdAt: '2026-01-02T08:00:00.000Z' },
+            { id: id(322), versionNumber: 2, richTextContent: '<p>One hour a day, after chores.</p>', editNote: 'Chores first', createdByFamilyMemberId: ADA, createdAt: '2026-01-03T08:00:00.000Z', previousVersion: id(321) },
+        ],
+        familyDashboardLayouts: [{ id: id(340), breakpointKey: 'phone-portrait', label: 'Phone', minWidth: 0, maxWidth: 480, order: 0, isDefault: true, ...made }],
+        familyDashboardWidgets: [{ id: id(341), widgetType: 'clock', x: 0, y: 0.5, w: 2, h: 1.25, z: 3, config: { format: '24h' }, ...made, layout: id(340) }],
+        dashboardConfigs: [{ id: id(350), widgetOrder: ['chores', 'balance'], disabledWidgets: ['weather'], widgetSettings: { chores: { compact: true } }, updatedAt: Date.parse('2026-01-03T08:00:00.000Z'), familyMember: BEN }],
+        historyEventAttachments: [{ id: id(360), name: 'proof.jpg', type: 'image/jpeg', url: 'history/proof.jpg', kind: 'image', sizeBytes: 2048, width: 320, height: 240, ...made }],
     };
 }
 
@@ -194,6 +225,8 @@ describe('importing an export', () => {
             grade_types: 2, task_series: 1, tasks: 4, task_attachments: 1, task_response_fields: 1, task_updates: 2, task_update_attachments: 1,
             task_response_field_values: 1,
             allowance_envelopes: 3, envelope_balances: 3, allowance_transactions: 6, exchange_rates: 1,
+            announcements: 2, content_categories: 1, content_queue_items: 1, family_rules: 1, family_rule_versions: 2, content_attachments: 1,
+            family_dashboard_layouts: 1, family_dashboard_widgets: 1, dashboard_configs: 1, history_event_attachments: 1,
         });
         expect(report.heldBack).toEqual({});
         expect(report.storedButNotMapped).toEqual({});
@@ -421,6 +454,60 @@ describe('importing an export', () => {
         expect((await one(db, `SELECT destination_envelope_id FROM allowance_transactions WHERE id = $1`, [id(212)])).destination_envelope_id).toBe(id(202));
     });
 
+    it('carries what the family posts: announcements showing or taken down, the queue, and a rule with every version it has had', async () => {
+        await importInto(db, family());
+
+        expect((await db.query(`SELECT id, created_by, archived_at IS NULL AS showing, link_url FROM announcements ORDER BY id`)).rows).toEqual([
+            { id: id(300), created_by: ADA, showing: true, link_url: null }, { id: id(301), created_by: null, showing: false, link_url: 'https://example.org/bins' },
+        ]);
+        expect(await one(db, `SELECT c.slug, c.default_duration_ms::int AS week, i.status, i.duration_ms, i.archived_at, i.created_by FROM content_queue_items i JOIN content_categories c ON c.id = i.category_id`)).toEqual({
+            slug: 'verse', week: 604_800_000, status: 'live', duration_ms: null, archived_at: null, created_by: ADA,
+        });
+        expect(await one(db, `SELECT announcement_id, queue_item_id, rule_version_id, url FROM content_attachments`)).toEqual({ announcement_id: null, queue_item_id: id(311), rule_version_id: null, url: 'content/psalm.png' });
+        expect((await db.query(`SELECT v.version_number AS n, v.previous_version_id AS after, v.id = r.active_version_id AS current FROM family_rule_versions v JOIN family_rules r ON r.id = v.rule_id ORDER BY n`)).rows).toEqual([
+            { n: 1, after: null, current: false }, { n: 2, after: id(321), current: true },
+        ]);
+
+        // A file is on one thing and one only, and a rule reads as a version of its own.
+        await expect(db.query(`UPDATE content_attachments SET announcement_id = $1`, [id(300)])).rejects.toThrow();
+        await db.exec(`INSERT INTO family_rules (id, title, active_version_id) VALUES ('${id(323)}', 'Bedtime', '${id(324)}'); INSERT INTO family_rule_versions (id, rule_id, version_number, rich_text_content) VALUES ('${id(324)}', '${id(323)}', 1, '<p>Eight.</p>')`);
+        await expect(db.query(`UPDATE family_rules SET active_version_id = $1 WHERE id = $2`, [id(322), id(323)])).rejects.toThrow();
+        await expect(db.query(`INSERT INTO family_rule_versions (id, rule_id, version_number, rich_text_content) VALUES ($1, $2, 2, 'again')`, [id(325), id(320)])).rejects.toThrow();
+        // A category that goes takes its items and their files with it.
+        await db.query(`DELETE FROM content_categories`);
+        expect(await one(db, `SELECT (SELECT count(*) FROM content_queue_items)::int AS items, (SELECT count(*) FROM content_attachments)::int AS files`)).toEqual({ items: 0, files: 0 });
+    });
+
+    it('carries the dashboards: a layout with its widgets where they sat, each person\'s own arrangement, and a history entry\'s files', async () => {
+        await importInto(db, family());
+
+        expect(await one(db, `SELECT l.breakpoint_key, w.widget_type, w.x, w.y, w.w, w.h, w.z, w.config FROM family_dashboard_widgets w JOIN family_dashboard_layouts l ON l.id = w.layout_id`)).toEqual({
+            breakpoint_key: 'phone-portrait', widget_type: 'clock', x: 0, y: 0.5, w: 2, h: 1.25, z: 3, config: { format: '24h' },
+        });
+        expect(await one(db, `SELECT family_member_id, widget_order, disabled_widgets, widget_settings FROM dashboard_configs`)).toEqual({
+            family_member_id: BEN, widget_order: ['chores', 'balance'], disabled_widgets: ['weather'], widget_settings: { chores: { compact: true } },
+        });
+        expect(await one(db, `SELECT history_event_id, url, width FROM history_event_attachments`)).toEqual({ history_event_id: id(60), url: 'history/proof.jpg', width: 320 });
+    });
+
+    it('settles what a flag and a pointer left open: an announcement taken down at no time, a rule pointing at nothing, a file on nothing', async () => {
+        const rows = family();
+        Object.assign(rows.announcements[1], { archivedAt: null });
+        Object.assign(rows.familyRules[0], { activeVersionId: id(399) });
+        rows.contentAttachments.push({ id: id(331), name: 'lost.png', type: 'image/png', url: 'content/lost.png', createdAt: '2026-01-02T08:00:00.000Z', updatedAt: '2026-01-02T08:00:00.000Z' });
+        rows.familyRuleVersions.push({ id: id(326), versionNumber: 1, richTextContent: '<p>Of a rule that is gone.</p>', createdAt: '2025-06-01T08:00:00.000Z' });
+        const { rowsOf, report } = await importInto(db, rows);
+
+        expect(report.conversions).toMatchObject({
+            'announcements: taken down at no recorded time, taken as when it last changed': 1,
+            'familyRules.activeVersionId: not a version of the rule, its newest taken': 1,
+        });
+        expect(report.heldBack).toEqual({ contentAttachments: { 'What it was attached to no longer exists.': 1 }, familyRuleVersions: { 'It is a version of no rule.': 1 } });
+        expect((await one(db, `SELECT archived_at FROM announcements WHERE id = $1`, [id(301)])).archived_at).not.toBeNull();
+        expect((await one(db, `SELECT active_version_id FROM family_rules`)).active_version_id).toBe(id(322));
+        expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
+    });
+
     it('holds a completion done, marked not done, or cleared, and never two of those at once', async () => {
         await importInto(db, family());
         const state = async (completionId: string) => one(db, `SELECT completed_at IS NOT NULL AS done, not_done, allowance_awarded AS awarded, marked_by FROM chore_completions WHERE id = $1`, [completionId]);
@@ -558,6 +645,17 @@ describe('the verification', () => {
         ['money moved between a member\'s envelopes', `UPDATE envelope_balances SET envelope_id = '${id(201)}' WHERE envelope_id = '${id(200)}' AND currency = 'STARS'`, 'envelope_balances: each envelope holds exactly what it held, currency by currency'],
         ['a default envelope that was not the one marked', `UPDATE family_members SET default_envelope_id = '${id(201)}' WHERE id = '${BEN}'`, 'family_members: each member\'s default envelope is one of theirs that was marked so, if any was'],
         ['an exchange rate changed', `UPDATE exchange_rates SET rate = 140`, 'exchange_rates: the last rate fetched for each pair of currencies'],
+        ['an announcement put back up', `UPDATE announcements SET archived_at = NULL WHERE id = '${id(301)}'`, 'announcements: every announcement, field by field, showing exactly if it was'],
+        ['a category that no longer loops', `UPDATE content_categories SET loop_when_empty = false`, 'content_categories: every category, field by field'],
+        ['a queue item no longer live', `UPDATE content_queue_items SET status = 'queued'`, 'content_queue_items: every item of a category, field by field'],
+        ['a rule reading as its old version', `UPDATE family_rules SET active_version_id = '${id(321)}'`, 'family_rules: every rule, field by field, reading as the version it did'],
+        ['a version of a rule reworded', `UPDATE family_rule_versions SET rich_text_content = '<p>Two hours.</p>' WHERE id = '${id(321)}'`, 'family_rule_versions: every version of a rule, word for word, in its place'],
+        ['a file moved to an announcement', `UPDATE content_attachments SET queue_item_id = NULL, announcement_id = '${id(300)}'`, 'content_attachments: every file, on the one thing it was on'],
+        ['a layout with another width', `UPDATE family_dashboard_layouts SET max_width = 500`, 'family_dashboard_layouts: every layout, field by field'],
+        ['a widget nudged', `UPDATE family_dashboard_widgets SET y = 0.75`, 'family_dashboard_widgets: every widget, where it sat, with its settings'],
+        ['a widget\'s settings changed', `UPDATE family_dashboard_widgets SET config = '{"format":"12h"}'`, 'family_dashboard_widgets: every widget, where it sat, with its settings'],
+        ['a person\'s arrangement reordered', `UPDATE dashboard_configs SET widget_order = '["balance","chores"]'`, 'dashboard_configs: each person\'s own arrangement, as they last left it'],
+        ['a history entry\'s file gone', `DELETE FROM history_event_attachments`, 'history_event_attachments: none loaded but those whose owner was'],
         ['a history entry reworded', `UPDATE history_events SET summary = 'Completed "Trash"' WHERE id = '${id(60)}'`, 'history_events: every event, field by field'],
         ['a history entry credited to someone else', `UPDATE history_events SET actor_id = '${BEN}' WHERE id = '${id(62)}'`, 'history_events: every event, field by field'],
         ['a history entry that is missing', `DELETE FROM history_events WHERE id = '${id(61)}'`, 'history_events: as many as were exported'],

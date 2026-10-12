@@ -79,6 +79,27 @@ streams:
         created_at
         FROM allowance_transactions
       - SELECT base_currency || '.' || target_currency AS id, base_currency, target_currency, rate, fetched_at FROM exchange_rates
+      # What the family posts for itself, the dashboards, and the files on a history entry.
+      - SELECT id, title, rich_text_content, link_url, created_by, expires_at, archived_at, created_at, updated_at FROM announcements
+      - SELECT id, slug, name, default_duration_ms, loop_when_empty, created_at, updated_at FROM content_categories
+      - >-
+        SELECT id, category_id, title, rich_text_content, link_url, status, sort_order, duration_ms, live_at, live_until, archived_at, created_by, created_at,
+        updated_at
+        FROM content_queue_items
+      - SELECT id, title, sort_order, is_archived, active_version_id, created_at, updated_at FROM family_rules
+      - SELECT id, rule_id, version_number, rich_text_content, edit_note, previous_version_id, created_by, created_at FROM family_rule_versions
+      - >-
+        SELECT id, announcement_id, queue_item_id, rule_version_id, name, type, url, kind, size_bytes, width, height, duration_sec, thumbnail_url,
+        thumbnail_width, thumbnail_height, blurhash, waveform_peaks, created_at, updated_at
+        FROM content_attachments
+      - SELECT id, breakpoint_key, label, min_width, max_width, sort_order, is_default, created_at, updated_at FROM family_dashboard_layouts
+      - SELECT id, layout_id, widget_type, x, y, w, h, z, config, created_at, updated_at FROM family_dashboard_widgets
+      # One for each person, so its id is the person's.
+      - SELECT family_member_id AS id, widget_order, disabled_widgets, widget_settings, updated_at FROM dashboard_configs
+      - >-
+        SELECT id, history_event_id, name, type, url, kind, size_bytes, width, height, duration_sec, thumbnail_url, thumbnail_width, thumbnail_height,
+        blurhash, waveform_peaks, created_at, updated_at
+        FROM history_event_attachments
 
   # What the server refused, for the person who made the write.
   refusals_member:

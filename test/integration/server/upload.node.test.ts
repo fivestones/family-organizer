@@ -272,6 +272,38 @@ describe('money', () => {
     });
 });
 
+describe('two rows that name each other', () => {
+    const RULE = id(320);
+    const FIRST = id(321);
+    const rule: DeviceOperation = { op: 'PUT', table: 'family_rules', id: RULE, data: { title: 'Screens', sort_order: 1, is_archived: 0, active_version_id: FIRST, created_at: NOON, updated_at: NOON } };
+    const version = (versionId: string, ruleId: string, number: number): DeviceOperation => ({ op: 'PUT', table: 'family_rule_versions', id: versionId, data: { rule_id: ruleId, version_number: number, rich_text_content: '<p>One hour a day.</p>', created_by: DANA, created_at: NOON } });
+
+    it('go in together, in one transaction, whichever comes first', async () => {
+        expect((await send(await asParent(), [rule, version(FIRST, RULE, 1)], { mutation: 'createRule' })).outcome).toEqual({ ok: true });
+        expect(await rows(`SELECT r.title, v.version_number FROM family_rules r JOIN family_rule_versions v ON v.id = r.active_version_id`)).toEqual([{ title: 'Screens', version_number: 1 }]);
+    });
+
+    it('are refused together when one names a row that never comes, and nothing is left behind', async () => {
+        // A rule whose version is not in the transaction. The database finds out only at the end.
+        const result = await send(await asParent(), [rule], { mutation: 'createRule' });
+        expect(result.outcome).toMatchObject({ ok: false, reason: 'conflict' });
+        expect(await rows(`SELECT 1 FROM family_rules`)).toEqual([]);
+        expect(await rows(`SELECT reason, mutation FROM write_refusals`)).toEqual([{ reason: 'conflict', mutation: 'createRule' }]);
+    });
+
+    it('keep a rule\'s words as they were: a version is added by a parent and never changed or removed', async () => {
+        const dana = await asParent();
+        await send(dana, [rule, version(FIRST, RULE, 1)], { mutation: 'createRule' });
+        expect((await send(dana, [version(id(322), RULE, 2), { op: 'PATCH', table: 'family_rules', id: RULE, data: { active_version_id: id(322) } }], { mutation: 'editRule' })).outcome).toEqual({ ok: true });
+        expect((await send(dana, [{ op: 'PATCH', table: 'family_rule_versions', id: FIRST, data: { rich_text_content: '<p>Ten hours a day.</p>' } }], { mutation: 'tamper' })).outcome).toMatchObject({ ok: false, reason: 'not_allowed' });
+        expect((await send(dana, [{ op: 'DELETE', table: 'family_rule_versions', id: FIRST }], { mutation: 'tamper' })).outcome).toMatchObject({ ok: false, reason: 'not_allowed' });
+        expect((await send(await asEli(), [version(id(323), RULE, 3)], { mutation: 'editRule' })).outcome).toMatchObject({ ok: false, reason: 'not_allowed' });
+        expect(await rows(`SELECT version_number, rich_text_content FROM family_rule_versions ORDER BY version_number`)).toEqual([
+            { version_number: 1, rich_text_content: '<p>One hour a day.</p>' }, { version_number: 2, rich_text_content: '<p>One hour a day.</p>' },
+        ]);
+    });
+});
+
 describe('what a parent writes', () => {
     it('reaches each kind of column in the form the database keeps it', async () => {
         const result = await send(await asParent(), [

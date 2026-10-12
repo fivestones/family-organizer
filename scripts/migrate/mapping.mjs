@@ -13,6 +13,8 @@ export const TABLES = [
     'grade_types', 'task_series', 'tasks', 'task_attachments', 'task_response_fields', 'task_updates', 'task_update_attachments',
     'task_response_field_values',
     'allowance_envelopes', 'envelope_balances', 'allowance_transactions', 'exchange_rates',
+    'announcements', 'content_categories', 'content_queue_items', 'family_rules', 'family_rule_versions', 'content_attachments',
+    'family_dashboard_layouts', 'family_dashboard_widgets', 'dashboard_configs', 'history_event_attachments',
 ];
 
 /** The columns written to each table. One the database fills in for itself, such as family_members.has_pin, is not among them. */
@@ -84,6 +86,25 @@ export const COLUMNS = {
         'distribution_key', 'created_at',
     ],
     exchange_rates: ['base_currency', 'target_currency', 'rate', 'fetched_at'],
+    announcements: ['id', 'title', 'rich_text_content', 'link_url', 'created_by', 'expires_at', 'archived_at', 'created_at', 'updated_at'],
+    content_categories: ['id', 'slug', 'name', 'default_duration_ms', 'loop_when_empty', 'created_at', 'updated_at'],
+    content_queue_items: [
+        'id', 'category_id', 'title', 'rich_text_content', 'link_url', 'status', 'sort_order', 'duration_ms', 'live_at', 'live_until', 'archived_at',
+        'created_by', 'created_at', 'updated_at',
+    ],
+    family_rules: ['id', 'title', 'sort_order', 'is_archived', 'active_version_id', 'created_at', 'updated_at'],
+    family_rule_versions: ['id', 'rule_id', 'version_number', 'rich_text_content', 'edit_note', 'previous_version_id', 'created_by', 'created_at'],
+    content_attachments: [
+        'id', 'announcement_id', 'queue_item_id', 'rule_version_id', 'name', 'type', 'url', 'kind', 'size_bytes', 'width', 'height', 'duration_sec',
+        'thumbnail_url', 'thumbnail_width', 'thumbnail_height', 'blurhash', 'waveform_peaks', 'created_at', 'updated_at',
+    ],
+    family_dashboard_layouts: ['id', 'breakpoint_key', 'label', 'min_width', 'max_width', 'sort_order', 'is_default', 'created_at', 'updated_at'],
+    family_dashboard_widgets: ['id', 'layout_id', 'widget_type', 'x', 'y', 'w', 'h', 'z', 'config', 'created_at', 'updated_at'],
+    dashboard_configs: ['family_member_id', 'widget_order', 'disabled_widgets', 'widget_settings', 'updated_at'],
+    history_event_attachments: [
+        'id', 'history_event_id', 'name', 'type', 'url', 'kind', 'size_bytes', 'width', 'height', 'duration_sec', 'thumbnail_url', 'thumbnail_width',
+        'thumbnail_height', 'blurhash', 'waveform_peaks', 'created_at', 'updated_at',
+    ],
 };
 
 /** Columns holding a JSON document. The importer hands these to Postgres as JSON text, whatever the value's shape. */
@@ -95,6 +116,10 @@ export const JSON_COLUMNS = {
     grade_types: ['steps'],
     task_attachments: ['waveform_peaks'],
     task_update_attachments: ['waveform_peaks'],
+    content_attachments: ['waveform_peaks'],
+    family_dashboard_widgets: ['config'],
+    dashboard_configs: ['widget_order', 'disabled_widgets', 'widget_settings'],
+    history_event_attachments: ['waveform_peaks'],
 };
 
 /**
@@ -117,6 +142,9 @@ export const LEFT_BEHIND = {
     },
     routineMarkerStatuses: {
         key: 'The day and the marker are the key.',
+    },
+    announcements: {
+        isActive: 'It is showing while archived_at is empty.',
     },
     allowanceTransactions: {
         createdBy: 'The Instant principal that wrote it. The member who did is created_by.',
@@ -634,6 +662,210 @@ function finance(rowsOf, out) {
     for (const { next } of rates.values()) out.tables.exchange_rates.push(next);
 }
 
+// ---- What the family posts, the dashboards, and the files on a history entry ----
+
+function content(rowsOf, out) {
+    const members = new Set(out.tables.family_members.map((row) => row.id));
+    const member = (id) => (members.has(id) ? id : null);
+
+    const announcements = new Set();
+    for (const row of rowsOf('announcements')) {
+        const createdAt = instant(row.createdAt, out.notes, 'announcements.createdAt') ?? EPOCH;
+        const updatedAt = instant(row.updatedAt, out.notes, 'announcements.updatedAt') ?? createdAt;
+        let archivedAt = instant(row.archivedAt, out.notes, 'announcements.archivedAt');
+        // Whether it is showing was a flag of its own beside the time it was taken down. The flag is what the app read.
+        if (row.isActive === true && archivedAt) { count(out.notes, 'announcements: showing, though it had a time it was taken down, which is cleared'); archivedAt = null; }
+        if (row.isActive !== true && !archivedAt) { count(out.notes, 'announcements: taken down at no recorded time, taken as when it last changed'); archivedAt = updatedAt; }
+        announcements.add(row.id);
+        out.tables.announcements.push({
+            id: row.id,
+            title: trimmed(row.title) || 'Untitled',
+            rich_text_content: optionalText(row.richTextContent),
+            link_url: optionalText(row.linkUrl),
+            created_by: member(row.createdByFamilyMemberId),
+            expires_at: instant(row.expiresAt, out.notes, 'announcements.expiresAt'),
+            archived_at: archivedAt,
+            created_at: createdAt,
+            updated_at: updatedAt,
+        });
+    }
+
+    const categories = new Set();
+    const slugs = new Set();
+    for (const row of rowsOf('contentCategories')) {
+        const slugOf = trimmed(row.slug);
+        if (!slugOf) { hold(out, 'contentCategories', row, 'It has no slug.'); continue; }
+        if (slugs.has(slugOf)) { hold(out, 'contentCategories', row, 'Another category already has its slug.'); continue; }
+        slugs.add(slugOf);
+        categories.add(row.id);
+        const createdAt = instant(row.createdAt, out.notes, 'contentCategories.createdAt') ?? EPOCH;
+        out.tables.content_categories.push({
+            id: row.id,
+            slug: slugOf,
+            name: trimmed(row.name) || slugOf,
+            default_duration_ms: Math.max(0, optionalInteger(row.defaultDurationMs) ?? 0),
+            loop_when_empty: row.loopWhenEmpty === true,
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'contentCategories.updatedAt') ?? createdAt,
+        });
+    }
+
+    const categoryOf = new Map(pairs(rowsOf, ['contentQueueItems', 'category'], ['contentCategories', 'items']));
+    const itemMaker = new Map(pairs(rowsOf, ['contentQueueItems', 'createdBy'], ['familyMembers', 'createdContentQueueItems']));
+    const items = new Set();
+    for (const row of rowsOf('contentQueueItems')) {
+        if (!categories.has(categoryOf.get(row.id))) { hold(out, 'contentQueueItems', row, 'It is in no category.'); continue; }
+        const status = oneOf(row.status, ['queued', 'live', 'archived']);
+        if (!status) { hold(out, 'contentQueueItems', row, 'It has no status the app knows.'); continue; }
+        items.add(row.id);
+        const createdAt = instant(row.createdAt, out.notes, 'contentQueueItems.createdAt') ?? EPOCH;
+        out.tables.content_queue_items.push({
+            id: row.id,
+            category_id: categoryOf.get(row.id),
+            title: trimmed(row.title) || 'Untitled',
+            rich_text_content: optionalText(row.richTextContent),
+            link_url: optionalText(row.linkUrl),
+            status,
+            sort_order: optionalInteger(row.sortOrder) ?? 0,
+            duration_ms: Number.isInteger(row.durationMs) && row.durationMs >= 0 ? row.durationMs : null,
+            live_at: instant(row.liveAt, out.notes, 'contentQueueItems.liveAt'),
+            live_until: instant(row.liveUntil, out.notes, 'contentQueueItems.liveUntil'),
+            archived_at: instant(row.archivedAt, out.notes, 'contentQueueItems.archivedAt'),
+            created_by: member(itemMaker.get(row.id)),
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'contentQueueItems.updatedAt') ?? createdAt,
+        });
+    }
+
+    // A rule's words are its versions, numbered within it. A version of no rule, or a second with one number, cannot be held.
+    const ruleOf = new Map(pairs(rowsOf, ['familyRuleVersions', 'rule'], ['familyRules', 'versions']));
+    const previousOf = new Map(pairs(rowsOf, ['familyRuleVersions', 'previousVersion'], ['familyRuleVersions', 'nextVersion']));
+    const allRules = new Set(rowsOf('familyRules').map((row) => row.id));
+    const versionsOf = new Map();
+    const numbered = new Set();
+    for (const row of [...rowsOf('familyRuleVersions')].sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')) || String(a.id).localeCompare(String(b.id)))) {
+        const rule = ruleOf.get(row.id);
+        if (!allRules.has(rule)) { hold(out, 'familyRuleVersions', row, 'It is a version of no rule.'); continue; }
+        if (!Number.isInteger(row.versionNumber) || row.versionNumber < 1) { hold(out, 'familyRuleVersions', row, 'It has no version number.'); continue; }
+        if (numbered.has(`${rule}\n${row.versionNumber}`)) { hold(out, 'familyRuleVersions', row, 'Another version of the rule has its number.'); continue; }
+        numbered.add(`${rule}\n${row.versionNumber}`);
+        versionsOf.set(rule, [...(versionsOf.get(rule) ?? []), row]);
+    }
+    const versions = new Set();
+    for (const row of rowsOf('familyRules')) {
+        const own = versionsOf.get(row.id) ?? [];
+        if (!own.length) { hold(out, 'familyRules', row, 'It has no version, so no words.'); continue; }
+        // The version a rule reads as is one of its own. Where it named another, or none, the newest is taken.
+        let active = own.find((version) => version.id === row.activeVersionId);
+        if (!active) { count(out.notes, 'familyRules.activeVersionId: not a version of the rule, its newest taken'); active = own.reduce((a, b) => (b.versionNumber > a.versionNumber ? b : a)); }
+        const createdAt = instant(row.createdAt, out.notes, 'familyRules.createdAt') ?? EPOCH;
+        out.tables.family_rules.push({
+            id: row.id,
+            title: trimmed(row.title) || 'Untitled',
+            sort_order: optionalInteger(row.sortOrder) ?? 0,
+            is_archived: row.isArchived === true,
+            active_version_id: active.id,
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'familyRules.updatedAt') ?? createdAt,
+        });
+        for (const version of own) versions.add(version.id);
+        for (const version of own) {
+            const previous = previousOf.get(version.id);
+            out.tables.family_rule_versions.push({
+                id: version.id,
+                rule_id: row.id,
+                version_number: version.versionNumber,
+                rich_text_content: typeof version.richTextContent === 'string' ? version.richTextContent : '',
+                edit_note: optionalText(version.editNote),
+                previous_version_id: own.some((other) => other.id === previous) && previous !== version.id ? previous : null,
+                created_by: member(version.createdByFamilyMemberId),
+                created_at: instant(version.createdAt, out.notes, 'familyRuleVersions.createdAt') ?? createdAt,
+            });
+        }
+    }
+    for (const [rule, own] of versionsOf) {
+        if (!out.tables.family_rules.some((row) => row.id === rule)) for (const version of own) hold(out, 'familyRuleVersions', version, 'Its rule could not be held.');
+    }
+
+    // A file is on one thing: an announcement, a queue item, or a version of a rule.
+    const onAnnouncement = new Map(pairs(rowsOf, ['contentAttachments', 'announcement'], ['announcements', 'attachments']));
+    const onItem = new Map(pairs(rowsOf, ['contentAttachments', 'contentQueueItem'], ['contentQueueItems', 'attachments']));
+    const onVersion = new Map(pairs(rowsOf, ['contentAttachments', 'familyRuleVersion'], ['familyRuleVersions', 'attachments']));
+    for (const row of rowsOf('contentAttachments')) {
+        const owners = {
+            announcement_id: announcements.has(onAnnouncement.get(row.id)) ? onAnnouncement.get(row.id) : null,
+            queue_item_id: items.has(onItem.get(row.id)) ? onItem.get(row.id) : null,
+            rule_version_id: versions.has(onVersion.get(row.id)) ? onVersion.get(row.id) : null,
+        };
+        const named = Object.values(owners).filter(Boolean).length;
+        if (named === 0) { hold(out, 'contentAttachments', row, 'What it was attached to no longer exists.'); continue; }
+        if (named > 1) { hold(out, 'contentAttachments', row, 'It is attached to more than one thing.'); continue; }
+        if (!trimmed(row.url)) { hold(out, 'contentAttachments', row, 'It names no file.'); continue; }
+        out.tables.content_attachments.push({ id: row.id, ...owners, ...attachmentColumns(row, out.notes, 'contentAttachments') });
+    }
+
+    const layouts = new Set();
+    const breakpoints = new Set();
+    for (const row of rowsOf('familyDashboardLayouts')) {
+        const key = trimmed(row.breakpointKey);
+        if (!key) { hold(out, 'familyDashboardLayouts', row, 'It has no breakpoint.'); continue; }
+        if (breakpoints.has(key)) { hold(out, 'familyDashboardLayouts', row, 'Another layout already covers its breakpoint.'); continue; }
+        breakpoints.add(key);
+        layouts.add(row.id);
+        const createdAt = instant(row.createdAt, out.notes, 'familyDashboardLayouts.createdAt') ?? EPOCH;
+        out.tables.family_dashboard_layouts.push({
+            id: row.id,
+            breakpoint_key: key,
+            label: trimmed(row.label) || key,
+            min_width: optionalInteger(row.minWidth) ?? 0,
+            max_width: optionalInteger(row.maxWidth) ?? 0,
+            sort_order: optionalInteger(row.order) ?? 0,
+            is_default: row.isDefault === true,
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'familyDashboardLayouts.updatedAt') ?? createdAt,
+        });
+    }
+    const layoutOf = new Map(pairs(rowsOf, ['familyDashboardWidgets', 'layout'], ['familyDashboardLayouts', 'widgets']));
+    for (const row of rowsOf('familyDashboardWidgets')) {
+        if (!layouts.has(layoutOf.get(row.id))) { hold(out, 'familyDashboardWidgets', row, 'It is on no layout.'); continue; }
+        if (!trimmed(row.widgetType) || [row.x, row.y, row.w, row.h].some((value) => optionalNumber(value) === null)) { hold(out, 'familyDashboardWidgets', row, 'It has no type or no place.'); continue; }
+        const createdAt = instant(row.createdAt, out.notes, 'familyDashboardWidgets.createdAt') ?? EPOCH;
+        out.tables.family_dashboard_widgets.push({
+            id: row.id,
+            layout_id: layoutOf.get(row.id),
+            widget_type: trimmed(row.widgetType),
+            x: row.x, y: row.y, w: row.w, h: row.h,
+            z: optionalInteger(row.z) ?? 0,
+            config: isRecord(row.config) ? row.config : null,
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'familyDashboardWidgets.updatedAt') ?? createdAt,
+        });
+    }
+
+    // One arrangement for each person. Of several, the one changed last is kept.
+    const configMember = new Map(pairs(rowsOf, ['dashboardConfigs', 'familyMember'], ['familyMembers', 'dashboardConfig']));
+    const configs = new Map();
+    for (const row of rowsOf('dashboardConfigs')) {
+        const owner = member(configMember.get(row.id));
+        if (!owner) { hold(out, 'dashboardConfigs', row, 'It belongs to nobody in the family.'); continue; }
+        const updatedAt = instant(row.updatedAt, out.notes, 'dashboardConfigs.updatedAt') ?? EPOCH;
+        const current = configs.get(owner);
+        if (current) hold(out, 'dashboardConfigs', updatedAt > current.next.updated_at ? current.row : row, 'Another arrangement for the same person is kept.');
+        if (!current || updatedAt > current.next.updated_at) {
+            configs.set(owner, { row, next: { family_member_id: owner, widget_order: row.widgetOrder ?? null, disabled_widgets: row.disabledWidgets ?? null, widget_settings: row.widgetSettings ?? null, updated_at: updatedAt } });
+        }
+    }
+    for (const { next } of configs.values()) out.tables.dashboard_configs.push(next);
+
+    const events = new Set(out.tables.history_events.map((row) => row.id));
+    const eventOf = new Map(pairs(rowsOf, ['historyEventAttachments', 'event'], ['historyEvents', 'attachments']));
+    for (const row of rowsOf('historyEventAttachments')) {
+        if (!events.has(eventOf.get(row.id))) { hold(out, 'historyEventAttachments', row, 'Its history entry no longer exists.'); continue; }
+        if (!trimmed(row.url)) { hold(out, 'historyEventAttachments', row, 'It names no file.'); continue; }
+        out.tables.history_event_attachments.push({ id: row.id, history_event_id: eventOf.get(row.id), ...attachmentColumns(row, out.notes, 'historyEventAttachments') });
+    }
+}
+
 // ---- Task series ----
 
 const WORKFLOW_STATES = ['not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'];
@@ -947,6 +1179,16 @@ function unmappedAttributes(rowsOf, out) {
         allowanceEnvelopes: ['name', 'description', 'goalAmount', 'goalCurrency', 'archivedAt', 'isDefault', 'balances'],
         allowanceTransactions: ['transactionType', 'amount', 'currency', 'description', 'createdByFamilyMemberId', 'distributionKey', 'createdAt'],
         exchangeRates: ['baseCurrency', 'targetCurrency', 'rate', 'lastFetchedTimestamp'],
+        announcements: ['title', 'richTextContent', 'linkUrl', 'createdByFamilyMemberId', 'expiresAt', 'archivedAt', 'createdAt', 'updatedAt'],
+        contentCategories: ['slug', 'name', 'defaultDurationMs', 'loopWhenEmpty', 'createdAt', 'updatedAt'],
+        contentQueueItems: ['title', 'richTextContent', 'linkUrl', 'status', 'sortOrder', 'durationMs', 'liveAt', 'liveUntil', 'archivedAt', 'createdAt', 'updatedAt'],
+        familyRules: ['title', 'sortOrder', 'isArchived', 'activeVersionId', 'createdAt', 'updatedAt'],
+        familyRuleVersions: ['versionNumber', 'richTextContent', 'editNote', 'createdByFamilyMemberId', 'createdAt'],
+        contentAttachments: ATTACHMENT_ATTRIBUTES,
+        familyDashboardLayouts: ['breakpointKey', 'label', 'minWidth', 'maxWidth', 'order', 'isDefault', 'createdAt', 'updatedAt'],
+        familyDashboardWidgets: ['widgetType', 'x', 'y', 'w', 'h', 'z', 'config', 'createdAt', 'updatedAt'],
+        dashboardConfigs: ['widgetOrder', 'disabledWidgets', 'widgetSettings', 'updatedAt'],
+        historyEventAttachments: ATTACHMENT_ATTRIBUTES,
         gradeTypes: ['name', 'kind', 'lowValue', 'highValue', 'lowLabel', 'highLabel', 'steps', 'isDefault', 'order', 'createdAt', 'updatedAt'],
         taskSeries: [
             'name', 'description', 'dependsOnSeriesId', 'startDate', 'targetEndDate', 'plannedEndDate', 'baselineDayBreakCount', 'workAheadAllowed',
@@ -996,6 +1238,16 @@ const LINK_LABELS = {
     historyEvents: ['actor', 'affectedFamilyMembers', 'attachments', 'message'],
     allowanceEnvelopes: ['familyMember', 'transactions', 'incomingTransfers', 'outgoingTransfers'],
     allowanceTransactions: ['envelope', 'sourceEnvelope', 'destinationEnvelope'],
+    announcements: ['attachments'],
+    contentCategories: ['items'],
+    contentQueueItems: ['category', 'createdBy', 'attachments'],
+    familyRules: ['versions'],
+    familyRuleVersions: ['rule', 'previousVersion', 'nextVersion', 'attachments'],
+    contentAttachments: ['announcement', 'contentQueueItem', 'familyRuleVersion'],
+    familyDashboardLayouts: ['widgets'],
+    familyDashboardWidgets: ['layout'],
+    dashboardConfigs: ['familyMember'],
+    historyEventAttachments: ['event'],
     gradeTypes: ['taskUpdates'],
     taskSeries: ['familyMember', 'scheduledActivity', 'tasks'],
     tasks: ['taskSeries', 'parentTask', 'subTasks', 'subsequentTasks', 'attachments', 'responseFields', 'updates'],
@@ -1025,6 +1277,7 @@ export function buildRows(rowsOf) {
     gradeTypes(rowsOf, out);
     taskSeries(rowsOf, out);
     finance(rowsOf, out);
+    content(rowsOf, out);
     unmappedAttributes(rowsOf, out);
     return out;
 }

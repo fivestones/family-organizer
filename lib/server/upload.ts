@@ -158,6 +158,7 @@ export async function applyUpload(db: AppDatabase, session: Session, upload: Upl
         return await db.transaction().execute(async (trx) => {
             const replay = await claim(trx, session, upload, null);
             if (replay) return replay;
+            let last: CheckedOperation | null = null;
             for (const raw of upload.operations) {
                 const checked = checkOperation(raw);
                 if (!checked.valid) {
@@ -167,6 +168,17 @@ export async function applyUpload(db: AppDatabase, session: Session, upload: Upl
                     await applyOperation(trx, session, checked.operation);
                 } catch (error) {
                     throw refusalFromDatabase(error, checked.operation) ?? error;
+                }
+                last = checked.operation;
+            }
+            // Where two rows name each other, as a rule and its first version do, the database puts its check off
+            // to the end of the transaction. It is made now, so that a failure is a refusal like any other and
+            // not an error at commit that the device would retry for ever.
+            if (last) {
+                try {
+                    await sql`SET CONSTRAINTS ALL IMMEDIATE`.execute(trx);
+                } catch (error) {
+                    throw refusalFromDatabase(error, last) ?? error;
                 }
             }
             const outcome: UploadOutcome = { ok: true };

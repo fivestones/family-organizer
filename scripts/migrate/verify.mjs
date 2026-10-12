@@ -544,6 +544,115 @@ export async function verifyImport(db, rowsOf, timing) {
     }
     check('exchange_rates: one for each pair that had one')('count', rateRows.length === pairsSeen.size);
 
+    // ---- What the family posts, the dashboards, and the files on a history entry ----
+    const memberOrNone = (id) => (members.has(id) ? id : null);
+    const rawAnnouncements = rowsOf('announcements');
+    const announcementRows = new Map((await table('announcements')).map((row) => [row.id, row]));
+    const announcement = check('announcements: every announcement, field by field, showing exactly if it was');
+    for (const raw of rawAnnouncements) {
+        const row = announcementRows.get(raw.id);
+        announcement(raw.id, Boolean(row) && row.title === String(raw.title ?? '').trim() && same(row.rich_text_content, textOf(raw.richTextContent)) && same(row.link_url, textOf(raw.linkUrl))
+            && same(row.created_by, memberOrNone(raw.createdByFamilyMemberId)) && instantOf(row.expires_at) === instantOf(raw.expiresAt) && instantOf(row.created_at) === instantOf(raw.createdAt)
+            && (row.archived_at === null) === (raw.isActive === true) && (blank(raw.archivedAt) || raw.isActive === true || instantOf(row.archived_at) === instantOf(raw.archivedAt)));
+    }
+    check('announcements: as many as were exported')('count', announcementRows.size === rawAnnouncements.length);
+
+    const rawCategories = rowsOf('contentCategories');
+    const rawItems = rowsOf('contentQueueItems');
+    const categoryRows = new Map((await table('content_categories')).map((row) => [row.id, row]));
+    const category = check('content_categories: every category, field by field');
+    for (const raw of rawCategories) {
+        const row = categoryRows.get(raw.id);
+        category(raw.id, Boolean(row) && row.slug === raw.slug && row.name === String(raw.name ?? '').trim() && row.default_duration_ms === raw.defaultDurationMs && row.loop_when_empty === (raw.loopWhenEmpty === true));
+    }
+    const itemCategory = linked(rawCategories, 'items', rawItems, 'category');
+    const itemMaker = linked(rawMembers, 'createdContentQueueItems', rawItems, 'createdBy');
+    const itemRows = new Map((await table('content_queue_items')).map((row) => [row.id, row]));
+    const wholeItems = rawItems.filter((raw) => categoryRows.has(itemCategory.get(raw.id)));
+    const item = check('content_queue_items: every item of a category, field by field');
+    for (const raw of wholeItems) {
+        const row = itemRows.get(raw.id);
+        item(raw.id, Boolean(row) && row.category_id === itemCategory.get(raw.id) && row.title === String(raw.title ?? '').trim() && same(row.rich_text_content, textOf(raw.richTextContent))
+            && same(row.link_url, textOf(raw.linkUrl)) && row.status === raw.status && row.sort_order === (raw.sortOrder ?? 0) && same(row.duration_ms, raw.durationMs)
+            && instantOf(row.live_at) === instantOf(raw.liveAt) && instantOf(row.live_until) === instantOf(raw.liveUntil) && instantOf(row.archived_at) === instantOf(raw.archivedAt)
+            && same(row.created_by, memberOrNone(itemMaker.get(raw.id))));
+    }
+    check('content: as many categories and items as were exported whole')('count', categoryRows.size === rawCategories.length && itemRows.size === wholeItems.length);
+
+    const rawRules = rowsOf('familyRules');
+    const rawVersions = rowsOf('familyRuleVersions');
+    const versionRule = linked(rawRules, 'versions', rawVersions, 'rule');
+    const versionPrevious = linked([], '', rawVersions, 'previousVersion');
+    const ruleRows = new Map((await table('family_rules')).map((row) => [row.id, row]));
+    const versionRows = new Map((await table('family_rule_versions')).map((row) => [row.id, row]));
+    const rule = check('family_rules: every rule, field by field, reading as the version it did');
+    for (const raw of rawRules) {
+        const row = ruleRows.get(raw.id);
+        const own = rawVersions.filter((version) => versionRule.get(version.id) === raw.id);
+        rule(raw.id, Boolean(row) && row.title === String(raw.title ?? '').trim() && row.sort_order === (raw.sortOrder ?? 0) && row.is_archived === (raw.isArchived === true)
+            && (own.some((version) => version.id === raw.activeVersionId) ? row.active_version_id === raw.activeVersionId : own.some((version) => version.id === row.active_version_id)));
+    }
+    const version = check('family_rule_versions: every version of a rule, word for word, in its place');
+    for (const raw of rawVersions.filter((item) => ruleRows.has(versionRule.get(item.id)))) {
+        const row = versionRows.get(raw.id);
+        version(raw.id, Boolean(row) && row.rule_id === versionRule.get(raw.id) && row.version_number === raw.versionNumber && row.rich_text_content === (raw.richTextContent ?? '')
+            && same(row.edit_note, textOf(raw.editNote)) && same(row.created_by, memberOrNone(raw.createdByFamilyMemberId)) && instantOf(row.created_at) === instantOf(raw.createdAt)
+            && same(row.previous_version_id, versionRows.has(versionPrevious.get(raw.id)) && versionRule.get(versionPrevious.get(raw.id)) === versionRule.get(raw.id) ? versionPrevious.get(raw.id) : null));
+    }
+    check('family_rules: as many rules as were exported, and the versions of each')('count', ruleRows.size === rawRules.length && versionRows.size === rawVersions.filter((item) => ruleRows.has(versionRule.get(item.id))).length);
+
+    // A file on one of three things. Which one it is on is read from whichever side holds the link.
+    const rawContentFiles = rowsOf('contentAttachments');
+    const fileOwners = [
+        ['announcement_id', linked(rawAnnouncements, 'attachments', rawContentFiles, 'announcement'), announcementRows],
+        ['queue_item_id', linked(rawItems, 'attachments', rawContentFiles, 'contentQueueItem'), itemRows],
+        ['rule_version_id', linked(rawVersions, 'attachments', rawContentFiles, 'familyRuleVersion'), versionRows],
+    ];
+    const contentFileRows = new Map((await table('content_attachments')).map((row) => [row.id, row]));
+    const wholeContentFiles = rawContentFiles.filter((raw) => fileOwners.filter(([, ownerOf, owners]) => owners.has(ownerOf.get(raw.id))).length === 1);
+    const contentFile = check('content_attachments: every file, on the one thing it was on');
+    for (const raw of wholeContentFiles) {
+        const row = contentFileRows.get(raw.id);
+        contentFile(raw.id, Boolean(row) && row.url === raw.url && row.name === String(raw.name ?? '').trim() && row.type === raw.type
+            && fileOwners.every(([column, ownerOf, owners]) => same(row[column], owners.has(ownerOf.get(raw.id)) ? ownerOf.get(raw.id) : null)));
+    }
+    check('content_attachments: none loaded but those on something that was')('count', contentFileRows.size === wholeContentFiles.length);
+
+    const rawLayouts = rowsOf('familyDashboardLayouts');
+    const rawWidgets = rowsOf('familyDashboardWidgets');
+    const layoutRows = new Map((await table('family_dashboard_layouts')).map((row) => [row.id, row]));
+    const layout = check('family_dashboard_layouts: every layout, field by field');
+    for (const raw of rawLayouts) {
+        const row = layoutRows.get(raw.id);
+        layout(raw.id, Boolean(row) && row.breakpoint_key === raw.breakpointKey && row.label === String(raw.label ?? '').trim() && row.min_width === raw.minWidth && row.max_width === raw.maxWidth
+            && row.sort_order === (raw.order ?? 0) && row.is_default === (raw.isDefault === true));
+    }
+    const widgetLayout = linked(rawLayouts, 'widgets', rawWidgets, 'layout');
+    const widgetRows = new Map((await table('family_dashboard_widgets')).map((row) => [row.id, row]));
+    const wholeWidgets = rawWidgets.filter((raw) => layoutRows.has(widgetLayout.get(raw.id)));
+    const widget = check('family_dashboard_widgets: every widget, where it sat, with its settings');
+    for (const raw of wholeWidgets) {
+        const row = widgetRows.get(raw.id);
+        widget(raw.id, Boolean(row) && row.layout_id === widgetLayout.get(raw.id) && row.widget_type === raw.widgetType && row.x === raw.x && row.y === raw.y && row.w === raw.w && row.h === raw.h
+            && row.z === (raw.z ?? 0) && sameJson(row.config ?? null, raw.config ?? null));
+    }
+    check('dashboards: as many layouts and widgets as were exported whole')('count', layoutRows.size === rawLayouts.length && widgetRows.size === wholeWidgets.length);
+
+    const rawConfigs = rowsOf('dashboardConfigs');
+    const configMember = linked(rawMembers, 'dashboardConfig', rawConfigs, 'familyMember');
+    const configRows = new Map((await table('dashboard_configs')).map((row) => [row.family_member_id, row]));
+    const config = check('dashboard_configs: each person\'s own arrangement, as they last left it');
+    for (const memberId of new Set(rawConfigs.map((raw) => configMember.get(raw.id)).filter((id) => members.has(id)))) {
+        const latest = rawConfigs.filter((raw) => configMember.get(raw.id) === memberId).sort((a, b) => (instantOf(b.updatedAt) ?? 0) - (instantOf(a.updatedAt) ?? 0))[0];
+        const row = configRows.get(memberId);
+        config(memberId, Boolean(row) && sameJson(row.widget_order ?? null, latest.widgetOrder ?? null) && sameJson(row.disabled_widgets ?? null, latest.disabledWidgets ?? null)
+            && sameJson(row.widget_settings ?? null, latest.widgetSettings ?? null));
+    }
+    check('dashboard_configs: one for each person who had one')('count', configRows.size === new Set(rawConfigs.map((raw) => configMember.get(raw.id)).filter((id) => members.has(id))).size);
+
+    const rawEventFiles = rowsOf('historyEventAttachments');
+    await attachmentsOf('history_event_attachments', 'history_event_id', rawEventFiles, linked(rawEvents, 'attachments', rawEventFiles, 'event'), events);
+
     return { checks };
 }
 

@@ -307,6 +307,40 @@ describe('money', () => {
     });
 });
 
+describe('what the family posts, and the dashboards', () => {
+    const parentsOnly = (action: string) => ({ parent: action, eli: 'not_allowed', fay: 'not_allowed', sharedKid: 'not_allowed' });
+    const anyone = (action: string) => ({ parent: action, eli: action, fay: action, sharedKid: action });
+
+    it('are written by parents: announcements, the queue and its categories, rules, their files, and the family dashboard', () => {
+        expect(forEveryone({ op: 'PUT', table: 'announcements', id: id(300), data: { title: 'Grandma visits' } })).toEqual(parentsOnly('insert'));
+        expect(forEveryone({ op: 'PATCH', table: 'content_queue_items', id: id(311), data: { status: 'archived', archived_at: '2026-03-09T18:00:00.000Z' } }, { id: id(311), status: 'live' })).toEqual(parentsOnly('update'));
+        expect(forEveryone({ op: 'DELETE', table: 'content_categories', id: id(310) }, { id: id(310) })).toEqual(parentsOnly('delete'));
+        expect(forEveryone({ op: 'PATCH', table: 'family_rules', id: id(320), data: { is_archived: 1 } }, { id: id(320), is_archived: false })).toEqual(parentsOnly('update'));
+        expect(forEveryone({ op: 'PUT', table: 'content_attachments', id: id(330), data: { queue_item_id: id(311), name: 'psalm.png', type: 'image/png', url: 'content/psalm.png' } })).toEqual(parentsOnly('insert'));
+        expect(forEveryone({ op: 'PATCH', table: 'family_dashboard_widgets', id: id(341), data: { x: 1.5, config: '{"format":"12h"}' } }, { id: id(341), x: 0 })).toEqual(parentsOnly('update'));
+        expect(forEveryone({ op: 'PUT', table: 'family_dashboard_layouts', id: id(340), data: { breakpoint_key: 'watch', label: 'Watch', min_width: 0, max_width: 200 } })).toEqual(parentsOnly('insert'));
+    });
+
+    it('keep a rule\'s versions as written: a parent adds one, and nobody changes or removes one', () => {
+        const version = { id: id(321), rule_id: id(320), version_number: 1 };
+        expect(forEveryone({ op: 'PUT', table: 'family_rule_versions', id: id(322), data: { rule_id: id(320), version_number: 2, rich_text_content: '<p>After chores.</p>' } })).toEqual(parentsOnly('insert'));
+        expect(forEveryone({ op: 'PATCH', table: 'family_rule_versions', id: id(321), data: { rich_text_content: '<p>Never.</p>' } }, version)).toEqual(anyone('not_allowed'));
+        expect(forEveryone({ op: 'DELETE', table: 'family_rule_versions', id: id(321) }, version)).toEqual(anyone('not_allowed'));
+    });
+
+    it('let anyone arrange a personal dashboard, which is known by whose it is', () => {
+        expect(keyOf('dashboard_configs', ELI)).toEqual({ family_member_id: ELI });
+        expect(forEveryone({ op: 'PUT', table: 'dashboard_configs', id: ELI, data: { widget_order: '["chores","balance"]' } })).toEqual(anyone('insert'));
+    });
+
+    it('let anyone put a file on a history entry, once', () => {
+        const file = { id: id(360), history_event_id: id(60) };
+        expect(forEveryone({ op: 'PUT', table: 'history_event_attachments', id: id(360), data: { history_event_id: id(60), name: 'proof.jpg', type: 'image/jpeg', url: 'history/proof.jpg' } })).toEqual(anyone('insert'));
+        expect(forEveryone({ op: 'PATCH', table: 'history_event_attachments', id: id(360), data: { url: 'history/other.jpg' } }, file)).toEqual(anyone('not_allowed'));
+        expect(forEveryone({ op: 'DELETE', table: 'history_event_attachments', id: id(360) }, file)).toEqual(anyone('not_allowed'));
+    });
+});
+
 describe('history', () => {
     const event = (actor: string | null): DeviceOperation => ({ op: 'PUT', table: 'history_events', id: id(60), data: { occurred_at: '2026-03-09T18:00:00.000Z', domain: 'chores', action_type: 'chore_marked_done', summary: 'Completed "Dishes"', actor_id: actor, metadata: '{}' } });
 

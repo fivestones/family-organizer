@@ -11,6 +11,15 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — What the family posts, the dashboards, and the files on a history entry have their tables.**
+  Ten tables: announcements, the content queue and its categories, house rules and their versions, the files on any of those, the family dashboard's layouts and widgets, each person's own dashboard arrangement, and history attachments, which finishes history.
+  What changed shape. Whether an announcement is showing was a flag kept beside the time it was taken down; it is showing while that time is empty. A rule named its current version by an id that nothing checked; it is a foreign key, held to a version of that rule. One table of files served three owners through three links; it has a column for each and a check that exactly one is set. A person's dashboard arrangement had an id of its own and a link to its person, one to one; the person is its key.
+  **A rule and its first version each name the other**, so neither can be written first. The check between them is put off to the end of the transaction, and the upload route now makes every put-off check itself, after the last operation, so that a failure is a refusal like any other. Left to the commit it would have been an error, and the device would have retried it for ever. The import puts off the same checks while it loads.
+  The rules are today's: parents write all of it, except that anyone signed in may arrange a personal dashboard and add a file to a history entry. A rule's version is added by a parent and never changed or removed; a history file likewise, by anyone.
+  On the real export everything loads and nothing is held back: 1 announcement, 2 categories, 4 queue items, 4 rules in 6 versions, 3 files, 5 layouts with 75 widgets, and 5 history files. Nobody has arranged a personal dashboard.
+  Through the real sync service, a parent's rule and its first version go up in one transaction and reach a kid's device, and a kid's arrangement goes up under the kid's own id.
+  One thing to remember when reading JSON on a device: it arrives as Postgres writes it out, which is not byte for byte what was sent — `{"format": "24h"}` with a space. A document is compared after parsing, never as text.
+
 - **2026-10-13 — Money has its tables, and the ledger adds up after the move as it did before.**
   Four tables: envelopes, what each holds, the ledger, and cached exchange rates; and one column on a member, their default envelope.
   What changed shape. An envelope's balances were one JSON value, a currency to an amount; they are a row for each envelope and currency. Which envelope is a member's default was a flag on every envelope; it is one column on the member, and the database holds it to an envelope of that member's own, so a kid who points theirs at a sibling's is refused by the database itself. A ledger row named who made it twice, as Instant's principal and as a family member; it keeps the family member. It is written once and never changed, so it has no time of last change. An exchange rate is keyed by its two currencies, where a string of the two joined stood in.
@@ -295,7 +304,7 @@ Kept deliberately:
 
 - **Deterministic ids** for up-for-grabs completions and countdown runs. They look like an Instant workaround but are the right tool for offline-first sync: two devices that create "the same" row while offline must arrive at the same id. The id does not decide who wins; [a rule on the server](#the-write-rules) does.
 - **Soft references in history.** `historyEvents.choreId`, `taskId` and the like are ids that were never links. They stay unconstrained columns, because history must keep pointing at things that have since been deleted.
-- **Five attachment tables** rather than one polymorphic table, so each keeps a real foreign key to its owner.
+- **Five attachment tables** rather than one polymorphic table, so each keeps a real foreign key to its owner. The one for content has three possible owners, a column for each, and a check that exactly one is set.
 
 ### What is added, and what is left behind
 
@@ -812,7 +821,7 @@ Everything else in the app is absent from staging until its area arrives in Phas
 ### Phase 3 — The schema and the data
 
 - The export script and the census, run against the live app, read-only. *Done on 12 October 2026.*
-- The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation. *Begun: the chore area, task series and money are whole. Calendar, messaging, content, dashboards and calendar sync are left.*
+- The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation. *Begun: the chore area, task series, money, content, dashboards and history are whole. Calendar, messaging and the tables only the server keeps — calendar sync, shortcut tokens, push devices — are left.*
 - Postgres and PowerSync in the production `docker-compose.yml`, with the cap on replication, the health report, the nightly dump and its copy off the machine.
 - The client schema and its indexes, for every table.
 - The import script for everything, and [verification at all five levels](#moving-the-data).

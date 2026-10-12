@@ -280,6 +280,102 @@ export const POLICY = {
         ...parentsWrite,
     },
 
+    announcements: {
+        key: ['id'],
+        columns: {
+            id: uuid, title: text, rich_text_content: text, link_url: text, created_by: uuid, expires_at: instant, archived_at: instant,
+            created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    content_categories: {
+        key: ['id'],
+        columns: {
+            id: uuid, slug: text, name: text, default_duration_ms: integer, loop_when_empty: boolean, created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    content_queue_items: {
+        key: ['id'],
+        columns: {
+            id: uuid, category_id: uuid, title: text, rich_text_content: text, link_url: text, status: oneOf('queued', 'live', 'archived'),
+            sort_order: integer, duration_ms: integer, live_at: instant, live_until: instant, archived_at: instant, created_by: uuid,
+            created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    family_rules: {
+        key: ['id'],
+        columns: {
+            id: uuid, title: text, sort_order: integer, is_archived: boolean, active_version_id: uuid, created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    family_rule_versions: {
+        key: ['id'],
+        columns: {
+            id: uuid, rule_id: uuid, version_number: integer, rich_text_content: text, edit_note: text, previous_version_id: uuid, created_by: uuid,
+            created_at: instant,
+        },
+        // A rule's words are kept as they were. A parent writes a new version; nobody changes or removes an old one.
+        insert: parentsOnly,
+        update: nobody,
+        delete: nobody,
+    },
+
+    content_attachments: {
+        key: ['id'],
+        columns: {
+            id: uuid, announcement_id: uuid, queue_item_id: uuid, rule_version_id: uuid, name: text, type: text, url: text, kind: text,
+            size_bytes: integer, width: integer, height: integer, duration_sec: number, thumbnail_url: text, thumbnail_width: integer,
+            thumbnail_height: integer, blurhash: text, waveform_peaks: json, created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    family_dashboard_layouts: {
+        key: ['id'],
+        columns: {
+            id: uuid, breakpoint_key: text, label: text, min_width: integer, max_width: integer, sort_order: integer, is_default: boolean,
+            created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    family_dashboard_widgets: {
+        key: ['id'],
+        columns: {
+            id: uuid, layout_id: uuid, widget_type: text, x: number, y: number, w: number, h: number, z: integer, config: json, created_at: instant,
+            updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    dashboard_configs: {
+        key: ['family_member_id'],
+        columns: {
+            family_member_id: uuid, widget_order: json, disabled_widgets: json, widget_settings: json, updated_at: instant,
+        },
+        ...familyWrites,
+    },
+
+    history_event_attachments: {
+        key: ['id'],
+        columns: {
+            id: uuid, history_event_id: uuid, name: text, type: text, url: text, kind: text, size_bytes: integer, width: integer, height: integer,
+            duration_sec: number, thumbnail_url: text, thumbnail_width: integer, thumbnail_height: integer, blurhash: text, waveform_peaks: json,
+            created_at: instant, updated_at: instant,
+        },
+        // Like the entry it is on: added by anyone signed in, and never changed or removed.
+        insert: anyone,
+        update: nobody,
+        delete: nobody,
+    },
+
     history_events: {
         key: ['id'],
         columns: {
