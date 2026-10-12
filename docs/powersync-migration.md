@@ -336,9 +336,35 @@ The messaging area gains `useThreadPresence(threadId)`. Behind it is a small in-
 
 - **Workers and WebAssembly.** PowerSync's web SDK runs SQLite in a worker. On Next 16 with Turbopack the worker files are copied into `public/@powersync/` by a `postinstall` step, and `next.config.js` gains `turbopack: {}` and `images.disableStaticImages: true` ([Next.js guide](https://docs.powersync.com/client-sdks/frameworks/next-js)). The app imports no static images, so the second setting costs nothing.
 - **The service worker** must cache the worker and WebAssembly files, or the app will not start offline.
-- **Browsers.** The spike is opened on each kind of device and browser the family actually uses the web app on. Safari and iOS get particular attention if they are among them: PowerSync turns shared workers off there by default and recommends a different storage mode ([web SDK](https://docs.powersync.com/client-sdks/reference/javascript-web)).
-- **Storage persistence.** The app asks the browser not to evict its storage, since queued writes live there until they upload.
 - **Server rendering.** The SDK does nothing during server rendering. The app's data components are already client components behind the session provider.
+
+### Browsers and devices
+
+**The promise: anyone the app works for today, it works for afterwards.** The family uses it on iPads and iPhones, in Safari, Orion and Firefox. Other people run their own copies on devices nobody here can see. So the bar is not a list of the family's devices; it is whatever runs the app now. That is already defined: Next 16 supports Chrome and Edge 111, Firefox 111 and Safari 16.4 onward ([supported browsers](https://nextjs.org/docs/architecture/supported-browsers)), and the native app requires iOS 15.1. This migration must not raise either floor.
+
+The browser matters because on the web the local database is SQLite running inside the page, and browsers differ in where a page may keep a database, whether its tabs can share one, and when the browser may throw it away. The native app has none of this: it uses the phone's own SQLite.
+
+What matters is the engine, not the name on the icon. There are three:
+
+| Engine | Where | Who |
+| --- | --- | --- |
+| WebKit | Every browser on an iPhone or iPad — Safari, Orion and Firefox alike — and Safari and Orion on a Mac | The family, mostly |
+| Gecko | Firefox on a computer or on Android | The family, wherever Firefox is used off iOS |
+| Blink | Chrome, Edge and their relatives, including on Android | Probably other people's copies |
+
+PowerSync supports all three ([supported platforms](https://docs.powersync.com/resources/supported-platforms)). The differences that shape the work:
+
+- **Where the database is stored.** PowerSync offers IndexedDB and several modes built on the browser's private file system. One of the latter, `OPFSCoopSyncVFS`, is the mode it recommends for Safari and iOS and the only one it lists as handling several tabs on every major browser ([web SDK](https://docs.powersync.com/client-sdks/reference/javascript-web)). It is the default here. The choice is made per browser at startup, not once for everyone.
+- **Private windows.** The private file system is unavailable in Safari's and Firefox's private windows. The app falls back to IndexedDB there, and if that fails too, to an in-memory database: it works while online and keeps nothing, and says so.
+- **Several tabs.** PowerSync shares one connection between tabs through a shared worker, which it turns off on iOS, Safari and Android. There each tab syncs for itself. Nothing in the data layer may assume a single shared connection.
+- **Being put in the background.** iOS suspends a page shortly after it leaves the screen. The sync connection drops and resumes when the app returns, as Instant's does now.
+- **The browser clearing storage.** Safari has been reported to clear a site's stored data after a week without a visit, with apps added to the home screen exempt. The write-ups are old and this is checked on real devices rather than assumed. It is the same exposure the app has today with Instant's offline cache. Synced data simply downloads again; only writes not yet uploaded are at risk, so the app asks the browser to keep its storage and the sync badge shows how many changes are waiting.
+
+**A browser that cannot run the app is told so.** A startup check for what PowerSync needs shows a plain screen naming what is missing, instead of a blank page. For someone on an old device this is the difference between a known limit and a mystery.
+
+**How it is checked.** Playwright runs only Chromium today. It gains Firefox and WebKit, and the sync and offline end-to-end tests run on all three, which covers engines the family does not use. Playwright's WebKit is not iOS Safari, so real devices are still needed: an iPad and an iPhone, each in a Safari tab, as a home-screen app and in Orion, and Firefox wherever the family uses it.
+
+**For other people running the app** the larger change is on the server, not the device: their deployment gains Postgres and the PowerSync service, and needs a public address for sync. The upgrade guide says so first.
 
 ## The phone
 
@@ -406,7 +432,7 @@ The third rule is real double work, so the gap between Phase 6 and cutover shoul
 - **The write policy** runs the ported contract and live-matrix cases against an in-process Postgres.
 - **The upload route** has integration tests for acceptance, refusal, atomic rollback, idempotent retry and the `5xx` path.
 - **The server services** run their existing integration suites against Postgres, including the finance concurrency cases.
-- **End to end**, Playwright runs against a compose profile with Postgres and PowerSync, seeded by the import script.
+- **End to end**, Playwright runs against a compose profile with Postgres and PowerSync, seeded by the import script, in Chromium, Firefox and WebKit.
 
 Of today's 153 test files, the 17 that mock `@/lib/db` are rewritten to mock the area's hooks and mutations as each area is converted, and the 10 that mock `@/lib/instant-admin` follow the server modules. The two contract suites and the live suite are ported, not deleted.
 
@@ -420,7 +446,7 @@ Phases 1 to 5 do not wait on one another beyond what is noted; Phase 6 needs all
 
 A throwaway branch. Its only output is findings written into this document's log, and the revisions to later phases that follow from them.
 
-- **S1 — Web.** PowerSync's web SDK in this Next 16 app under Turbopack, in development and in the standalone Docker build, with the service worker caching its assets. **(you)** Say which devices and browsers the family uses the web app on, and open the spike on each kind: does it load, work offline, and survive being closed and reopened?
+- **S1 — Web.** PowerSync's web SDK in this Next 16 app under Turbopack, in development and in the standalone Docker build, with the service worker caching its assets. Run it in Chromium, Firefox and WebKit under Playwright, in ordinary and private windows, with two tabs open. **(you)** Open it on an iPad and an iPhone — in a Safari tab, as a home-screen app, and in Orion — and in Firefox wherever the family uses it: does it load, work offline, and survive being closed and reopened? Leave one untouched for eight days and say whether its data is still there.
 - **S2 — Phone.** `@powersync/react-native` with op-sqlite on Expo 54 and the New Architecture. **(you)** Install the build.
 - **S3 — Service.** The self-hosted service with Postgres storage on the same server; `edition: 3` and the timestamp text a device actually receives; a token signed with an inline public key; a stream filtered by `auth.parameter('type')`; messaging membership through a join; a join table with a composite key and a built `id`.
 - **S4 — Latency.** Time from a write on one device to its appearance on another, and replay of writes queued offline. PowerSync publishes no figure, so this is measured.
@@ -505,7 +531,7 @@ For each area, in the Phase 1 order:
 - The area's parity cases, recorded from Instant and compared.
 - **(you)** Look over the area's screens on staging.
 
-Also in this phase: the web provider, worker assets, service-worker caching and storage-persistence request; the phone on op-sqlite with the `backend` field and the dual-backend build; presence's server module; the sync-status badge.
+Also in this phase: the web provider, worker assets and service-worker caching; storage chosen per browser with its fallbacks, the storage-persistence request and the unsupported-browser screen; Firefox and WebKit added to Playwright; the phone on op-sqlite with the `backend` field and the dual-backend build; presence's server module; the sync-status badge.
 
 Done when the staging deployment runs the whole app on an imported copy of the live data and the parity suite passes.
 
@@ -533,7 +559,7 @@ Keep the Instant app read-only and untouched until the August deadline, and down
 
 - Delete every Instant implementation in the data layer and on the server, the Instant packages, `instant.schema.ts`, `instant.perms.ts`, the flag, the `instant-auth-*` routes and the MMKV store.
 - Rewrite `CLAUDE.md` and `AGENTS.md`, which currently instruct every agent to build on InstantDB.
-- Rewrite the README's setup, add the upgrade guide for other people running the app, and note the PowerSync licence.
+- Rewrite the README's setup, add the upgrade guide for other people running the app, state the supported browsers and devices, and note the PowerSync licence.
 - Update the reference documents in `docs/`.
 - Close the roadmap items this makes moot: the hosted `choreManualStarts` deletion and the undeclared calendar attributes.
 - Ship the phone build without Instant.
@@ -544,7 +570,8 @@ Done when a search of the repository for `instant` finds only history: this docu
 
 | Risk | What limits it |
 | --- | --- |
-| A browser the family uses cannot run PowerSync's web SDK reliably | Tested first, on the real devices, in S1. If it fails the plan is reconsidered before anything specific to PowerSync is built |
+| A browser that runs the app today cannot run PowerSync's web SDK reliably | All three engines are tested first, in S1, with the family's iPads and iPhones by hand. If WebKit fails the plan is reconsidered before anything specific to PowerSync is built |
+| Someone running their own copy is on a browser nobody tested | The floor stays where Next 16 already puts it, the storage mode falls back twice, and a browser that still cannot run the app is told why |
 | Rewriting every screen's data access introduces regressions | Done one area at a time on the live app, each with rewritten tests and David's look, before the backend changes at all |
 | The PowerSync implementation of a read differs from the Instant one | The parity suite compares them over the real data, read by read |
 | A redesigned column loses or alters a value | The census resolves every odd value before its constraint exists; conversions are round-trip checked; money is compared envelope by envelope; Instant is kept intact afterwards |

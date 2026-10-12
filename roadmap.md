@@ -250,8 +250,8 @@ It gets there in two moves on `main`, so the app stays shippable ([how](docs/pow
 
 A throwaway branch; its output is findings in the specification's log ([Phase 0](docs/powersync-migration.md#phase-0--the-spike)).
 
-- [ ] **Web**: PowerSync's web SDK in this app under Turbopack, in development and in the Docker build, with the service worker caching its files.
-- [ ] **(you)** Say which devices and browsers the family uses the web app on, and open the spike on each kind — does it load, work offline, and survive being closed and reopened?
+- [ ] **Web**: PowerSync's web SDK in this app under Turbopack, in development and in the Docker build, with the service worker caching its files. Run it under Playwright in Chromium, Firefox and WebKit, in ordinary and private windows, with two tabs open.
+- [ ] **(you)** Open the spike on an iPad and an iPhone — in a Safari tab, as a home-screen app, and in Orion — and in Firefox wherever the family uses it. Does it load, work offline, and survive being closed and reopened? Leave one untouched for eight days and say whether its data is still there ([why the browser matters](docs/powersync-migration.md#browsers-and-devices)).
 - [ ] **Phone**: the React Native SDK on Expo 54. **(you)** Install the build.
 - [ ] **Service**: self-hosted, Postgres storage, `edition: 3` and the timestamp text a device receives, a token signed with our own key, the three streams, a join table.
 - [ ] **Latency**: measure one device to another, and the replay of writes queued offline.
@@ -327,7 +327,8 @@ On `main`, Instant still the only backend ([Phase 1](docs/powersync-migration.md
 - [ ] History.
 - [ ] Content.
 - [ ] Dashboards.
-- [ ] Web: the provider, worker files, service-worker caching, the storage-persistence request, the sync-status badge.
+- [ ] Web: the provider, worker files, service-worker caching, the sync-status badge.
+- [ ] Browsers: storage chosen per browser with its fallbacks, the storage-persistence request, a plain screen for a browser that cannot run the app, and Firefox and WebKit added to Playwright. The app must keep working for anyone it works for today.
 - [ ] Phone: op-sqlite, a `backend` field in `/api/mobile/config`, and a build that carries both backends.
 
 ### 7.7 Rehearsal and cutover
