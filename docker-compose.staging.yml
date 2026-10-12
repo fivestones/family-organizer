@@ -1,0 +1,29 @@
+# A second copy of the app, on PowerSync, beside the live one on the same machine and the same reverse proxy.
+# docs/powersync-staging.md walks through it. In short:
+#
+#   docker compose -p family-organizer-staging --env-file .env.staging \
+#     -f docker-compose.yml -f docker-compose.staging.yml --profile powersync up -d
+#
+# It runs the same image as the live app. What makes it staging is its own environment file, its own Postgres,
+# and DATA_BACKEND=powersync.
+services:
+  family-organizer:
+    container_name: family-organizer-staging
+    # Its own environment, never the live app's.
+    env_file: !override
+      - path: .env.staging
+        required: true
+    environment:
+      # Every page of a deployment on PowerSync leads to /sync, the part of the app that runs on it so far.
+      - DATA_BACKEND=powersync
+    depends_on: !override
+      fo-postgres:
+        condition: service_healthy
+
+  # What has been built on PowerSync so far needs neither file storage nor calendar sync.
+  family-organizer-calendar-sync-worker:
+    profiles: ["not-in-staging"]
+  minio:
+    profiles: ["not-in-staging"]
+  createbuckets:
+    profiles: ["not-in-staging"]

@@ -9,6 +9,8 @@ import type { InstallationConfig } from '@family-organizer/data/session/platform
 import { __resetParentElevationRateLimitForTests } from '@/lib/parent-elevation-rate-limit';
 import { getDb, type AppDatabase } from '@/lib/server/db';
 import { hashPinServer } from '@/lib/server/pin';
+import { createSession } from '@/lib/server/sessions';
+import { applyUpload } from '@/lib/server/upload';
 import { DANA, DISHES, ELI, FAY, LAUNDRY, PINS, seedFamily } from '@/test/utils/family-fixture';
 import { createTestPlatform, type TestPlatform } from '@/test/utils/session-platform';
 import { sql } from 'kysely';
@@ -159,6 +161,47 @@ describe('two kids claiming one chore with no network', () => {
         expect(await serverRows(`SELECT completed_by FROM chore_completions`)).toEqual([{ completed_by: ELI }]);
         // The refusal is Fay's. Eli's device is not sent it.
         expect(await eli.db().getAll(`SELECT 1 FROM write_refusals`)).toEqual([]);
+    });
+});
+
+describe('two uploads that reach the server at the same moment', () => {
+    // The in-process Postgres the other tests use has one connection and cannot run two transactions at once.
+    // This one can, so this is where a race for one row is run for real.
+    it('for the same up-for-grabs chore: one holds it and the other is refused, every time', async () => {
+        const eli = (await createSession(db, { type: 'kid', familyMemberId: ELI })).session;
+        const fay = (await createSession(db, { type: 'kid', familyMemberId: FAY })).session;
+        const claim = (who: string, round: number) => ({
+            uploadId: `race-${round}-${who.slice(-4)}-0000000000`,
+            dataGeneration: config.dataGeneration,
+            mutation: 'completeChore',
+            operations: [{ op: 'PUT' as const, table: 'chore_completions', id: `00000000-0000-4000-8000-0000000009${String(round).padStart(2, '0')}`, data: { chore_id: LAUNDRY, completed_by: who, date_due: `2026-04-${String(round + 1).padStart(2, '0')}`, completed_at: '2026-04-01T10:00:00.000Z', not_done: 0, allowance_awarded: 0 } }],
+        });
+
+        for (let round = 0; round < 20; round += 1) {
+            const [first, second] = await Promise.all([applyUpload(db, eli, claim(ELI, round)), applyUpload(db, fay, claim(FAY, round))]);
+            const outcomes = [first.outcome, second.outcome];
+            expect(outcomes.filter((outcome) => outcome.ok)).toHaveLength(1);
+            expect(outcomes.find((outcome) => !outcome.ok)).toMatchObject({ ok: false, reason: 'already_claimed' });
+        }
+        // Twenty days, twenty completions: never two for one day, never none.
+        expect(await serverRows(`SELECT count(*)::int AS n, count(DISTINCT date_due)::int AS days FROM chore_completions`)).toEqual([{ n: 20, days: 20 }]);
+        expect(await serverRows(`SELECT count(*)::int AS n FROM write_refusals WHERE reason = 'already_claimed'`)).toEqual([{ n: 20 }]);
+    });
+
+    it('for the same transaction sent twice at once: it is applied once', async () => {
+        const eli = (await createSession(db, { type: 'kid', familyMemberId: ELI })).session;
+        const upload = {
+            uploadId: 'race-same-transaction-0001',
+            dataGeneration: config.dataGeneration,
+            mutation: 'completeChore',
+            operations: [{ op: 'PUT' as const, table: 'chore_completions', id: '00000000-0000-4000-8000-000000000950', data: { chore_id: DISHES, completed_by: ELI, date_due: '2026-05-01', completed_at: '2026-05-01T10:00:00.000Z', not_done: 0, allowance_awarded: 0 } }],
+        };
+
+        const results = await Promise.all([applyUpload(db, eli, upload), applyUpload(db, eli, upload), applyUpload(db, eli, upload)]);
+
+        expect(results.map((result) => result.outcome)).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
+        expect(results.filter((result) => !result.replayed)).toHaveLength(1);
+        expect(await serverRows(`SELECT count(*)::int AS n FROM chore_completions`)).toEqual([{ n: 1 }]);
     });
 });
 

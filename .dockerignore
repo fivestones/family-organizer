@@ -1,3 +1,4 @@
 # Never part of an image: exports of the family's data, and agent worktrees.
 .migration
 .claude
+.env.staging

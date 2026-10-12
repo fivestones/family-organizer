@@ -31,6 +31,8 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+# The staging copy's own environment (docs/powersync-staging.md).
+.env.staging
 
 # vercel
 .vercel

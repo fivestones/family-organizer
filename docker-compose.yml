@@ -52,6 +52,8 @@ services:
       retries: 3
     networks:
       - default
+      # Where Postgres is, once the `powersync` profile is in use. Without the profile this network is empty.
+      - data
 
   # --- 1a. Apple Calendar Sync Worker ---
   family-organizer-calendar-sync-worker:
