@@ -292,7 +292,9 @@ On `main`, Instant still the only backend ([Phase 1](docs/powersync-migration.md
 
 [Phase 2](docs/powersync-migration.md#phase-2--the-schema-and-the-data).
 
-- [ ] The export script and its census, run read-only against the live app.
+- [x] The export script and its census, run read-only against the live app.
+  - Run on 12 October 2026: 64,895 rows, of which 61,111 are the server's calendar sync log; what a device would hold is about 3,800 rows. The data is clean. The census still has to compare nine of the ten references that are held twice ([log](docs/powersync-migration.md#implementation-log)).
+  - **(you)** For an official copy as well, sign the Instant CLI in and run `npx instant-cli@latest backup download --latest`. Instant keeps seven nightly backups.
 - [ ] The schema as SQL migrations, following [the design rules](docs/powersync-migration.md#design-rules), with the mapping from every Instant attribute and link to its column.
 - [ ] Postgres and PowerSync in `docker-compose.yml`, with the setup script for keys, roles and the publication.
 - [ ] The client schema and its indexes.

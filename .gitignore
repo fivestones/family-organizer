@@ -62,3 +62,6 @@ dist/
 
 mobile/eas.json
 
+
+# Exports of the family's data made for the move off InstantDB. Never commit these.
+.migration/
