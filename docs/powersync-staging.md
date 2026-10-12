@@ -85,7 +85,7 @@ These are the checks only a real device can make ([Phase 2](powersync-migration.
 - On an iPad and an iPhone, in Safari, as a home-screen app, and in Orion: does it load and show "Up to date"?
 - Tick a chore on one device. Does it appear on another, and how quickly?
 - Turn on airplane mode, tick a chore, turn it off. Does the badge go from "1 change waiting" back to "Up to date"?
-- **Close the browser completely, turn on airplane mode, and open the app.** Does it start? This is the one check nothing here could settle: Playwright's WebKit fails it, and Safari may not.
+- **Close the browser completely, turn on airplane mode, and open the app.** Does it start, show who was signed in and the day's chores, and take a tick? It does in Chromium and Firefox. On Safari nothing here could settle it: Playwright's WebKit cannot load any page offline, which says nothing about Safari either way.
 - Sign in as a parent over a kid, with "This is my own device" off, and sign out again. Does it go back to the kid?
 - Compare a few days' chores with the live app.
 

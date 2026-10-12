@@ -5,7 +5,7 @@
     "packages/*"
   ],
   "scripts": {
-    "sync:assets": "powersync-web copy-assets -o public",
+    "sync:assets": "node scripts/powersync/copy-web-assets.mjs",
     "predev": "npm run sync:assets",
     "dev": "next dev --turbo",
     "prebuild": "npm run sync:assets",

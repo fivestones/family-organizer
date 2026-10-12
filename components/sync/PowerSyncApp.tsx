@@ -7,6 +7,7 @@ import { SessionManager, type SessionSnapshot } from '@family-organizer/data/ses
 import type { InstallationConfig } from '@family-organizer/data/session/platform';
 import CountdownSettings from '@/components/CountdownSettings';
 import CurrencySettings from '@/components/CurrencySettings';
+import { PwaServiceWorkerRegistration } from '@/components/PwaServiceWorkerRegistration';
 import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/toaster';
 import { principalKey, setDataBackend, useFamilyMembers, type Principal } from '@/lib/data';
@@ -16,6 +17,7 @@ import { ChoreDayScreen } from './ChoreDayScreen';
 import { PersonSwitcher } from './PersonSwitcher';
 import { RefusalList } from './RefusalList';
 import { SyncBadge } from './SyncBadge';
+import { useOfflineStart } from './useOfflineStart';
 
 // The app on PowerSync, as far as it has been built: a day's chores and two of the settings panels, with real
 // sessions, a local database for each person, and sync (docs/powersync-migration.md, Phase 2).
@@ -230,6 +232,7 @@ function Ready({ manager, storageMode }: { manager: SessionManager; storageMode:
 
 export default function PowerSyncApp() {
     const [started, setStarted] = useState<Started | null>(null);
+    const startsOffline = useOfflineStart();
     useEffect(() => {
         let cancelled = false;
         void start().then((result) => !cancelled && setStarted(result));
@@ -239,7 +242,7 @@ export default function PowerSyncApp() {
     }, []);
 
     return (
-        <div className="h-full bg-background text-foreground" data-testid="powersync-app" data-phase={started?.phase ?? 'starting'}>
+        <div className="h-full bg-background text-foreground" data-testid="powersync-app" data-phase={started?.phase ?? 'starting'} data-starts-offline={startsOffline}>
             {!started ? (
                 <Centered>
                     <Loader2 className="h-6 w-6 animate-spin" aria-hidden />
@@ -266,6 +269,7 @@ export default function PowerSyncApp() {
                 </Centered>
             )}
             <Toaster />
+            <PwaServiceWorkerRegistration />
         </div>
     );
 }

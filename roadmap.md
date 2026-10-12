@@ -312,7 +312,7 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [x] The data layer on PowerSync for settings, units, the roster and the chore day, beside the Instant implementation; the chore day's types and its mutations.
   - Done, with the history tables a completion writes to. Strict null checks were turned on for the whole repository to make this possible, as a type-only change of its own.
 - [x] Web: the provider, worker files, storage chosen per browser, the configuration route that says which backend to use, the sync badge, the list of refusals, and a plain chore-day screen for staging.
-  - Done at `/sync` on 13 October 2026. `npm run test:sync:e2e` runs it in Chromium, Firefox and WebKit against the real sync service; all fifteen tests pass. The root layout now picks its frame by page, which touches every page of the live app. **(you)** Look the live app over once after deploying this: it should be exactly as it was.
+  - Done at `/sync` on 13 October 2026. `npm run test:sync:e2e` runs it in Chromium, Firefox and WebKit against the real sync service, two tabs and a start with no network among the tests. All pass, except that Playwright's WebKit cannot be made to load a page offline, so that one case is left to a real iPad. The root layout now picks its frame by page, which touches every page of the live app. **(you)** Look the live app over once after deploying this: it should be exactly as it was.
 - [ ] Phone: the same in a development build. **(you)** Install it.
 - [x] The tests of [what the slice must show](docs/powersync-migration.md#phase-2--one-slice-end-to-end): a completion crossing between devices, online and offline; a kid's hostile uploads refused; two claims for one chore; a lost answer not applied twice; a parent signed out with writes waiting; a session ending with a queue; two tabs.
   - `npm run test:sync:live` runs devices through the real PowerSync service in Docker, with two uploads racing for one row on a real Postgres. `npm run test:sync:e2e` runs the web client in three browsers, two tabs among them.
@@ -372,7 +372,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [ ] History.
 - [ ] Content.
 - [ ] Dashboards.
-- [ ] Browsers: the service worker caching PowerSync's files, the storage-persistence request, a plain screen for a browser that cannot run the app, Firefox and WebKit added to Playwright, and the oldest supported browsers tried once. The app must keep working for anyone it works for today.
+- [~] Browsers: the service worker caching PowerSync's files, the storage-persistence request, a plain screen for a browser that cannot run the app, Firefox and WebKit added to Playwright, and the oldest supported browsers tried once. The app must keep working for anyone it works for today.
+  - Done with the slice's web client, for `/sync`: all but the last. Left: the oldest supported browsers, tried once.
 
 ### 7.8 Rehearsal and cutover
 

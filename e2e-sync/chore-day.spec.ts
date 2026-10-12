@@ -84,6 +84,31 @@ test('a chore ticked with no network waits on the device and is sent when the ne
     await expect(page.getByTestId('sync-badge')).toContainText('Up to date', { timeout: 30_000 });
 });
 
+test('the app starts with no network from what it kept, and a chore ticked then is sent later', async ({ page, context, browserName }) => {
+    // Playwright's WebKit cannot load or reload any page while offline: it stops with "WebKit encountered an
+    // internal error" before the service worker is asked. That says nothing about Safari either way, so on WebKit
+    // this is a check for a real iPad and iPhone (docs/powersync-staging.md).
+    test.fixme(browserName === 'webkit', 'Playwright\'s WebKit cannot navigate while offline.');
+    await open(page);
+    await signInAs(page, 'Eli');
+    // The page says when the service worker has kept everything it needs to start again without a server.
+    await expect(page.getByTestId('powersync-app')).toHaveAttribute('data-starts-offline', 'true', { timeout: 30_000 });
+    await context.setOffline(true);
+
+    // Opened afresh, at the app's home address, with nothing to load it from but what was kept.
+    expect((await page.goto('/'))?.ok()).toBe(true);
+    await expect(page).toHaveURL(/\/sync$/);
+    await expect(page.getByTestId('person-button')).toContainText('Eli');
+    await expect(chore(page, 'Dishes')).toBeVisible();
+
+    await person(page, 'Dishes', ELI).click();
+    await expect(person(page, 'Dishes', ELI)).toHaveAttribute('data-done', 'true');
+    await expect(page.getByTestId('sync-badge')).toContainText('1 change waiting');
+
+    await context.setOffline(false);
+    await expect.poll(completions, { timeout: 30_000 }).toEqual([ELI]);
+});
+
 test('a parent steps in with a PIN, sees the settings, and is signed out back to the kid', async ({ page }) => {
     await open(page);
     await signInAs(page, 'Eli');
