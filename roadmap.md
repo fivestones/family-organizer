@@ -300,8 +300,9 @@ On `main`, Instant still the only backend ([Phase 1](docs/powersync-migration.md
 
 One feature on PowerSync, on staging, on a copy of the real data, built with the code that will ship ([Phase 2](docs/powersync-migration.md#phase-2--one-slice-end-to-end)): the household settings, the units, the family roster, a day's chores, and completing, undoing and claiming a chore.
 
-- [ ] The tables those touch, as SQL migrations, with their part of the mapping and the import, loaded from the export already taken.
-  - **(you)** One decision: 46 of the 357 chore completions belong to no chore, which the new table will not accept. The proposal is to leave them out of the table and keep them as a file beside the import ([log](docs/powersync-migration.md#implementation-log)). Say if they should be handled another way.
+- [x] The tables those touch, as SQL migrations, with their part of the mapping and the import, loaded from the export already taken.
+  - Done on 12 October 2026: six tables in `db/migrations/`, a migration runner, the mapping, the import and a verification that shares no code with the mapping. The real export loads and all fourteen checks pass ([log](docs/powersync-migration.md#implementation-log)).
+  - **(you)** One decision: 46 of the 357 chore completions belong to no chore, which the new table will not accept. The import leaves them out of the table and keeps them in a file beside its report. Say if they should be handled another way.
 - [ ] Postgres and the PowerSync service in a compose profile for staging, with the setup of keys, roles and the publication.
 - [ ] The app's own sessions for the kid, shared-kid and parent principals, the token route, and [one database per person](docs/powersync-migration.md#one-database-per-person): switching, the resting database, draining.
 - [ ] The `family` stream for those tables and the refusal streams; [the upload route](docs/powersync-migration.md#writes-the-upload-endpoint) with its list of what may be written, the row lock and the record of uploads; the write rules for those tables.

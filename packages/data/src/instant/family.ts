@@ -12,14 +12,15 @@ const numeric = (value: unknown): number | null => (typeof value === 'number' &&
 const flag = (value: unknown): boolean | null => (typeof value === 'boolean' ? value : null);
 
 /**
- * Instant's date type hands back whatever was stored: a date string or epoch milliseconds.
- * Either becomes an ISO 8601 instant; anything that is not a date becomes `null` rather than being passed off as one.
+ * A calendar day, `YYYY-MM-DD`. Instant's date type hands back whatever was stored — a day, the instant that day
+ * starts in UTC, or epoch milliseconds — and the app has always read the UTC day out of it.
+ * Anything that is not a date becomes `null` rather than being passed off as one.
  */
-function isoInstant(value: unknown): string | null {
+function utcDay(value: unknown): string | null {
     if (typeof value !== 'string' && typeof value !== 'number') return null;
     if (value === '') return null;
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 }
 
 function photoUrls(value: unknown): MemberPhotoUrls | null {
@@ -42,8 +43,8 @@ export function toFamilyMember(row: any): FamilyMember {
         allowanceAmount: numeric(row.allowanceAmount),
         allowanceCurrency: text(row.allowanceCurrency),
         allowanceRrule: text(row.allowanceRrule),
-        allowanceStartDate: isoInstant(row.allowanceStartDate),
-        allowancePayoutDelayDays: numeric(row.allowancePayoutDelayDays),
+        allowanceStartDate: utcDay(row.allowanceStartDate),
+        allowancePayoutDelayDays: numeric(row.allowancePayoutDelayDays) ?? 0,
         allowanceConfig: row.allowanceConfig && typeof row.allowanceConfig === 'object' ? row.allowanceConfig : null,
         lastDisplayCurrency: text(row.lastDisplayCurrency),
         viewShowChoreDescriptions: flag(row.viewShowChoreDescriptions),

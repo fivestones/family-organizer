@@ -50,8 +50,8 @@ describe('the family roster, over Instant', () => {
             allowanceAmount: null,
             allowanceCurrency: null,
             allowanceRrule: null,
-            allowanceStartDate: '2026-01-02T03:04:05.000Z',
-            allowancePayoutDelayDays: null,
+            allowanceStartDate: '2026-01-02',
+            allowancePayoutDelayDays: 0,
             allowanceConfig: null,
             lastDisplayCurrency: null,
             viewShowChoreDescriptions: null,
@@ -67,10 +67,10 @@ describe('the family roster, over Instant', () => {
         expect(ada.hasPin).toBeNull();
         expect(ada.sortOrder).toBe(1);
         expect(ada.allowanceAmount).toBe(5);
-        expect(ada.allowanceStartDate).toBe('2026-02-03T00:00:00.000Z');
+        expect(ada.allowanceStartDate).toBe('2026-02-03');
     });
 
-    it('turns a stored date into an ISO instant, and anything that is not a date into null', () => {
+    it('turns a stored date into a day, and anything that is not a date into null', () => {
         bind({
             familyMembers: [
                 { id: 'a', name: 'A', order: 0, allowanceStartDate: '2026-02-03' },
@@ -81,7 +81,7 @@ describe('the family roster, over Instant', () => {
 
         const dates = renderHook(() => useFamilyMembers()).result.current.data.map((member) => member.allowanceStartDate);
 
-        expect(dates).toEqual(['2026-02-03T00:00:00.000Z', null, null]);
+        expect(dates).toEqual(['2026-02-03', null, null]);
     });
 
     it('never hands the PIN hash to a screen', () => {

@@ -28,9 +28,10 @@ export interface FamilyMember {
     allowanceCurrency: string | null;
     /** An RFC 5545 recurrence rule for when the allowance is paid. */
     allowanceRrule: string | null;
-    /** ISO 8601. */
+    /** The day the allowance schedule starts from, `YYYY-MM-DD`. */
     allowanceStartDate: string | null;
-    allowancePayoutDelayDays: number | null;
+    /** Days between the end of a period and its payout. Zero when none was set. */
+    allowancePayoutDelayDays: number;
     allowanceConfig: Record<string, unknown> | null;
 
     // The member's own preferences

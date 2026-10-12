@@ -11,6 +11,19 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-12 — The slice's first tables exist, and the family's real data loads into them and verifies.**
+  `db/migrations/0001_family_and_chores.sql` creates six tables: settings, unit definitions, family members, chores, who each chore is assigned to, and completions. `db/migrate.mjs` applies migrations in order, each once, each in a transaction with the row that records it, under an advisory lock. `scripts/migrate/mapping.mjs` says how each Instant entity becomes rows, `import.mjs` loads them in one transaction, and `verify.mjs` checks the result against the export.
+  **What the design changed, table by table.** A setting's name is its key. A chore's start is a day, and so is a member's allowance start; both were stored as the instant that day begins in UTC. A chore's excluded days are an array of days. A member's PIN hash stays on the server beside a generated `has_pin`.
+  *When in the day a chore is due* was held three ways at once: a mode, a bucket, and a configuration object, under several generations of names, which the app resolved on every read. It is resolved once, at import, into a mode and the few columns that mode uses, with checks that a column belonging to another mode is empty. A chore due after another chore refers to it by a real foreign key.
+  *Who a chore is assigned to* was one link, and the order of its rotation a separate entity. On the live data every rotation is exactly its chore's assignees, in an order, so they are one table with a position.
+  *A completion* had a `completed` flag beside the time it was completed. Not one of the 357 has the flag without the time or the time without the flag, so the flag is gone: a completion is done when it has a time, marked not done when it says so, and otherwise cleared, and a check keeps the first two apart. One completion per chore, person and day is a constraint; the data already obeys it.
+  Nine chore attributes the schema declared were never stored and are not carried, nor is `chores.done`, which is written false at creation and never read.
+  **The import on the real export.** 5 settings, 1 unit, 10 members, 40 chores, 117 assignments and 311 completions loaded. The 46 completions with no chore were held back to a file with the reason, as proposed below, and nothing else was. The only conversion that changed how a value is held was the theme's bare word becoming JSON. Nothing stored went unmapped: the mapping reports any attribute it was never told about, so one added later cannot be lost by oversight.
+  **The verification shares no code with the mapping.** It works out what to expect from the export's raw files: every row field by field, who is assigned to each chore and in what rotation order, each completion's chore and person, and how many chores each person has done. For timing it asks the app's own resolver in `shared-core` whether it reads the same rule from the new columns as from the old attributes; for all 40 chores it does. All fourteen checks passed on the real data. Nine tests alter a good import, one way each, and assert that the matching check fails, since a check that cannot fail shows nothing.
+  **Two types in the data layer changed to match.** A member's `allowanceStartDate` is now a day and `allowancePayoutDelayDays` a number that is zero when unset. No converted screen reads either yet.
+  **Not yet seen on a device.** The schema uses two Postgres types the spike did not sync: `time`, for times of day, and an array of days. PowerSync documents both as reaching a device as text; that is to be seen when the stream is built, and either is easy to change before anything depends on it.
+  Tests: 23 for the migration, import and verification, against PGlite, on invented data. The suite is 1,132 passing. The import ran against a throwaway database in the spike's local Postgres, which was dropped afterwards. `pg` is a new dependency and `@electric-sql/pglite` a new development one.
+
 - **2026-10-12 — The plan revised after a review: a database for each person, every upload recorded once, money written only by the server, and one slice built end to end before more screens move.**
   David had a second reviewer read this plan, the spike and the first data-layer code. It found three faults in the settings adapter, and a number of statements here that were inferences written as fact. The adapter was fixed the same day, with a test reproducing each fault: it now knows when a setting is absent as well as where it is, follows what live reads show, runs one name's saves in order, and saves an unset setting while offline. Each of the statements was put to an experiment on the spike before this revision was written. The scripts are `spike/service/client/spike-review.mjs`, `spike/service/client/upload.mjs` and `spike/web/review.mjs` on the spike branch.
   **A database for each person works, and removes the problem instead of managing it.** A kid's own database filled in about a tenth of a second on Node. It held no parent-only row, only that kid's thread, and nothing of a write the parent had not yet sent. The kid's write uploaded as the kid. The parent's database, reopened in the background, uploaded the parent's write as the parent and was then deleted. In a browser, two tabs signed in as two different people, each with its own database, stayed apart in all three engines: the kid's tab saw one thread and no parent-only rows, the parent's saw both threads, and a write a kid may not make was refused from the kid's tab and accepted from the parent's.
@@ -242,10 +255,10 @@ The calendar-sync tables, `shortcut_tokens`, `push_devices`, `auth_sessions`, `s
 
 ### Where the schema lives
 
-- **Postgres**: hand-written SQL migrations in `db/migrations/`, run when the app container starts, under an advisory lock.
+- **Postgres**: hand-written SQL migrations in `db/migrations/`, applied by `db/migrate.mjs` when the app container starts, under an advisory lock.
 - **The device**: a checked-in TypeScript client schema, first generated with PowerSync's CLI (`powersync generate schema`, which works against a self-hosted instance — [CLI](https://docs.powersync.com/tools/cli)) and then maintained with its indexes. A test fails if its columns drift from the sync configuration.
 - **Indexes on the device** are declared for the columns a read filters and joins on, composite where a read filters on two together: a day's completions are found by chore and day. They are chosen from the query plans of the real reads, not by rule. PowerSync's ordinary client tables are views over JSON with basic index support; if a read proves too slow on a phone, [raw tables](https://docs.powersync.com/client-sdks/advanced/raw-tables) — real SQLite tables — are the remedy for that table.
-- **The mapping**: `scripts/migrate/mapping.ts` records, for every Instant attribute and link, the column it becomes, the conversion applied, and what a delete does to it. The import uses it, so it is also the written record of every design choice above.
+- **The mapping**: `scripts/migrate/mapping.mjs` records, for every Instant attribute and link, the column it becomes and the conversion applied, and lists what is deliberately left behind. The import uses it, so it is also the written record of every design choice above. It reads neither a database nor `instant.schema.ts`, so it goes on working from an export or a backup after Instant has left the repository.
 
 ## The data layer
 
@@ -554,7 +567,7 @@ New environment variables: `DATABASE_URL`, `POWERSYNC_URL`, `POWERSYNC_JWT_PRIVA
 
 ## Moving the data
 
-`scripts/migrate/export.mjs` reads every entity through the Admin SDK, page by page, and writes one file per entity. It can only read: the SDK is wrapped so that nothing in the file can reach a write. `scripts/migrate/census.mjs` reports what the export holds against what the schema declares. `scripts/migrate/import.mjs` applies the mapping and loads Postgres.
+`scripts/migrate/export.mjs` reads every entity through the Admin SDK, page by page, and writes one file per entity. It can only read: the SDK is wrapped so that nothing in the file can reach a write. `scripts/migrate/census.mjs` reports what the export holds against what the schema declares. `scripts/migrate/import.mjs` applies the mapping and loads Postgres in one transaction, and `scripts/migrate/verify.mjs` checks the result. A row the new schema cannot hold is never dropped: it is written to a file beside the import's report, with the reason.
 
 The export uses the layout of Instant's own nightly backups, so the import reads either. Someone running their own copy can migrate from a backup downloaded with Instant's CLI and never run the export at all.
 
@@ -695,7 +708,7 @@ One feature on PowerSync, on a staging deployment, on a copy of the family's rea
 
 **What that takes**, each piece in the form the later phases extend:
 
-- The tables those reads and writes touch, as migrations, with their part of the mapping and the import, loaded from the export already taken.
+- The tables those reads and writes touch, as migrations, with their part of the mapping and the import, loaded from the export already taken. *Done on 12 October 2026.*
 - Postgres and the PowerSync service in a compose profile for staging, with the setup of keys, roles and the publication.
 - The app's own sessions for the kid, shared-kid and parent principals; the token route; and [one database per person](#one-database-per-person), with switching, the resting database and draining.
 - The `family` stream for those tables, and the refusal streams.
