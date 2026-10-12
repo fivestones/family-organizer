@@ -12,6 +12,7 @@ export const TABLES = [
     'routines', 'routine_steps', 'routine_marker_statuses', 'countdown_runs', 'history_events', 'history_event_members',
     'grade_types', 'task_series', 'tasks', 'task_attachments', 'task_response_fields', 'task_updates', 'task_update_attachments',
     'task_response_field_values',
+    'allowance_envelopes', 'envelope_balances', 'allowance_transactions', 'exchange_rates',
 ];
 
 /** The columns written to each table. One the database fills in for itself, such as family_members.has_pin, is not among them. */
@@ -23,6 +24,7 @@ export const COLUMNS = {
         'allowance_amount', 'allowance_currency', 'allowance_rrule', 'allowance_start_date', 'allowance_payout_delay_days', 'allowance_config',
         'last_display_currency', 'view_show_chore_descriptions', 'view_show_task_details',
         'message_quiet_hours_enabled', 'message_quiet_hours_start', 'message_quiet_hours_end', 'message_digest_mode', 'message_digest_window_minutes',
+        'default_envelope_id',
     ],
     chores: [
         'id', 'title', 'description', 'start_date', 'rrule', 'exdates', 'pause_state',
@@ -75,6 +77,13 @@ export const COLUMNS = {
         'id', 'update_id', 'field_id', 'rich_text_content', 'file_url', 'file_name', 'file_type', 'file_size_bytes', 'thumbnail_url', 'created_at',
         'updated_at',
     ],
+    allowance_envelopes: ['id', 'family_member_id', 'name', 'description', 'goal_amount', 'goal_currency', 'archived_at'],
+    envelope_balances: ['envelope_id', 'currency', 'amount'],
+    allowance_transactions: [
+        'id', 'envelope_id', 'source_envelope_id', 'destination_envelope_id', 'transaction_type', 'amount', 'currency', 'description', 'created_by',
+        'distribution_key', 'created_at',
+    ],
+    exchange_rates: ['base_currency', 'target_currency', 'rate', 'fetched_at'],
 };
 
 /** Columns holding a JSON document. The importer hands these to Postgres as JSON text, whatever the value's shape. */
@@ -108,6 +117,13 @@ export const LEFT_BEHIND = {
     },
     routineMarkerStatuses: {
         key: 'The day and the marker are the key.',
+    },
+    allowanceTransactions: {
+        createdBy: 'The Instant principal that wrote it. The member who did is created_by.',
+        updatedAt: 'A ledger row is never changed.',
+    },
+    exchangeRates: {
+        pairKey: 'The two currencies are the key.',
     },
     tasks: {
         isCompleted: 'A task is done when its workflow state is done.',
@@ -287,6 +303,8 @@ function familyMembers(rowsOf, out) {
             message_quiet_hours_end: timeOfDay(row.messageQuietHoursEnd, out.notes, 'familyMembers.messageQuietHoursEnd'),
             message_digest_mode: oneOf(row.messageDigestMode, ['immediate', 'digest']),
             message_digest_window_minutes: Number.isInteger(row.messageDigestWindowMinutes) && row.messageDigestWindowMinutes > 0 ? row.messageDigestWindowMinutes : null,
+            // Filled in with the envelopes, below.
+            default_envelope_id: null,
         });
     }
 }
@@ -538,6 +556,84 @@ const HISTORY_DOMAINS = ['tasks', 'chores', 'calendar', 'finance', 'messages', '
  * The record of what happened. Instant held who did it twice, as a link and as an id beside it; here it is one
  * column. Who it affected was a many-to-many link and is a table of its own.
  */
+// ---- Money ----
+
+function finance(rowsOf, out) {
+    const members = new Map(out.tables.family_members.map((row) => [row.id, row]));
+    const ownerOf = new Map(pairs(rowsOf, ['allowanceEnvelopes', 'familyMember'], ['familyMembers', 'allowanceEnvelopes']));
+    const envelopes = new Set();
+    for (const row of rowsOf('allowanceEnvelopes')) {
+        const owner = members.has(ownerOf.get(row.id)) ? ownerOf.get(row.id) : null;
+        // An envelope whose member has left is kept, with nobody's name on it, because its ledger is.
+        if (!owner) count(out.notes, 'allowanceEnvelopes: its member is gone, kept as nobody\'s');
+        const archivedAt = instant(row.archivedAt, out.notes, 'allowanceEnvelopes.archivedAt');
+        envelopes.add(row.id);
+        out.tables.allowance_envelopes.push({
+            id: row.id,
+            family_member_id: owner,
+            name: trimmed(row.name) || 'Untitled',
+            description: optionalText(row.description),
+            goal_amount: optionalNumber(row.goalAmount),
+            goal_currency: optionalText(row.goalCurrency),
+            archived_at: archivedAt,
+        });
+
+        // One default for each member, where a flag on every envelope allowed several. The app takes the first it finds.
+        if (row.isDefault === true && owner && !archivedAt) {
+            const member = members.get(owner);
+            if (member.default_envelope_id) count(out.notes, 'allowanceEnvelopes.isDefault: a member\'s second default, cleared');
+            else member.default_envelope_id = row.id;
+        }
+
+        for (const [currency, amount] of Object.entries(isRecord(row.balances) ? row.balances : {})) {
+            if (!trimmed(currency) || optionalNumber(amount) === null) { hold(out, 'allowanceEnvelopes', { id: row.id, balance: { [currency]: amount } }, 'A balance that is not an amount of a currency.'); continue; }
+            out.tables.envelope_balances.push({ envelope_id: row.id, currency: trimmed(currency), amount });
+        }
+    }
+
+    const envelopeOf = new Map(pairs(rowsOf, ['allowanceTransactions', 'envelope'], ['allowanceEnvelopes', 'transactions']));
+    const sourceOf = new Map(pairs(rowsOf, ['allowanceTransactions', 'sourceEnvelope'], ['allowanceEnvelopes', 'outgoingTransfers']));
+    const destinationOf = new Map(pairs(rowsOf, ['allowanceTransactions', 'destinationEnvelope'], ['allowanceEnvelopes', 'incomingTransfers']));
+    const keys = new Set();
+    for (const row of rowsOf('allowanceTransactions')) {
+        const createdAt = instant(row.createdAt, out.notes, 'allowanceTransactions.createdAt');
+        if (!envelopes.has(envelopeOf.get(row.id))) { hold(out, 'allowanceTransactions', row, 'It is in no envelope.'); continue; }
+        if (optionalNumber(row.amount) === null || !trimmed(row.currency)) { hold(out, 'allowanceTransactions', row, 'It is not an amount of a currency.'); continue; }
+        if (!createdAt) { hold(out, 'allowanceTransactions', row, 'It does not say when it happened.'); continue; }
+        const key = optionalText(row.distributionKey);
+        if (key && keys.has(key)) { hold(out, 'allowanceTransactions', row, 'Another payout already has its key.'); continue; }
+        if (key) keys.add(key);
+        for (const [label, linked] of [['sourceEnvelope', sourceOf.get(row.id)], ['destinationEnvelope', destinationOf.get(row.id)]]) {
+            if (linked && !envelopes.has(linked)) count(out.notes, `allowanceTransactions.${label}: an envelope that no longer exists, left empty`);
+        }
+        out.tables.allowance_transactions.push({
+            id: row.id,
+            envelope_id: envelopeOf.get(row.id),
+            source_envelope_id: envelopes.has(sourceOf.get(row.id)) ? sourceOf.get(row.id) : null,
+            destination_envelope_id: envelopes.has(destinationOf.get(row.id)) ? destinationOf.get(row.id) : null,
+            transaction_type: trimmed(row.transactionType) || 'unknown',
+            amount: row.amount,
+            currency: trimmed(row.currency),
+            description: typeof row.description === 'string' ? row.description : '',
+            created_by: members.has(row.createdByFamilyMemberId) ? row.createdByFamilyMemberId : null,
+            distribution_key: key,
+            created_at: createdAt,
+        });
+    }
+
+    // One rate for each pair of currencies: the one fetched last.
+    const rates = new Map();
+    for (const row of rowsOf('exchangeRates')) {
+        const fetchedAt = instant(row.lastFetchedTimestamp, out.notes, 'exchangeRates.lastFetchedTimestamp');
+        const [base, target] = [trimmed(row.baseCurrency), trimmed(row.targetCurrency)];
+        if (!base || !target || optionalNumber(row.rate) === null || !fetchedAt) { hold(out, 'exchangeRates', row, 'It is not a rate between two currencies at a time.'); continue; }
+        const current = rates.get(`${base}\n${target}`);
+        if (current) hold(out, 'exchangeRates', fetchedAt > current.next.fetched_at ? current.row : row, 'A later rate for the same pair is kept.');
+        if (!current || fetchedAt > current.next.fetched_at) rates.set(`${base}\n${target}`, { row, next: { base_currency: base, target_currency: target, rate: row.rate, fetched_at: fetchedAt } });
+    }
+    for (const { next } of rates.values()) out.tables.exchange_rates.push(next);
+}
+
 // ---- Task series ----
 
 const WORKFLOW_STATES = ['not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'];
@@ -848,6 +944,9 @@ function unmappedAttributes(rowsOf, out) {
             'occurredAt', 'domain', 'actionType', 'summary', 'source', 'actorFamilyMemberId', 'choreId', 'taskSeriesId', 'taskId', 'calendarItemId',
             'allowanceTransactionId', 'messageThreadId', 'messageId', 'scheduledForDate', 'restoreTiming', 'metadata',
         ],
+        allowanceEnvelopes: ['name', 'description', 'goalAmount', 'goalCurrency', 'archivedAt', 'isDefault', 'balances'],
+        allowanceTransactions: ['transactionType', 'amount', 'currency', 'description', 'createdByFamilyMemberId', 'distributionKey', 'createdAt'],
+        exchangeRates: ['baseCurrency', 'targetCurrency', 'rate', 'lastFetchedTimestamp'],
         gradeTypes: ['name', 'kind', 'lowValue', 'highValue', 'lowLabel', 'highLabel', 'steps', 'isDefault', 'order', 'createdAt', 'updatedAt'],
         taskSeries: [
             'name', 'description', 'dependsOnSeriesId', 'startDate', 'targetEndDate', 'plannedEndDate', 'baselineDayBreakCount', 'workAheadAllowed',
@@ -895,6 +994,8 @@ const LINK_LABELS = {
     routineSteps: ['routine', 'chore'],
     // An event's attachments are a table of their own, mapped with the history area.
     historyEvents: ['actor', 'affectedFamilyMembers', 'attachments', 'message'],
+    allowanceEnvelopes: ['familyMember', 'transactions', 'incomingTransfers', 'outgoingTransfers'],
+    allowanceTransactions: ['envelope', 'sourceEnvelope', 'destinationEnvelope'],
     gradeTypes: ['taskUpdates'],
     taskSeries: ['familyMember', 'scheduledActivity', 'tasks'],
     tasks: ['taskSeries', 'parentTask', 'subTasks', 'subsequentTasks', 'attachments', 'responseFields', 'updates'],
@@ -923,6 +1024,7 @@ export function buildRows(rowsOf) {
     historyEvents(rowsOf, out);
     gradeTypes(rowsOf, out);
     taskSeries(rowsOf, out);
+    finance(rowsOf, out);
     unmappedAttributes(rowsOf, out);
     return out;
 }

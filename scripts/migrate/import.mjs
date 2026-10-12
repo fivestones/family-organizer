@@ -35,6 +35,8 @@ export function readExport(exportDir) {
 export async function loadTables(db, tables, { replace = false } = {}) {
     await db.exec('BEGIN');
     try {
+        // A member names their default envelope and the envelope names its member, so neither can be checked until both are in.
+        await db.exec('SET CONSTRAINTS ALL DEFERRED');
         if (replace) await db.exec(`TRUNCATE ${[...TABLES].reverse().join(', ')} CASCADE`);
         for (const table of TABLES) {
             const { rows: existing } = await db.query(`SELECT 1 FROM ${table} LIMIT 1`);

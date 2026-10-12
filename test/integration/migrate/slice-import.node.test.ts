@@ -25,7 +25,11 @@ type Rows = Record<string, Array<Record<string, unknown>>>;
 
 /** A small family as Instant would export it, with each link on the side Instant's schema declares it forward. */
 function family(): Rows {
-    return withTaskSeries({
+    return withMoney(withTaskSeries(base()));
+}
+
+function base(): Rows {
+    return ({
         settings: [
             { id: id(100), name: 'dashboardTheme', value: 'dark' },
             { id: id(101), name: 'enabledCurrencies', value: '["USD","STARS"]' },
@@ -72,6 +76,33 @@ function family(): Rows {
             { id: id(43), completed: false, dateDue: '2026-01-05', dateCompleted: null, allowanceAwarded: false },
         ],
     });
+}
+
+/**
+ * Ben saves in dollars and stars and has a second, empty envelope; Cal has one. Ada paid fifteen dollars into Ben's
+ * savings, Ben passed two and a half on to Cal, and Cal spent a little under half a dollar: an amount with a part of
+ * a cent in it, which must come through as it is.
+ */
+function withMoney(rows: Rows): Rows {
+    const made = { createdBy: 'instant-user-ada', createdByFamilyMemberId: ADA };
+    const entry = (n: number, minute: number, fields: Record<string, unknown>) => ({ id: id(n), createdAt: `2026-01-05T09:${String(minute).padStart(2, '0')}:00.000Z`, updatedAt: `2026-01-05T09:${String(minute).padStart(2, '0')}:00.000Z`, distributionKey: null, ...made, ...fields });
+    return {
+        ...rows,
+        allowanceEnvelopes: [
+            { id: id(200), name: 'Savings', isDefault: true, balances: { USD: 12.5, STARS: 3 }, goalAmount: 50, goalCurrency: 'USD', archivedAt: null, familyMember: BEN },
+            { id: id(201), name: 'Spending', isDefault: false, balances: {}, goalAmount: null, goalCurrency: null, archivedAt: null, familyMember: BEN },
+            { id: id(202), name: 'Savings', isDefault: true, balances: { USD: 2.005 }, archivedAt: null, familyMember: CAL },
+        ],
+        allowanceTransactions: [
+            entry(210, 0, { transactionType: 'init', amount: 0, currency: 'USD', description: 'Initial balance', envelope: id(200) }),
+            entry(211, 1, { transactionType: 'deposit', amount: 15, currency: 'USD', description: 'Birthday', envelope: id(200), destinationEnvelope: id(200) }),
+            entry(212, 2, { transactionType: 'transfer-out-person', amount: -2.5, currency: 'USD', description: 'To Cal', envelope: id(200), sourceEnvelope: id(200), destinationEnvelope: id(202), createdBy: 'instant-user-ben', createdByFamilyMemberId: BEN }),
+            entry(213, 2, { transactionType: 'transfer-in-person', amount: 2.5, currency: 'USD', description: 'From Ben', envelope: id(202), sourceEnvelope: id(200), destinationEnvelope: id(202), createdBy: 'instant-user-ben', createdByFamilyMemberId: BEN }),
+            entry(214, 3, { transactionType: 'withdrawal', amount: -0.495, currency: 'USD', description: 'Sweets', envelope: id(202) }),
+            entry(215, 4, { transactionType: 'allowance-distribution', amount: 3, currency: 'STARS', description: 'Allowance', envelope: id(200), destinationEnvelope: id(200), distributionKey: `${BEN}:2026-01-01:2026-01-07:STARS`, createdBy: null, createdByFamilyMemberId: null }),
+        ],
+        exchangeRates: [{ id: id(220), baseCurrency: 'USD', targetCurrency: 'NPR', pairKey: 'USD:NPR', rate: 133.5, lastFetchedTimestamp: '2026-01-05T00:00:00.000Z' }],
+    };
 }
 
 const at = (iso: string) => Date.parse(iso);
@@ -162,6 +193,7 @@ describe('importing an export', () => {
             routines: 1, routine_steps: 2, routine_marker_statuses: 1, countdown_runs: 1, history_events: 3, history_event_members: 2,
             grade_types: 2, task_series: 1, tasks: 4, task_attachments: 1, task_response_fields: 1, task_updates: 2, task_update_attachments: 1,
             task_response_field_values: 1,
+            allowance_envelopes: 3, envelope_balances: 3, allowance_transactions: 6, exchange_rates: 1,
         });
         expect(report.heldBack).toEqual({});
         expect(report.storedButNotMapped).toEqual({});
@@ -338,6 +370,57 @@ describe('importing an export', () => {
         expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
     });
 
+    it('carries money as it is: each envelope, what it holds in each currency, and every ledger row', async () => {
+        await importInto(db, family());
+
+        expect((await db.query(`SELECT envelope_id, currency, amount FROM envelope_balances ORDER BY envelope_id, currency`)).rows).toEqual([
+            { envelope_id: id(200), currency: 'STARS', amount: 3 }, { envelope_id: id(200), currency: 'USD', amount: 12.5 },
+            // A part of a cent stays a part of a cent.
+            { envelope_id: id(202), currency: 'USD', amount: 2.005 },
+        ]);
+        expect(await one(db, `SELECT family_member_id, name, goal_amount, goal_currency, archived_at FROM allowance_envelopes WHERE id = $1`, [id(200)])).toEqual({ family_member_id: BEN, name: 'Savings', goal_amount: 50, goal_currency: 'USD', archived_at: null });
+        expect(await one(db, `SELECT envelope_id, source_envelope_id, destination_envelope_id, transaction_type, amount, currency, created_by FROM allowance_transactions WHERE id = $1`, [id(212)])).toEqual({
+            envelope_id: id(200), source_envelope_id: id(200), destination_envelope_id: id(202), transaction_type: 'transfer-out-person', amount: -2.5, currency: 'USD', created_by: BEN,
+        });
+        expect((await one(db, `SELECT amount FROM allowance_transactions WHERE id = $1`, [id(214)])).amount).toBe(-0.495);
+        expect(await one(db, `SELECT created_by, distribution_key FROM allowance_transactions WHERE id = $1`, [id(215)])).toEqual({ created_by: null, distribution_key: `${BEN}:2026-01-01:2026-01-07:STARS` });
+        expect(await one(db, `SELECT rate, fetched_at FROM exchange_rates WHERE base_currency = 'USD' AND target_currency = 'NPR'`)).toMatchObject({ rate: 133.5 });
+    });
+
+    it('keeps which envelope is a member\'s default on the member, one each, and only ever one of their own', async () => {
+        const rows = family();
+        // Ben's second envelope is marked default as well, which a flag on every envelope allowed.
+        rows.allowanceEnvelopes[1].isDefault = true;
+        const { rowsOf, report } = await importInto(db, rows);
+
+        expect(report.conversions['allowanceEnvelopes.isDefault: a member\'s second default, cleared']).toBe(1);
+        expect((await db.query(`SELECT id, default_envelope_id AS chosen FROM family_members ORDER BY sort_order`)).rows).toEqual([{ id: ADA, chosen: null }, { id: BEN, chosen: id(200) }, { id: CAL, chosen: id(202) }]);
+        expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
+        // Ben may choose his other envelope, and never Cal's.
+        await db.query(`UPDATE family_members SET default_envelope_id = $1 WHERE id = $2`, [id(201), BEN]);
+        await expect(db.query(`UPDATE family_members SET default_envelope_id = $1 WHERE id = $2`, [id(202), BEN])).rejects.toThrow();
+    });
+
+    it('keeps the ledger whatever else goes: an envelope cannot be deleted, and one whose member has left stays', async () => {
+        const rows = family();
+        // An envelope left by someone no longer in the family, with the row that opened it.
+        rows.allowanceEnvelopes.push({ id: id(203), name: 'Savings', isDefault: true, balances: {}, archivedAt: null });
+        rows.allowanceTransactions.push({ id: id(216), transactionType: 'init', amount: 0, currency: 'USD', description: 'Initial balance', createdAt: '2025-06-01T09:00:00.000Z', updatedAt: '2025-06-01T09:00:00.000Z', createdBy: null, createdByFamilyMemberId: id(9), envelope: id(203) });
+        const { rowsOf, report } = await importInto(db, rows);
+
+        expect(report.heldBack).toEqual({});
+        expect(report.conversions['allowanceEnvelopes: its member is gone, kept as nobody\'s']).toBe(1);
+        expect(await one(db, `SELECT e.family_member_id, t.created_by FROM allowance_envelopes e JOIN allowance_transactions t ON t.envelope_id = e.id WHERE e.id = $1`, [id(203)])).toEqual({ family_member_id: null, created_by: null });
+        expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
+
+        await expect(db.query(`DELETE FROM allowance_envelopes WHERE id = $1`, [id(200)])).rejects.toThrow();
+        await expect(db.query(`INSERT INTO allowance_transactions (id, envelope_id, transaction_type, amount, currency, distribution_key) VALUES ($1, $2, 'allowance-distribution', 3, 'STARS', $3)`, [id(217), id(200), `${BEN}:2026-01-01:2026-01-07:STARS`])).rejects.toThrow();
+        // When Cal leaves, Cal's envelope and its ledger stay, and Ben's transfer still says where it went.
+        await db.exec(`DELETE FROM chore_completions; DELETE FROM family_members WHERE id = '${CAL}'`);
+        expect(await one(db, `SELECT family_member_id FROM allowance_envelopes WHERE id = $1`, [id(202)])).toEqual({ family_member_id: null });
+        expect((await one(db, `SELECT destination_envelope_id FROM allowance_transactions WHERE id = $1`, [id(212)])).destination_envelope_id).toBe(id(202));
+    });
+
     it('holds a completion done, marked not done, or cleared, and never two of those at once', async () => {
         await importInto(db, family());
         const state = async (completionId: string) => one(db, `SELECT completed_at IS NOT NULL AS done, not_done, allowance_awarded AS awarded, marked_by FROM chore_completions WHERE id = $1`, [completionId]);
@@ -464,6 +547,17 @@ describe('the verification', () => {
         ['an update\'s photo resized', `UPDATE task_update_attachments SET width = 80`, 'task_update_attachments: every file, field by field'],
         ['an answer rewritten', `UPDATE task_response_field_values SET rich_text_content = '<p>2</p>'`, 'task_response_field_values: every answer loaded, field by field'],
         ['an answer that is missing', `DELETE FROM task_response_field_values`, 'task_response_field_values: one for each field answered with each update'],
+        ['an envelope renamed', `UPDATE allowance_envelopes SET name = 'Holiday' WHERE id = '${id(201)}'`, 'allowance_envelopes: every envelope, field by field, with its owner'],
+        ['an envelope given to someone else', `UPDATE family_members SET default_envelope_id = NULL; UPDATE allowance_envelopes SET family_member_id = '${ADA}' WHERE id = '${id(202)}'`, 'allowance_envelopes: every envelope, field by field, with its owner'],
+        ['a balance a cent out', `UPDATE envelope_balances SET amount = amount + 0.01 WHERE envelope_id = '${id(202)}'`, 'envelope_balances: each envelope holds exactly what it held, currency by currency'],
+        ['a balance that is missing', `DELETE FROM envelope_balances WHERE currency = 'STARS'`, 'envelope_balances: each envelope holds exactly what it held, currency by currency'],
+        ['a ledger row rounded to the cent', `UPDATE allowance_transactions SET amount = -0.5 WHERE id = '${id(214)}'`, 'allowance_transactions: every ledger row, field by field'],
+        ['a ledger row in another envelope', `UPDATE allowance_transactions SET envelope_id = '${id(201)}' WHERE id = '${id(211)}'`, 'money: each envelope\'s ledger adds up to the same amount in every currency'],
+        ['a ledger row that is missing', `DELETE FROM allowance_transactions WHERE id = '${id(213)}'`, 'money: each envelope agrees with its ledger exactly where it did before'],
+        ['a ledger row credited to someone else', `UPDATE allowance_transactions SET created_by = '${CAL}' WHERE id = '${id(211)}'`, 'allowance_transactions: every ledger row, field by field'],
+        ['money moved between a member\'s envelopes', `UPDATE envelope_balances SET envelope_id = '${id(201)}' WHERE envelope_id = '${id(200)}' AND currency = 'STARS'`, 'envelope_balances: each envelope holds exactly what it held, currency by currency'],
+        ['a default envelope that was not the one marked', `UPDATE family_members SET default_envelope_id = '${id(201)}' WHERE id = '${BEN}'`, 'family_members: each member\'s default envelope is one of theirs that was marked so, if any was'],
+        ['an exchange rate changed', `UPDATE exchange_rates SET rate = 140`, 'exchange_rates: the last rate fetched for each pair of currencies'],
         ['a history entry reworded', `UPDATE history_events SET summary = 'Completed "Trash"' WHERE id = '${id(60)}'`, 'history_events: every event, field by field'],
         ['a history entry credited to someone else', `UPDATE history_events SET actor_id = '${BEN}' WHERE id = '${id(62)}'`, 'history_events: every event, field by field'],
         ['a history entry that is missing', `DELETE FROM history_events WHERE id = '${id(61)}'`, 'history_events: as many as were exported'],

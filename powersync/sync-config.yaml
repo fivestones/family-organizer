@@ -18,7 +18,8 @@ streams:
         SELECT id, name, role, email, color, photo_urls, sort_order, has_pin,
         allowance_amount, allowance_currency, allowance_rrule, allowance_start_date, allowance_payout_delay_days, allowance_config,
         last_display_currency, view_show_chore_descriptions, view_show_task_details,
-        message_quiet_hours_enabled, message_quiet_hours_start, message_quiet_hours_end, message_digest_mode, message_digest_window_minutes
+        message_quiet_hours_enabled, message_quiet_hours_start, message_quiet_hours_end, message_digest_mode, message_digest_window_minutes,
+        default_envelope_id
         FROM family_members
       - >-
         SELECT id, title, description, start_date, rrule, exdates, pause_state,
@@ -70,6 +71,14 @@ streams:
       - >-
         SELECT id, update_id, field_id, rich_text_content, file_url, file_name, file_type, file_size_bytes, thumbnail_url, created_at, updated_at
         FROM task_response_field_values
+      # Money. A device reads all of it; the ledger and the balances are written only by the server.
+      - SELECT id, family_member_id, name, description, goal_amount, goal_currency, archived_at FROM allowance_envelopes
+      - SELECT envelope_id || '.' || currency AS id, envelope_id, currency, amount FROM envelope_balances
+      - >-
+        SELECT id, envelope_id, source_envelope_id, destination_envelope_id, transaction_type, amount, currency, description, created_by, distribution_key,
+        created_at
+        FROM allowance_transactions
+      - SELECT base_currency || '.' || target_currency AS id, base_currency, target_currency, rate, fetched_at FROM exchange_rates
 
   # What the server refused, for the person who made the write.
   refusals_member:

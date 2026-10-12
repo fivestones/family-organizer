@@ -11,6 +11,16 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — Money has its tables, and the ledger adds up after the move as it did before.**
+  Four tables: envelopes, what each holds, the ledger, and cached exchange rates; and one column on a member, their default envelope.
+  What changed shape. An envelope's balances were one JSON value, a currency to an amount; they are a row for each envelope and currency. Which envelope is a member's default was a flag on every envelope; it is one column on the member, and the database holds it to an envelope of that member's own, so a kid who points theirs at a sibling's is refused by the database itself. A ledger row named who made it twice, as Instant's principal and as a family member; it keeps the family member. It is written once and never changed, so it has no time of last change. An exchange rate is keyed by its two currencies, where a string of the two joined stood in.
+  What a delete does. Nothing the ledger points at can be deleted: not an envelope, and so not a balance from under one. A member who leaves the family leaves their envelopes and their ledger, with nobody's name on them, which is what happens today.
+  The rules are the money rule David approved. A device may change what an envelope is called, its description and its goal — a parent on any, a kid on their own — and choose a default. It cannot create, archive or delete an envelope, and has no way at all to send a balance or a ledger row: those tables are not among the ones a device may write. The plan asked that a default also be an envelope that is not archived; that part is not enforced yet and goes with the finance routes in [Phase 6](#phase-6--the-server-on-postgres), which are what archive one.
+  The plan had a second timestamp on a ledger row, assigned by the server, to order by. It is not needed: from cutover only the server writes a ledger row, so `created_at` is the server's.
+  On the real export: 18 envelopes, 10 balances and 38 ledger rows load, and nothing is held back. Every amount is compared as the number it is, with no rounding. Each envelope's ledger adds up to the same total in every currency before and after, each envelope agrees with its ledger exactly where it did — which is everywhere — and each member holds the same in each currency.
+  **(you)** Two things to know. Four envelopes belong to nobody: their members were deleted. They hold nothing, two ledger rows point at them, and they are carried as they are. And one member has four envelopes all marked as the default. The app uses whichever it is handed first; the import keeps the first as the export lists them, which may not be the one the app has been using. Look at that member's default after an import, on staging.
+  Through the real sync service, a kid's device is sent its envelopes, balances and ledger, an amount with part of a cent arriving as it is. The kid renames an envelope and makes it their default, and both go up. A kid who writes a thousand dollars into their own balance on the device has it refused and put back.
+
 - **2026-10-13 — Task series have their tables.**
   Eight of them, by the same list as before: grade scales, series, tasks, the files on a task, what a task asks for when it is handed in, updates, the files sent with an update, and the answers given.
   What changed shape. A task's state is one column. It used to be a workflow state with an older ticked-or-not flag behind it for rows that had none, and the app read one through the other; the import resolves that once and the flag is gone. A task belongs to exactly one series and goes when its series goes, which is what both editors already did by hand. A series' start and end are days. They were stored as the instant of midnight where the family lives, which in UTC is the evening before; the import takes the day whose midnight is nearest, so it comes out right in any time zone. The series manager today reads the UTC day from that instant, which for this family is a day early; the editor reads the local one. The column holds what the editor shows. At most one grade scale is the default, by a constraint. An answer is unique to its update and its field. A task's prerequisites were declared as a link, never stored and never read, and are not carried.
@@ -297,7 +307,8 @@ Added:
 - `installation` — one row: this installation's id, its data generation, the backend in use, whether writes are frozen, and the oldest client build allowed ([the cutover protocol](#the-cutover-protocol)). Server only, and served to clients through the configuration route.
 - `client_checkins` — what each device last reported about itself. Server only.
 - `family_members.has_pin` — a boolean synced in place of the PIN hash, kept true to the hash by a trigger.
-- A server-assigned creation timestamp on `allowance_transactions`, for the one place the app orders by Instant's built-in server timestamp (`TransactionHistoryView`).
+- `family_members.default_envelope_id` and `envelope_balances`, in place of a flag and a JSON value on each envelope ([money](#money-is-written-only-by-the-server)).
+- Nothing for the one place the app orders by Instant's built-in server timestamp (`TransactionHistoryView`): from cutover only the server writes a ledger row, so `allowance_transactions.created_at` is the server's own.
 
 Left behind:
 
@@ -801,7 +812,7 @@ Everything else in the app is absent from staging until its area arrives in Phas
 ### Phase 3 — The schema and the data
 
 - The export script and the census, run against the live app, read-only. *Done on 12 October 2026.*
-- The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation. *Begun: the chore area and task series are whole. Calendar, finance, messaging, content, dashboards and calendar sync are left.*
+- The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation. *Begun: the chore area, task series and money are whole. Calendar, messaging, content, dashboards and calendar sync are left.*
 - Postgres and PowerSync in the production `docker-compose.yml`, with the cap on replication, the health report, the nightly dump and its copy off the machine.
 - The client schema and its indexes, for every table.
 - The import script for everything, and [verification at all five levels](#moving-the-data).

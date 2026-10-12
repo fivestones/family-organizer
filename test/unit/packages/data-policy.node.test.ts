@@ -275,6 +275,38 @@ describe('task series', () => {
     });
 });
 
+describe('money', () => {
+    const envelope = { id: id(200), family_member_id: ELI, name: 'Savings', archived_at: null };
+    const nobodyMay = { parent: 'not_allowed', eli: 'not_allowed', fay: 'not_allowed', sharedKid: 'not_allowed' };
+
+    it('leaves a device what an envelope is called and saving for: a parent on any, a kid on their own', () => {
+        expect(forEveryone({ op: 'PATCH', table: 'allowance_envelopes', id: id(200), data: { name: 'Bike', goal_amount: 120, goal_currency: 'USD' } }, envelope)).toEqual({ parent: 'update', eli: 'update', fay: 'not_yours', sharedKid: 'not_allowed' });
+    });
+
+    it('takes no envelope from a device, and lets none be removed', () => {
+        expect(forEveryone({ op: 'PUT', table: 'allowance_envelopes', id: id(203), data: { name: 'Extra' } })).toEqual(nobodyMay);
+        expect(forEveryone({ op: 'DELETE', table: 'allowance_envelopes', id: id(200) }, envelope)).toEqual(nobodyMay);
+    });
+
+    it('has no way to say whose an envelope is, to archive one, or to write a balance or a ledger row', () => {
+        expect(checkOperation({ op: 'PATCH', table: 'allowance_envelopes', id: id(200), data: { family_member_id: FAY } }).valid).toBe(false);
+        expect(checkOperation({ op: 'PATCH', table: 'allowance_envelopes', id: id(200), data: { archived_at: '2026-03-09T18:00:00.000Z' } }).valid).toBe(false);
+        expect(checkOperation({ op: 'PATCH', table: 'envelope_balances', id: `${id(200)}.USD`, data: { amount: 1000 } }).valid).toBe(false);
+        expect(checkOperation({ op: 'PUT', table: 'allowance_transactions', id: id(210), data: { envelope_id: id(200), transaction_type: 'deposit', amount: 1000, currency: 'USD' } }).valid).toBe(false);
+        expect(Object.keys(POLICY)).not.toContain('envelope_balances');
+        expect(Object.keys(POLICY)).not.toContain('allowance_transactions');
+    });
+
+    it('lets a kid choose their own default envelope, and a parent anyone\'s', () => {
+        expect(forEveryone({ op: 'PATCH', table: 'family_members', id: ELI, data: { default_envelope_id: id(201) } }, { id: ELI, default_envelope_id: id(200) })).toEqual({ parent: 'update', eli: 'update', fay: 'not_yours', sharedKid: 'not_allowed' });
+    });
+
+    it('keeps exchange rates by their pair of currencies, written by parents', () => {
+        expect(keyOf('exchange_rates', 'USD.NPR')).toEqual({ base_currency: 'USD', target_currency: 'NPR' });
+        expect(forEveryone({ op: 'PUT', table: 'exchange_rates', id: 'USD.NPR', data: { rate: 133.5, fetched_at: '2026-03-09T18:00:00.000Z' } })).toEqual({ parent: 'insert', eli: 'not_allowed', fay: 'not_allowed', sharedKid: 'not_allowed' });
+    });
+});
+
 describe('history', () => {
     const event = (actor: string | null): DeviceOperation => ({ op: 'PUT', table: 'history_events', id: id(60), data: { occurred_at: '2026-03-09T18:00:00.000Z', domain: 'chores', action_type: 'chore_marked_done', summary: 'Completed "Dishes"', actor_id: actor, metadata: '{}' } });
 

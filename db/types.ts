@@ -54,6 +54,7 @@ export interface FamilyMembersTable {
     message_quiet_hours_end: TimeOfDay | null;
     message_digest_mode: 'immediate' | 'digest' | null;
     message_digest_window_minutes: number | null;
+    default_envelope_id: string | null;
 }
 
 export type ChoreTimingMode =
@@ -328,6 +329,43 @@ export interface TaskResponseFieldValuesTable {
     updated_at: InstantWithDefault;
 }
 
+export interface AllowanceEnvelopesTable {
+    id: string;
+    family_member_id: string | null;
+    name: string;
+    description: string | null;
+    goal_amount: number | null;
+    goal_currency: string | null;
+    archived_at: Instant | null;
+}
+
+export interface EnvelopeBalancesTable {
+    envelope_id: string;
+    currency: string;
+    amount: number;
+}
+
+export interface AllowanceTransactionsTable {
+    id: string;
+    envelope_id: string;
+    source_envelope_id: string | null;
+    destination_envelope_id: string | null;
+    transaction_type: string;
+    amount: number;
+    currency: string;
+    description: Generated<string>;
+    created_by: string | null;
+    distribution_key: string | null;
+    created_at: InstantWithDefault;
+}
+
+export interface ExchangeRatesTable {
+    base_currency: string;
+    target_currency: string;
+    rate: number;
+    fetched_at: Instant;
+}
+
 export interface InstallationTable {
     only_row: Generated<boolean>;
     id: Generated<string>;
@@ -400,6 +438,10 @@ export interface Database {
     task_updates: TaskUpdatesTable;
     task_update_attachments: TaskUpdateAttachmentsTable;
     task_response_field_values: TaskResponseFieldValuesTable;
+    allowance_envelopes: AllowanceEnvelopesTable;
+    envelope_balances: EnvelopeBalancesTable;
+    allowance_transactions: AllowanceTransactionsTable;
+    exchange_rates: ExchangeRatesTable;
     installation: InstallationTable;
     auth_sessions: AuthSessionsTable;
     sync_uploads: SyncUploadsTable;
@@ -419,7 +461,7 @@ export const DATABASE_COLUMNS = {
         allowance_amount: true, allowance_currency: true, allowance_rrule: true, allowance_start_date: true, allowance_payout_delay_days: true,
         allowance_config: true, last_display_currency: true, view_show_chore_descriptions: true, view_show_task_details: true,
         message_quiet_hours_enabled: true, message_quiet_hours_start: true, message_quiet_hours_end: true, message_digest_mode: true,
-        message_digest_window_minutes: true,
+        message_digest_window_minutes: true, default_envelope_id: true,
     },
     chores: {
         id: true, title: true, description: true, start_date: true, rrule: true, exdates: true, pause_state: true, rotation_type: true,
@@ -480,6 +522,15 @@ export const DATABASE_COLUMNS = {
         id: true, update_id: true, field_id: true, rich_text_content: true, file_url: true, file_name: true, file_type: true, file_size_bytes: true,
         thumbnail_url: true, created_at: true, updated_at: true,
     },
+    allowance_envelopes: {
+        id: true, family_member_id: true, name: true, description: true, goal_amount: true, goal_currency: true, archived_at: true,
+    },
+    envelope_balances: { envelope_id: true, currency: true, amount: true },
+    allowance_transactions: {
+        id: true, envelope_id: true, source_envelope_id: true, destination_envelope_id: true, transaction_type: true, amount: true, currency: true,
+        description: true, created_by: true, distribution_key: true, created_at: true,
+    },
+    exchange_rates: { base_currency: true, target_currency: true, rate: true, fetched_at: true },
     installation: { only_row: true, id: true, data_generation: true, backend: true, writes_frozen: true, min_client_build: true },
     auth_sessions: {
         id: true, token_hash: true, principal_type: true, family_member_id: true, state: true, created_at: true, last_seen_at: true,

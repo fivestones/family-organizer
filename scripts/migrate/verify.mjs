@@ -457,6 +457,93 @@ export async function verifyImport(db, rowsOf, timing) {
     }
     check('task_response_field_values: one for each field answered with each update')('count', valueRows.size === answers.size);
 
+    // ---- Money ----
+    // Amounts are compared as the numbers they are, with no rounding: nothing in the move should change one.
+    const rawEnvelopes = rowsOf('allowanceEnvelopes');
+    const rawLedger = rowsOf('allowanceTransactions');
+    const envelopeRows = new Map((await table('allowance_envelopes')).map((row) => [row.id, row]));
+    const envelopeOwner = linked(rawMembers, 'allowanceEnvelopes', rawEnvelopes, 'familyMember');
+    const envelope = check('allowance_envelopes: every envelope, field by field, with its owner');
+    for (const raw of rawEnvelopes) {
+        const row = envelopeRows.get(raw.id);
+        envelope(raw.id, Boolean(row) && row.name === String(raw.name ?? '').trim() && same(row.description, textOf(raw.description)) && same(row.goal_amount, raw.goalAmount)
+            && same(row.goal_currency, textOf(raw.goalCurrency)) && instantOf(row.archived_at) === instantOf(raw.archivedAt)
+            && same(row.family_member_id, members.has(envelopeOwner.get(raw.id)) ? envelopeOwner.get(raw.id) : null));
+    }
+    check('allowance_envelopes: as many as were exported')('count', envelopeRows.size === rawEnvelopes.length);
+
+    const balanceRows = await table('envelope_balances');
+    const balance = check('envelope_balances: each envelope holds exactly what it held, currency by currency');
+    for (const raw of rawEnvelopes) {
+        const before = Object.fromEntries(Object.entries(raw.balances ?? {}).filter(([, amount]) => typeof amount === 'number'));
+        const after = Object.fromEntries(balanceRows.filter((row) => row.envelope_id === raw.id).map((row) => [row.currency, row.amount]));
+        balance(raw.id, sameJson(before, after));
+    }
+    check('envelope_balances: none for an envelope that was not exported')('count', balanceRows.every((row) => rawEnvelopes.some((raw) => raw.id === row.envelope_id)));
+
+    const ledgerRows = new Map((await table('allowance_transactions')).map((row) => [row.id, row]));
+    const ledgerEnvelope = linked(rawEnvelopes, 'transactions', rawLedger, 'envelope');
+    const ledgerSource = linked(rawEnvelopes, 'outgoingTransfers', rawLedger, 'sourceEnvelope');
+    const ledgerDestination = linked(rawEnvelopes, 'incomingTransfers', rawLedger, 'destinationEnvelope');
+    const entry = check('allowance_transactions: every ledger row, field by field');
+    for (const raw of rawLedger) {
+        const row = ledgerRows.get(raw.id);
+        entry(raw.id, Boolean(row) && row.envelope_id === ledgerEnvelope.get(raw.id) && same(row.source_envelope_id, ledgerSource.get(raw.id)) && same(row.destination_envelope_id, ledgerDestination.get(raw.id))
+            && row.transaction_type === raw.transactionType && row.amount === raw.amount && row.currency === raw.currency && row.description === (raw.description ?? '')
+            && same(row.created_by, members.has(raw.createdByFamilyMemberId) ? raw.createdByFamilyMemberId : null) && same(row.distribution_key, textOf(raw.distributionKey))
+            && instantOf(row.created_at) === instantOf(raw.createdAt));
+    }
+    check('allowance_transactions: as many as were exported')('count', ledgerRows.size === rawLedger.length);
+
+    // Each envelope's ledger, added up, against what the envelope says it holds: the same envelopes agree, and the
+    // same disagree, as before the move. Summed in the order the rows were written, so both sides add alike.
+    const sumLedger = (rows, envelopeId, amountOf, currencyOf, whenOf, idOf, envelopeOf) => {
+        const totals = {};
+        const own = rows.filter((row) => envelopeOf(row) === envelopeId).sort((a, b) => whenOf(a) - whenOf(b) || String(idOf(a)).localeCompare(String(idOf(b))));
+        for (const row of own) totals[currencyOf(row)] = (totals[currencyOf(row)] ?? 0) + amountOf(row);
+        return totals;
+    };
+    const agrees = (totals, held) => [...new Set([...Object.keys(totals), ...Object.keys(held)])].every((currency) => Math.abs((totals[currency] ?? 0) - (held[currency] ?? 0)) < 1e-9);
+    const reconciled = check('money: each envelope agrees with its ledger exactly where it did before');
+    const totalsMatch = check('money: each envelope\'s ledger adds up to the same amount in every currency');
+    for (const raw of rawEnvelopes) {
+        const before = sumLedger(rawLedger, raw.id, (row) => row.amount, (row) => row.currency, (row) => instantOf(row.createdAt), (row) => row.id, (row) => ledgerEnvelope.get(row.id));
+        const after = sumLedger([...ledgerRows.values()], raw.id, (row) => row.amount, (row) => row.currency, (row) => instantOf(row.created_at), (row) => row.id, (row) => row.envelope_id);
+        const heldAfter = Object.fromEntries(balanceRows.filter((row) => row.envelope_id === raw.id).map((row) => [row.currency, row.amount]));
+        totalsMatch(raw.id, sameJson(before, after));
+        reconciled(raw.id, agrees(before, raw.balances ?? {}) === agrees(after, heldAfter));
+    }
+    const perMember = check('money: each member has as many ledger rows, and the same total held in each currency');
+    for (const raw of rawMembers) {
+        const mine = rawEnvelopes.filter((item) => envelopeOwner.get(item.id) === raw.id);
+        const heldBefore = {};
+        for (const item of mine) for (const [currency, amount] of Object.entries(item.balances ?? {})) heldBefore[currency] = (heldBefore[currency] ?? 0) + amount;
+        const heldAfter = {};
+        const mineAfter = [...envelopeRows.values()].filter((row) => row.family_member_id === raw.id).sort((a, b) => mine.findIndex((item) => item.id === a.id) - mine.findIndex((item) => item.id === b.id));
+        for (const row of mineAfter) for (const held of balanceRows.filter((item) => item.envelope_id === row.id)) heldAfter[held.currency] = (heldAfter[held.currency] ?? 0) + held.amount;
+        const rowsBefore = rawLedger.filter((item) => mine.some((mineEnvelope) => mineEnvelope.id === ledgerEnvelope.get(item.id))).length;
+        const rowsAfter = [...ledgerRows.values()].filter((row) => mineAfter.some((mineEnvelope) => mineEnvelope.id === row.envelope_id)).length;
+        perMember(raw.id, rowsBefore === rowsAfter && agrees(heldBefore, heldAfter) && Object.keys(heldBefore).length === Object.keys(heldAfter).length);
+    }
+    const defaults = check('family_members: each member\'s default envelope is one of theirs that was marked so, if any was');
+    for (const raw of rawMembers) {
+        const marked = rawEnvelopes.filter((item) => envelopeOwner.get(item.id) === raw.id && item.isDefault === true && blank(item.archivedAt)).map((item) => item.id);
+        const chosen = members.get(raw.id)?.default_envelope_id ?? null;
+        defaults(raw.id, marked.length ? marked.includes(chosen) : chosen === null);
+    }
+
+    const rateRows = await table('exchange_rates');
+    const rawRates = rowsOf('exchangeRates');
+    const rate = check('exchange_rates: the last rate fetched for each pair of currencies');
+    const pairsSeen = new Set(rawRates.map((raw) => `${raw.baseCurrency}\n${raw.targetCurrency}`));
+    for (const key of pairsSeen) {
+        const [base, target] = key.split('\n');
+        const latest = rawRates.filter((raw) => raw.baseCurrency === base && raw.targetCurrency === target).sort((a, b) => instantOf(b.lastFetchedTimestamp) - instantOf(a.lastFetchedTimestamp))[0];
+        const row = rateRows.find((item) => item.base_currency === base && item.target_currency === target);
+        rate(key.replace('\n', '→'), Boolean(row) && row.rate === latest.rate && instantOf(row.fetched_at) === instantOf(latest.lastFetchedTimestamp));
+    }
+    check('exchange_rates: one for each pair that had one')('count', rateRows.length === pairsSeen.size);
+
     return { checks };
 }
 

@@ -20,7 +20,7 @@ const family_members = new Table({
     allowance_payout_delay_days: integer, allowance_config: text,
     last_display_currency: text, view_show_chore_descriptions: integer, view_show_task_details: integer,
     message_quiet_hours_enabled: integer, message_quiet_hours_start: text, message_quiet_hours_end: text,
-    message_digest_mode: text, message_digest_window_minutes: integer,
+    message_digest_mode: text, message_digest_window_minutes: integer, default_envelope_id: text,
 });
 
 const chores = new Table({
@@ -139,6 +139,25 @@ const task_response_field_values = new Table(
     { indexes: { update: ['update_id'], field: ['field_id'] } }
 );
 
+const allowance_envelopes = new Table(
+    {
+        family_member_id: text, name: text, description: text, goal_amount: real, goal_currency: text, archived_at: text,
+    },
+    { indexes: { member: ['family_member_id'] } }
+);
+
+const envelope_balances = new Table({ envelope_id: text, currency: text, amount: real }, { indexes: { envelope: ['envelope_id'] } });
+
+const allowance_transactions = new Table(
+    {
+        envelope_id: text, source_envelope_id: text, destination_envelope_id: text, transaction_type: text, amount: real, currency: text,
+        description: text, created_by: text, distribution_key: text, created_at: text,
+    },
+    { indexes: { envelope: ['envelope_id', 'created_at'] } }
+);
+
+const exchange_rates = new Table({ base_currency: text, target_currency: text, rate: real, fetched_at: text });
+
 const write_refusals = new Table({
     family_member_id: text, mutation: text, reason: text, table_name: text, row_id: text, refused_at: text, dismissed_at: text,
 });
@@ -154,6 +173,7 @@ export const AppSchema = new Schema({
     settings, unit_definitions, family_members, chores, chore_assignees, chore_completions, routines, routine_steps, routine_marker_statuses,
     countdown_runs, history_events, history_event_members,
     grade_types, task_series, tasks, task_attachments, task_response_fields, task_updates, task_update_attachments, task_response_field_values,
+    allowance_envelopes, envelope_balances, allowance_transactions, exchange_rates,
     write_refusals, local_transactions,
 });
 

@@ -36,10 +36,11 @@ const anyone = (): Verdict => null;
 /** Anyone signed in writes it: a parent, a kid, or the kid session a shared device rests on. */
 const familyWrites = { insert: anyone, update: anyone, delete: anyone };
 
-/** What a kid may change on their own row: how the app looks and behaves for them. */
+/** What a kid may change on their own row: how the app looks and behaves for them, and which envelope is their default. */
 const OWN_PREFERENCES = [
     'last_display_currency', 'view_show_chore_descriptions', 'view_show_task_details', 'message_quiet_hours_enabled',
     'message_quiet_hours_start', 'message_quiet_hours_end', 'message_digest_mode', 'message_digest_window_minutes',
+    'default_envelope_id',
 ] as const;
 
 export const POLICY = {
@@ -65,6 +66,8 @@ export const POLICY = {
             last_display_currency: text, view_show_chore_descriptions: boolean, view_show_task_details: boolean,
             message_quiet_hours_enabled: boolean, message_quiet_hours_start: time, message_quiet_hours_end: time,
             message_digest_mode: oneOf('immediate', 'digest'), message_digest_window_minutes: integer,
+            // The database holds this to an envelope of the member's own.
+            default_envelope_id: uuid,
         },
         insert: parentsOnly,
         update(principal, current, _next, changed) {
@@ -253,6 +256,28 @@ export const POLICY = {
             file_size_bytes: integer, thumbnail_url: text, created_at: instant, updated_at: instant,
         },
         ...familyWrites,
+    },
+
+    // Money is written by the server. What is left to a device is what an envelope is called and what it is
+    // saving for: a parent on any envelope, a kid on their own. Whose it is, and whether it is archived, are not
+    // columns a device may send at all, and neither a balance nor a ledger row is in this file.
+    allowance_envelopes: {
+        key: ['id'],
+        columns: { id: uuid, name: text, description: text, goal_amount: number, goal_currency: text },
+        insert: nobody,
+        update(principal, current) {
+            if (isParent(principal)) return null;
+            const self = kidSelf(principal);
+            if (self === null) return 'not_allowed';
+            return current.family_member_id === self ? null : 'not_yours';
+        },
+        delete: nobody,
+    },
+
+    exchange_rates: {
+        key: ['base_currency', 'target_currency'],
+        columns: { base_currency: text, target_currency: text, rate: number, fetched_at: instant },
+        ...parentsWrite,
     },
 
     history_events: {

@@ -73,7 +73,8 @@ afterAll(() => db.destroy());
 
 beforeEach(async () => {
     __resetParentElevationRateLimitForTests();
-    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
+    await sql.raw(`UPDATE family_members SET default_envelope_id = NULL`).execute(db);
+    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'exchange_rates', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
         await sql.raw(`DELETE FROM ${table}`).execute(db);
     }
     await seedFamily({ sql: query } as any);
@@ -194,6 +195,46 @@ describe('a task series', () => {
         await until(async () => (await serverRows(`SELECT 1 FROM write_refusals WHERE table_name = 'tasks' AND reason = 'not_allowed'`)).length === 1, 'the server has refused the task');
         await until(async () => !(await has(local, `SELECT 1 FROM tasks WHERE id = ?`, [n(139)])), 'the device has let the task go');
         expect(await serverRows(`SELECT count(*)::int AS tasks FROM tasks`)).toEqual([{ tasks: 1 }]);
+    });
+});
+
+describe('money', () => {
+    it('reaches a device to be read, takes a new name and a new default from its owner, and puts back a balance changed on the device', async () => {
+        const n = (last: number) => `00000000-0000-4000-8000-${String(last).padStart(12, '0')}`;
+        const [SAVINGS, SPENDING, ENTRY] = [n(200), n(201), n(210)];
+        await sql.raw(`INSERT INTO allowance_envelopes (id, family_member_id, name) VALUES ('${SAVINGS}', '${ELI}', 'Savings'), ('${SPENDING}', '${ELI}', 'Spending')`).execute(db);
+        await sql.raw(`INSERT INTO envelope_balances (envelope_id, currency, amount) VALUES ('${SAVINGS}', 'USD', 12.505)`).execute(db);
+        await sql.raw(`INSERT INTO allowance_transactions (id, envelope_id, destination_envelope_id, transaction_type, amount, currency, description, created_by, created_at) VALUES ('${ENTRY}', '${SAVINGS}', '${SAVINGS}', 'deposit', 12.505, 'USD', 'Birthday', '${DANA}', '2026-03-09T09:00:00Z')`).execute(db);
+        await sql.raw(`UPDATE family_members SET default_envelope_id = '${SAVINGS}' WHERE id = '${ELI}'`).execute(db);
+        const kid = await device();
+        await kid.manager.signIn({ familyMemberId: ELI });
+        const local = await synced(kid.db());
+        await until(() => has(local, `SELECT 1 FROM allowance_transactions`), 'the device holds the ledger');
+
+        // A balance is known by its envelope and its currency, and an amount keeps its part of a cent.
+        expect(await local.getAll(`SELECT id, envelope_id, currency, amount FROM envelope_balances`)).toEqual([{ id: `${SAVINGS}.USD`, envelope_id: SAVINGS, currency: 'USD', amount: 12.505 }]);
+        expect(await local.getAll(`SELECT envelope_id, transaction_type, amount, created_by, created_at FROM allowance_transactions`)).toEqual([
+            { envelope_id: SAVINGS, transaction_type: 'deposit', amount: 12.505, created_by: DANA, created_at: '2026-03-09T09:00:00.000Z' },
+        ]);
+        expect(await local.getAll(`SELECT default_envelope_id FROM family_members WHERE id = ?`, [ELI])).toEqual([{ default_envelope_id: SAVINGS }]);
+
+        // What is the kid's to change goes up: what the other envelope is called, and that it is now the default.
+        await local.writeTransaction(async (transaction) => {
+            await transaction.execute(`UPDATE allowance_envelopes SET name = 'Bike' WHERE id = ?`, [SPENDING]);
+            await transaction.execute(`UPDATE family_members SET default_envelope_id = ? WHERE id = ?`, [SPENDING, ELI]);
+            await transaction.execute(`INSERT INTO local_transactions (id, mutation) VALUES (?, 'setDefaultEnvelope')`, [n(0xad)]);
+        });
+        await until(async () => (await serverRows(`SELECT 1 FROM family_members WHERE id = '${ELI}' AND default_envelope_id = '${SPENDING}'`)).length === 1, 'the new default has reached the server');
+        expect(await serverRows(`SELECT name FROM allowance_envelopes WHERE id = '${SPENDING}'`)).toEqual([{ name: 'Bike' }]);
+
+        // What is not: a kid who gives themselves a thousand dollars on their own device has it put back.
+        await local.writeTransaction(async (transaction) => {
+            await transaction.execute(`UPDATE envelope_balances SET amount = 1000 WHERE envelope_id = ?`, [SAVINGS]);
+            await transaction.execute(`INSERT INTO local_transactions (id, mutation) VALUES (?, 'tamper')`, [n(0xae)]);
+        });
+        await until(async () => (await serverRows(`SELECT 1 FROM write_refusals WHERE table_name = 'envelope_balances'`)).length === 1, 'the server has refused the balance');
+        await until(() => has(local, `SELECT 1 FROM envelope_balances WHERE amount = 12.505`), 'the device holds the real balance again');
+        expect(await serverRows(`SELECT amount FROM envelope_balances`)).toEqual([{ amount: 12.505 }]);
     });
 });
 

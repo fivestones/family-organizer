@@ -215,6 +215,63 @@ describe('a write overtaken by another device', () => {
     });
 });
 
+describe('money', () => {
+    const SAVINGS = id(200);
+    const SPENDING = id(201);
+    const FAYS = id(202);
+    beforeEach(async () => {
+        await database.sql.exec(`
+            INSERT INTO allowance_envelopes (id, family_member_id, name) VALUES ('${SAVINGS}', '${ELI}', 'Savings'), ('${SPENDING}', '${ELI}', 'Spending'), ('${FAYS}', '${FAY}', 'Savings');
+            INSERT INTO envelope_balances (envelope_id, currency, amount) VALUES ('${SAVINGS}', 'USD', 12.5);
+            UPDATE family_members SET default_envelope_id = '${SAVINGS}' WHERE id = '${ELI}';
+        `);
+    });
+    const envelope = async (envelopeId: string) => (await rows(`SELECT name, goal_amount, goal_currency FROM allowance_envelopes WHERE id = $1`, [envelopeId]))[0];
+    const chosen = async (memberId: string) => (await rows(`SELECT default_envelope_id FROM family_members WHERE id = $1`, [memberId]))[0].default_envelope_id;
+
+    it('lets a kid say what their own envelope is called and saving for, and nobody else\'s', async () => {
+        const eli = await asEli();
+        expect((await send(eli, [{ op: 'PATCH', table: 'allowance_envelopes', id: SPENDING, data: { name: 'Bike', goal_amount: 120, goal_currency: 'USD' } }], { mutation: 'setEnvelopeGoal' })).outcome).toEqual({ ok: true });
+        expect(await envelope(SPENDING)).toEqual({ name: 'Bike', goal_amount: 120, goal_currency: 'USD' });
+
+        expect((await send(eli, [{ op: 'PATCH', table: 'allowance_envelopes', id: FAYS, data: { name: 'Mine now' } }], { mutation: 'renameEnvelope' })).outcome).toMatchObject({ ok: false, reason: 'not_yours' });
+        expect((await envelope(FAYS)).name).toBe('Savings');
+        expect((await send(await asParent(), [{ op: 'PATCH', table: 'allowance_envelopes', id: FAYS, data: { name: 'College' } }], { mutation: 'renameEnvelope' })).outcome).toEqual({ ok: true });
+    });
+
+    it('lets a kid choose which of their own envelopes is their default, and never one of someone else\'s', async () => {
+        const eli = await asEli();
+        expect((await send(eli, [{ op: 'PATCH', table: 'family_members', id: ELI, data: { default_envelope_id: SPENDING } }], { mutation: 'setDefaultEnvelope' })).outcome).toEqual({ ok: true });
+        expect(await chosen(ELI)).toBe(SPENDING);
+
+        // The rule lets a kid change their own row; the database is what knows whose envelope it is.
+        expect((await send(eli, [{ op: 'PATCH', table: 'family_members', id: ELI, data: { default_envelope_id: FAYS } }], { mutation: 'setDefaultEnvelope' })).outcome).toMatchObject({ ok: false, reason: 'conflict' });
+        expect((await send(eli, [{ op: 'PATCH', table: 'family_members', id: FAY, data: { default_envelope_id: FAYS } }], { mutation: 'setDefaultEnvelope' })).outcome).toMatchObject({ ok: false, reason: 'not_yours' });
+        expect(await chosen(ELI)).toBe(SPENDING);
+        expect(await chosen(FAY)).toBeNull();
+        expect((await send(await asParent(), [{ op: 'PATCH', table: 'family_members', id: FAY, data: { default_envelope_id: FAYS } }], { mutation: 'setDefaultEnvelope' })).outcome).toEqual({ ok: true });
+    });
+
+    it.each([
+        ['a balance', { op: 'PATCH', table: 'envelope_balances', id: `${SAVINGS}.USD`, data: { amount: 1000 } }, 'invalid'],
+        ['a new balance', { op: 'PUT', table: 'envelope_balances', id: `${SAVINGS}.STARS`, data: { envelope_id: SAVINGS, currency: 'STARS', amount: 50 } }, 'invalid'],
+        ['a ledger row', { op: 'PUT', table: 'allowance_transactions', id: id(210), data: { envelope_id: SAVINGS, transaction_type: 'deposit', amount: 1000, currency: 'USD' } }, 'invalid'],
+        ['whose envelope it is', { op: 'PATCH', table: 'allowance_envelopes', id: FAYS, data: { family_member_id: ELI } }, 'invalid'],
+        ['an envelope archived', { op: 'PATCH', table: 'allowance_envelopes', id: SAVINGS, data: { archived_at: NOON } }, 'invalid'],
+        ['a new envelope', { op: 'PUT', table: 'allowance_envelopes', id: id(203), data: { name: 'Extra' } }, 'not_allowed'],
+        ['an envelope deleted', { op: 'DELETE', table: 'allowance_envelopes', id: SPENDING }, 'not_allowed'],
+    ] as Array<[string, DeviceOperation, string]>)('is the server\'s to write: a device is refused %s, a parent\'s included', async (_what, operation, reason) => {
+        for (const session of [await asParent(), await asEli()]) {
+            expect((await send(session, [operation], { mutation: 'tamper' })).outcome).toMatchObject({ ok: false, reason });
+        }
+        expect(await rows(`SELECT envelope_id, currency, amount FROM envelope_balances`)).toEqual([{ envelope_id: SAVINGS, currency: 'USD', amount: 12.5 }]);
+        expect(await rows(`SELECT 1 FROM allowance_transactions`)).toEqual([]);
+        expect(await rows(`SELECT id, family_member_id, archived_at FROM allowance_envelopes ORDER BY id`)).toEqual([
+            { id: SAVINGS, family_member_id: ELI, archived_at: null }, { id: SPENDING, family_member_id: ELI, archived_at: null }, { id: FAYS, family_member_id: FAY, archived_at: null },
+        ]);
+    });
+});
+
 describe('what a parent writes', () => {
     it('reaches each kind of column in the form the database keeps it', async () => {
         const result = await send(await asParent(), [
