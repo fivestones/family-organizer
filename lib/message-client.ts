@@ -27,7 +27,7 @@ async function parseJson(response: Response) {
     return payload;
 }
 
-function messageAuthHeaders() {
+function messageAuthHeaders(): Record<string, string> {
     const token = getCachedMemberToken();
     return token
         ? {

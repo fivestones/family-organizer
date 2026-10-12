@@ -1481,9 +1481,10 @@ const TaskSeriesEditor: React.FC<TaskSeriesEditorProps> = ({ db, initialSeriesId
                     .chain()
                     .command(({ state, dispatch, tr }) => {
                         const { doc } = state;
-                        let draggedPos: number | null = null;
+                        // Both are set from inside the walk below, which the compiler cannot follow.
+                        let draggedPos = null as number | null;
                         let draggedNode: any = null;
-                        let targetPos: number | null = null;
+                        let targetPos = null as number | null;
 
                         // Find positions
                         doc.descendants((node, pos) => {

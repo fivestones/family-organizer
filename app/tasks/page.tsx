@@ -15,9 +15,9 @@ export default function TasksPage() {
             </div>
             <FamilyChoreTracker
                 pageMode="tasks"
-                initialSelectedMember={searchParams.get('member')}
-                initialSelectedDate={searchParams.get('date')}
-                focusedChoreId={searchParams.get('choreId')}
+                initialSelectedMember={searchParams!.get('member')}
+                initialSelectedDate={searchParams!.get('date')}
+                focusedChoreId={searchParams!.get('choreId')}
             />
         </div>
     );

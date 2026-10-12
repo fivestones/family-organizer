@@ -33,7 +33,7 @@ const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
 >(({ className, children, ...props }, ref) => {
-  const contentRef = React.useRef<HTMLDivElement>(null)
+  const contentRef = React.useRef<HTMLDivElement | null>(null)
 
   return (
     <DialogPortal>

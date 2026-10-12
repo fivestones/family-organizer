@@ -125,7 +125,7 @@ export const TaskBinsReview: React.FC = () => {
     const { currentUser } = useAuth();
 
     // Initialize filters from URL search params (e.g. ?seriesId=abc)
-    const initialSeriesId = searchParams.get('seriesId');
+    const initialSeriesId = searchParams!.get('seriesId');
     const [filters, setFilters] = useState<TaskBinFilters>(() => ({
         status: 'all',
         showNoted: false,
@@ -135,7 +135,7 @@ export const TaskBinsReview: React.FC = () => {
     const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
     const [showFilters, setShowFilters] = useState(!!initialSeriesId);
     const [view, setView] = useState<'review' | 'attention' | 'all'>(
-        searchParams.get('view') === 'review' ? 'review' : initialSeriesId ? 'all' : 'attention'
+        searchParams!.get('view') === 'review' ? 'review' : initialSeriesId ? 'all' : 'attention'
     );
 
     // ---- Queries ----

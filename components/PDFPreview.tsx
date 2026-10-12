@@ -49,7 +49,7 @@ export const PDFPreview = ({ url }: Props) => {
                         // No-op for now
                         scrollRef={() => {}}
                         onSelectionFinished={() => null}
-                        highlightTransform={() => null}
+                        highlightTransform={(() => null) as any}
                         highlights={[]}
                     />
                 )}

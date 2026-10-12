@@ -86,7 +86,7 @@ export function MainNav({ className, onNavigate }: MainNavProps) {
 
     const isActive = (href: string) => {
         if (href === '/') return pathname === '/';
-        return pathname.startsWith(href);
+        return pathname!.startsWith(href);
     };
     const isEntryActive = (entry: NavEntry) => (entry.kind === 'link' ? isActive(entry.href) : entry.pages.some((page) => isActive(page.href)));
 

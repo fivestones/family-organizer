@@ -226,9 +226,9 @@ export default function FamilyMessagesPage() {
     const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
     const [isCreatingThread, setIsCreatingThread] = useState(false);
     const [browserNotificationPermission, setBrowserNotificationPermission] = useState<string>('default');
-    const initialThreadId = searchParams.get('threadId');
+    const initialThreadId = searchParams!.get('threadId');
     const hasAppliedInitialThread = useRef(false);
-    const searchParamString = searchParams.toString();
+    const searchParamString = searchParams!.toString();
     const [showNotificationPrefs, setShowNotificationPrefs] = useState(false);
     const [optimisticThreadsById, setOptimisticThreadsById] = useState<Record<string, ThreadRecord>>({});
     const [optimisticMessages, setOptimisticMessages] = useState<MessageRecord[]>([]);

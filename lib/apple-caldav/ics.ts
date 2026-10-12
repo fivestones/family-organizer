@@ -259,7 +259,7 @@ export function parseCalendarResource(input: {
         grouped.set(uid, list);
     }
 
-    const normalized = [];
+    const normalized: any[] = [];
 
     for (const [uid, entries] of Array.from(grouped.entries())) {
         const master = entries.find((event) => !event.recurrenceId) || entries[0];

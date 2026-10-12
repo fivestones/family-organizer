@@ -9,9 +9,9 @@ export default function FamilyHistoryPage() {
 
     return (
         <HistoryPage
-            initialSelectedMember={searchParams.get('member')}
-            initialDomain={searchParams.get('domain')}
-            initialTaskSeriesId={searchParams.get('taskSeriesId')}
+            initialSelectedMember={searchParams!.get('member')}
+            initialDomain={searchParams!.get('domain')}
+            initialTaskSeriesId={searchParams!.get('taskSeriesId')}
         />
     );
 }

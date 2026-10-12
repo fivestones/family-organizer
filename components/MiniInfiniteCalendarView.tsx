@@ -330,7 +330,7 @@ export default function MiniInfiniteCalendarView({
             </div>
 
             <div
-                ref={scrollContainerRef}
+                ref={scrollContainerRef as React.RefObject<HTMLDivElement>}
                 data-testid="mini-calendar-scroll-container"
                 className={`${styles.calendarScrollContainer} ${styles.miniCalendarScrollContainer} ${styles.yearCalendarGrid}`}
                 style={

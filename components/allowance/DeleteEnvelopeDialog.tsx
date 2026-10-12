@@ -86,7 +86,7 @@ const DeleteEnvelopeDialog: React.FC<DeleteEnvelopeDialogProps> = ({
     setIsDeleting(true);
     try {
       // Pass null for newDefaultId if not deleting the default
-      await onConfirm(resolvedTransferTargetId, isDeletingDefault ? newDefaultId : null);
+      await onConfirm(resolvedTransferTargetId, isDeletingDefault ? newDefaultId! : null);
       // onConfirm should handle success toast and closing
     } catch (err: any) {
       // onConfirm should handle error toast

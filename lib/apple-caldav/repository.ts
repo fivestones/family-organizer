@@ -443,7 +443,7 @@ export async function upsertImportedCalendarItems(input: {
     let eventsCancelled = 0;
     let eventsMarkedDeleted = 0;
 
-    const txs = [];
+    const txs: any[] = [];
     const deletedExistingItemIds = new Set<string>();
     const queueDeletedExistingItem = (existingItem: any) => {
         if (!existingItem?.id || deletedExistingItemIds.has(existingItem.id)) return;

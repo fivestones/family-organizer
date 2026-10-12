@@ -41,9 +41,6 @@ import { countTaskDayBlocks } from '@/lib/task-series-schedule';
 
 function makeTask(overrides: Partial<Task> & Pick<Task, 'id' | 'text' | 'order'>): Task {
     return {
-        id: overrides.id,
-        text: overrides.text,
-        order: overrides.order,
         isCompleted: false,
         isDayBreak: false,
         ...overrides,

@@ -52,7 +52,7 @@ const DateCarousel: React.FC<DateCarouselProps> = ({ onDateSelect, initialDate }
     const spread = Math.floor(visibleDays / 2);
 
     useEffect(() => {
-        const range = [];
+        const range: Date[] = [];
         for (let i = -spread; i <= spread; i++) {
             range.push(addDays(selectedDate, i));
         }

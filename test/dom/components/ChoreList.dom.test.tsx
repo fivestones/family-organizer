@@ -9,7 +9,7 @@ const choreListMocks = vi.hoisted(() => ({
     toast: vi.fn(),
     getAssignedMembersForChoreOnDate: vi.fn((chore: any) => chore.assignees || []),
     createRRuleWithStartDate: vi.fn(),
-    getTasksForDate: vi.fn(() => []),
+    getTasksForDate: vi.fn((): any[] => []),
     isSeriesActiveForDate: vi.fn(() => false),
     taskSeriesChecklist: vi.fn(),
 }));

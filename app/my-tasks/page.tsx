@@ -13,7 +13,7 @@ export default function MyTasksPage() {
         <div className="space-y-4 p-4">
             <MyTaskSeriesOverview
                 db={db}
-                initialMemberId={searchParams.get('member')}
+                initialMemberId={searchParams!.get('member')}
             />
         </div>
     );

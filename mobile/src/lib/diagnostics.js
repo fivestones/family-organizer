@@ -103,6 +103,11 @@ export function clearDiagnosticsTimeline() {
   emit([]);
 }
 
+/**
+ * @param {string} type
+ * @param {string} [phase]
+ * @param {Record<string, unknown> | null} [details]
+ */
 export function recordDiagnostic(type, phase = 'event', details = null) {
   const event = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

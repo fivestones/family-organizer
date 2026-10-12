@@ -1245,7 +1245,7 @@ export default function PersonalDashboard() {
                                 currentDate={selectedDateLocal}
                                 showChores={false}
                                 everyoneSelected={true}
-                                selectedMemberIds={[activeMemberId]}
+                                selectedMemberIds={[activeMemberId!]}
                                 commandBusEnabled={false}
                                 viewMode="day"
                                 dayVisibleDays={4}

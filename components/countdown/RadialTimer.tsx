@@ -160,7 +160,7 @@ export default function RadialTimer({
 
     // --- Tick marks ---
     const tickCount = 120;
-    const ticks = [];
+    const ticks: React.ReactNode[] = [];
     for (let i = 0; i < tickCount; i++) {
         const angle = (i / tickCount) * 360;
         const isMajor = i % 10 === 0;

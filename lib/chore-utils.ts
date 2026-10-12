@@ -235,7 +235,7 @@ export const getAllowancePeriodForDate = (
 
         if (!periodStartDate) {
             // Target date is before the first occurrence defined by dtstart
-            console.log(`Target date ${utcTargetDate.toISOString()} is before the first allowance period starting ${rule.options.dtstart.toISOString()}`);
+            console.log(`Target date ${utcTargetDate.toISOString()} is before the first allowance period starting ${rule.options.dtstart!.toISOString()}`);
             return null;
         }
 

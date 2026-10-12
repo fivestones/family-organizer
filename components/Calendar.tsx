@@ -4360,7 +4360,7 @@ const Calendar = ({
             if (anchorElement) {
                 const containerTop = container.getBoundingClientRect().top;
                 const currentOffset = anchorElement.getBoundingClientRect().top - containerTop;
-                const shift = currentOffset - pendingAdjust.anchorOffset;
+                const shift = currentOffset - pendingAdjust.anchorOffset!;
 
                 if (shift !== 0) {
                     container.scrollTop += shift;

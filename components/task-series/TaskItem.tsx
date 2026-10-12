@@ -645,7 +645,7 @@ export const TaskItemExtension = Node.create({
                     const parent = resolved.parent;
 
                     // 2. Scan Backwards
-                    let prevNode = null;
+                    let prevNode: any = null;
                     let prevPos = currentPos;
 
                     for (let i = index - 1; i >= 0; i--) {
@@ -734,7 +734,7 @@ export const TaskItemExtension = Node.create({
                     const index = resolved.index();
                     const parent = resolved.parent;
 
-                    let nextNode = null;
+                    let nextNode: any = null;
                     let nextPos = currentPos + currentNode.nodeSize;
 
                     for (let i = index + 1; i < parent.childCount; i++) {

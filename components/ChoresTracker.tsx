@@ -931,7 +931,7 @@ function ChoresTracker({
 
     const updateChore = async (choreId: any, updatedChoreData: any) => {
         try {
-            const transactions = [];
+            const transactions: any[] = [];
             const existingChore = chores.find((c) => c.id === choreId); // Use memoized data
             if (!existingChore) throw new Error('Original chore data not found for update.');
 
@@ -1244,7 +1244,7 @@ function ChoresTracker({
                         <FamilyMembersList
                             familyMembers={familyMembers}
                             selectedMember={selectedMember}
-                            setSelectedMember={setSelectedMember}
+                            setSelectedMember={setSelectedMember as (id: string | null) => void}
                             // **** REMOVED: addFamilyMember and deleteFamilyMember props ****
                             db={db}
                             // **** NEW: Pass balance data ****
@@ -1333,7 +1333,7 @@ function ChoresTracker({
                                     familyMembers={familyMembers}
                                     selectedMember={selectedMember}
                                     setSelectedMember={(id) => {
-                                        setSelectedMember(id);
+                                        setSelectedMember(id!);
                                         setIsMobileMenuOpen(false);
                                     }}
                                     db={db}

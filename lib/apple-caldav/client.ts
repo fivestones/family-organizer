@@ -386,8 +386,8 @@ export async function fetchCalendarEvents(input: {
             const body = await response.text();
             const parsed = xmlParser.parse(body);
             const multistatus = parsed.multistatus || {};
-            const events = [];
-            const deletedHrefs = [];
+            const events: any[] = [];
+            const deletedHrefs: string[] = [];
             const hrefsNeedingMultiget: string[] = [];
             const baseUrl = response.url || input.calendarUrl;
 

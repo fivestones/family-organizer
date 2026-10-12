@@ -476,7 +476,7 @@ export default function AppleCalendarSyncSettings() {
                         method: 'POST',
                         headers: calendarSyncHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({
-                            accountId: status.account.id,
+                            accountId: status.account!.id,
                             trigger,
                         }),
                     })

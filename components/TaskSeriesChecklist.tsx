@@ -838,7 +838,7 @@ export const TaskSeriesChecklist: React.FC<Props> = ({
             (task.responseFields || []).every((f) => submittedFieldIds.has(f.id));
 
         // Helper to render a response field values summary
-        const renderResponseSummary = (rfvs: typeof latestEntry.responseFieldValues) => (
+        const renderResponseSummary = (rfvs: NonNullable<typeof latestEntry>['responseFieldValues']) => (
             <div className="mt-2 space-y-1.5">
                 {rfvs?.map((rfv, i) => {
                     const resolved = resolveField(rfv.field);

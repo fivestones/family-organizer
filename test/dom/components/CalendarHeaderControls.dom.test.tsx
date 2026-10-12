@@ -147,7 +147,7 @@ describe('CalendarHeaderControls member filter summary', () => {
         expect(choresToggle).not.toBeNull();
         expect(choresToggle).not.toBeChecked();
 
-        fireEvent.click(choresToggle);
+        fireEvent.click(choresToggle!);
 
         await waitFor(() => {
             expect(receivedCommands).toEqual(

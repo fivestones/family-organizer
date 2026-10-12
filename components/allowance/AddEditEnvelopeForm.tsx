@@ -256,7 +256,7 @@ const AddEditEnvelopeForm: React.FC<AddEditEnvelopeFormProps> = ({
                     // Use the new handler function
                     onCheckedChange={handleDefaultChange}
                     // Keep disable logic for the only envelope case (visual cue)
-                    disabled={isSubmitting || (isEditMode && initialData?.isDefault && allMemberEnvelopes.length <= 1)}
+                    disabled={Boolean(isSubmitting || (isEditMode && initialData?.isDefault && allMemberEnvelopes.length <= 1))}
                     aria-label="Make this the default envelope"
                 />
             </div>

@@ -206,6 +206,6 @@ export function findSimilarMemberColors(
                 memberName: String(member.name || 'Another member'),
             };
         })
-        .filter((match): match is SimilarMemberColorMatch => Boolean(match) && match.distance <= threshold)
+        .filter((match): match is SimilarMemberColorMatch => Boolean(match) && match!.distance <= threshold)
         .sort((left, right) => left.distance - right.distance);
 }

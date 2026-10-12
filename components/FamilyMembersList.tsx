@@ -392,8 +392,8 @@ function FamilyMembersList({
     // State variables for cropping images
     const [crop, setCrop] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
-    const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
-    const [imageSrc, setImageSrc] = useState(null);
+    const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+    const [imageSrc, setImageSrc] = useState<any>(null);
 
     // State variables for editing members
     const [editingMember, setEditingMember] = useState<FamilyMember | null>(null); // Type annotation
@@ -407,7 +407,7 @@ function FamilyMembersList({
     const [editImageSrc, setEditImageSrc] = useState<string | null>(null); // Type annotation
     const [editCrop, setEditCrop] = useState({ x: 0, y: 0 });
     const [editZoom, setEditZoom] = useState(1);
-    const [editCroppedAreaPixels, setEditCroppedAreaPixels] = useState(null);
+    const [editCroppedAreaPixels, setEditCroppedAreaPixels] = useState<any>(null);
     const [removePhoto, setRemovePhoto] = useState(false);
     const [isEditingAll, setIsEditingAll] = useState(alwaysEditMode);
     const [isFamilyPhotoSaving, setIsFamilyPhotoSaving] = useState(false);
@@ -417,7 +417,7 @@ function FamilyMembersList({
     const [familyPhotoImageSrc, setFamilyPhotoImageSrc] = useState<string | null>(null);
     const [familyPhotoCrop, setFamilyPhotoCrop] = useState({ x: 0, y: 0 });
     const [familyPhotoZoom, setFamilyPhotoZoom] = useState(1);
-    const [familyPhotoCroppedAreaPixels, setFamilyPhotoCroppedAreaPixels] = useState(null);
+    const [familyPhotoCroppedAreaPixels, setFamilyPhotoCroppedAreaPixels] = useState<any>(null);
     const needsAllHandleSpacer = alwaysEditMode && currentUser?.role === 'parent';
 
     // --- NEW: State for optimistic UI reordering ---
@@ -745,7 +745,7 @@ function FamilyMembersList({
 
     const handleAddMember = async () => {
         if (newMemberName) {
-            let photoFile = null;
+            let photoFile: File | null = null;
             if (imageSrc && croppedAreaPixels) {
                 try {
                     photoFile = await getCroppedImg(imageSrc, croppedAreaPixels);
@@ -811,7 +811,7 @@ function FamilyMembersList({
                 canvas.width = canvasWidth;
                 canvas.height = canvasHeight;
 
-                ctx.drawImage(image, pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height, 0, 0, canvasWidth, canvasHeight);
+                ctx!.drawImage(image, pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height, 0, 0, canvasWidth, canvasHeight);
 
                 canvas.toBlob((blob) => {
                     if (!blob) {

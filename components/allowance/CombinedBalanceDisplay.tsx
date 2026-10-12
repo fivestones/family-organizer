@@ -86,7 +86,7 @@ const CombinedBalanceDisplay: React.FC<CombinedBalanceDisplayProps> = ({
 
   // --- Format Output Strings ---
   const formattedCombinedMonetary = (!combinedMonetaryValue !== null && combinedMonetaryValue != undefined)
-    ? formatBalances({ [displayCurrency]: combinedMonetaryValue }, unitDefinitions)
+    ? formatBalances({ [displayCurrency!]: combinedMonetaryValue }, unitDefinitions)
     : (showCombinedBalance && isLoading) ? "Calculating..." : null; // // Show calculating only if combined is relevant
     
   // Format non-monetary balances (could be shown even if combined is hidden)

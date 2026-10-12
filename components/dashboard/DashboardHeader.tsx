@@ -51,7 +51,7 @@ export default function DashboardHeader({
     // Balances data
     const { data: balData } = db.useQuery({
         familyMembers: {
-            ...(activeMemberId ? { $: { where: { id: activeMemberId } } } : {}),
+            ...((activeMemberId ? { $: { where: { id: activeMemberId } } } : {}) as {}),
             allowanceEnvelopes: activeAllowanceEnvelopesQuery,
         },
     });

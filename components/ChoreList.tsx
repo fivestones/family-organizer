@@ -113,7 +113,7 @@ function ChoreList({
     countdownTimelines = null,
     countdownSettings = null,
 }: any) {
-    const [editingChore, setEditingChore] = useState(null);
+    const [editingChore, setEditingChore] = useState<any>(null);
     const [detailChoreId, setDetailChoreId] = useState<string | null>(null);
     const [taskSeriesExpansion, setTaskSeriesExpansion] = useState<TaskSeriesExpansionState>(EMPTY_TASK_SERIES_EXPANSION);
     const expandedTaskSeriesByMember = taskSeriesExpansion.byMember;
@@ -815,7 +815,7 @@ function ChoreList({
                     const assignedMembers = getAssignedMembersForChoreOnDate(chore, safeSelectedDate);
 
                     // +++ Logic for "with..." text +++
-                    let withOthersText = null;
+                    let withOthersText: string | null = null;
                     // +++ Check isJoint constraint +++
                     if (selectedMember !== 'All' && chore.isJoint) {
                         const otherAssignees = assignedMembers.filter((m) => m.id !== selectedMember);
@@ -930,7 +930,7 @@ function ChoreList({
                                     return (
                                         <ToggleableAvatar
                                             key={assignee.id}
-                                            name={assignee.name}
+                                            name={assignee.name!}
                                             photoUrls={familyMember?.photoUrls}
                                             isComplete={completion?.completed || false}
                                             isNotDone={isNotDone}

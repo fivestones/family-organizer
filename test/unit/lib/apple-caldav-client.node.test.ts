@@ -52,8 +52,8 @@ describe('apple caldav client', () => {
 
         expect(result.principalUrl).toContain('/12345/principal/');
         expect(result.calendarHomeUrl).toContain('/12345/calendars/');
-        expect(result.calendars[0].remoteCalendarId).toBe('home');
-        expect(result.calendars[0].displayName).toBe('Home');
+        expect(result.calendars[0]!.remoteCalendarId).toBe('home');
+        expect(result.calendars[0]!.displayName).toBe('Home');
     });
 
     it('filters out warning-suffixed ghost calendars from discovery results', async () => {
@@ -95,7 +95,7 @@ describe('apple caldav client', () => {
             calendarHomeUrl: 'https://caldav.icloud.com/12345/calendars/',
         });
 
-        expect(result.calendars.map((calendar) => calendar.displayName)).toEqual(['Fam']);
+        expect(result.calendars.map((calendar) => calendar!.displayName)).toEqual(['Fam']);
     });
 
     it('reuses a cached calendar-home URL for lightweight metadata refreshes', async () => {
@@ -127,7 +127,7 @@ describe('apple caldav client', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(result.principalUrl).toBe('https://caldav.icloud.com/12345/principal/');
         expect(result.calendarHomeUrl).toBe('https://caldav.icloud.com/12345/calendars/');
-        expect(result.calendars[0].remoteCalendarId).toBe('home');
+        expect(result.calendars[0]!.remoteCalendarId).toBe('home');
     });
 
     it('reads calendar collection metadata for ctag/sync-token sanity checks', async () => {
