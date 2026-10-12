@@ -1,0 +1,19 @@
+# For the live sync test only (npm run test:sync:live): Postgres and the PowerSync service on this machine, reachable
+# from it and from nowhere else. Used on top of docker-compose.yml by scripts/powersync/test-stack.mjs.
+services:
+  fo-postgres:
+    ports: ["127.0.0.1:${SYNC_TEST_POSTGRES_PORT:-55433}:5432"]
+    # A throwaway database, kept in memory: the main file's named volume is replaced, so nothing is left behind.
+    volumes: !override
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+  fo-powersync:
+    ports: ["127.0.0.1:${SYNC_TEST_POWERSYNC_PORT:-58081}:8080"]
+    restart: "no"
+
+# The main file joins the reverse proxy's network, which a test machine does not have.
+networks:
+  default:
+    name: family-organizer-sync-test
+    external: false

@@ -37,8 +37,14 @@ const routes: Array<[string, RegExp, (request: any) => Promise<Response>]> = [
     ['POST', /^\/api\/sync\/upload$/, upload],
 ];
 
-export function createTestPlatform(): TestPlatform {
+/**
+ * `syncUrl` makes this a device that really syncs: its databases connect to the PowerSync service at that address,
+ * and going offline disconnects them. Without it, uploads are pumped as described above and nothing is downloaded.
+ */
+export function createTestPlatform(options: { syncUrl?: string } = {}): TestPlatform {
     const directory = mkdtempSync(path.join(tmpdir(), 'platform-'));
+    const connected = new Map<AbstractPowerSyncDatabase, PowerSyncBackendConnector>();
+    const syncOptions = { crudUploadThrottleMs: 50, retryDelayMs: 300 };
     const stored = new Map<string, string>();
     const open = new Map<string, PowerSyncDatabase>();
     const pumps = new Set<() => void>();
@@ -61,6 +67,11 @@ export function createTestPlatform(): TestPlatform {
         requests,
         openDatabase,
         async connect(db: AbstractPowerSyncDatabase, connector: PowerSyncBackendConnector) {
+            if (options.syncUrl) {
+                connected.set(db, connector);
+                if (online) await db.connect(connector, syncOptions);
+                return;
+            }
             // What the sync service's client does for uploads: whenever something is queued, hand it to the connector.
             let stopped = false;
             const pump = async () => {
@@ -89,11 +100,17 @@ export function createTestPlatform(): TestPlatform {
             const response = await route[2](deviceRequest(requestPath, { method, body: init.body, sessionToken: init.sessionToken }));
             return { status: response.status, json: () => response.json() };
         },
-        resolveUrl: (pathOrUrl) => new URL(pathOrUrl, 'https://family.test').toString(),
+        resolveUrl: (pathOrUrl) => options.syncUrl ?? new URL(pathOrUrl, 'https://family.test').toString(),
         createId: () => randomUUID(),
         now: () => new Date(now),
         setOnline(value) {
             online = value;
+            // A device that really syncs loses its connection to the sync service along with the server.
+            for (const [db, connector] of Array.from(connected)) {
+                if (db.closed) connected.delete(db);
+                else if (value) void db.connect(connector, syncOptions);
+                else void db.disconnect();
+            }
         },
         setNow(iso) {
             now = iso;
