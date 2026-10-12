@@ -259,12 +259,14 @@ A throwaway branch; its output is findings in the specification's log ([Phase 0]
   - All as planned, on service 1.26.1 and Postgres 17. Timestamps need `timestamp_max_precision: milliseconds` to match what the app writes.
 - [x] **Latency**: measure one device to another, and the replay of writes queued offline.
   - On one machine, so without a network: 1–3 ms locally; 870 ms to another device with the SDK's default upload throttle and 43 ms with it lowered; about 30 ms from a change made in Postgres. **(you)** The same over the real network is still to be felt on real devices.
-- [ ] **The query layer**: the chore-day read and the complete-a-chore write over an export of the real data, in Kysely, Drizzle and plain SQL, timed on a phone and in a browser. Choose one.
+- [x] **The query layer**: the chore-day read and the complete-a-chore write over an export of the real data, in Kysely, Drizzle and plain SQL, timed on a phone and in a browser. Choose one.
+  - Kysely, with reads written as flat indexed queries assembled in memory: that shape was twenty to seventy times faster than one joined statement in every browser, and the library made no measurable difference. Run on generated data sized for two years of a family of eight, not on an export, and not yet on a phone.
 - [x] **Switching principal** on a shared device, and **a refused write** end to end.
   - A refused write reverts on the device in under a tenth of a second. Switching principal works without clearing the device, but only once the device has caught up: one that switched the moment its upload queue emptied stopped applying downloads until its next upload. The rule is now in [the specification](docs/powersync-migration.md#which-principal-a-queued-write-belongs-to).
-- [ ] **Test tooling**: choose the in-memory SQLite and in-process Postgres.
+- [x] **Test tooling**: choose the in-memory SQLite and in-process Postgres.
+  - PowerSync's Node SDK, never connected, for the device side; PGlite for the server side, with the real Postgres for anything that needs two connections.
 - [~] Write the findings into the specification and revise the later phases.
-  - Done for everything above. Left: the phone, the query layer and the test tooling, and every check marked **(you)**.
+  - Done for everything above. Left: the phone, and every check marked **(you)**.
 
 ### 7.1 The data layer, over Instant
 
