@@ -24,8 +24,6 @@ npm run test:coverage    # Vitest with coverage report
 npm run test:e2e         # Playwright E2E tests (auto-starts dev server on port 3000)
 npm run test:all         # Vitest + Playwright
 
-# The suite needs Node 24 or 20. Node 25 ships its own localStorage and breaks every jsdom test.
-
 # Run a single test file
 npx vitest run test/unit/lib/task-scheduler-date-logic.node.test.ts
 
