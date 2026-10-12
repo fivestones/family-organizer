@@ -327,6 +327,7 @@ The seam exists so the app can run on Instant while it is rebuilt. It is scaffol
 
 A read is named for what a screen needs: `useChoreDay(day)`, `useThreadMessages(threadId)`, `useMemberBalances(memberId)`. Each is live — it re-runs when a table it reads changes, whether from a local write or from sync.
 
+- **A read is typed SQL**, built with Kysely against the device's schema and handed to PowerSync to run. Kysely never runs anything itself on a device: it has no driver there, only the builder and its types.
 - **Nested data** such as a chore with its assignees and completions comes, by default, from a few flat queries, each on an indexed column, combined by a pure function. On the spike's generated data that shape was far faster on PowerSync's client tables than one statement of correlated aggregates. It is the starting point, not a rule: a read that is better written as a join is written as one, decided from its query plan on the real data and its timing on a phone. A read never fetches a whole history when it wants a day: the day is in the `WHERE`, and the columns have an index.
 - **One read, one moment.** A hook that combines several queries watches the tables it reads and, when any of them changes, runs all its queries inside one read transaction. It never stitches together results taken at different moments, so a screen cannot show a completion whose chore has not arrived yet.
 - **Types are the app's own**, written per area: ids for references, ISO strings for instants, `YYYY-MM-DD` for days, real booleans, parsed JSON. They are designed against the relational schema. Where `shared-core` logic takes a nested chore today it takes the area's type instead. A type says "not known" where that is the truth: on Instant a kid's device cannot tell whether someone else has a PIN, so `hasPin` is `null` there, not `false`.
@@ -605,7 +606,7 @@ Postgres gets a replication role for PowerSync with read-only access and a publi
 
 **Devices reach the PowerSync service at a path on the app's own address**, `/powersync/`, which the reverse proxy sends to the service with the prefix removed, WebSocket upgrades passed and response buffering off. It needs no hostname or certificate of its own, and because the browser sees one origin there are no cross-origin rules to get right. This is the arrangement David's other app, Budgeter, runs PowerSync 1.26.1 under behind Caddy; here the proxy is nginx, and the equivalent rule has still to be tried. A staging copy does need a hostname of its own for the app, since a browser keeps storage, the service worker and the activation cookie per address, and staging must not share them with the live app.
 
-New environment variables: `DATABASE_URL`, `POWERSYNC_JWT_PRIVATE_KEY`, `POWERSYNC_JWT_KID`, and the `PS_`-prefixed values the PowerSync configuration reads. **Nothing about the backend is compiled into the web build.** One image runs on Instant or on PowerSync, on staging or in production; what differs is read by the server from its environment and from Postgres, and given to the client when it starts. A deployment with no `DATABASE_URL` is on Instant, which is every deployment today, including other people's until they follow the upgrade guide.
+New environment variables: `DATABASE_URL`, `DATA_BACKEND`, `POWERSYNC_JWT_PRIVATE_KEY`, `POWERSYNC_JWT_KID`, the two halves of the key's public part, and the `PS_`-prefixed values the PowerSync configuration reads. **Nothing about the backend is compiled into the web build.** One image runs on Instant or on PowerSync, on staging or in production; what differs is read by the server from its environment and from Postgres, and given to the client when it starts. A deployment with no `DATABASE_URL` is on Instant, which is every deployment today, including other people's until they follow the upgrade guide. `DATA_BACKEND=powersync` is read by the server as it runs and, while only part of the app is on PowerSync, sends every page to the part that is. The image runs on Node 24.
 
 **Browsing the data.** The equivalent of Instant's Explorer is any Postgres client. An edit made there reaches devices the same way an Explorer edit does today. PowerSync's own dashboard is not available when self-hosting; its [Sync Diagnostics Client](https://docs.powersync.com/tools/devtools-overview) shows what one token has synced.
 
@@ -688,7 +689,8 @@ The third rule is real double work, so the gap between Phase 7 and cutover shoul
 - **The upload route** has integration tests for acceptance, refusal, atomic rollback, an unknown table or column, a `PUT` over an existing row, a retry after a commit with another device's write in between, an ended session, and the `5xx` path.
 - **Sessions and databases**: changing person with writes waiting; signing a parent out with no network; what a draining session may and may not do; a session that ends with a queue; two tabs on one person and on two; and the tab holding the connection being closed.
 - **The server services** run their existing integration suites against PGlite. It is a single connection, so whatever needs two — two uploads racing for a row, transfers in opposite directions, the same payout sent twice — runs against the real Postgres in the compose profile.
-- **End to end**, Playwright runs against a compose profile with Postgres and PowerSync, seeded by the import script, in Chromium, Firefox and WebKit. A case that needs a fresh start gets a new browser process, and a navigation that fails is a failure.
+- **Through the real sync service**, without a browser: `npm run test:sync:live` starts a throwaway Postgres and the PowerSync service in Docker and runs real devices against them through the app's real routes, including two uploads racing for one row.
+- **End to end**, `npm run test:sync:e2e`: Playwright runs the production build against the same throwaway stack, in Chromium, Firefox and WebKit. A case that needs a fresh start gets a new browser process, and a navigation that fails is a failure.
 
 **What the suite cannot show.** The stand-in for Instant that the data layer's tests use answers every query and refuses nothing: it has no permissions, no uniqueness and no ordering. It tests the adapter's own logic and says nothing about Instant. Playwright's WebKit is not Safari, and current engines are not the oldest supported ones. These are why the checks marked **(you)** exist, and why the slice is run on real devices before anything is built on it.
 
@@ -795,9 +797,12 @@ Done when a fresh import of the live data verifies clean.
 
 The slice's sessions, extended to everything that authenticates.
 
-- Every route that verifies an Instant token today authenticates against `auth_sessions` instead; the routes under `/api/auth/` replace the six token routes.
-- The session module's PowerSync-era implementation, complete on the web and the phone: expiry, revocation by a parent, the list of what is waiting for someone to sign in.
-- `has_pin`, and the server route that sets a PIN.
+Built in the slice: `auth_sessions` with its three states, signing in and out, the sync token, `has_pin`, and the session manager with its tests. What is left:
+
+- Every route that verifies an Instant token today — finance, messages, files, calendar sync — authenticates against `auth_sessions` instead, and the six `instant-auth-*` routes go.
+- The same routes for the phone. A phone proves it is an activated device with a token in `Authorization`, where the web has a cookie, and the middleware lets only the routes under `/api/mobile/` through on that. The session, sync and configuration routes have to be reachable by it too.
+- The server route that sets a PIN, and a parent ending someone's sessions on every device, which the server can already do and nothing yet asks for.
+- A screen for what is waiting for someone to sign in. The slice shows it as a notice.
 
 Done when the parent-elevation, idle sign-out and device-auth tests pass on both backends.
 
@@ -805,8 +810,10 @@ Done when the parent-elevation, idle sign-out and device-auth tests pass on both
 
 The slice's streams, upload route and rules, extended to every table.
 
-- The sync configuration complete: its three streams and the two for refusals.
-- The write policy for every table a device may write, with [a behavioral case for every cell of Appendix B](#the-write-rules) and for each way a device can lie or be late.
+Built in the slice: the `family` stream and the two for refusals; the upload route; and the policy, with its tests, for the tables the slice has. Adding a table is now a fixed list of small things, each held to the others by a test: a migration that also adds it to the publication, its columns in the stream, its table in the device's schema, its entry in the policy with a case for each kind of person, and its part of the mapping and the verification. What is left:
+
+- The two messaging streams.
+- The policy for every other table a device may write, with [a behavioral case for every cell of Appendix B](#the-write-rules) and for each way a device can lie or be late.
 - The live permission matrix, ported.
 - Pruning of the upload record.
 
@@ -821,7 +828,7 @@ Done when the integration suites for those areas pass on Postgres, the concurren
 
 ### Phase 7 — The data layer, on PowerSync
 
-For each remaining area, in the Phase 1 order:
+The slice built this for settings, units, the roster's reads and the chore day, and built what every area stands on: typed SQL, live reads that see one moment, mutations that ask the rules first and name their transactions, and the browser client. For each remaining area, in the Phase 1 order:
 
 - Its queries and mutations in SQL, behind the same interface.
 - The area's parity cases, recorded from Instant and compared.

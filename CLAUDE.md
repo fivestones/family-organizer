@@ -30,6 +30,10 @@ npx vitest run test/unit/lib/task-scheduler-date-logic.node.test.ts
 # Run live InstantDB permissions smoke test (requires env vars)
 npm run test:perms:live
 
+# The part of the app that runs on PowerSync (needs Docker; each starts a throwaway Postgres + PowerSync and stops it)
+npm run test:sync:live   # real devices through the real sync service, no browser
+npm run test:sync:e2e    # builds the app, then Playwright in Chromium, Firefox and WebKit against /sync
+
 # InstantDB schema management (local dev)
 INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest push
 INSTANT_CLI_DEV=1 INSTANT_CLI_API_URI="http://localhost:8888" npx instant-cli@latest pull
@@ -46,6 +50,12 @@ This is a **Next.js 16 + InstantDB** family management app. InstantDB is the sol
 **Client DB** (`lib/db.ts`): the single `@instantdb/react` entrypoint, initialized with `instant.schema.ts` for typed queries and transactions. Components use `db.useQuery(...)` for live data; writes stay client-side only when Instant permissions are the complete authorization/integrity boundary.
 
 **Data layer** (`packages/data`, bound for the web in `lib/data.ts` and for the phone in `mobile/src/lib/instant-db.js`): the app is moving off InstantDB to PowerSync ([docs/powersync-migration.md](docs/powersync-migration.md), roadmap Scope 7), and screens are moving, area by area, to typed reads and mutations in this package — `useSetting('countdown')`, `saveSetting(...)`. An area that has moved is reached only through it; do not add a query or a `transact` for it to a component. `test/contracts/instant-boundary.contract.node.test.ts` lists every file that still reaches Instant directly and fails if a new one does. Read `packages/data/README.md` before adding to it.
+
+**The move to PowerSync, so far** ([docs/powersync-migration.md](docs/powersync-migration.md); its log is the record). A slice of the app runs on Postgres and PowerSync beside the InstantDB app, on any deployment that sets `DATABASE_URL`:
+- `db/migrations/*.sql` is the Postgres schema, applied by the server as it starts; `db/types.ts` types it for Kysely and a contract test holds the two together. `lib/server/` is the server on Postgres: its connection, sessions, the upload route's logic, the sync token.
+- `packages/data/src/policy/` is the write rules, shared by device and server. `packages/data/src/powersync/` is the data layer over a person's local database, and `packages/data/src/session/manager.ts` decides whose database is whose. `powersync/` is the sync service's configuration.
+- `/sync` is the web client of that slice, with a frame of its own; every other page gets the InstantDB frame from `components/AppShell.tsx`.
+- Adding a synced table means a migration (which also adds it to the publication), its columns in `powersync/sync-config.yaml`, its table in `packages/data/src/powersync/schema.ts`, its entry in the policy, and its part of `scripts/migrate/mapping.mjs`. Contract tests fail if these disagree.
 
 **Server/Admin** (`lib/instant-admin.ts`): `@instantdb/admin` for verified principal-token minting, finance ledger mutations, messaging, calendar sync, file finalization, and other workflows that require fresh reads, cross-row invariants, or elevated writes. Used by routes under `app/api/` and authenticated server actions in `app/actions.ts`.
 
@@ -165,6 +175,10 @@ When mocking InstantDB in jsdom tests, mock `@/lib/db` to avoid booting the real
 | `NEXT_PUBLIC_ENABLE_TIME_MACHINE` | Explicitly enable the debug Date patch in production (normally unset) |
 | `S3_ENDPOINT` / `NEXT_PUBLIC_S3_ENDPOINT` | MinIO/S3 endpoints (internal/public) |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET_NAME` | S3 credentials |
+| `DATABASE_URL` | Postgres for the part of the app that runs on PowerSync. Unset on every InstantDB-only deployment |
+| `DATA_BACKEND` | `powersync` sends every page to `/sync`, the part of the app that runs on it. Read at run time |
+| `POWERSYNC_JWT_PRIVATE_KEY` / `POWERSYNC_JWT_KID` / `POWERSYNC_JWK_N` / `POWERSYNC_JWK_E` | The key the app signs sync tokens with, and its public half for the sync service. `node scripts/powersync/setup-env.mjs` prints all of these |
+| `POSTGRES_PASSWORD` / `POWERSYNC_DB_PASSWORD` | For the Postgres and PowerSync services in `docker-compose.yml`'s `powersync` profile |
 
 Act as a world-class senior frontend engineer with deep expertise in InstantDB
 and UI/UX design. Your primary goal is to generate complete and functional apps

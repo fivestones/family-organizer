@@ -318,7 +318,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
   - `npm run test:sync:live` runs devices through the real PowerSync service in Docker, with two uploads racing for one row on a real Postgres. `npm run test:sync:e2e` runs the web client in three browsers, two tabs among them.
 - [ ] **(you)** One staging hostname over HTTPS through the reverse proxy, with `/powersync/` on it sent to the PowerSync service: prefix removed, WebSocket upgrades passed, response buffering off. The live app's address needs nothing yet. [docs/powersync-staging.md](docs/powersync-staging.md) is the walk-through, from an empty server folder to the app open on a device.
 - [ ] **(you)** Use it on an iPad and an iPhone, in Safari, as a home-screen app and in Orion: does it load, sync, work offline, and start with no network? Compare a few real chore days with the live app.
-- [ ] Revise the specification's later phases from what building it showed.
+- [~] Revise the specification's later phases from what building it showed.
+  - Done from what building and testing it showed: Phases 4, 5 and 7 now say what the slice already built and what is left. To be done again after it has been on real devices.
 
 ### 7.3 The schema and the data
 
