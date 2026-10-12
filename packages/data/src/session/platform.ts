@@ -1,5 +1,8 @@
 import type { AbstractPowerSyncDatabase, PowerSyncBackendConnector } from '@powersync/common';
 
+/** The header a device sends its session token in. `Authorization` is the phone's device token's. */
+export const SESSION_TOKEN_HEADER = 'x-session-token';
+
 /** What the server tells a client about the backend it runs on (`GET /api/client-config`). */
 export interface InstallationConfig {
     installationId: string;

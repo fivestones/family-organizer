@@ -3,6 +3,7 @@ import { createPowerSyncChoresBackend } from './chores';
 import type { Device } from './device';
 import { createPowerSyncFamilyBackend } from './family';
 import { createPowerSyncSettingsBackend } from './settings';
+import { createPowerSyncSyncBackend } from './sync';
 import { createPowerSyncUnitsBackend } from './units';
 
 export type { Device } from './device';
@@ -14,6 +15,7 @@ export function createPowerSyncBackend(device: Device): DataBackend {
     return {
         family: createPowerSyncFamilyBackend(device),
         settings: createPowerSyncSettingsBackend(device),
+        sync: createPowerSyncSyncBackend(device),
         units: createPowerSyncUnitsBackend(device),
         chores: createPowerSyncChoresBackend(device),
     };

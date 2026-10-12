@@ -3,6 +3,7 @@ import { createInstantChoresBackend } from './chores';
 import type { InstantClient } from './client';
 import { createInstantFamilyBackend } from './family';
 import { createInstantSettingsBackend } from './settings';
+import { createInstantSyncBackend } from './sync';
 import { createInstantUnitsBackend } from './units';
 
 export type { InstantClient } from './client';
@@ -13,6 +14,7 @@ export function createInstantBackend(client: InstantClient): DataBackend {
         chores: createInstantChoresBackend(),
         family: createInstantFamilyBackend(client),
         settings: createInstantSettingsBackend(client),
+        sync: createInstantSyncBackend(),
         units: createInstantUnitsBackend(client),
     };
 }

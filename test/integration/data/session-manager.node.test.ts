@@ -56,7 +56,7 @@ const completeDishes = (memberId: string, markedBy: string | null = null) => cre
 
 describe('signing in', () => {
     it('starts with nobody', () => {
-        expect(manager.getSnapshot()).toEqual({ device: null, waiting: [], stranded: [] });
+        expect(manager.getSnapshot()).toEqual({ device: null, steppedIn: false, waiting: [], stranded: [] });
     });
 
     it('gives a kid a database of their own, named for the installation and for them', async () => {
@@ -98,6 +98,40 @@ describe('signing in', () => {
 
         expect(who()).toEqual({ type: 'kid', familyMemberId: ELI });
         expect(platform.requests).toEqual([]);
+    });
+});
+
+describe('a second tab of the same browser', () => {
+    it('follows the first: the person belongs to the browser, not to a tab', async () => {
+        const secondTab = await SessionManager.start(platform, config);
+        try {
+            await manager.signIn({ familyMemberId: ELI });
+            await secondTab.reload();
+            expect(secondTab.getSnapshot().device?.principal).toEqual({ type: 'kid', familyMemberId: ELI });
+
+            await manager.signIn({ familyMemberId: DANA, pin: PINS[DANA], sharedDevice: true });
+            await secondTab.reload();
+            expect(secondTab.getSnapshot()).toMatchObject({ device: { principal: { type: 'parent', familyMemberId: DANA } }, steppedIn: true });
+
+            await manager.signOut();
+            await secondTab.reload();
+            expect(secondTab.getSnapshot()).toMatchObject({ device: { principal: { type: 'kid', familyMemberId: ELI } }, steppedIn: false });
+        } finally {
+            await secondTab.stop();
+        }
+    });
+
+    it('sees at once what the first tab wrote, through the database they share', async () => {
+        await manager.signIn({ familyMemberId: ELI });
+        await deliverChores(manager.getSnapshot().device!.db);
+        const secondTab = await SessionManager.start(platform, config);
+        try {
+            platform.setOnline(false);
+            await completeDishes(ELI);
+            expect(await secondTab.getSnapshot().device!.db.getAll(`SELECT completed_by FROM chore_completions`)).toEqual([{ completed_by: ELI }]);
+        } finally {
+            await secondTab.stop();
+        }
     });
 });
 
@@ -206,7 +240,7 @@ describe('a session that ends with changes unsent', () => {
     });
 
     it('signs the person out and keeps what they had not sent, saying whose it is', async () => {
-        expect(manager.getSnapshot()).toEqual({ device: null, waiting: [{ principal: { type: 'kid', familyMemberId: ELI }, count: 1 }], stranded: [] });
+        expect(manager.getSnapshot()).toEqual({ device: null, steppedIn: false, waiting: [{ principal: { type: 'kid', familyMemberId: ELI }, count: 1 }], stranded: [] });
         expect(await onServer(`SELECT 1 FROM chore_completions`)).toEqual([]);
     });
 
@@ -246,7 +280,7 @@ describe('when the data under the app has been replaced', () => {
         // A restore, or the cutover: a new generation of the data.
         manager = await SessionManager.start(platform, { ...config, dataGeneration: 2 });
 
-        expect(manager.getSnapshot()).toEqual({ device: null, waiting: [], stranded: [{ principal: { type: 'kid', familyMemberId: ELI }, count: 1 }] });
+        expect(manager.getSnapshot()).toEqual({ device: null, steppedIn: false, waiting: [], stranded: [{ principal: { type: 'kid', familyMemberId: ELI }, count: 1 }] });
         expect(platform.openFiles()).toEqual([]);
 
         // Signing in again is under the new generation, in a new database, with none of the old in it.

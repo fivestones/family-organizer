@@ -1,12 +1,12 @@
 import 'server-only';
 
 import { NextResponse, type NextRequest } from 'next/server';
+import { SESSION_TOKEN_HEADER } from '@family-organizer/data/session/platform';
 import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
 import { getDb, isPostgresConfigured, type AppDatabase } from './db';
 import { findSession, type Session } from './sessions';
 
-/** The header a device sends its session token in. `Authorization` is the phone's device token's. */
-export const SESSION_TOKEN_HEADER = 'x-session-token';
+export { SESSION_TOKEN_HEADER };
 
 const noStore = { 'Cache-Control': 'no-store' };
 

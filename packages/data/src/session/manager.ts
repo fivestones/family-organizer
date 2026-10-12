@@ -64,6 +64,8 @@ export interface WaitingChanges {
 export interface SessionSnapshot {
     /** The signed-in person and their database, or `null` when nobody is signed in. */
     device: Device | null;
+    /** True when the signed-in person stepped in over someone else, whom the device goes back to when they sign out. */
+    steppedIn: boolean;
     /** Changes that will be sent when the person who made them signs in on this device again. */
     waiting: readonly WaitingChanges[];
     /**
@@ -98,7 +100,7 @@ export class SessionManager {
     private readonly open = new Map<string, AbstractPowerSyncDatabase>();
     private readonly draining = new Map<string, () => void>();
     private readonly listeners = new Set<() => void>();
-    private snapshot: SessionSnapshot = { device: null, waiting: [], stranded: [] };
+    private snapshot: SessionSnapshot = { device: null, steppedIn: false, waiting: [], stranded: [] };
     private queue: Promise<unknown> = Promise.resolve();
 
     private constructor(private readonly platform: DevicePlatform, private readonly config: InstallationConfig, state: StoredState) {
@@ -188,6 +190,37 @@ export class SessionManager {
             if (!back) this.state.resting = null;
             await this.save();
             await this.leave(leaving);
+            await this.refresh();
+        });
+    }
+
+    /**
+     * Another tab of this browser has changed who is signed in. The person belongs to the browser, not to a tab,
+     * so this tab follows: it reads what the other tab stored and shows the same person.
+     */
+    reload(): Promise<void> {
+        return this.enqueue(async () => {
+            const stored = await this.platform.storage.get(STORAGE_KEY);
+            if (!stored) return;
+            let next: StoredState;
+            try {
+                next = { ...emptyState(this.config), ...(JSON.parse(stored) as StoredState) };
+            } catch {
+                return;
+            }
+            if (next.installationId !== this.state.installationId || next.dataGeneration !== this.state.dataGeneration) return;
+            const previous = this.state;
+            this.state = next;
+            for (const key of Array.from(this.open.keys())) {
+                const held = next.sessions[key];
+                // Closed when it is no longer this tab's to show or to drain, or when its session has been replaced.
+                const stillNeeded = held && (key === next.current || held.state === 'draining') && held.token === previous.sessions[key]?.token;
+                if (!stillNeeded) {
+                    this.stopDraining(key);
+                    await this.closeDatabase(key);
+                }
+            }
+            for (const [key, held] of Object.entries(next.sessions)) if (held.state === 'draining') this.drainInBackground(key);
             await this.refresh();
         });
     }
@@ -427,7 +460,8 @@ export class SessionManager {
             waiting.push({ principal: session.principal, count: await this.pendingCount(waitingKey) });
             await this.closeDatabase(waitingKey);
         }
-        this.snapshot = { device, waiting, stranded: this.state.stranded.map(({ principal, count }) => ({ principal, count })) };
+        const steppedIn = device !== null && this.state.resting !== null && this.state.resting !== this.state.current;
+        this.snapshot = { device, steppedIn, waiting, stranded: this.state.stranded.map(({ principal, count }) => ({ principal, count })) };
         for (const listener of Array.from(this.listeners)) listener();
     }
 }
