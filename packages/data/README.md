@@ -22,7 +22,9 @@ An area's `types.ts`, `hooks.ts` and `mutations.ts` know nothing about any datab
 
 ## The two implementations
 
-`instant/` implements each area over InstantDB so the app keeps running on its live database while screens move here. It is the only place adapter code lives, it faces Instant, and it is deleted at cutover. A PowerSync implementation of the same interfaces replaces it. Nothing is ever written to make PowerSync look like Instant.
+`instant/` implements each area over InstantDB so the app keeps running on its live database while screens move here. It is the only place adapter code lives, it faces Instant, and it is deleted once the app has moved. A PowerSync implementation of the same interfaces runs beside it until then. Nothing is ever written to make PowerSync look like Instant.
+
+The seam between the two is scaffolding as well. When the Instant implementation is deleted, each area's `backend.ts` and the registry in `src/backend.ts` go with it, and the hooks and mutations call the SQL directly.
 
 ## Rules
 

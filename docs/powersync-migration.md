@@ -1,7 +1,7 @@
 # Moving from InstantDB to PowerSync
 
 **Date:** 2026-10-12
-**Status:** Planned. Nothing is built. Phase 0 (the spike) and Phase 1 (the data layer) can start now; every later phase is provisional until the spike's findings are written into this document.
+**Status:** In progress. The spike is done bar the checks that need real devices, the data layer exists with its first area on it, and the live data has been exported and counted. The plan was revised after a review on 12 October 2026; the log's first entry says what changed. Next is [Phase 2](#phase-2--one-slice-end-to-end): one slice of the app on PowerSync, end to end, before any more screens are converted.
 **Roadmap:** [Scope 7](../roadmap.md#scope-7--the-move-to-powersync).
 **Measured against:** commit `a4aed13`. The counts below were taken from the code on that commit, not estimated.
 
@@ -11,6 +11,22 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-12 — The plan revised after a review: a database for each person, every upload recorded once, money written only by the server, and one slice built end to end before more screens move.**
+  David had a second reviewer read this plan, the spike and the first data-layer code. It found three faults in the settings adapter, and a number of statements here that were inferences written as fact. The adapter was fixed the same day, with a test reproducing each fault: it now knows when a setting is absent as well as where it is, follows what live reads show, runs one name's saves in order, and saves an unset setting while offline. Each of the statements was put to an experiment on the spike before this revision was written. The scripts are `spike/service/client/spike-review.mjs`, `spike/service/client/upload.mjs` and `spike/web/review.mjs` on the spike branch.
+  **A database for each person works, and removes the problem instead of managing it.** A kid's own database filled in about a tenth of a second on Node. It held no parent-only row, only that kid's thread, and nothing of a write the parent had not yet sent. The kid's write uploaded as the kid. The parent's database, reopened in the background, uploaded the parent's write as the parent and was then deleted. In a browser, two tabs signed in as two different people, each with its own database, stayed apart in all three engines: the kid's tab saw one thread and no parent-only rows, the parent's saw both threads, and a write a kid may not make was refused from the kid's tab and accepted from the parent's.
+  **Tabs on one database share it without the server.** A write in one tab appeared in the other with the network off, in Chromium, Firefox and WebKit, on both storage modes. The first pass had only shown two tabs agreeing while online, which the server alone would explain.
+  **The first fill is quick.** About 3,800 rows, which is everything a device would hold, took 150–220 ms on Node. In a browser on the private file system it took 230 ms in Chromium, 260 in WebKit and 725 in Firefox; on IndexedDB, 456, 1,962 and 511.
+  **Judging an upload by what the device calls it is a hole.** The first pass's upload route checked a `PUT` as a new row and applied it as insert-or-update, so a kid could overwrite another kid's completion by sending its id as though it were new. Rewritten to lock the row, look at what Postgres holds and judge an existing row as an update, the route refused that write, and refused a delete followed by a re-creation, and the device put its copy back within a quarter of a second.
+  **Two kids claiming the same chore offline.** Both built the same id. The first upload was accepted. The second was refused as a change to someone else's completion, and that device showed the first kid's claim 173 ms later.
+  **A retry after a lost answer undoes newer work, unless uploads are recorded.** A kid's write committed and its answer was dropped; a parent then corrected the row; the device retried. With nothing recorded, the retry replaced the parent's correction. With each transaction recorded under the device database's id and the transaction's number, in the same Postgres transaction as its writes, the retry was answered from the record and the correction stood.
+  **Starting with no network is unproven on WebKit.** The first pass reported it working. Its test could pass on the page left over from before the network was cut. Rerun with a browser process started offline, Chromium and Firefox start. Playwright's WebKit fails to load the page at all, with the app's present service worker and with one that also caches PowerSync's files. Whether Safari itself does better is a question for a real iPad.
+  **What the earlier entries overstate.** The in-memory storage mode does not keep data across a restart, and was never going to. Playwright's current engines say nothing about the oldest browsers the app supports, which remain untried. A one-page app with this app's build settings is not this app with its sign-in, its service worker, its Docker image and its reverse proxy. The query comparison ran on generated data, counted rows without comparing fields, and set one shape of single statement against one set of indexes; it supports flat queries as a starting point and nothing wider. The WebSocket finding comes from Playwright's WebKit on one machine and stays provisional until Safari has been tried through the real proxy. And "switching principal works without clearing the device" described a design this revision drops.
+  **What changes in the plan.** [One database per person](#one-database-per-person) replaces the split between an interface session and a sync session. [The upload route](#writes-the-upload-endpoint) judges a write by the server's state under a lock, accepts only listed tables and columns, and records every transaction once; "every operation is idempotent" is gone. [Refusals](#refusals) are kept where the person can see them, not only shown in a toast. [Money is written only by the server](#money-is-written-only-by-the-server), which David approved; it touches four places that write money from a device today, not the one first reported to him. [The cutover](#the-cutover-protocol) gains a protocol for clients that are stale, offline or holding unsent writes, and a client learns its backend from the server when it starts, not from a value compiled into the build. And the seam between the two implementations is now said to go at cleanup, with the Instant code.
+  Corrections of fact: where shared workers are off, one tab syncs at a time, not each for itself. A phone starts from cached configuration, so relaunching it does not change its backend. The two permission contract suites pin the text of the rules and do not test their behavior. `numeric` was never ruled out by how it syncs. What a delete does is chosen relationship by relationship. An advisory lock for calendar sync needs a connection of its own. Backups must leave the machine, and a stalled PowerSync must not be able to fill Postgres's disk. Self-hosting Instant is a project, not a setting.
+  **The order changes too.** Converting screens is paused after the first area. Next is [one slice end to end](#phase-2--one-slice-end-to-end): settings, units, the family roster, the chore day and completing a chore, on PowerSync, on staging, on the exported data, with real sessions, the real upload route and the real rules. The data layer's API has so far been designed against one backend. The slice is where it meets the other, before a hundred more files are shaped by it. The slice is now Phase 2, so the phases after it are renumbered: what the entries below call Phases 2 to 8 are now Phases 3 to 9.
+  **Two things a person will notice from the money rule.** Choosing which envelope is the default will need a connection, as every other money operation does. And a balance that disagrees with its ledger is put right by the server when a parent opens the page, not by the parent's device.
+  **Left.** None of this revision is built; it is a plan. The census still has nine of the ten doubled references to compare. Every **(you)** check stands, and a real iPad starting with no network is now the most important of them.
+
 - **2026-10-12 — The first export and census of the live data.**
   `scripts/migrate/export.mjs` reads every entity through the Admin SDK and writes it under `.migration/exports/`, which git and Docker both ignore. It can only read: the SDK is wrapped so nothing in the file can reach a write. `scripts/migrate/census.mjs` then reports what the data holds against what the schema declares, printing counts and attribute names and never a stored value, so what follows is safe to keep here.
   **The data is small, and one table is nearly all of it.** 64,895 rows, 27 MB as JSON. Of those, 61,111 rows and 24 MB are `calendarSyncRuns`, the server's log of calendar sync attempts, which no device reads. Everything a device would hold is about 3,800 rows and 3 MB. So history, messages and task updates sync in full and the windowed stream is not needed; and the sync-run log wants a retention rule, with only recent runs carried over.
@@ -19,7 +35,7 @@ Record each completed phase here, newest first, in the prose style the audits us
   One check is incomplete. The export holds each link on the side that owns it, so the comparison of a link with the plain attribute that duplicates it covered one of the ten pairs (it agreed, 5 of 5). The other nine need the lookup from the far side.
   **Instant's own backups use the same layout.** Instant backs every cloud app up nightly and keeps seven days; `npx instant-cli@latest backup download --latest` fetches one as a zip of one NDJSON file per entity, with its schema, rules and row counts ([backups](https://www.instantdb.com/docs/backups)). The export writes that same layout, so the importer will read either, and other people running the app can migrate from a backup alone. Downloading needs the CLI signed in to the Instant account, which it is not on this machine.
   **The Docker build.** Built from a clean copy of the committed tree, the production image builds and its health route answers. Two things came out of doing it. On this machine a build hung for hours at its first step because Docker's credential helper did not answer; pulling the public base image anonymously got past it. And the repository had no `.dockerignore`, so a build sends everything in the folder to Docker; a minimal one now keeps exports and agent worktrees out. Next copies `.env` into its standalone output, so a build made where a `.env` is present bakes those secrets into the image; that is left as its own task.
-  **Known errors in this document, found in review the same day and not yet corrected.** Where shared workers are off, only one tab syncs at a time; it is not true that each syncs for itself. "Every operation is idempotent" does not make a retried upload safe. A phone starts from cached configuration, so it does not switch backend at its next launch. The two permission contract suites compare rule text and are not an executable definition of the rules. The session-switching design lets a child's writes upload under a parent's session. And the spike's offline-start result for WebKit, and its two-tab result, prove less than the entry below says.
+  **Known errors in this document, found in review the same day.** They are listed, and corrected, in the entry above.
 
 - **2026-10-12 — Phase 1 begun: the data layer exists, and settings are the first thing on it.**
   `packages/data` is a third workspace package beside `shared-core`, wired into the TypeScript paths, the Docker install and the phone's bundle. It has one seam, `backend.ts`, through which an implementation is bound once at startup: `lib/data.ts` does it for the web and `mobile/src/lib/instant-db.js` for the phone, and screens import from `lib/data`. Its Instant implementation lives apart in `src/instant/` and is the only part that knows Instant exists. The package's own README states the rules.
@@ -62,7 +78,7 @@ Instant's team has joined OpenAI and Instant Cloud is closing. New signups are s
 
 The replacement is self-hosted **PowerSync** in front of ordinary **Postgres**. Postgres becomes the database; each device keeps a local SQLite copy; PowerSync streams Postgres changes down to devices, and devices send their writes up through an endpoint in this app.
 
-**The fallback, and the date it triggers.** Self-hosting Instant is a configuration change: both clients already accept a custom API and WebSocket address, and Instant publishes a [migration guide](https://www.instantdb.com/docs/self-hosting/migrate). If the cutover rehearsal ([Phase 7](#phase-7--rehearsal-and-cutover)) has not passed by **31 May 2027**, self-host Instant first so the August deadline cannot be missed, then finish this plan without it hanging over the work.
+**The fallback, and the date it triggers.** Instant can be self-hosted, both clients already accept a custom API and WebSocket address, and Instant publishes a [migration guide](https://www.instantdb.com/docs/self-hosting/migrate). It is a small project of its own, not a setting: Instant's server and its database have to be deployed and backed up, a backup of the cloud app restored into them, new credentials issued, every phone's configuration changed, and the whole thing tried before it is relied on. If the cutover rehearsal ([Phase 8](#phase-8--rehearsal-and-cutover)) has not passed by **31 May 2027**, that project starts then. Three months is room enough for it, so the August deadline cannot be missed, and this plan is then finished without the deadline hanging over the work. The rehearsal itself runs against a self-hosted Instant, so most of the fallback will already have been done once.
 
 ## Decisions
 
@@ -72,21 +88,29 @@ Settled with David on 11–12 October 2026.
 2. **Ahead of the unfinished product work.** Scope 7 comes before Scopes 4–6.
 3. **Other people run this app.** The repository has forks, so the export and import are a documented, supported script. Both backends are not supported long-term: after cutover Instant is removed.
 4. **Offline scope stays as it is.** Money mutations, sending messages and parent PIN elevation stay online-only. Making them work offline is a separate piece of design.
-5. **One switch.** Nearly every entity links to `familyMembers`, so the data cannot live half in one backend and half in the other. Cutover is a short read-only window, a final import, and a flag flip.
+5. **One switch.** Nearly every entity links to `familyMembers`, so the data cannot live half in one backend and half in the other. Cutover is a short read-only window, a final import, and a change of backend.
 6. **One Postgres, no MongoDB.** Postgres and the PowerSync service join the existing compose file. PowerSync keeps its own bookkeeping in a second database on the same server.
 7. **Built for PowerSync, not adapted to it.** The finished app reads as though it had been written for PowerSync and Postgres from the start. There is no compatibility layer, and nothing keeps a shape only because Instant gave it that shape. [What that means here](#the-finished-app) is spelled out below.
 
-Made in this plan, and open to revision by the spike:
+Made in this plan, and open to revision as the work shows:
 
 8. **One data layer, shared by the web and the phone.** Each feature area has typed queries and mutations in a shared package. Screens call those; they contain no SQL and no query objects.
-9. **Typed SQL, with Kysely, on the device and on the server.** PowerSync is SQL-first and has an official driver for it. The spike compared it with Drizzle and with plain SQL strings: speed was the same, Kysely needs one schema definition where Drizzle would need two, and it is the same builder on both sides.
+9. **Typed SQL, with Kysely, on the device and on the server.** PowerSync is SQL-first and has an official driver for it. The spike compared it with Drizzle and with plain SQL strings and found no difference in speed. Kysely is chosen because it takes its types from PowerSync's own client schema and is the same builder on both sides. Drizzle would also work; this is a preference for one tool, not a measured result.
 10. **SQL migrations are the source of truth for the schema.** There is no schema file in application code that the database is derived from.
-11. **The scaffolding faces Instant, and is thrown away.** To keep `main` shippable, the data layer is first implemented over Instant, then natively over PowerSync. The Instant implementation is deleted at cleanup. See [how the app gets there](#how-the-app-gets-there).
+11. **The scaffolding faces Instant, and is thrown away.** To keep `main` shippable, the data layer is first implemented over Instant, then natively over PowerSync. The Instant implementation is deleted at cleanup, and the seam between the two with it. See [how the app gets there](#how-the-app-gets-there).
 12. **The app owns its sessions.** Instant's tokens are replaced by session tokens this server issues and can revoke, plus short-lived signed tokens for PowerSync.
 13. **The write rules are one file, shared.** The same rule code runs on the device, for an immediate answer, and on the server, where it is authoritative. Anything not listed is denied.
-14. **Both backends live in `main` behind a flag** until cutover, rather than on a long-lived branch.
+14. **Both backends live in `main`** until cutover, rather than on a long-lived branch. Which one a client uses is what the server tells it when it starts, not something compiled into the build.
 
-**Licence.** The PowerSync service is under the Functional Source License: source-available, free to self-host and modify, not to be resold as a competing sync service, and each release becomes Apache-2.0 after two years ([licence text](https://github.com/powersync-ja/powersync-service/blob/main/LICENSE)). It runs as a container this project pulls, so the repository stays MIT. The README should say that one runtime dependency is source-available rather than open source ([Phase 8](#phase-8--cleanup)).
+Added after the review of 12 October 2026. David approved the direction, and decision 18 in particular. The detail of the others is this plan's, and [the slice](#phase-2--one-slice-end-to-end) either proves it or changes it.
+
+15. **One local database per person.** A device keeps a separate database for each person signed in on it. A write waits in the database of the person who made it and is uploaded under that person's own session. See [one database per person](#one-database-per-person).
+16. **The server decides what an upload is.** An uploaded write is judged against the row as Postgres holds it, under a lock, never by what the device called it. Every uploaded transaction is recorded once, so a retry is answered from the record instead of being applied again. See [the upload endpoint](#writes-the-upload-endpoint).
+17. **First claim wins.** When two devices create the same up-for-grabs completion offline, the first to reach the server holds it and the second is refused.
+18. **Money is written only by the server.** Ledger rows, balances, creating and archiving an envelope, and choosing the default one go through the finance routes and nowhere else. An envelope's name, description and goal stay ordinary device writes. This applies at cutover; the live Instant rules are not touched. See [what it changes](#money-is-written-only-by-the-server).
+19. **One slice before the rest.** One feature runs on PowerSync end to end, on staging, on a copy of the real data, before more screens are converted.
+
+**Licence.** The PowerSync service is under the Functional Source License: source-available, free to self-host and modify, not to be resold as a competing sync service, and each release becomes Apache-2.0 after two years ([licence text](https://github.com/powersync-ja/powersync-service/blob/main/LICENSE)). It runs as a container this project pulls, so the repository stays MIT. The README should say that one runtime dependency is source-available rather than open source ([Phase 9](#phase-9--cleanup)).
 
 ## What exists today
 
@@ -157,7 +181,7 @@ A write on a device lands in local SQLite at once, and every live query on that 
 
 ## The schema
 
-The schema is designed, not transliterated. [Appendix A](#appendix-a--what-has-to-be-carried) lists what has to be carried; the design is produced in [Phase 2](#phase-2--the-schema-and-the-data) once the census of live data is in hand, because several type decisions depend on what is really stored.
+The schema is designed, not transliterated. [Appendix A](#appendix-a--what-has-to-be-carried) lists what has to be carried. The tables the slice needs are designed first, in [Phase 2](#phase-2--one-slice-end-to-end), and the rest in [Phase 3](#phase-3--the-schema-and-the-data). Both rest on the census of live data, because several type decisions depend on what is really stored.
 
 ### Design rules
 
@@ -165,9 +189,9 @@ The schema is designed, not transliterated. [Appendix A](#appendix-a--what-has-t
 - **Ids** are `uuid`, generated on the device, as PowerSync recommends for rows a client creates ([client id](https://docs.powersync.com/sync/advanced/client-id)).
 - **An instant is `timestamptz`; a calendar day is `date`.** Today 87 attributes hold dates as strings, 13 as epoch numbers and 16 use Instant's date type. With `edition: 3` in the sync configuration PowerSync sends timestamps to devices as ISO 8601 text ([compatibility](https://docs.powersync.com/sync/advanced/compatibility)), so the rule end to end is: `timestamptz` in Postgres, ISO 8601 text on the device, an ISO string in the app's types.
 - **A boolean is `boolean`, a count or position `integer`.** Devices receive booleans as 0 and 1; the data layer's row mappers turn them back.
-- **Money stays `double precision`.** Four ledger rows hold sub-cent amounts and the roadmap [decided against](../roadmap.md#decided-against) scaled-integer money for this deployment. `numeric` is ruled out separately: PowerSync syncs it as text ([type mapping](https://docs.powersync.com/sync/types)).
+- **Money stays `double precision`.** Four ledger rows hold sub-cent amounts, and the roadmap [decided against](../roadmap.md#decided-against) scaled-integer money for this deployment because coercing them would rewrite a real event. That decision is the whole reason. `numeric` would be exact, and it reaches a device as text ([type mapping](https://docs.powersync.com/sync/types)), which the app could parse. Moving to it is a change for later, with its own conversion and David's approval, not something this migration slips in.
 - **`jsonb` is for documents.** A JSON attribute stays JSON when it is a self-contained value read and written whole — an event's recurrence lines, a widget's settings. It becomes columns or a table when the app reaches inside it or it models a relation. Several attributes typed as JSON today are plain scalars (`chores.canCompleteInAdvance`, `chores.difficultyRating`) and become ordinary columns.
-- **Relations are foreign keys**, `ON DELETE CASCADE` where a child cannot outlive its parent — the 13 cascade links, and the join tables — and `SET NULL` otherwise.
+- **Relations are foreign keys, and what a delete does is decided relationship by relationship.** `ON DELETE CASCADE` where a child means nothing without its parent: the 13 cascade links, and the join tables. `RESTRICT` where the child is a record that must not vanish: nothing the ledger points at can be deleted from under it, which is why an envelope is archived and never deleted. `SET NULL` only where the reference is optional and the row still makes sense without it. The mapping file records the choice for each relation; there is no default.
 - **Constraints say what the code currently has to remember**: `NOT NULL`, `UNIQUE`, and `CHECK` on status columns.
 
 ### What is designed out
@@ -178,13 +202,15 @@ These exist only because of how Instant works, and do not survive.
 - **An id stored twice.** Ten relations are held both as a link and as a plain attribute carrying the same id (`messages.threadId` beside the `thread` link). Each becomes one foreign-key column.
 - **Many-to-many links** become join tables with a composite primary key: who a calendar item pertains to, a calendar item's tags, who a history event affected, a chore's assignees, a task's prerequisites. PowerSync needs a single text `id` per synced table, which the sync query builds from the two columns.
 - **`choreAssignments` and `routineSteps`**, entities that exist to carry a position on a relation, become what they are: join tables with a `position` column.
-- **`calendarSyncLocks`.** A table of lock rows, because Instant has no locks. Postgres advisory locks replace it.
+- **Balances as one JSON value.** `allowanceEnvelopes.balances` maps a currency to an amount, and every money operation reaches inside it. It becomes one row per envelope and currency.
+- **A setting found by name but keyed by a random id.** Nothing stops two rows sharing a name today. The name becomes the key.
+- **`calendarSyncLocks`.** A table of lock rows, because Instant has no locks. A Postgres advisory lock replaces it: one per calendar account, held for the length of a sync run on a connection taken for that run alone, and released when the run ends, or by Postgres itself if the process dies. A sync run makes network calls, so the lock is held by the session and never inside an open transaction.
 - **`$users`, `$files`, `$streams`, and the presence room.** Principals become token claims; nothing reads or writes `$files` or `$streams`.
 - **Stringly-typed dates and loosely-typed scalars**, per the rules above.
 
 Kept deliberately:
 
-- **Deterministic ids** for up-for-grabs completions and countdown runs. They look like an Instant workaround but are the right tool for offline-first sync: two devices that create "the same" row while offline must arrive at the same id. A unique constraint is added behind them.
+- **Deterministic ids** for up-for-grabs completions and countdown runs. They look like an Instant workaround but are the right tool for offline-first sync: two devices that create "the same" row while offline must arrive at the same id. The id does not decide who wins; [a rule on the server](#the-write-rules) does.
 - **Soft references in history.** `historyEvents.choreId`, `taskId` and the like are ids that were never links. They stay unconstrained columns, because history must keep pointing at things that have since been deleted.
 - **Five attachment tables** rather than one polymorphic table, so each keeps a real foreign key to its owner.
 
@@ -193,7 +219,10 @@ Kept deliberately:
 Added:
 
 - `auth_sessions` — the app's own sessions ([identity](#identity-and-sessions)). Server only.
-- `sync_write_rejections` — every write the server refused, with the reason. Server only; it exists so a refusal can be diagnosed in a Postgres client.
+- `sync_uploads` — one row for every transaction a device has uploaded, with its outcome ([the upload endpoint](#writes-the-upload-endpoint)). Server only.
+- `write_refusals` — every transaction the server refused: who made it, what it was, and why. Synced to the person who made it and to parents ([refusals](#refusals)).
+- `installation` — one row: this installation's id, its data generation, the backend in use, whether writes are frozen, and the oldest client build allowed ([the cutover protocol](#the-cutover-protocol)). Server only, and served to clients through the configuration route.
+- `client_checkins` — what each device last reported about itself. Server only.
 - `family_members.has_pin` — a generated boolean, synced in place of the PIN hash.
 - A server-assigned creation timestamp on `allowance_transactions`, for the one place the app orders by Instant's built-in server timestamp (`TransactionHistoryView`).
 
@@ -201,59 +230,69 @@ Left behind:
 
 - The two undeclared calendar attributes, `ctag` and `syncToken`. No code reads them. This also settles the open [Scope 3](../roadmap.md#scope-3--the-correctness-sweep) item about them: they are not migrated.
 - `choreManualStarts`, already removed from the code and still present in the hosted app.
+- Most of `calendarSyncRuns`. The server's log of sync attempts is 61,111 of the live app's 64,895 rows and no device reads it. Recent runs are carried and the table gets a retention rule.
 
-Three entities are referenced by no code at all: `calculatedAllowancePeriods`, `deviceSessions` and `timeOfDayDefinitions`. If the census finds rows in them they are archived as JSON beside the final backup rather than given tables nothing uses.
+Three entities are referenced by no code at all: `calculatedAllowancePeriods`, `deviceSessions` and `timeOfDayDefinitions`. The census found no rows in any of them, so they are simply not carried.
 
 ### Tables that never reach a device
 
-The calendar-sync tables, `shortcut_tokens`, `push_devices`, `auth_sessions` and `sync_write_rejections` are read and written only by the server. They are left out of the sync configuration and the replication publication. Today's rules let some principals view five of the corresponding entities — any family member `calendarSyncCalendars` and `deviceSessions`, a parent `calendarSyncAccounts` and `calendarSyncRuns`, a parent or the owner `pushDevices` — but no client code reads any of them, so this narrows access without changing behavior.
+The calendar-sync tables, `shortcut_tokens`, `push_devices`, `auth_sessions`, `sync_uploads`, `installation` and `client_checkins` are read and written only by the server. They are left out of the sync configuration and the replication publication. Today's rules let some principals view five of the corresponding entities — any family member `calendarSyncCalendars` and `deviceSessions`, a parent `calendarSyncAccounts` and `calendarSyncRuns`, a parent or the owner `pushDevices` — but no client code reads any of them, so this narrows access without changing behavior.
 
 ### Where the schema lives
 
 - **Postgres**: hand-written SQL migrations in `db/migrations/`, run when the app container starts, under an advisory lock.
 - **The device**: a checked-in TypeScript client schema, first generated with PowerSync's CLI (`powersync generate schema`, which works against a self-hosted instance — [CLI](https://docs.powersync.com/tools/cli)) and then maintained with its indexes. A test fails if its columns drift from the sync configuration.
-- **Indexes on the device** are declared for every foreign-key column the data layer joins on. PowerSync's ordinary client tables are views over JSON with basic index support; if the spike finds a join too slow on a phone, [raw tables](https://docs.powersync.com/client-sdks/advanced/raw-tables) — real SQLite tables — are the remedy for that table.
-- **The mapping**: `scripts/migrate/mapping.ts` records, for every Instant attribute and link, the column it becomes and the conversion applied. The import uses it and the verification reads it, so it is also the written record of every design choice above.
+- **Indexes on the device** are declared for the columns a read filters and joins on, composite where a read filters on two together: a day's completions are found by chore and day. They are chosen from the query plans of the real reads, not by rule. PowerSync's ordinary client tables are views over JSON with basic index support; if a read proves too slow on a phone, [raw tables](https://docs.powersync.com/client-sdks/advanced/raw-tables) — real SQLite tables — are the remedy for that table.
+- **The mapping**: `scripts/migrate/mapping.ts` records, for every Instant attribute and link, the column it becomes, the conversion applied, and what a delete does to it. The import uses it, so it is also the written record of every design choice above.
 
 ## The data layer
 
-`packages/data` is one workspace package used by the web app and the phone, as `packages/shared-core` is.
+`packages/data` is one workspace package used by the web app and the phone, as `packages/shared-core` is. Its own README states its rules.
 
 ```
-packages/data/
-  schema/     the client schema and database types
-  chores/     types.ts · queries.ts · mutations.ts · hooks.ts
-  tasks/ …    one folder per area
-  policy/     the write rules, shared with the server
-  session/    the principal, the connector, sync status
+packages/data/src/
+  backend.ts     the one seam: an implementation is bound once, at startup
+  <area>/        types.ts · backend.ts · hooks.ts · mutations.ts
+  instant/       the implementation over Instant — deleted at cleanup
+  powersync/     the implementation over PowerSync: client schema, queries, mutations
+  policy/        the write rules, shared with the server
+  session/       the principal, that person's database, the connector, sync status
 ```
 
-- **`queries.ts`** holds typed SQL and the mappers from rows to the area's types.
-- **`hooks.ts`** wraps them as live React hooks. PowerSync's hooks work in React and React Native alike ([React hooks](https://docs.powersync.com/client-sdks/frameworks/react)).
-- **`mutations.ts`** holds named functions, each running in one local write transaction.
+- **`types.ts`** holds the area's own types, designed against the relational schema.
+- **`hooks.ts` and `mutations.ts`** are what screens import. They hold what is true on any backend — defaults, decoding, validation — and call the bound implementation.
+- **`backend.ts`** is what an implementation must supply for the area: a handful of functions.
 - **Screens import hooks and mutations and nothing else.** No SQL in a component, on either platform.
+
+The seam exists so the app can run on Instant while it is rebuilt. It is scaffolding. At cleanup the Instant implementation is deleted and the seam with it: an interface with one implementation would be exactly the kind of leftover decision 7 rules out, so the hooks then call the SQL directly.
 
 ### Reads
 
 A read is named for what a screen needs: `useChoreDay(day)`, `useThreadMessages(threadId)`, `useMemberBalances(memberId)`. Each is live — it re-runs when a table it reads changes, whether from a local write or from sync.
 
-- **Nested data** such as a chore with its assignees and completions comes from a few flat live queries, each on an indexed column, combined by a pure function. The spike measured this against a single statement that joins and aggregates: flat was twenty to seventy times faster on the heaviest read, in every browser. A read never fetches a whole history when it wants a day: the day is in the `WHERE`, and the column has an index.
-- **Types are the app's own**, written per area: ids for references, ISO strings for instants, `YYYY-MM-DD` for days, real booleans, parsed JSON. They are designed against the relational schema. Where `shared-core` logic takes a nested chore today it takes the area's type instead.
-- **Loading.** A hook reports loading until the device has completed its first sync, so a new device shows a loading state rather than an empty family.
+- **Nested data** such as a chore with its assignees and completions comes, by default, from a few flat queries, each on an indexed column, combined by a pure function. On the spike's generated data that shape was far faster on PowerSync's client tables than one statement of correlated aggregates. It is the starting point, not a rule: a read that is better written as a join is written as one, decided from its query plan on the real data and its timing on a phone. A read never fetches a whole history when it wants a day: the day is in the `WHERE`, and the columns have an index.
+- **One read, one moment.** A hook that combines several queries watches the tables it reads and, when any of them changes, runs all its queries inside one read transaction. It never stitches together results taken at different moments, so a screen cannot show a completion whose chore has not arrived yet.
+- **Types are the app's own**, written per area: ids for references, ISO strings for instants, `YYYY-MM-DD` for days, real booleans, parsed JSON. They are designed against the relational schema. Where `shared-core` logic takes a nested chore today it takes the area's type instead. A type says "not known" where that is the truth: on Instant a kid's device cannot tell whether someone else has a PIN, so `hasPin` is `null` there, not `false`.
+- **Loading.** A hook reports loading until the signed-in person's database has completed its first sync, so a new device, or a person new to a device, sees a loading state rather than an empty family.
 
 ### Writes
 
-A mutation is a function: `completeChore(db, { choreId, memberId, day, markedBy })`. Inside one local write transaction it:
+A mutation is a function: `completeChore({ choreId, memberId, day, markedBy })`. Inside one local write transaction it:
 
 1. checks the shared [write rule](#the-write-rules), so a refusal is immediate;
 2. checks any uniqueness the server will enforce, for the same reason;
-3. writes the rows, including the dependent rows the server's foreign keys would remove on a delete, so an offline view stays consistent.
+3. writes the rows, including the dependent rows the server's foreign keys would remove on a delete, so an offline view stays consistent;
+4. labels the transaction with its own name, which travels with the upload so that a refusal can say what was refused.
 
 PowerSync uploads each local transaction as one unit and the server applies it in one Postgres transaction — all or nothing.
 
-A mutation resolves when the write is saved on the device, not when the server has accepted it. A refusal only the server can discover — another device changed the row first — arrives later, and the device's copy reverts at its next sync. Those reach the user through the rejection channel described under [writes](#writes-the-upload-endpoint).
+A mutation resolves when the write is saved on the device, not when the server has accepted it. A refusal only the server can discover — another device changed the row first, another kid claimed the chore first — arrives later. The device's copy is put right at its next sync, and the person finds what happened under [refusals](#refusals).
 
-Money, sending a message and PIN elevation are not local writes. Their mutations call the server routes they call today, per decision 4.
+**A mutation checks what it is given.** The app's TypeScript is not strict and the phone's screens are JavaScript, so types alone do not protect a write. Each mutation validates its arguments at run time before it touches the database, and a test compiles the package itself under strict settings.
+
+Money, sending a message and PIN elevation are not local writes. Their mutations call the server routes they call today, per decision 4. From cutover that covers everything that writes the ledger, a balance, or the choice of default envelope ([money](#money-is-written-only-by-the-server)).
+
+**Changing backend, or person.** The implementation is bound once, before anything renders. Nothing swaps it under a running screen: a change of backend is a restart ([the cutover protocol](#the-cutover-protocol)), and a change of person remounts everything below the session provider on that person's database ([one database per person](#one-database-per-person)).
 
 ### The areas
 
@@ -274,13 +313,19 @@ Read and write call sites on `a4aed13`, client and server together, by area. The
 
 ## How the app gets there
 
-Rewriting every screen's data access and replacing the database underneath it are two large changes. Done together on a branch, nothing could be checked until all of it was finished, against a codebase that took eighteen commits while this plan was being written. So they are done one after the other, on `main`.
+Rewriting every screen's data access and replacing the database underneath it are two large changes. Done together on a branch, nothing could be checked until all of it was finished, against a codebase that took eighteen commits while this plan was being written. So they are done separately, on `main`.
 
-**First the data layer, over Instant** ([Phase 1](#phase-1--the-data-layer-over-instant)). Each area's API and types are designed for the relational end state. Its first implementation runs on Instant: the query objects and transaction-building that live in components today move into `packages/data/<area>/instant.ts` and are mapped into the new types. Every screen moves to the hooks and mutations. The app keeps running on the live database throughout, and each area can be looked at on real data as it lands.
+They are not done strictly one after the other, though. Converting every screen before any of it had met PowerSync would fix the data layer's API around one backend's habits: what it means for a mutation to have finished, what loading is, what a change of person does, how a refusal arrives. So a thin slice goes all the way through first.
 
-**Then the same API, natively on PowerSync** ([Phase 6](#phase-6--the-data-layer-on-powersync)). Each area gets `queries.ts` and `mutations.ts` in SQL. TypeScript holds both implementations to one interface per area, and a `DATA_BACKEND` flag chooses between them, so the PowerSync build runs on a staging deployment while `main` stays on Instant.
+**First, one area's data layer, over Instant** ([Phase 1](#phase-1--the-data-layer-over-instant), done as far as settings, units and reading the family roster). The area's API and types are designed for the relational end state. Its first implementation runs on Instant: the query objects and transaction-building that live in components today move into `packages/data/src/instant/` and are mapped into the new types. The app keeps running on the live database.
 
-**Then the Instant files are deleted** ([Phase 8](#phase-8--cleanup)).
+**Then one slice on PowerSync, end to end** ([Phase 2](#phase-2--one-slice-end-to-end)): those reads, a day's chores, and completing a chore, on a staging deployment, on a copy of the real data, through real sessions, the real upload route and the real rules. What it shows is written back into this plan before anything else is built on it.
+
+**Then the rest of the screens move to the data layer, over Instant** (Phase 1, resumed), area by area, each looked at on real data as it lands.
+
+**Then each area gets its PowerSync implementation** ([Phase 7](#phase-7--the-data-layer-on-powersync)). TypeScript holds both implementations to one interface per area, and the server tells each client which to use, so the PowerSync build runs on staging while production stays on Instant.
+
+**Then the Instant files are deleted** ([Phase 9](#phase-9--cleanup)), and the seam with them.
 
 The adapter code in this plan is therefore all on the Instant side — it maps Instant's results into the app's types — and none of it outlives cutover. Nothing is ever written to make PowerSync look like Instant.
 
@@ -288,58 +333,94 @@ The same pattern holds on the server: each service gets a Postgres implementatio
 
 ## Reads: the sync configuration
 
-PowerSync decides what reaches a device from a configuration of named streams, each a SQL query, filtered by claims in the device's token ([Sync Streams](https://docs.powersync.com/sync/streams/overview)). The configuration uses `edition: 3`, which PowerSync recommends for new Sync Streams projects, and `timestamp_max_precision: milliseconds`, so a timestamp reaches a device in exactly the form `toISOString()` writes. Today's 55 `view` rules reduce to three streams.
+PowerSync decides what reaches a device from a configuration of named streams, each a SQL query, filtered by claims in the device's token ([Sync Streams](https://docs.powersync.com/sync/streams/overview)). The configuration uses `edition: 3`, which PowerSync recommends for new Sync Streams projects, and `timestamp_max_precision: milliseconds`, so a timestamp reaches a device in exactly the form `toISOString()` writes. Today's 55 `view` rules reduce to three streams, and two more carry refusals.
 
 | Stream | Who | What |
 | --- | --- | --- |
 | `family` | every signed-in device | Every table today's rules let any family principal view. `family_members` is sent without the PIN hash |
 | `messaging_member` | a token carrying a family member id | The threads that member belongs to, with their members, messages, attachments, reactions and acknowledgements |
 | `messaging_parent` | a parent token | All threads and their contents, as the rules allow a parent today |
+| `refusals_member` | a token carrying a family member id | That person's refused writes |
+| `refusals_parent` | a parent token | Everyone's refused writes |
 
 A shared kid session carries no family member id and so receives no message threads, as now. Every stream lists its columns explicitly, so a server-only column cannot leak by accident.
 
 **The PIN hash stops leaving the server.** Today a parent's device can read every member's hash and a kid's device its own. The clients only ever use it to show whether a PIN is set, so devices get `has_pin` instead and the PIN is set through a server route.
 
-**Growth.** History and messages only ever grow, and the roadmap [decided against](../roadmap.md#decided-against) rolling them up, bounding them at read time instead. Syncing is different from reading: a table that syncs in full is stored on every device. The census reports row counts and sizes. If history, messages and task updates are small — the expectation for one family — they sync in full. If not, they move to a stream bucketed by month that a device subscribes to as it scrolls back; PowerSync's stream parameters only support equality, so the bucket is a column, not a date range ([syncing by time](https://docs.powersync.com/sync/advanced/sync-data-by-time)).
+**Growth.** History and messages only ever grow, and the roadmap [decided against](../roadmap.md#decided-against) rolling them up, bounding them at read time instead. Syncing is different from reading: a table that syncs in full is stored on every device. The census settled the question for this family: everything a device would hold is about 3,800 rows and 3 MB, so history, messages and task updates sync in full. If a family's data outgrows that, those tables move to a stream bucketed by month that a device subscribes to as it scrolls back; PowerSync's stream parameters only support equality, so the bucket is a column, not a date range ([syncing by time](https://docs.powersync.com/sync/advanced/sync-data-by-time)).
 
 ## Writes: the upload endpoint
 
-`POST /api/sync/upload` receives one uploaded transaction: a list of operations, each a table, a row id, and `PUT` (a new row with its columns), `PATCH` (only the columns that changed) or `DELETE` ([PowerSync's write model](https://docs.powersync.com/handling-writes/writing-client-changes)).
+`POST /api/sync/upload` receives one uploaded transaction: the id of the device database it came from, the transaction's number in that database, the label of the mutation that made it, and a list of operations, each a table, a row id, and `PUT` (a new row with its columns), `PATCH` (only the columns that changed) or `DELETE` ([PowerSync's write model](https://docs.powersync.com/handling-writes/writing-client-changes)).
+
+What a device calls an operation is a hint and nothing more. A device can be modified, and an honest one can be out of date: the row it thinks it is creating may exist, and the row it is editing may be gone. So the route trusts none of it.
 
 For each transaction the route:
 
-1. Authenticates the session and resolves the principal — parent or kid, and which family member.
-2. Opens a Postgres transaction and, for each operation, loads the current row and evaluates the write rule.
-3. Applies the operations: `PUT` as insert-or-update, `PATCH` as an update of exactly the changed columns, `DELETE` as a delete that succeeds when the row is already gone.
-4. Commits, or rolls the whole transaction back if any operation was refused.
+1. **Authenticates the session** and resolves the principal — parent or kid, and which family member. A session that has ended is answered `401` and nothing is applied; [the device keeps the writes](#one-database-per-person).
+2. **Checks the shape before any SQL exists.** The table must be one a device may write, the operation one of the three, every column one a device may write on that table, and every value of that column's type. These come from a fixed list in the policy, never from the request, so no table or column name sent by a device is ever put into a statement. One unknown name refuses the whole transaction.
+3. **Opens a Postgres transaction and claims the upload**, by inserting the device database's id and the transaction's number into `sync_uploads`. If that row is already there with an outcome, this is a retry: the stored outcome is returned and nothing is applied.
+4. **Locks and reads each row** it is about to touch, with `SELECT … FOR UPDATE`, and decides what the operation really is from what it finds. A `PUT` for an id that exists is an update of the columns that differ. A `PUT` for one that does not is an insert, made so that losing a race to another insert is noticed and the operation is judged again as an update. A `PATCH` or `DELETE` for a row that is gone does nothing.
+5. **Evaluates the [write rule](#the-write-rules)** on the operation as decided: the principal, the row as it is, the row as it would be.
+6. **Applies and commits**, storing the outcome in `sync_uploads` in the same transaction. If any operation was refused, every write in the transaction is undone and only the refusal is stored.
 
-**Responses.** A refused transaction returns `200` with the refusal in the body, and is recorded in `sync_write_rejections`. PowerSync's guidance is specific: an error response is retried indefinitely and blocks everything queued behind it, so a refusal is acknowledged and only a temporary fault — Postgres unreachable — returns `5xx` to be retried. The device shows the refusal as a toast; its local copy reverts at the next sync.
+**Responses.** A refused transaction returns `200` with the refusal in the body. PowerSync's guidance is specific: an error response is retried indefinitely and blocks everything queued behind it, so a refusal is acknowledged, and only a temporary fault — Postgres unreachable — returns `5xx` to be retried.
 
-**Conflicts.** Two devices changing different fields of one row both win, because a `PATCH` carries only changed columns. Two devices changing the same field: the later upload wins. That is what Instant does today.
+**Retries.** A device retries an upload whenever it did not hear the answer, and that includes the case where the write was applied and only the answer was lost. Applying it again is not harmless: in the spike such a retry replaced a correction another device had made in between. The record in `sync_uploads` is what makes a retry safe. It is written in the same transaction as the writes, so a transaction is applied exactly once and every retry gets the first answer. PowerSync numbers a database's transactions and gives each database an id that does not survive the database being deleted, and this design never empties a database in place, it deletes the file; so the pair cannot repeat. The slice checks that. Records are pruned after ninety days.
 
-**Retries are safe.** Every operation is idempotent, so an upload that is retried after a dropped connection applies once.
+**Conflicts.** Two devices changing different fields of one row both win, because a `PATCH` carries only changed columns. Two devices changing the same field: the later upload wins, which is what Instant does today. Where that is the wrong answer the table's rule says otherwise, and one does — a claim, below.
 
 **The upload throttle is lowered.** The SDK waits up to a second before uploading by default, and in the spike that wait was nearly all of the time a write took to reach another device: a median of 870 ms with the default, 43 ms with `crudUploadThrottleMs` at 50. The connector sets it to 100.
 
+### Refusals
+
+A refused write has already shown on the device as done. The device puts its copy right at the next sync, but the person needs to be told, and may not be looking: the upload can happen minutes later, in the background, or after someone else has picked up the device.
+
+So a refusal is a row. The route writes it to `write_refusals` — who, when, the mutation's label, the reason — in the transaction that records the outcome, and the table syncs: to the person who made the write, on whatever device they next sign in to, and to parents. The app shows a toast if that person is looking, and keeps the row in a list behind the sync badge until they dismiss it. Because it is an ordinary table, a refusal can also be read in any Postgres client.
+
+Writes that could not be sent at all are a different case, covered under [one database per person](#one-database-per-person).
+
 ### The write rules
 
-`packages/data/policy/` holds one entry per table. It is a faithful translation of `instant.perms.ts`: **no rule is tightened or loosened by this migration**, with the single exception of the tables that stop syncing. [Appendix B](#appendix-b--the-write-rules-today) gives today's rules in the form they are translated from.
+`packages/data/src/policy/` holds one entry per table a device may write: who may insert, who may update and which columns, and who may delete, given the principal and the row. Anything not listed is denied.
 
-The rule functions are pure — operation, current row, changed columns, principal — so the same file runs in two places: inside a mutation on the device, for an immediate refusal, and in the upload route, where it is authoritative. A device can be modified; the server check is the one that counts.
+It starts from `instant.perms.ts`; [Appendix B](#appendix-b--the-write-rules-today) gives today's rules in the form they are translated from. **A person keeps every ability the app gives them today, bar one**: choosing a default envelope offline. Four things are stricter than the Instant rules, each on purpose:
 
-The two contract suites and the live permission matrix are the executable definition of today's rules. Each case is ported to run against the new policy and a real Postgres, and the migration is not complete until all of them pass.
+- **Tables that stop syncing** cannot be written from a device ([which](#tables-that-never-reach-a-device)).
+- **The PIN hash** is set through a server route, never by a device.
+- **Money** is written only by the server ([below](#money-is-written-only-by-the-server)).
+- **A completion that stands belongs to whoever completed it.** A write that would hand it to someone else is refused, for a parent as for a kid. This is what makes first claim win: the second device's `PUT` finds the first's row, is judged as an update of it, and is refused. No screen changes a completion's owner today, so nobody loses anything.
 
-### Which principal a queued write belongs to
+One table is new and so has no rule to translate: a row of `write_refusals` can only be marked dismissed, by the person it belongs to or by a parent.
 
-A shared device switches between a parent and a kid, and a parent session is demoted after 15 idle minutes. A write is checked against the session that uploads it, not the one that made it. If a parent's writes were still queued when the device demoted, they would be uploaded as a kid and refused.
+The rule functions are pure — operation, current row, proposed row, principal — so the same file runs in two places: inside a mutation on the device, for an immediate refusal, and in the upload route, where it is authoritative. A device can be modified; the server check is the one that counts.
 
-So the session shown in the interface and the session used for sync are separate. The interface switches at once. The sync connection keeps the previous session until the device has caught up, and only then switches. Parent writes upload as the parent; the kid's view of messages changes a moment later.
+**How the rules are tested.** By behavior, against a real Postgres. Each table has a case for every principal and operation Appendix B names, and for the ways a device can lie or be late: a `PUT` over an existing row, a change of owner, a transaction that changes both a row and the row its rule depends on, a retry after a commit with another device's write in between, an upload under a session that has ended, and two uploads racing for one row. The two existing contract suites compare the text of the rules in `instant.perms.ts`. They keep that file from changing by accident, and they serve here as a checklist of what needs a case, but they do not show that any write is refused. The live matrix, which does send real writes to Instant, is ported case by case.
 
-"Caught up" has a precise meaning, found in the spike: the upload queue is empty **and** a sync has completed since the last upload. An empty queue alone is not enough. The service confirms each upload per user, and a device that changes user before that confirmation arrives stops applying downloads altogether until its next upload — it looks connected and shows stale data. The session module owns this rule so no screen can get it wrong:
+### Money is written only by the server
 
-- Switch when the queue is empty and the last completed sync is later than the last upload. Online this takes tens of milliseconds.
-- If that cannot be reached — the previous session has expired or been revoked — and the queue is empty, clear the local database and sync again as the new principal. Nothing is lost, since nothing is waiting to upload.
-- If writes are still queued under a session that can no longer upload them, they are reported to the user as refused, not silently dropped.
+Approved by David on 12 October 2026. It is the one place this migration takes an ability away on purpose, and it takes it from a modified client, not from a person.
+
+Today's rules let any signed-in device create a ledger row, and let a parent's device write any column of an envelope, its balances included. The app does not use that freedom for money: deposits, withdrawals, transfers, payouts and archiving all go through `/api/finance/mutations`, which reads fresh, checks the invariants and writes ledger and balance together. But the rules permit a device to go around the route, and an upload endpoint that translated them faithfully would permit it too.
+
+From cutover:
+
+| | A device may | Only the finance routes may |
+| --- | --- | --- |
+| Ledger rows | Read | Insert. Nobody updates or deletes |
+| Envelopes | Change the name, description and goal — a parent on any envelope, a kid on their own | Create, archive, choose the default |
+| Balances | Read | Write, in the same transaction as the ledger row |
+
+Four places in the app write these from a device today, and each moves:
+
+- **A new member's first envelope** is created with the member, in `FamilyMembersList`. The device still creates the member. The envelope is made by the server's existing `create-initial` operation, which the form calls once the member has uploaded, and which the allowance page already calls for any member who has none.
+- **Editing an envelope** (`updateEnvelope`) writes the name, the goal and the default flag together. Name, description and goal become device mutations, `renameEnvelope` and `setEnvelopeGoal`, with their history event. The default flag leaves it.
+- **Choosing the default envelope** (`setDefaultEnvelope`) clears one row's flag and sets another's, from the device. That there is exactly one default per member is an invariant across rows, and the finance routes already keep it when they create and archive envelopes; it gets one writer. The route gains `set-default`: a parent for anyone, a kid for themselves.
+- **Reconciling a balance** (`reconcileEnvelope`) replays an envelope's ledger on a parent's device when the allowance page opens, and rewrites a balance that disagrees. The route gains `reconcile`, for a parent, which does the same under the envelope's lock; the page calls it and shows the same notice. With ledger and balance written in one database transaction, a disagreement should no longer arise from the app at all — only from an edit made by hand in Postgres.
+
+**What a person notices.** Choosing a default envelope needs a connection, as every other money operation does; today a kid can do it offline. Nothing else changes for anyone using the app as built.
+
+**What does not change yet.** The live app keeps today's Instant rules until cutover. Tightening them there would be a second change to a database that is about to be left, with its own risk and nothing gained.
 
 ## Identity and sessions
 
@@ -353,6 +434,7 @@ Today the server verifies a PIN, asks Instant to mint a token for a synthetic us
 | `db.useAuth()` returning an Instant user | `usePrincipal()` from the data layer's session module |
 | Six `instant-auth-*` token routes | Routes under `/api/auth/`, and `GET /api/sync/token`, which exchanges a session for a signed token PowerSync accepts |
 
+- **A session is one principal on one device**, and it is in one of three states. *Active*: it can do whatever its principal may. *Draining*: it can upload what its database still holds, fetch the tokens that needs, and nothing else — no money, no messages, no new sign-in. *Ended*: it can do nothing.
 - **The PowerSync token** is signed with an asymmetric key and carries `sub`, `aud`, `iat`, `exp`, a `kid` header, and two claims the streams read: `type` and `family_member_id`. PowerSync requires those standard fields and recommends lifetimes between 5 and 60 minutes ([custom authentication](https://docs.powersync.com/configuration/auth/custom)); this plan uses 10. The SDK asks for a fresh one before expiry by itself.
 - **The key pair** is generated by a setup script. The private half goes to the app, the public half into the PowerSync configuration.
 - **PIN verification, the scrypt hashes, rate limiting and device activation do not change.** Family members keep their PINs; nobody re-enrols.
@@ -361,13 +443,37 @@ Today the server verifies a PIN, asks Instant to mint a token for a synthetic us
 
 In Phase 1 the session module is introduced over Instant, like the rest of the data layer, so components stop touching `db.useAuth()` before the backend changes.
 
+### One database per person
+
+A shared device moves between people: a kid, another kid, a parent who steps in for a few minutes and is signed out again after fifteen idle. Each may see different things — a parent every message thread, a kid only their own — and each may leave writes that have not uploaded yet.
+
+The first version of this plan kept one database and one upload queue per device and changed the token underneath it. That cannot be made safe. A queue holding one person's writes is uploaded under whoever is signed in when the network returns. Parent-only rows stay in a database the interface is now showing to a kid. And nothing on the device remembers, after a restart, whose a queued write was.
+
+So **a database belongs to one principal.** Its file is named for the installation and the principal — the shared kid session, a kid by member id, a parent by member id — and it is only ever opened with that principal's session. Whatever is in it was synced for that person. Whatever waits in it was written by that person, and is uploaded as that person. The interface has one database open at a time: the signed-in person's.
+
+When the person on a device changes:
+
+- **The interface switches at once**, to the other person's database. If that database is new it fills first, which the spike measured at a quarter to three quarters of a second for this family's data on the browser's private file system.
+- **The database left behind is closed to the interface.** If nothing in it is waiting to upload, it is deleted and its session ended. If something is, the session is narrowed to draining and the device goes on uploading from that database in the background, as that person. When the queue is empty and the server has confirmed it, the database is deleted and the session ended.
+- **One database is kept: that of the person the device rests on** — its owner on a personal device, and on a shared one the kid or shared session it returns to when a parent is signed out. A parent stepping in opens the parent's database beside it. Signing the parent out goes back to a database that is already there, so it works with no network, as it does today from a cached token.
+
+A parent's database is therefore on a shared device only while the parent is signed in, plus however long the parent's last writes take to upload. Idle sign-out does not turn into the device holding a parent's authority indefinitely: a draining session can do nothing but finish its uploads, and it ends after a day whether or not it has.
+
+**When a queue cannot be sent.** A session can end with writes still waiting: it expired on a device that was offline for a long time, its day of draining ran out, or a parent revoked it. The upload route answers `401` and the device stops trying. The writes are neither dropped nor uploaded as someone else. They stay in that person's database, the device says so — "3 changes by Dad are waiting for Dad to sign in" — and they upload when that person next signs in on that device, under the new session. A parent can discard them instead, after seeing what they are.
+
+**Tabs.** The signed-in person belongs to the browser, not to a tab: every tab shows the same person, and when one tab changes person the others are told and follow. Tabs showing the same person share that person's database, so a write in one appears in the others at once, with or without a network. They do not each sync. Where PowerSync uses a shared worker, which is Chromium and Firefox on a computer, one connection serves every tab. Where it does not — Safari, every browser on iOS, and Android — only one tab at a time holds the connection, and the others see what it brings through the shared database ([multiple tabs](https://docs.powersync.com/client-sdks/reference/javascript-web#multiple-tab-support)). Either way one set of credentials is in use per database, and it is that database's own. Two tabs caught briefly out of step, each showing a different person, are on different databases with different sessions; in the spike neither saw nor uploaded anything of the other's, in all three engines. What happens when the tab holding the connection closes is checked in the slice.
+
+**What it costs.** Only the resting person's data is on a device between visits. Anyone else waits for a fill when they sign in — under a second for this family's data — and cannot sign in offline at all, which is already true: checking a PIN needs the server.
+
+**The installation and the data generation are part of the file's name**, so that a phone pointed at a different server, or a server whose data has been replaced by an import or a restore, never opens a database built from something else ([the cutover protocol](#the-cutover-protocol)).
+
 ## The server on Postgres
 
 `lib/server/db.ts` exposes a typed Kysely connection. Each server module that uses the Admin SDK today is rewritten against it, keeping its exported functions so the routes that call it do not change.
 
-- **Finance.** A mutation becomes one transaction that locks the envelope rows it touches, reads them, checks the invariants and writes the ledger. The transaction-building in `lib/currency-utils.ts` and `lib/allowance-payout.ts` retires; their pure calculations stay shared. The in-process lock in `lib/finance-mutation-lock.ts` is no longer what protects the ledger. The roadmap's rule against [running more than one instance](../roadmap.md#decided-against) is left standing — presence, below, still assumes one.
+- **Finance.** A mutation becomes one transaction that locks the envelope rows it touches — always in the same order, by id, so two transfers in opposite directions cannot deadlock — reads them, checks the invariants, and writes the ledger row and the balance together. It gains two operations, `set-default` and `reconcile` ([money](#money-is-written-only-by-the-server)). The transaction-building in `lib/currency-utils.ts` and `lib/allowance-payout.ts` retires; their pure calculations stay shared. The in-process lock in `lib/finance-mutation-lock.ts` is no longer what protects the ledger. The roadmap's rule against [running more than one instance](../roadmap.md#decided-against) is left standing — presence, below, still assumes one.
 - **Messaging.** Thread, membership, reaction and acknowledgement uniqueness move from key lookups to constraints, and an idempotent send becomes an insert that does nothing on conflict.
-- **Calendar sync.** Advisory locks replace the lock table.
+- **Calendar sync.** One advisory lock per account replaces the lock table, held on a connection taken from the pool for the run and given back when it ends ([designed out](#what-is-designed-out)).
 - **Members and PINs.** `lib/instant-admin.ts` splits into a members module that reads Postgres and the session module.
 - **Shortcuts, the content queue, exchange rates, the server actions** are direct ports.
 
@@ -382,9 +488,9 @@ The messaging area gains `useThreadPresence(threadId)`. Behind it is a small in-
 ## The web client
 
 - **Workers and WebAssembly.** PowerSync's web SDK runs SQLite in a worker. On Next 16 with Turbopack the worker files are copied into `public/@powersync/` by a `postinstall` step, and `next.config.js` gains `turbopack: {}` and `images.disableStaticImages: true` ([Next.js guide](https://docs.powersync.com/client-sdks/frameworks/next-js)). The app imports no static images, so the second setting costs nothing.
-- **The connection is a WebSocket.** PowerSync's web SDK defaults to HTTP streaming. In the spike WebKit held the start of that stream for twenty seconds, so a first sync, and every reconnection after it, would wait that long; over WebSocket it took under a tenth of a second, and Chromium and Firefox were equally quick either way. The connector asks for WebSocket on every browser.
-- **The database is opened once**, at module level, with the plain `database: { dbFilename, vfs, worker }` options. The SDK's README shows an older form that fails, and opening inside a React effect opens it twice in development.
-- **The service worker** caches the worker and WebAssembly files explicitly. In the spike the app started offline in all three engines without that, on the browser's own cache, which is not something to depend on.
+- **The connection is a WebSocket**, for now. PowerSync's web SDK defaults to HTTP streaming. In the spike Playwright's WebKit held the start of that stream for twenty seconds, so a first sync, and every reconnection after it, would wait that long; over WebSocket it took under a tenth of a second, and Chromium and Firefox were equally quick either way. That is one engine build on one machine with no proxy in between. It stands until Safari itself has been tried through the real reverse proxy, which confirms it or changes it.
+- **A database is opened once per person**, outside React's effects, with the plain `database: { dbFilename, vfs, worker }` options. The SDK's README shows an older form that fails, and opening inside an effect opens it twice in development.
+- **The service worker** caches the app's shell and PowerSync's worker and WebAssembly files, so the app can start with no network. In the spike Chromium and Firefox do, from a browser process started offline. Playwright's WebKit does not load the page at all in that test, with or without the extra caching, so whether an iPad starts offline is not known until one is tried.
 - **Server rendering.** The SDK does nothing during server rendering. The app's data components are already client components behind the session provider.
 
 ### Browsers and devices
@@ -404,10 +510,11 @@ What matters is the engine, not the name on the icon. There are three:
 PowerSync supports all three ([supported platforms](https://docs.powersync.com/resources/supported-platforms)). The differences that shape the work:
 
 - **Where the database is stored.** PowerSync offers IndexedDB and several modes built on the browser's private file system. One of the latter, `OPFSCoopSyncVFS`, is the mode it recommends for Safari and iOS and the only one it lists as handling several tabs on every major browser ([web SDK](https://docs.powersync.com/client-sdks/reference/javascript-web)). It is the default here. The choice is made per browser at startup, not once for everyone.
-- **Private windows.** The private file system is unavailable in Safari's and Firefox's private windows. The app falls back to IndexedDB there, and if that fails too, to an in-memory database: it works while online and keeps nothing, and says so.
-- **Several tabs.** PowerSync shares one connection between tabs through a shared worker, which it turns off on iOS, Safari and Android. There each tab syncs for itself. Nothing in the data layer may assume a single shared connection.
+- **Private windows.** The private file system is unavailable in Safari's and Firefox's private windows. The app falls back to IndexedDB there, and if that fails too, to an in-memory database: it works while online, keeps nothing once the page is closed, and says so.
+- **Several tabs.** Tabs showing the same person share one database and one connection between them; where PowerSync turns its shared worker off — iOS, Safari and Android — one tab at a time does the syncing and the rest read what it brings. Nothing in the data layer may assume the tab it runs in is the one connected. [One database per person](#one-database-per-person) says what tabs mean for who is signed in.
 - **Being put in the background.** iOS suspends a page shortly after it leaves the screen. The sync connection drops and resumes when the app returns, as Instant's does now.
 - **The browser clearing storage.** Safari has been reported to clear a site's stored data after a week without a visit, with apps added to the home screen exempt. The write-ups are old and this is checked on real devices rather than assumed. It is the same exposure the app has today with Instant's offline cache. Synced data simply downloads again; only writes not yet uploaded are at risk, so the app asks the browser to keep its storage and the sync badge shows how many changes are waiting.
+- **The oldest browsers.** Everything measured so far ran on current engines. The floor — Chrome 111, Firefox 111, Safari 16.4 — has not been tried, and current engines say nothing about it. An iOS 16.4 simulator and one old desktop build of each engine are tried in [Phase 7](#phase-7--the-data-layer-on-powersync).
 
 **A browser that cannot run the app is told so.** A startup check for what PowerSync needs shows a plain screen naming what is missing, instead of a blank page. For someone on an old device this is the difference between a known limit and a mystery.
 
@@ -418,8 +525,9 @@ PowerSync supports all three ([supported platforms](https://docs.powersync.com/r
 ## The phone
 
 - `@powersync/react-native` 2.x uses `@op-engineering/op-sqlite` (17.1 or later, below 19) directly. The app already ships native builds, so no capability is lost.
-- **The build made before cutover carries both backends.** The phone already fetches its configuration from `/api/mobile/config` at launch; that response gains a `backend` field. On cutover day the server changes its answer and each phone switches at next launch, instead of every phone needing a new build installed the same day. A cleanup build removes Instant afterwards.
-- **The Expo upgrade in [Scope 0](../roadmap.md#scope-0--dependency-maintenance)** is sequenced against this: either before Phase 6's phone work or after cutover, never in the same step as the change of sync library. The spike says whether Expo 54 is sufficient.
+- **One database per person** applies exactly as on the web. The phone has no tabs and its storage is the phone's own, so none of the browser questions arise.
+- **The build made before cutover carries both backends**, so that cutover does not depend on every phone installing a new build the same day. That does not happen by itself. Today the phone starts from the configuration it cached last time and refreshes it in the background without acting on any change, so relaunching it would not move it. The build that carries both treats the cached answer as provisional: it starts on it, so it still opens offline; it asks the server again; and if the backend or the data generation has changed it stops, deals with anything it has not sent, and restarts on the new one ([the cutover protocol](#the-cutover-protocol)). A cleanup build removes Instant afterwards.
+- **The Expo upgrade in [Scope 0](../roadmap.md#scope-0--dependency-maintenance)** is sequenced against this: either before the slice's phone work or after cutover, never in the same step as the change of sync library. The phone part of the spike, which needs a build installed, says whether Expo 54 is sufficient.
 
 ## Infrastructure
 
@@ -428,87 +536,128 @@ Added to `docker-compose.yml`:
 - **`postgres`**, with `wal_level=logical`. It holds the app database and a second database for PowerSync's own storage, which is supported on the same server from Postgres 14 ([self-hosted configuration](https://docs.powersync.com/configuration/powersync-service/self-hosted-instances)).
 - **`powersync`**, the `journeyapps/powersync-service` image pinned to a version, with its configuration and the sync configuration mounted. PowerSync's guidance for a minimal deployment is 512 MB and one vCPU ([deployment architecture](https://docs.powersync.com/maintenance-ops/self-hosting/deployment-architecture)).
 - A daily **compaction** job for PowerSync's storage, which its documentation asks for.
-- A nightly **`pg_dump`** with retention. Instant Cloud has been keeping this family's backups; after cutover nobody does unless this job exists.
+- A nightly **`pg_dump`** with retention, **copied off the machine**. Instant Cloud has been keeping this family's backups; after cutover nobody does unless this job exists, and a dump kept only on the disk it describes is lost with it. **(you)** Say where the copies go.
 
 Postgres gets a replication role for PowerSync with read-only access and a publication named `powersync` listing the synced tables ([source database setup](https://docs.powersync.com/configuration/source-db/setup)).
 
+**A cap on what replication may hold back.** PowerSync reads Postgres through a replication slot, and Postgres keeps its write-ahead log for as long as a slot's reader has not caught up. If the PowerSync service stops for long enough, that log grows until the disk is full and Postgres stops with it — a sync outage becoming a database outage. `max_slot_wal_keep_size` is set, so Postgres drops the slot instead; PowerSync then copies the synced tables afresh when it returns, which at this size is quick.
+
+**Health.** `/api/health` reports the replication slot's lag and the age of the newest dump, so a stalled sync or a missed backup is seen before it matters.
+
 **The PowerSync service needs a public address**, as MinIO has one: a hostname through the reverse proxy that passes WebSocket upgrades and has response buffering turned off, since sync can also run as a long-lived streaming response.
 
-New environment variables: `DATABASE_URL`, `DATA_BACKEND` and `NEXT_PUBLIC_DATA_BACKEND`, `NEXT_PUBLIC_POWERSYNC_URL`, `POWERSYNC_JWT_PRIVATE_KEY`, `POWERSYNC_JWT_KID`, and the `PS_`-prefixed values the PowerSync configuration reads.
+New environment variables: `DATABASE_URL`, `POWERSYNC_URL`, `POWERSYNC_JWT_PRIVATE_KEY`, `POWERSYNC_JWT_KID`, and the `PS_`-prefixed values the PowerSync configuration reads. **Nothing about the backend is compiled into the web build.** One image runs on Instant or on PowerSync, on staging or in production; what differs is read by the server from its environment and from Postgres, and given to the client when it starts. A deployment with no `DATABASE_URL` is on Instant, which is every deployment today, including other people's until they follow the upgrade guide.
 
 **Browsing the data.** The equivalent of Instant's Explorer is any Postgres client. An edit made there reaches devices the same way an Explorer edit does today. PowerSync's own dashboard is not available when self-hosting; its [Sync Diagnostics Client](https://docs.powersync.com/tools/devtools-overview) shows what one token has synced.
 
 ## Moving the data
 
-`scripts/migrate/export.js` reads every entity through the Admin SDK with every link, page by page, and writes one JSON file per entity. It is read-only against the live app. `scripts/migrate/import.js` applies the mapping and loads Postgres.
+`scripts/migrate/export.mjs` reads every entity through the Admin SDK, page by page, and writes one file per entity. It can only read: the SDK is wrapped so that nothing in the file can reach a write. `scripts/migrate/census.mjs` reports what the export holds against what the schema declares. `scripts/migrate/import.mjs` applies the mapping and loads Postgres.
 
-**The census** is the export's first output and feeds the schema design:
+The export uses the layout of Instant's own nightly backups, so the import reads either. Someone running their own copy can migrate from a backup downloaded with Instant's CLI and never run the export at all.
+
+**The census** is the export's first use and feeds the schema design:
 
 - every attribute actually stored, against the schema file — this is where the undeclared attributes show up;
 - for each attribute, the JavaScript types and, for dates, the string formats present, which decide each column's type and conversion;
 - relations whose link and duplicate attribute disagree, and links that point at nothing;
 - values that would violate a planned constraint, so each is resolved before the constraint is written;
-- row counts and sizes per table, which settle [whether history and messages sync in full](#reads-the-sync-configuration).
+- row counts and sizes per table, which settled [that history and messages sync in full](#reads-the-sync-configuration).
 
-Because the schema is redesigned, a row is not expected to look the same after the move, so **verification** is done at three levels:
+It was first run on 12 October 2026 and its findings are in the log. One part is unfinished: nine of the ten doubled references still have to be compared from the far side.
+
+Because the schema is redesigned, a row is not expected to look the same after the move, so **verification** is done at five levels. An import and a check that shared one mapping would share its mistakes, so the checks compute what they expect from the export's raw files, without the mapping.
 
 - **Rows.** Counts per table against the export, and for every converted value a round-trip check: the stored `timestamptz` renders back to the instant the original string named.
-- **Money.** Every envelope's balances and every member's transaction count and totals, compared one by one.
+- **Relations.** For each relation, the ids on each side as the raw export has them, against what a query on Postgres returns: every chore's assignees, every thread's members, every task's series.
+- **Money.** Every envelope's balances and every member's transaction count and totals, worked out from the raw export and from Postgres separately, and compared one by one.
 - **Behavior.** The [parity suite](#testing): every read in the data layer returns the same result from the Instant implementation over the live data as from the PowerSync implementation over the imported copy.
+- **By eye.** **(you)** A short list of things David knows the right answer to — this week's chores, each kid's balance, the last few messages — looked at on staging.
 
 Files in MinIO are not touched. Their URLs are stored as values and cross unchanged.
 
 The scripts and the mapping are documented in the README for other people running the app.
 
+## The cutover protocol
+
+On cutover day every copy of the app has to stop writing to Instant, and none may be left behind still doing so. The copies are not all within reach: a tab left open since last week, a build held in a service worker's cache, a phone in a drawer, a device that is offline with changes it has not sent. Changing a setting on the server does not reach them. This is what does.
+
+**What the server says.** One row in Postgres, `installation`, holds four things. The server gives them to every client through its configuration route — `/api/client-config` on the web, the existing `/api/mobile/config` on the phone — and in a header on every API response:
+
+- the **backend** in use, `instant` or `powersync`;
+- the **data generation**, which changes whenever the data under the app is replaced: at cutover, and after any restore;
+- the **oldest build** allowed to run;
+- whether **writes are frozen**.
+
+**What a client does with it.** It asks at startup, whenever it returns to the foreground, and every minute while it is on screen; and it learns from the header at its next request in any case.
+
+- *Writes are frozen:* mutations refuse, under a banner saying the app is being moved and will be back shortly. This is one check in the data layer, not one per screen. The server's own routes refuse writes too.
+- *A newer build is required:* the web app discards its cached files and reloads; the phone says an update is needed.
+- *The backend or the generation has changed:* the client stops, deals with what it has not sent, and restarts on what the server now says. A local database made under another generation is never opened.
+
+**Every device reports in.** With each check a device tells the server which build it runs, which backend it is on, who is signed in, how many writes it has not sent, and how old the oldest is. A parent-only page lists every device seen in the last month. "Every device is online and synced" stops being something assumed on the day and becomes a list that is either clear or is not.
+
+On Instant the count comes from a journal the data layer's Instant implementation keeps: a line for each write, removed when Instant confirms it. Instant holds unsent writes itself but offers no way to count or list them. On PowerSync the count is the upload queue.
+
+**The build that understands all this has to be everywhere first.** Today's deployed app knows none of it. So the protocol ships on Instant, weeks ahead, and cutover is not scheduled until every device on the list reports a build that has it — or David has decided that a device no longer matters.
+
+**Writes that miss the move.** A device that was offline through the freeze comes back holding writes Instant will now refuse. The journal is why they are not silently lost: the client shows what they were, and they can be done again by hand. The aim is for the list to show none before the freeze begins.
+
+**Going back.** Until the first real write lands in Postgres, going back costs nothing: turn Instant's read-only mode off and set the backend to `instant` again. So the checks made before the family is let in are read-only — sign in, look at every screen, compare the numbers the verification printed. Then the freeze is lifted for David's own session alone, for write checks made on a member and a chore created for the purpose and deleted afterwards. Only then is it lifted for everyone, and from that moment the way is forward.
+
+**After a restore from backup** the same machinery applies. The generation changes, every client discards its local database and fills again, and anything a device had not sent is shown to its owner, since the server it was written against no longer exists in that form.
+
 ## Working on main while this is in flight
 
-`main` stays deployable on Instant throughout. The flag selects the data layer's implementation, the server services' implementation and the session module; the same commit runs on PowerSync in a staging deployment. There is no long-lived branch.
+`main` stays deployable on Instant throughout. Which implementation runs — of the data layer, the server's services and the session module — is decided when the app starts, from what the server says, so the same image runs on PowerSync in a staging deployment. There is no long-lived branch.
 
 The rules for other work change as the scope advances:
 
 - **Until an area is converted in Phase 1**, work on it as today.
 - **Once an area is converted**, its screens reach data only through its hooks and mutations. A new read or write is added to the area's API, not to a component.
-- **Once an area has its PowerSync implementation in Phase 6**, a change to that area's API is made in both implementations in the same commit — the typecheck fails otherwise — and a schema change is an edit to `instant.schema.ts`, a SQL migration and a mapping entry together.
-- **A change to `instant.perms.ts`** is also made in the write policy, with a case in the ported suites, from Phase 4 on.
-- **Nothing new imports `@instantdb/*`** outside the data layer's Instant files. A lint rule enforces it from the end of Phase 1.
+- **Once an area has its PowerSync implementation in Phase 7**, a change to that area's API is made in both implementations in the same commit — the typecheck fails otherwise — and a schema change is an edit to `instant.schema.ts`, a SQL migration and a mapping entry together.
+- **A change to `instant.perms.ts`** is also made in the write policy, with a behavioral case, from Phase 5 on.
+- **Nothing new reaches Instant directly.** `test/contracts/instant-boundary.contract.node.test.ts` lists every file that still does. No file may join the list, a converted file must leave it, and a converted area's entities may not be queried or written outside the data layer by any file, listed or not. The list tracks files, so a file already on it can still gain a query for an area that has not been converted; that gap closes as areas convert, and at cleanup the list is empty and the rule becomes a ban on the import.
 
-The third rule is real double work, so the gap between Phase 6 and cutover should be kept short and light on data-model changes.
+The third rule is real double work, so the gap between Phase 7 and cutover should be kept short and light on data-model changes.
 
 ## Testing
 
 - **The data layer** is tested per area against PowerSync's Node SDK, opened on a temporary file and never connected. It carries the real client schema, and its upload queue shows exactly what each mutation would send, so a test asserts both what the device now holds and what the server will be asked to apply. The suite still needs no running services.
-- **The parity suite** runs each area's reads through both implementations — Instant over recorded live results, PowerSync over the imported copy — and compares them. It is what makes "every screen still gets the data it expects" a test run instead of a manual tour.
-- **The write policy** runs the ported contract and live-matrix cases against PGlite, an in-process Postgres reached through the ordinary driver.
-- **The upload route** has integration tests for acceptance, refusal, atomic rollback, idempotent retry and the `5xx` path.
-- **The server services** run their existing integration suites against PGlite. It is a single connection, so the finance concurrency cases — two transactions racing for one envelope — run against the real Postgres in the compose profile.
-- **End to end**, Playwright runs against a compose profile with Postgres and PowerSync, seeded by the import script, in Chromium, Firefox and WebKit.
+- **The parity suite** runs each area's reads through both implementations — Instant over recorded live results, PowerSync over the imported copy — and compares the whole result, field by field. It is what makes "every screen still gets the data it expects" a test run instead of a manual tour.
+- **The write policy** is tested by behavior, table by table, as set out under [the write rules](#the-write-rules). Cases that need one connection run against PGlite, an in-process Postgres reached through the ordinary driver.
+- **The upload route** has integration tests for acceptance, refusal, atomic rollback, an unknown table or column, a `PUT` over an existing row, a retry after a commit with another device's write in between, an ended session, and the `5xx` path.
+- **Sessions and databases**: changing person with writes waiting; signing a parent out with no network; what a draining session may and may not do; a session that ends with a queue; two tabs on one person and on two; and the tab holding the connection being closed.
+- **The server services** run their existing integration suites against PGlite. It is a single connection, so whatever needs two — two uploads racing for a row, transfers in opposite directions, the same payout sent twice — runs against the real Postgres in the compose profile.
+- **End to end**, Playwright runs against a compose profile with Postgres and PowerSync, seeded by the import script, in Chromium, Firefox and WebKit. A case that needs a fresh start gets a new browser process, and a navigation that fails is a failure.
 
-Of today's 153 test files, the 17 that mock `@/lib/db` are rewritten to mock the area's hooks and mutations as each area is converted, and the 10 that mock `@/lib/instant-admin` follow the server modules. The two contract suites and the live suite are ported, not deleted.
+**What the suite cannot show.** The stand-in for Instant that the data layer's tests use answers every query and refuses nothing: it has no permissions, no uniqueness and no ordering. It tests the adapter's own logic and says nothing about Instant. Playwright's WebKit is not Safari, and current engines are not the oldest supported ones. These are why the checks marked **(you)** exist, and why the slice is run on real devices before anything is built on it.
+
+Of today's 153 test files, the 17 that mock `@/lib/db` are rewritten to mock the area's hooks and mutations as each area is converted, and the 10 that mock `@/lib/instant-admin` follow the server modules. The two contract suites guard `instant.perms.ts` until it is deleted and go with it; the live suite is ported.
 
 ## Phases
 
 Each phase ends with typechecks, the test suite and a production build passing. Items marked **(you)** need David's devices or his infrastructure.
 
-Phases 1 to 5 do not wait on one another beyond what is noted; Phase 6 needs all of them.
+The order is Phase 0, the start of Phase 1, then Phase 2. Phase 2 exists to change what follows it: every later phase is provisional until the slice has run and this document has been revised from it. After that, Phases 1 and 3 to 6 do not wait on one another beyond what is noted, and Phase 7 needs all of them.
 
 ### Phase 0 — The spike
 
-A throwaway branch. Its only output is findings written into this document's log, and the revisions to later phases that follow from them.
+A throwaway branch. Its only output is findings written into this document's log, and the revisions to later phases that follow from them. **Done, except S2 and the checks marked (you); the log has the findings.**
 
-- **S1 — Web.** PowerSync's web SDK in this Next 16 app under Turbopack, in development and in the standalone Docker build, with the service worker caching its assets. Run it in Chromium, Firefox and WebKit under Playwright, in ordinary and private windows, with two tabs open. **(you)** Open it on an iPad and an iPhone — in a Safari tab, as a home-screen app, and in Orion — and in Firefox wherever the family uses it: does it load, work offline, and survive being closed and reopened? Leave one untouched for eight days and say whether its data is still there.
+- **S1 — Web.** PowerSync's web SDK in this Next 16 app under Turbopack, in development and in the standalone Docker build, with the service worker caching its assets. Run it in Chromium, Firefox and WebKit under Playwright, in ordinary and private windows, with two tabs open. **(you)** Open it on an iPad and an iPhone — in a Safari tab, as a home-screen app, and in Orion — and in Firefox wherever the family uses it: does it load, work offline, start with no network, and survive being closed and reopened? Leave one untouched for eight days and say whether its data is still there.
 - **S2 — Phone.** `@powersync/react-native` with op-sqlite on Expo 54 and the New Architecture. **(you)** Install the build.
 - **S3 — Service.** The self-hosted service with Postgres storage on the same server; `edition: 3` and the timestamp text a device actually receives; a token signed with an inline public key; a stream filtered by `auth.parameter('type')`; messaging membership through a join; a join table with a composite key and a built `id`.
 - **S4 — Latency.** Time from a write on one device to its appearance on another, and replay of writes queued offline. PowerSync publishes no figure, so this is measured.
-- **S5 — The query layer.** The chore-day read and the complete-a-chore write, over an export of the real data, written three ways: Kysely, Drizzle, and plain SQL strings. For the read, both a single joined statement and flat queries assembled in memory. Timed on a phone and in a browser. Choose one and record why.
-- **S6 — Switching principal.** Swap tokens without clearing the local database; confirm messaging buckets change; confirm the sync connection can keep the old session until the queue drains.
+- **S5 — The query layer.** The chore-day read and the complete-a-chore write, written three ways: Kysely, Drizzle, and plain SQL strings. For the read, both a single joined statement and flat queries assembled in memory. It ran on generated data in a browser and on Node; the real data and a phone are left to the slice.
+- **S6 — Switching principal.** Swap tokens without clearing the local database. It showed that approach to be fragile, and the review replaced it with [one database per person](#one-database-per-person).
 - **S7 — Refusal.** A refused upload answered with `200`, and the local revert. Confirm a `PATCH` lists only changed columns, which the kid-safe rules depend on.
 - **S8 — Test tooling.** Choose the in-memory SQLite and in-process Postgres used by the suite.
-
-Done when each has a written finding, and any that failed has a revised approach here.
+- **The review's experiments.** A database per person; two people in two tabs; a hostile `PUT`; two claims for one chore; a retry after a lost answer; a start with no network in a fresh browser process.
 
 ### Phase 1 — The data layer, over Instant
 
-On `main`, Instant still the only backend. Independent of the spike, apart from S5's choice of how hooks are written.
+On `main`, Instant still the only backend.
 
 For each area, in this order — family and settings first, because it is small and sets the pattern; dashboards last, because they mostly consume other areas' reads:
 
@@ -530,83 +679,125 @@ the work is the same:
 - Rewrite the area's tests against the new API.
 - **(you)** Look over the area's screens on the live app.
 
-Also in this phase: the session module over Instant, replacing `db.useAuth()` in components; and the lint rule.
+**Paused after the first area.** Settings, units and reading the family roster are done. The rest of family and settings, and every other area, waits for Phase 2, so that no more of the API is fixed before it has run on the backend it is for.
+
+Also in this phase: the session module over Instant, replacing `db.useAuth()` in components.
 
 Done when no file outside the data layer's Instant implementation, the session module and the server's Instant modules imports `@instantdb/*` or builds a query.
 
-### Phase 2 — The schema and the data
+### Phase 2 — One slice, end to end
 
-- The export script and the census, run against the live app, read-only.
-- The schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file.
-- Postgres and PowerSync in `docker-compose.yml`, with the setup script for keys, roles and the publication.
-- The client schema and its indexes.
-- The import script and the row and money verification.
-- **(you)** A hostname for the PowerSync service through the reverse proxy.
+One feature on PowerSync, on a staging deployment, on a copy of the family's real data, built with the code that will ship and not a prototype of it. It is thin on purpose and complete on purpose: every layer the finished app has, for a few tables.
+
+**What is in it.** Reading the household settings, the units and the family roster, which the data layer already has. Reading a day's chores. Completing a chore, undoing that, and claiming one that is up for grabs. Settings are the simple case. Completing a chore is the one that matters: it is the app's most common write, it is made offline, a kid may do it only for themselves, and two kids can claim the same chore at once.
+
+**What that takes**, each piece in the form the later phases extend:
+
+- The tables those reads and writes touch, as migrations, with their part of the mapping and the import, loaded from the export already taken.
+- Postgres and the PowerSync service in a compose profile for staging, with the setup of keys, roles and the publication.
+- The app's own sessions for the kid, shared-kid and parent principals; the token route; and [one database per person](#one-database-per-person), with switching, the resting database and draining.
+- The `family` stream for those tables, and the refusal streams.
+- The upload route [as specified](#writes-the-upload-endpoint) — the list of what may be written, the row lock, the record of uploads, the stored outcome — and the write rules for those tables.
+- The data layer's PowerSync implementation for settings, units, the roster and the chore day, beside the Instant one; and the chore day's types and mutations, designed with both in view.
+- The web provider: worker files, storage chosen per browser, the connection, the configuration route that says which backend to use, the sync badge and the list of refusals.
+- The same on the phone, in a development build. **(you)** Install it.
+- **(you)** A staging hostname for the app and one for the PowerSync service, both over HTTPS, since a browser allows the storage and the service worker this needs only on a secure address.
+
+Everything else in the app is absent from staging until its area arrives in Phase 7. The slice has the real settings screens and a plain chore-day screen of its own.
+
+**What it must show**, as automated tests wherever a machine can run them:
+
+- A completion made on one device appears on another, made online and made offline.
+- A kid cannot complete for someone else, award allowance, or overwrite a completion by sending its id as though it were new.
+- Two kids claim one chore offline: one holds it and the other is told.
+- An upload whose answer is lost is not applied twice, with another device's write in between.
+- A parent signs in over a kid, writes while offline, and is signed out: the kid's screen holds nothing of the parent's, the parent's write uploads as the parent when the network returns, and the parent's database is then gone.
+- A session ends with writes waiting: they are kept, shown, and sent when that person signs in again.
+- Two tabs, on one person and on two; and the tab holding the connection is closed.
+- The chore day for a set of real dates matches what the live app shows. **(you)** Compare a few by eye.
+- **(you)** On an iPad and an iPhone, in Safari, as a home-screen app and in Orion: it loads, syncs, works offline, and starts with no network.
+
+**Done when** those pass, David has used it on his own devices, and the later phases of this document have been revised from what building it showed. If the design is wrong somewhere, this is the cheap place to find out.
+
+### Phase 3 — The schema and the data
+
+- The export script and the census, run against the live app, read-only. *Done on 12 October 2026, bar nine of the ten doubled references.*
+- The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation.
+- Postgres and PowerSync in the production `docker-compose.yml`, with the cap on replication, the health report, the nightly dump and its copy off the machine.
+- The client schema and its indexes, for every table.
+- The import script for everything, and [verification at all five levels](#moving-the-data).
+- **(you)** A hostname for the PowerSync service through the reverse proxy, and somewhere off the machine for backups.
 
 Any design choice that would change what the app does, as opposed to how it stores it, is asked of David first.
 
 Done when a fresh import of the live data verifies clean.
 
-### Phase 3 — Identity
+### Phase 4 — Identity
 
-- `auth_sessions`, the routes under `/api/auth/`, `/api/sync/token`, and request authentication against sessions.
-- The session module's PowerSync-era implementation, on the web and the phone.
+The slice's sessions, extended to everything that authenticates.
+
+- Every route that verifies an Instant token today authenticates against `auth_sessions` instead; the routes under `/api/auth/` replace the six token routes.
+- The session module's PowerSync-era implementation, complete on the web and the phone: expiry, revocation by a parent, the list of what is waiting for someone to sign in.
 - `has_pin`, and the server route that sets a PIN.
 
-Done when the parent-elevation, idle-demotion and device-auth tests pass on both backends.
+Done when the parent-elevation, idle sign-out and device-auth tests pass on both backends.
 
-### Phase 4 — Sync and the write rules
+### Phase 5 — Sync and the write rules
 
-- The sync configuration and its three streams.
-- `/api/sync/upload` and the write policy.
-- The contract suites and the live matrix, ported.
-- The PowerSync connector, with the split between interface session and sync session.
-- The refusal toast and `sync_write_rejections`.
+The slice's streams, upload route and rules, extended to every table.
 
-Done when every ported permission case passes and a two-device test shows a write crossing.
+- The sync configuration complete: its three streams and the two for refusals.
+- The write policy for every table a device may write, with [a behavioral case for every cell of Appendix B](#the-write-rules) and for each way a device can lie or be late.
+- The live permission matrix, ported.
+- Pruning of the upload record.
 
-### Phase 5 — The server on Postgres
+Done when every case passes against a real Postgres.
 
-- `lib/server/db.ts`; finance as locked transactions; messaging on constraints; calendar sync on advisory locks; members and PINs; shortcuts, the content queue, exchange rates, the server actions.
+### Phase 6 — The server on Postgres
+
+- `lib/server/db.ts`; finance as locked transactions, with `set-default` and `reconcile`; messaging on constraints; calendar sync on advisory locks; members and PINs; shortcuts, the content queue, exchange rates, the server actions.
 - The report scripts rewritten; the backfill scripts removed.
 
-Done when the integration suites for those areas pass on Postgres.
+Done when the integration suites for those areas pass on Postgres, the concurrency cases among them on the real one.
 
-### Phase 6 — The data layer, on PowerSync
+### Phase 7 — The data layer, on PowerSync
 
-For each area, in the Phase 1 order:
+For each remaining area, in the Phase 1 order:
 
-- `queries.ts` and `mutations.ts` in SQL, behind the same interface.
+- Its queries and mutations in SQL, behind the same interface.
 - The area's parity cases, recorded from Instant and compared.
 - **(you)** Look over the area's screens on staging.
 
-Also in this phase: the web provider, worker assets and service-worker caching; storage chosen per browser with its fallbacks, the storage-persistence request and the unsupported-browser screen; Firefox and WebKit added to Playwright; the phone on op-sqlite with the `backend` field and the dual-backend build; presence's server module; the sync-status badge.
+Also in this phase: the service worker caching PowerSync's files; the storage-persistence request; the screen for a browser that cannot run the app; Firefox and WebKit added to Playwright; the oldest supported browsers tried; presence's server module; and the moves [the money rule](#money-is-written-only-by-the-server) requires in the finance screens.
 
 Done when the staging deployment runs the whole app on an imported copy of the live data and the parity suite passes.
 
-### Phase 7 — Rehearsal and cutover
+### Phase 8 — Rehearsal and cutover
 
-Rehearsal, on staging:
+**The readiness build**, on Instant, deployed weeks ahead ([the cutover protocol](#the-cutover-protocol)): the configuration checks, the freeze, device check-ins and the parent's list of devices, the journal of unconfirmed writes, and on the phone both backends. Production gains Postgres at this point, holding only the `installation` row and the check-ins.
 
-- A full export, import and verification, timed.
-- A restore of the nightly dump into an empty Postgres, to prove the backup.
+- **(you)** Install that phone build on every phone.
+
+**Rehearsal**, on staging, against a self-hosted Instant loaded from a backup of the live app — new Instant Cloud apps cannot be created, and this is also most of [the fallback](#why-and-by-when), done once for real:
+
+- The whole cutover below, start to finish, timed, with a tab left open on the old build, a device offline through the freeze, and a device holding unsent writes.
+- A restore of the nightly dump into an empty Postgres, with PowerSync started against it and devices that hold older local databases: they must discard them, fill again, and show anything they had not sent.
 - **(you)** Use staging on the family's real devices for a few days: chores, a countdown run, a message thread, an allowance payout, offline and back.
-- **(you)** Install the dual-backend phone build on every phone.
 
-Cutover, on a quiet day:
+**Cutover**, on a quiet day:
 
-1. Bring every device online and let it sync. Writes still queued inside Instant on a device are lost at the next step.
-2. Turn on read-only mode for the app in the Instant dashboard and wait 30 seconds.
+1. The list of devices is clear: each on the readiness build, none holding unsent writes.
+2. Freeze writes. Then turn on read-only mode for the app in the Instant dashboard — the stop for anything that did not hear the freeze — and wait 30 seconds.
 3. Export, import, verify.
-4. Deploy the web app with `DATA_BACKEND=powersync`; the phones follow at next launch.
-5. Smoke-test on each device before the family uses it. **This is the only point at which going back is free** — turn read-only off and redeploy the old flag.
-6. After that, fix forward. Going back would discard everything written since.
+4. Set the backend to `powersync` and advance the data generation. Open clients restart on it, and phones at their next check.
+5. Read-only checks on each kind of device; then write checks from David's session alone, on a member and a chore made for the purpose and deleted after. **Until a real write lands, going back is free** — turn read-only off and set the backend back.
+6. Lift the freeze. After that, fix forward: going back would discard everything written since.
 
 Keep the Instant app read-only and untouched until the August deadline, and download a final backup. **(you)**
 
-### Phase 8 — Cleanup
+### Phase 9 — Cleanup
 
-- Delete every Instant implementation in the data layer and on the server, the Instant packages, `instant.schema.ts`, `instant.perms.ts`, the flag, the `instant-auth-*` routes and the MMKV store.
+- Delete every Instant implementation in the data layer and on the server, and with them the seam between implementations, the journal of unconfirmed writes and the choice of backend; the Instant packages, `instant.schema.ts`, `instant.perms.ts` and the suites that guard it, the `instant-auth-*` routes and the MMKV store.
 - Rewrite `CLAUDE.md` and `AGENTS.md`, which currently instruct every agent to build on InstantDB.
 - Rewrite the README's setup, add the upgrade guide for other people running the app, state the supported browsers and devices, and note the PowerSync licence.
 - Update the reference documents in `docs/`.
@@ -619,16 +810,22 @@ Done when a search of the repository for `instant` finds only history: this docu
 
 | Risk | What limits it |
 | --- | --- |
-| A browser that runs the app today cannot run PowerSync's web SDK reliably | All three engines are tested first, in S1, with the family's iPads and iPhones by hand. If WebKit fails the plan is reconsidered before anything specific to PowerSync is built |
-| Someone running their own copy is on a browser nobody tested | The floor stays where Next 16 already puts it, the storage mode falls back twice, and a browser that still cannot run the app is told why |
+| A browser that runs the app today cannot run PowerSync's web SDK reliably | All three engines run it under Playwright. What Playwright cannot settle — an iPad starting with no network, Safari's stream delay, storage surviving a week — is checked on the family's devices in the slice, before anything is built on top. If WebKit fails there the plan is reconsidered |
+| Someone running their own copy is on a browser nobody tested | The floor stays where Next 16 already puts it and is tried once in Phase 7, the storage mode falls back twice, and a browser that still cannot run the app is told why |
+| The data layer's API is shaped by Instant without anyone noticing | One slice runs on PowerSync, end to end, before the other areas are converted |
 | Rewriting every screen's data access introduces regressions | Done one area at a time on the live app, each with rewritten tests and David's look, before the backend changes at all |
-| The PowerSync implementation of a read differs from the Instant one | The parity suite compares them over the real data, read by read |
-| A redesigned column loses or alters a value | The census resolves every odd value before its constraint exists; conversions are round-trip checked; money is compared envelope by envelope; Instant is kept intact afterwards |
-| A rule is translated wrongly and a kid can write what they should not | The existing contract suites and live matrix are ported case by case |
-| Both implementations must be kept in step late in the work | The typecheck enforces the shared interface; Phase 6 is kept short |
-| The work overruns the deadline | The 31 May 2027 trigger for self-hosting Instant |
+| The PowerSync implementation of a read differs from the Instant one | The parity suite compares them over the real data, read by read, field by field |
+| A redesigned column loses or alters a value | The census resolves every odd value before its constraint exists; conversions are round-trip checked; relations and money are checked from the raw export, independently of the mapping; Instant is kept intact afterwards |
+| A rule is translated wrongly and a kid can write what they should not | Behavioral cases for every rule and for hostile uploads, against a real Postgres; the upload route judges by the server's state and writes only listed tables and columns |
+| One person's writes are uploaded as another, or a kid is shown a parent's data | A database per person, opened only with that person's session |
+| A retried upload undoes newer work | Every uploaded transaction is recorded once, in the transaction that applies it |
+| A device goes on writing to Instant after cutover, or loses writes it had not sent | The cutover protocol: every device reports its build and its unsent writes beforehand, writes are frozen, stale clients restart, and Instant's read-only mode stops the rest |
+| PowerSync stops and Postgres fills its disk keeping the log for it | The cap on what a replication slot may hold back, and the health report |
+| The server's disk is lost | The nightly dump is copied off the machine, and a restore is rehearsed with PowerSync and real clients |
+| Both implementations must be kept in step late in the work | The typecheck enforces the shared interface; Phase 7 is kept short |
+| The work overruns the deadline | The 31 May 2027 trigger for self-hosting Instant, most of which the rehearsal will already have done |
 | PowerSync changes its terms or stops | The data is in plain Postgres and the client libraries are Apache-2.0; released service versions become Apache-2.0 after two years |
-| Sync Streams prove immature | PowerSync's older Sync Rules format can express the same three partitions; S3 says whether it is needed |
+| Sync Streams prove immature | PowerSync's older Sync Rules format can express the same partitions |
 
 ## Alternatives considered
 
@@ -711,7 +908,7 @@ The five many-to-many links, which become join tables:
 
 ## Appendix B — The write rules today
 
-`instant.perms.ts` on `a4aed13`, grouped, under Instant's names. The write policy translates these onto the new tables and columns. "Family" means any signed-in principal, parent or kid.
+`instant.perms.ts` on `a4aed13`, grouped, under Instant's names. The write policy starts from these, on the new tables and columns; [the write rules](#the-write-rules) lists the four places where it is deliberately stricter. "Family" means any signed-in principal, parent or kid.
 
 **Family reads, parents write** (23): `announcements`, `calculatedAllowancePeriods`, `calendarItems`, `calendarSyncCalendars`, `calendarTags`, `choreAssignments`, `chores`, `contentAttachments`, `contentCategories`, `contentQueueItems`, `deviceSessions`, `exchangeRates`, `familyDashboardLayouts`, `familyDashboardWidgets`, `familyRules`, `gradeTypes`, `routineMarkerStatuses`, `routines`, `routineSteps`, `settings`, `taskSeries`, `timeOfDayDefinitions`, `unitDefinitions`. `calendarSyncCalendars` stops syncing, so its rule becomes "server only"; `calculatedAllowancePeriods`, `deviceSessions` and `timeOfDayDefinitions` are not carried.
 
@@ -738,4 +935,6 @@ The five many-to-many links, which become join tables:
 
 A kid session with no family member id — the shared kid principal — fails every "their own" test, as it does today.
 
-Instant checks a `link` separately from the row it joins; in a relational schema the link is a column on a row, so each link rule becomes a rule on the value written to that column. The column-by-column table is produced in Phase 4 from the ported test cases, which are the authority.
+**What changes at cutover.** The `allowanceTransactions` row goes: no device inserts or deletes a ledger row. On an envelope a device changes only the name, description and goal — a parent on any envelope, a kid on their own — and no longer creates or deletes one, writes a balance, or sets `isDefault` ([money](#money-is-written-only-by-the-server)). And no update, by a parent or a kid, changes who completed a completion that stands.
+
+Instant checks a `link` separately from the row it joins; in a relational schema the link is a column on a row, so each link rule becomes a rule on the value written to that column. The column-by-column table is produced in Phase 5, with a behavioral case for every cell.
