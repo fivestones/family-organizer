@@ -110,3 +110,21 @@ export function judge(principal: Principal, operation: CheckedOperation, current
     const row = { ...current, ...operation.values };
     return refuse(policy.update(principal, current, row, changed)) ?? { action: 'update', changed, row };
 }
+
+/**
+ * A row as a device holds it, in the server's form, so the rules can be asked about it on the device. Columns the
+ * rules know are read by their kind; anything else, such as whom a refusal belongs to, is passed through.
+ */
+export function toServerForm(table: WritableTable, deviceRow: Readonly<Record<string, unknown>>): Row {
+    const policy = policyFor(table);
+    const row: Record<string, unknown> = {};
+    for (const [column, value] of Object.entries(deviceRow)) {
+        const rule = policy.columns[column];
+        const read = rule ? readValue(rule, value) : null;
+        row[column] = read?.valid ? read.value : value;
+    }
+    // A device knows a row with one key column by `id`, whatever the column is called.
+    const keyColumn = policy.key.length === 1 ? policy.key[0] : undefined;
+    if (keyColumn && keyColumn !== 'id' && row[keyColumn] === undefined) row[keyColumn] = deviceRow.id;
+    return row;
+}

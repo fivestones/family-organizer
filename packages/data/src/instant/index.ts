@@ -1,4 +1,5 @@
 import type { DataBackend } from '../backend';
+import { createInstantChoresBackend } from './chores';
 import type { InstantClient } from './client';
 import { createInstantFamilyBackend } from './family';
 import { createInstantSettingsBackend } from './settings';
@@ -9,6 +10,7 @@ export type { InstantClient } from './client';
 /** The data layer over InstantDB. Temporary: it is deleted when the app moves to PowerSync. */
 export function createInstantBackend(client: InstantClient): DataBackend {
     return {
+        chores: createInstantChoresBackend(),
         family: createInstantFamilyBackend(client),
         settings: createInstantSettingsBackend(client),
         units: createInstantUnitsBackend(client),
