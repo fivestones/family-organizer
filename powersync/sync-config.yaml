@@ -30,6 +30,11 @@ streams:
       # A join table has two columns for a key; its id is built from them.
       - SELECT chore_id || '.' || family_member_id AS id, chore_id, family_member_id, position FROM chore_assignees
       - SELECT id, chore_id, completed_by, marked_by, date_due, completed_at, not_done, allowance_awarded FROM chore_completions
+      - >-
+        SELECT id, occurred_at, domain, action_type, summary, source, actor_id, chore_id, task_series_id, task_id, calendar_item_id,
+        allowance_transaction_id, message_thread_id, message_id, scheduled_for, restore_timing, metadata
+        FROM history_events
+      - SELECT history_event_id || '.' || family_member_id AS id, history_event_id, family_member_id FROM history_event_members
 
   # What the server refused, for the person who made the write.
   refusals_member:

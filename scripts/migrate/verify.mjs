@@ -222,6 +222,38 @@ export async function verifyImport(db, rowsOf, timing) {
         doneBy(raw.id, before === after);
     }
 
+    // ---- History ----
+    const rawEvents = rowsOf('historyEvents');
+    const events = new Map((await table('history_events')).map((row) => [row.id, row]));
+    const actedBy = new Map();
+    for (const raw of rawMembers) for (const eventId of asList(raw.actedHistoryEvents)) actedBy.set(eventId, raw.id);
+    const event = check('history_events: every event, field by field');
+    for (const raw of rawEvents) {
+        const row = events.get(raw.id);
+        const actor = raw.actorFamilyMemberId || raw.actor || actedBy.get(raw.id) || null;
+        event(raw.id, Boolean(row) && instantOf(row.occurred_at) === instantOf(raw.occurredAt) && row.domain === raw.domain
+            && row.action_type === raw.actionType && row.summary === raw.summary && (row.source ?? null) === (raw.source || null)
+            && (row.actor_id ?? null) === (members.has(actor) ? actor : null)
+            && (row.chore_id ?? null) === (raw.choreId || null) && (row.task_series_id ?? null) === (raw.taskSeriesId || null)
+            && (row.task_id ?? null) === (raw.taskId || null) && (row.calendar_item_id ?? null) === (raw.calendarItemId || null)
+            && (row.allowance_transaction_id ?? null) === (raw.allowanceTransactionId || null)
+            && (row.message_thread_id ?? null) === (raw.messageThreadId || null) && (row.message_id ?? null) === (raw.messageId || null)
+            && row.scheduled_for === dayOf(raw.scheduledForDate) && (row.restore_timing ?? null) === (raw.restoreTiming || null)
+            && sameJson(row.metadata, raw.metadata ?? {}));
+    }
+    check('history_events: as many as were exported')('count', events.size === rawEvents.length);
+
+    const affectedBefore = new Map(rawEvents.map((raw) => [raw.id, new Set(asList(raw.affectedFamilyMembers))]));
+    for (const raw of rawMembers) for (const eventId of asList(raw.affectedHistoryEvents)) affectedBefore.get(eventId)?.add(raw.id);
+    const affectedAfter = new Map();
+    for (const row of await table('history_event_members')) affectedAfter.set(row.history_event_id, [...(affectedAfter.get(row.history_event_id) ?? []), row.family_member_id]);
+    const affected = check('history_event_members: each event affected exactly the people it did');
+    for (const raw of rawEvents) {
+        const expected = [...affectedBefore.get(raw.id)].filter((memberId) => members.has(memberId));
+        const got = affectedAfter.get(raw.id) ?? [];
+        affected(raw.id, got.length === expected.length && got.every((memberId) => expected.includes(memberId)));
+    }
+
     return { checks };
 }
 

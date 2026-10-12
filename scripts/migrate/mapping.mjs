@@ -7,7 +7,7 @@
 // reason, and every conversion that changed a value's meaning is counted under `notes`.
 
 /** The tables this mapping fills, in an order their foreign keys allow. */
-export const TABLES = ['settings', 'unit_definitions', 'family_members', 'chores', 'chore_assignees', 'chore_completions'];
+export const TABLES = ['settings', 'unit_definitions', 'family_members', 'chores', 'chore_assignees', 'chore_completions', 'history_events', 'history_event_members'];
 
 /** The columns written to each table. One the database fills in for itself, such as family_members.has_pin, is not among them. */
 export const COLUMNS = {
@@ -28,6 +28,11 @@ export const COLUMNS = {
     ],
     chore_assignees: ['chore_id', 'family_member_id', 'position'],
     chore_completions: ['id', 'chore_id', 'completed_by', 'marked_by', 'date_due', 'completed_at', 'not_done', 'allowance_awarded'],
+    history_events: [
+        'id', 'occurred_at', 'domain', 'action_type', 'summary', 'source', 'actor_id', 'chore_id', 'task_series_id', 'task_id',
+        'calendar_item_id', 'allowance_transaction_id', 'message_thread_id', 'message_id', 'scheduled_for', 'restore_timing', 'metadata',
+    ],
+    history_event_members: ['history_event_id', 'family_member_id'],
 };
 
 /** Columns holding a JSON document. The importer hands these to Postgres as JSON text, whatever the value's shape. */
@@ -35,6 +40,7 @@ export const JSON_COLUMNS = {
     settings: ['value'],
     family_members: ['photo_urls', 'allowance_config'],
     chores: ['pause_state'],
+    history_events: ['metadata'],
 };
 
 /**
@@ -368,6 +374,56 @@ function choreCompletions(rowsOf, out) {
     for (const { next } of kept.values()) out.tables.chore_completions.push(next);
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The id something had, kept even though the thing may be gone. Anything that is not an id is left out. */
+const idOrNull = (value) => (typeof value === 'string' && UUID.test(value) ? value : null);
+
+const HISTORY_DOMAINS = ['tasks', 'chores', 'calendar', 'finance', 'messages', 'system'];
+
+/**
+ * The record of what happened. Instant held who did it twice, as a link and as an id beside it; here it is one
+ * column. Who it affected was a many-to-many link and is a table of its own.
+ */
+function historyEvents(rowsOf, out) {
+    const members = new Set(out.tables.family_members.map((row) => row.id));
+    const actorByLink = new Map(pairs(rowsOf, ['historyEvents', 'actor'], ['familyMembers', 'actedHistoryEvents']));
+    const kept = new Set();
+    for (const row of rowsOf('historyEvents')) {
+        const occurredAt = instant(row.occurredAt, out.notes, 'historyEvents.occurredAt');
+        if (!occurredAt) { hold(out, 'historyEvents', row, 'It does not say when it happened.'); continue; }
+        if (!HISTORY_DOMAINS.includes(row.domain)) count(out.notes, 'historyEvents.domain: missing or unknown, set to system');
+        const statedActor = idOrNull(row.actorFamilyMemberId);
+        const linkedActor = actorByLink.get(row.id) ?? null;
+        if (statedActor && linkedActor && statedActor !== linkedActor) count(out.notes, 'historyEvents: the actor link and the actor id disagree, the id kept');
+        const actor = statedActor ?? linkedActor;
+        if (actor && !members.has(actor)) count(out.notes, 'historyEvents: done by someone no longer in the family, actor left empty');
+        kept.add(row.id);
+        out.tables.history_events.push({
+            id: row.id,
+            occurred_at: occurredAt,
+            domain: HISTORY_DOMAINS.includes(row.domain) ? row.domain : 'system',
+            action_type: trimmed(row.actionType) || 'unknown',
+            summary: typeof row.summary === 'string' ? row.summary : '',
+            source: optionalText(row.source),
+            actor_id: actor && members.has(actor) ? actor : null,
+            chore_id: idOrNull(row.choreId),
+            task_series_id: idOrNull(row.taskSeriesId),
+            task_id: idOrNull(row.taskId),
+            calendar_item_id: idOrNull(row.calendarItemId),
+            allowance_transaction_id: idOrNull(row.allowanceTransactionId),
+            message_thread_id: idOrNull(row.messageThreadId),
+            message_id: idOrNull(row.messageId) ?? idOrNull(Array.isArray(row.message) ? row.message[0] : row.message),
+            scheduled_for: day(row.scheduledForDate, out.notes, 'historyEvents.scheduledForDate'),
+            restore_timing: optionalText(row.restoreTiming),
+            metadata: isRecord(row.metadata) ? row.metadata : {},
+        });
+    }
+    const affected = pairs(rowsOf, ['historyEvents', 'affectedFamilyMembers'], ['familyMembers', 'affectedHistoryEvents']);
+    for (const [event, member] of affected) {
+        if (kept.has(event) && members.has(member)) out.tables.history_event_members.push({ history_event_id: event, family_member_id: member });
+    }
+}
+
 function hold(out, entity, row, reason) {
     (out.heldBack[entity] ??= []).push({ reason, row });
 }
@@ -389,6 +445,10 @@ function unmappedAttributes(rowsOf, out) {
         ],
         choreAssignments: ['order'],
         choreCompletions: ['dateDue', 'dateCompleted', 'notDone', 'allowanceAwarded'],
+        historyEvents: [
+            'occurredAt', 'domain', 'actionType', 'summary', 'source', 'actorFamilyMemberId', 'choreId', 'taskSeriesId', 'taskId', 'calendarItemId',
+            'allowanceTransactionId', 'messageThreadId', 'messageId', 'scheduledForDate', 'restoreTiming', 'metadata',
+        ],
     };
     for (const [entity, names] of Object.entries(carried)) {
         const known = new Set(['id', ...names, ...Object.keys(LEFT_BEHIND[entity] ?? {})]);
@@ -414,6 +474,8 @@ const LINK_LABELS = {
     chores: ['assignees', 'assignments', 'completions', 'routineSteps', 'taskSeries'],
     choreAssignments: ['familyMember', 'chore'],
     choreCompletions: ['chore', 'completedBy', 'markedBy'],
+    // An event's attachments are a table of their own, mapped with the history area.
+    historyEvents: ['actor', 'affectedFamilyMembers', 'attachments', 'message'],
 };
 
 /**
@@ -428,6 +490,7 @@ export function buildRows(rowsOf) {
     chores(rowsOf, out);
     choreAssignees(rowsOf, out);
     choreCompletions(rowsOf, out);
+    historyEvents(rowsOf, out);
     unmappedAttributes(rowsOf, out);
     return out;
 }

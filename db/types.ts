@@ -114,6 +114,33 @@ export interface ChoreCompletionsTable {
     allowance_awarded: Generated<boolean>;
 }
 
+export type HistoryDomain = 'tasks' | 'chores' | 'calendar' | 'finance' | 'messages' | 'system';
+
+export interface HistoryEventsTable {
+    id: string;
+    occurred_at: Instant;
+    domain: HistoryDomain;
+    action_type: string;
+    summary: string;
+    source: string | null;
+    actor_id: string | null;
+    chore_id: string | null;
+    task_series_id: string | null;
+    task_id: string | null;
+    calendar_item_id: string | null;
+    allowance_transaction_id: string | null;
+    message_thread_id: string | null;
+    message_id: string | null;
+    scheduled_for: Day | null;
+    restore_timing: string | null;
+    metadata: Json;
+}
+
+export interface HistoryEventMembersTable {
+    history_event_id: string;
+    family_member_id: string;
+}
+
 export interface InstallationTable {
     only_row: Generated<boolean>;
     id: Generated<string>;
@@ -173,6 +200,8 @@ export interface Database {
     chores: ChoresTable;
     chore_assignees: ChoreAssigneesTable;
     chore_completions: ChoreCompletionsTable;
+    history_events: HistoryEventsTable;
+    history_event_members: HistoryEventMembersTable;
     installation: InstallationTable;
     auth_sessions: AuthSessionsTable;
     sync_uploads: SyncUploadsTable;
@@ -203,6 +232,12 @@ export const DATABASE_COLUMNS = {
     },
     chore_assignees: { chore_id: true, family_member_id: true, position: true },
     chore_completions: { id: true, chore_id: true, completed_by: true, marked_by: true, date_due: true, completed_at: true, not_done: true, allowance_awarded: true },
+    history_events: {
+        id: true, occurred_at: true, domain: true, action_type: true, summary: true, source: true, actor_id: true, chore_id: true,
+        task_series_id: true, task_id: true, calendar_item_id: true, allowance_transaction_id: true, message_thread_id: true, message_id: true,
+        scheduled_for: true, restore_timing: true, metadata: true,
+    },
+    history_event_members: { history_event_id: true, family_member_id: true },
     installation: { only_row: true, id: true, data_generation: true, backend: true, writes_frozen: true, min_client_build: true },
     auth_sessions: {
         id: true, token_hash: true, principal_type: true, family_member_id: true, state: true, created_at: true, last_seen_at: true,

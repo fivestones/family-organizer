@@ -32,8 +32,8 @@ function family(): Rows {
         ],
         unitDefinitions: [{ id: id(110), code: 'STARS', name: 'Stars', symbol: '★', isMonetary: false, symbolPlacement: 'after', symbolSpacing: true, decimalPlaces: 0 }],
         familyMembers: [
-            { id: ADA, name: 'Ada', role: 'parent', order: 0, email: '', pinHash: 'scrypt$abc', photoUrls: { '64': 'a64.png', '320': 'a320.png', '1200': 'a1200.png' }, allowancePayoutDelayDays: 0, allowanceStartDate: null, assignedChores: [DISHES, TRASH], completedChores: [id(40)] },
-            { id: BEN, name: 'Ben', role: 'child', order: 1, email: '', color: '#3366ff', allowancePayoutDelayDays: 2, allowanceStartDate: '2026-01-05T00:00:00.000Z', messageQuietHoursStart: '21:30', messageDigestMode: 'digest', assignedChores: [DISHES, TRASH, PIANO, LAUNDRY], completedChores: [id(41), id(42)] },
+            { id: ADA, name: 'Ada', role: 'parent', order: 0, email: '', pinHash: 'scrypt$abc', photoUrls: { '64': 'a64.png', '320': 'a320.png', '1200': 'a1200.png' }, allowancePayoutDelayDays: 0, allowanceStartDate: null, assignedChores: [DISHES, TRASH], completedChores: [id(40)], actedHistoryEvents: [id(60), id(62)], affectedHistoryEvents: [id(60)] },
+            { id: BEN, name: 'Ben', role: 'child', order: 1, email: '', color: '#3366ff', allowancePayoutDelayDays: 2, allowanceStartDate: '2026-01-05T00:00:00.000Z', messageQuietHoursStart: '21:30', messageDigestMode: 'digest', assignedChores: [DISHES, TRASH, PIANO, LAUNDRY], completedChores: [id(41), id(42)], affectedHistoryEvents: [id(62)] },
             { id: CAL, name: 'Cal', role: 'child', order: 2, email: '', assignedChores: [TRASH], completedChores: [id(43)] },
         ],
         chores: [
@@ -49,6 +49,12 @@ function family(): Rows {
             { id: id(30), order: 0, familyMember: CAL },
             { id: id(31), order: 1, familyMember: ADA },
             { id: id(32), order: 2, familyMember: BEN },
+        ],
+        historyEvents: [
+            // Ada ticked the dishes; a calendar sync, which nobody did; and Ada ticking Ben's piano for him.
+            { id: id(60), occurredAt: '2026-01-04T19:05:00.000Z', domain: 'chores', actionType: 'chore_marked_done', summary: 'Completed "Dishes"', source: 'manual', actorFamilyMemberId: ADA, choreId: DISHES, scheduledForDate: '2026-01-04', metadata: { choreTitle: 'Dishes', completed: true, dateDue: '2026-01-04' }, restoreTiming: null },
+            { id: id(61), occurredAt: '2026-01-05T02:00:00.000Z', domain: 'calendar', actionType: 'calendar_event_updated', summary: 'Updated "Dentist"', source: 'apple_sync', actorFamilyMemberId: null, calendarItemId: id(70), metadata: {} },
+            { id: id(62), occurredAt: '2026-01-05T16:00:00.000Z', domain: 'chores', actionType: 'chore_marked_done', summary: 'Completed "Piano"', source: 'manual', actorFamilyMemberId: ADA, choreId: PIANO, scheduledForDate: '2026-01-05', metadata: { choreTitle: 'Piano' } },
         ],
         choreCompletions: [
             { id: id(40), completed: true, dateDue: '2026-01-04', dateCompleted: '2026-01-04T19:05:00.000Z', allowanceAwarded: false, markedBy: ADA },
@@ -103,7 +109,7 @@ describe('importing an export', () => {
     it('loads a family and passes a verification that shares no code with the mapping', async () => {
         const { rowsOf, report } = await importInto(db, family());
 
-        expect(report.rows).toEqual({ settings: 2, unit_definitions: 1, family_members: 3, chores: 4, chore_assignees: 7, chore_completions: 4 });
+        expect(report.rows).toEqual({ settings: 2, unit_definitions: 1, family_members: 3, chores: 4, chore_assignees: 7, chore_completions: 4, history_events: 3, history_event_members: 2 });
         expect(report.heldBack).toEqual({});
         expect(report.storedButNotMapped).toEqual({});
         const result = await verifyImport(db, rowsOf, choreTiming);
@@ -177,6 +183,21 @@ describe('importing an export', () => {
 
         expect(report.rows.chore_assignees).toBe(7);
         expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
+    });
+
+    it('keeps who did a thing in one column and whom it affected in a table, and history that names a deleted thing', async () => {
+        await importInto(db, family());
+
+        expect(await one(db, `SELECT actor_id, chore_id, scheduled_for::text AS day, source, metadata FROM history_events WHERE id = $1`, [id(60)])).toEqual({
+            actor_id: ADA, chore_id: DISHES, day: '2026-01-04', source: 'manual', metadata: { choreTitle: 'Dishes', completed: true, dateDue: '2026-01-04' },
+        });
+        // Nobody did the calendar sync, and the calendar item it names is in no table yet: both are kept as they are.
+        expect(await one(db, `SELECT actor_id, calendar_item_id FROM history_events WHERE id = $1`, [id(61)])).toEqual({ actor_id: null, calendar_item_id: id(70) });
+        const affected = (await db.query<{ member: string }>(`SELECT family_member_id AS member FROM history_event_members WHERE history_event_id = $1`, [id(62)])).rows;
+        expect(affected).toEqual([{ member: BEN }]);
+        // A chore can go; what happened to it stays.
+        await db.query(`DELETE FROM chores WHERE id = $1`, [PIANO]);
+        expect((await one(db, `SELECT chore_id FROM history_events WHERE id = $1`, [id(62)])).chore_id).toBe(PIANO);
     });
 
     it('holds a completion done, marked not done, or cleared, and never two of those at once', async () => {
@@ -283,6 +304,10 @@ describe('the verification', () => {
         ['a completion moved to another person', `UPDATE chore_completions SET completed_by = '${CAL}' WHERE id = '${id(42)}'`, 'chore_completions: every completion loaded, field by field'],
         ['a completion that is missing', `DELETE FROM chore_completions WHERE id = '${id(43)}'`, 'chore_completions: one for each chore, person and day that had one'],
         ['a completion undone', `UPDATE chore_completions SET completed_at = NULL WHERE id = '${id(40)}'`, 'chore_completions: each person has done as many chores as before'],
+        ['a history entry reworded', `UPDATE history_events SET summary = 'Completed "Trash"' WHERE id = '${id(60)}'`, 'history_events: every event, field by field'],
+        ['a history entry credited to someone else', `UPDATE history_events SET actor_id = '${BEN}' WHERE id = '${id(62)}'`, 'history_events: every event, field by field'],
+        ['a history entry that is missing', `DELETE FROM history_events WHERE id = '${id(61)}'`, 'history_events: as many as were exported'],
+        ['someone no longer affected by an event', `DELETE FROM history_event_members WHERE history_event_id = '${id(62)}'`, 'history_event_members: each event affected exactly the people it did'],
     ];
 
     it.each(alterations)('catches %s', async (_what, sql, check) => {
