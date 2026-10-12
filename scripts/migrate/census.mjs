@@ -140,7 +140,16 @@ for (const link of Object.values(schema.links)) {
 }
 const settingNames = new Map();
 for (const row of rowsByEntity.settings ?? []) settingNames.set(row.name, (settingNames.get(row.name) ?? 0) + 1);
+// A row whose owner is held on the far side of a link: how many have no owner at all, which a NOT NULL would refuse.
+function rowsWithoutOwner(entity, ownerEntity, ownerLabel) {
+    const owned = new Set((rowsByEntity[ownerEntity] ?? []).flatMap((row) => asList(row[ownerLabel])));
+    return (rowsByEntity[entity] ?? []).filter((row) => !owned.has(row.id)).length;
+}
 report.checks = {
+    choreCompletionsWithoutChore: rowsWithoutOwner('choreCompletions', 'chores', 'completions'),
+    choreCompletionsWithoutCompleter: rowsWithoutOwner('choreCompletions', 'familyMembers', 'completedChores'),
+    choreAssignmentsWithoutChore: rowsWithoutOwner('choreAssignments', 'chores', 'assignments'),
+    choresWithoutAssignee: rowsWithoutOwner('chores', 'familyMembers', 'assignedChores'),
     settingsNamesStoredMoreThanOnce: [...settingNames.values()].filter((count) => count > 1).length,
     unitDefinitionsWithoutIsMonetary: (rowsByEntity.unitDefinitions ?? []).filter((row) => typeof row.isMonetary !== 'boolean').length,
     familyMemberRoles: (rowsByEntity.familyMembers ?? []).reduce((roles, row) => ({ ...roles, [row.role ?? '(none)']: (roles[row.role ?? '(none)'] ?? 0) + 1 }), {}),
@@ -196,6 +205,8 @@ let repeated = 0;
 for (const [entity, info] of entities) for (const [name, stats] of Object.entries(info.unique)) if (stats.valuesUsedMoreThanOnce) { repeated += 1; console.log(`  ${entity}.${name}: ${stats.valuesUsedMoreThanOnce}`); }
 if (!repeated) console.log('  none');
 console.log('\nOther checks');
+console.log(`  chore completions with no chore: ${report.checks.choreCompletionsWithoutChore}; with no completer: ${report.checks.choreCompletionsWithoutCompleter}`);
+console.log(`  chore assignments with no chore: ${report.checks.choreAssignmentsWithoutChore}; chores with no assignee: ${report.checks.choresWithoutAssignee}`);
 console.log(`  setting names stored more than once: ${report.checks.settingsNamesStoredMoreThanOnce}`);
 console.log(`  unit definitions with no isMonetary: ${report.checks.unitDefinitionsWithoutIsMonetary}`);
 console.log(`  family member roles: ${JSON.stringify(report.checks.familyMemberRoles)}; with a PIN: ${report.checks.familyMembersWithPin}`);
