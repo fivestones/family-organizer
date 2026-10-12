@@ -42,6 +42,34 @@ streams:
         allowance_transaction_id, message_thread_id, message_id, scheduled_for, restore_timing, metadata
         FROM history_events
       - SELECT history_event_id || '.' || family_member_id AS id, history_event_id, family_member_id FROM history_event_members
+      # Task series, with what was said and handed in.
+      - SELECT id, name, kind, low_value, high_value, low_label, high_label, steps, is_default, sort_order, created_at, updated_at FROM grade_types
+      - >-
+        SELECT id, name, description, family_member_id, chore_id, depends_on_series_id, start_date, target_end_date, planned_end_date,
+        baseline_day_break_count, work_ahead_allowed, pull_forward_count, break_type, break_start_date, break_delay_value, break_delay_unit,
+        created_at, updated_at
+        FROM task_series
+      - >-
+        SELECT id, task_series_id, parent_task_id, title, notes, sort_order, indentation_level, is_day_break, weight, specific_time, override_work_ahead,
+        workflow_state, last_active_state, child_tasks_complete, completed_at, completed_on, deferred_until, noted_until, is_noted_indefinitely,
+        created_at, updated_at
+        FROM tasks
+      - >-
+        SELECT id, task_id, name, type, url, kind, size_bytes, width, height, duration_sec, thumbnail_url, thumbnail_width, thumbnail_height, blurhash,
+        waveform_peaks, created_at, updated_at
+        FROM task_attachments
+      - SELECT id, task_id, type, label, description, weight, required, sort_order, created_at, updated_at FROM task_response_fields
+      - >-
+        SELECT id, task_id, actor_id, affected_person_id, reply_to_id, from_state, to_state, note, is_draft, scheduled_for, restore_timing, grade_type_id,
+        grade_numeric_value, grade_display_value, grade_is_provisional, created_at, updated_at
+        FROM task_updates
+      - >-
+        SELECT id, update_id, name, type, url, kind, size_bytes, width, height, duration_sec, thumbnail_url, thumbnail_width, thumbnail_height, blurhash,
+        waveform_peaks, created_at, updated_at
+        FROM task_update_attachments
+      - >-
+        SELECT id, update_id, field_id, rich_text_content, file_url, file_name, file_type, file_size_bytes, thumbnail_url, created_at, updated_at
+        FROM task_response_field_values
 
   # What the server refused, for the person who made the write.
   refusals_member:

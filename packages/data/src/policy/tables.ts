@@ -32,6 +32,10 @@ const only = (changed: readonly string[], allowed: readonly string[]) => changed
 /** Parents write it; everyone else only reads it. */
 const parentsWrite = { insert: parentsOnly, update: parentsOnly, delete: parentsOnly };
 
+const anyone = (): Verdict => null;
+/** Anyone signed in writes it: a parent, a kid, or the kid session a shared device rests on. */
+const familyWrites = { insert: anyone, update: anyone, delete: anyone };
+
 /** What a kid may change on their own row: how the app looks and behaves for them. */
 const OWN_PREFERENCES = [
     'last_display_currency', 'view_show_chore_descriptions', 'view_show_task_details', 'message_quiet_hours_enabled',
@@ -166,6 +170,91 @@ export const POLICY = {
     },
 
     // The record of what happened is added to and never changed.
+    grade_types: {
+        key: ['id'],
+        columns: {
+            id: uuid, name: text, kind: oneOf('number', 'letter', 'stars', 'freeform'), low_value: number, high_value: number, low_label: text,
+            high_label: text, steps: json, is_default: boolean, sort_order: integer, created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    task_series: {
+        key: ['id'],
+        columns: {
+            id: uuid, name: text, description: text, family_member_id: uuid, chore_id: uuid, depends_on_series_id: uuid, start_date: day,
+            target_end_date: day, planned_end_date: day, baseline_day_break_count: integer, work_ahead_allowed: boolean, pull_forward_count: integer,
+            break_type: text, break_start_date: day, break_delay_value: number, break_delay_unit: text, created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    tasks: {
+        key: ['id'],
+        columns: {
+            id: uuid, task_series_id: uuid, parent_task_id: uuid, title: text, notes: text, sort_order: integer, indentation_level: integer,
+            is_day_break: boolean, weight: number, specific_time: time, override_work_ahead: boolean,
+            workflow_state: oneOf('not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'),
+            last_active_state: oneOf('not_started', 'in_progress'), child_tasks_complete: boolean, completed_at: instant, completed_on: day,
+            deferred_until: day, noted_until: day, is_noted_indefinitely: boolean, created_at: instant, updated_at: instant,
+        },
+        // Which series a task belongs to is the parent's to say, as joining the two is today. A kid works through
+        // the tasks that are there.
+        insert: parentsOnly,
+        update: (principal, _current, _next, changed) => (!isParent(principal) && changed.includes('task_series_id') ? 'column_not_allowed' : null),
+        delete: anyone,
+    },
+
+    task_attachments: {
+        key: ['id'],
+        columns: {
+            id: uuid, task_id: uuid, name: text, type: text, url: text, kind: text, size_bytes: integer, width: integer, height: integer,
+            duration_sec: number, thumbnail_url: text, thumbnail_width: integer, thumbnail_height: integer, blurhash: text, waveform_peaks: json,
+            created_at: instant, updated_at: instant,
+        },
+        ...familyWrites,
+    },
+
+    task_response_fields: {
+        key: ['id'],
+        columns: {
+            id: uuid, task_id: uuid, type: oneOf('rich_text', 'photo', 'video', 'audio', 'file'), label: text, description: text, weight: number,
+            required: boolean, sort_order: integer, created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    task_updates: {
+        key: ['id'],
+        columns: {
+            id: uuid, task_id: uuid, actor_id: uuid, affected_person_id: uuid, reply_to_id: uuid,
+            from_state: oneOf('not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'),
+            to_state: oneOf('not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'), note: text, is_draft: boolean,
+            scheduled_for: day, restore_timing: oneOf('now', 'next_scheduled'), grade_type_id: uuid, grade_numeric_value: number,
+            grade_display_value: text, grade_is_provisional: boolean, created_at: instant, updated_at: instant,
+        },
+        ...familyWrites,
+    },
+
+    task_update_attachments: {
+        key: ['id'],
+        columns: {
+            id: uuid, update_id: uuid, name: text, type: text, url: text, kind: text, size_bytes: integer, width: integer, height: integer,
+            duration_sec: number, thumbnail_url: text, thumbnail_width: integer, thumbnail_height: integer, blurhash: text, waveform_peaks: json,
+            created_at: instant, updated_at: instant,
+        },
+        ...familyWrites,
+    },
+
+    task_response_field_values: {
+        key: ['id'],
+        columns: {
+            id: uuid, update_id: uuid, field_id: uuid, rich_text_content: text, file_url: text, file_name: text, file_type: text,
+            file_size_bytes: integer, thumbnail_url: text, created_at: instant, updated_at: instant,
+        },
+        ...familyWrites,
+    },
+
     history_events: {
         key: ['id'],
         columns: {

@@ -25,7 +25,7 @@ type Rows = Record<string, Array<Record<string, unknown>>>;
 
 /** A small family as Instant would export it, with each link on the side Instant's schema declares it forward. */
 function family(): Rows {
-    return {
+    return withTaskSeries({
         settings: [
             { id: id(100), name: 'dashboardTheme', value: 'dark' },
             { id: id(101), name: 'enabledCurrencies', value: '["USD","STARS"]' },
@@ -71,6 +71,45 @@ function family(): Rows {
             { id: id(42), completed: true, dateDue: '2026-01-05', dateCompleted: '2026-01-05T16:00:00.000Z', allowanceAwarded: true },
             { id: id(43), completed: false, dateDue: '2026-01-05', dateCompleted: null, allowanceAwarded: false },
         ],
+    });
+}
+
+const at = (iso: string) => Date.parse(iso);
+
+/**
+ * Ben's maths series on his piano chore: a task done, a task handed in with a sub-task under it, and a day break.
+ * Ben handed the second task in with an answer and a photo, and Ada answered him with a provisional grade.
+ */
+function withTaskSeries(rows: Rows): Rows {
+    const member = (memberId: string) => rows.familyMembers.find((row) => row.id === memberId)!;
+    Object.assign(member(BEN), { actedTaskUpdates: [id(160)], affectedTaskUpdates: [id(160), id(161)] });
+    Object.assign(member(ADA), { actedTaskUpdates: [id(161)] });
+    const file = { blurhash: null, durationSec: 0, height: 0, width: 0, thumbnailHeight: 0, thumbnailWidth: 0, thumbnailUrl: null, waveformPeaks: null };
+    return {
+        ...rows,
+        gradeTypes: [
+            { id: id(120), name: 'Percent', kind: 'number', lowValue: 0, highValue: 100, lowLabel: 'Low', highLabel: 'High', steps: null, isDefault: true, order: 0, createdAt: at('2026-01-01T08:00:00.000Z'), updatedAt: at('2026-01-01T08:00:00.000Z') },
+            { id: id(121), name: 'Letters', kind: 'letter', lowValue: 0, highValue: 100, lowLabel: 'F', highLabel: 'A', steps: [{ label: 'A', value: 90 }, { label: 'F', value: 0 }], isDefault: false, order: 1, createdAt: at('2026-01-01T08:00:00.000Z'), updatedAt: at('2026-01-02T08:00:00.000Z') },
+        ],
+        taskSeries: [
+            // The start is midnight on the fifth where the family lives, east of Greenwich, so the instant is on the fourth.
+            { id: id(130), name: 'Maths', description: '', startDate: '2026-01-04T18:15:00.000Z', targetEndDate: null, plannedEndDate: at('2026-02-01T00:00:00.000Z'), baselineDayBreakCount: 1, workAheadAllowed: true, dependsOnSeriesId: null, createdAt: '2026-01-01T08:00:00.000Z', updatedAt: '2026-01-03T08:00:00.000Z', familyMember: BEN, scheduledActivity: PIANO, tasks: [id(131), id(132), id(133), id(134)] },
+        ],
+        tasks: [
+            { id: id(131), text: 'Read chapter 1', order: 0, indentationLevel: 0, isDayBreak: false, isCompleted: true, workflowState: 'done', lastActiveState: 'in_progress', childTasksComplete: true, completedAt: '2026-01-05T10:00:00.000Z', completedOnDate: '2026-01-05', deferredUntilDate: null, notedUntilDate: null, isNotedIndefinitely: null, updatedAt: '2026-01-05T10:00:00.000Z', attachments: [id(140)], prerequisites: [] },
+            { id: id(132), text: 'Exercises', notes: 'Show your working.', order: 1, indentationLevel: 0, isDayBreak: false, isCompleted: false, workflowState: 'needs_review', lastActiveState: 'in_progress', childTasksComplete: false, specificTime: '16:30', completedAt: null, completedOnDate: null, updatedAt: '2026-01-05T11:00:00.000Z', attachments: [], prerequisites: [] },
+            // From before a task had a workflow state: it was ticked, and that is all it says.
+            { id: id(133), text: 'Odd numbers only', order: 2, indentationLevel: 1, isDayBreak: false, isCompleted: true, childTasksComplete: true, completedAt: '2026-01-05T10:30:00.000Z', completedOnDate: '2026-01-05', updatedAt: '2026-01-05T10:30:00.000Z', parentTask: id(132), attachments: [], prerequisites: [] },
+            { id: id(134), text: '', order: 3, indentationLevel: 0, isDayBreak: true, isCompleted: false, workflowState: 'not_started', lastActiveState: 'not_started', childTasksComplete: true, updatedAt: '2026-01-03T08:00:00.000Z', attachments: [], prerequisites: [] },
+        ],
+        taskAttachments: [{ id: id(140), name: 'chapter.pdf', type: 'application/pdf', url: 'tasks/chapter.pdf', kind: 'pdf', sizeBytes: 20480, ...file, createdAt: '2026-01-03T08:00:00.000Z', updatedAt: '2026-01-03T08:00:00.000Z' }],
+        taskResponseFields: [{ id: id(150), type: 'rich_text', label: 'Your answers', description: null, weight: 1, required: true, order: 0, createdAt: at('2026-01-03T08:00:00.000Z'), updatedAt: at('2026-01-03T08:00:00.000Z'), task: id(132) }],
+        taskUpdates: [
+            { id: id(160), fromState: 'in_progress', toState: 'needs_review', note: 'Done!', isDraft: false, scheduledForDate: '2026-01-05', restoreTiming: null, createdAt: at('2026-01-05T11:00:00.000Z'), updatedAt: at('2026-01-05T11:00:00.000Z'), task: id(132), attachments: [id(170)] },
+            { id: id(161), fromState: 'needs_review', toState: 'needs_review', note: 'Look again at number 3.', isDraft: false, scheduledForDate: '2026-01-05', restoreTiming: null, gradeNumericValue: 80, gradeDisplayValue: '80', gradeIsProvisional: true, createdAt: at('2026-01-05T12:00:00.000Z'), updatedAt: at('2026-01-05T12:00:00.000Z'), task: id(132), replyTo: id(160), gradeType: id(120), attachments: [] },
+        ],
+        taskUpdateAttachments: [{ id: id(170), name: 'page.jpg', type: 'image/jpeg', url: 'updates/page.jpg', kind: 'image', sizeBytes: 90210, ...file, width: 800, height: 600, blurhash: 'L5H2EC=PM+yV', createdAt: '2026-01-05T11:00:00.000Z', updatedAt: '2026-01-05T11:00:00.000Z' }],
+        taskResponseFieldValues: [{ id: id(180), richTextContent: '<p>1, 3, 5</p>', fileUrl: null, fileName: null, fileType: null, fileSizeBytes: null, thumbnailUrl: null, createdAt: at('2026-01-05T11:00:00.000Z'), updatedAt: at('2026-01-05T11:00:00.000Z'), update: id(160), field: id(150) }],
     };
 }
 
@@ -121,6 +160,8 @@ describe('importing an export', () => {
         expect(report.rows).toEqual({
             settings: 2, unit_definitions: 1, family_members: 3, chores: 4, chore_assignees: 7, chore_completions: 4,
             routines: 1, routine_steps: 2, routine_marker_statuses: 1, countdown_runs: 1, history_events: 3, history_event_members: 2,
+            grade_types: 2, task_series: 1, tasks: 4, task_attachments: 1, task_response_fields: 1, task_updates: 2, task_update_attachments: 1,
+            task_response_field_values: 1,
         });
         expect(report.heldBack).toEqual({});
         expect(report.storedButNotMapped).toEqual({});
@@ -223,6 +264,78 @@ describe('importing an export', () => {
         });
         // A second run for the same person and day cannot be stored.
         await expect(db.query(`INSERT INTO countdown_runs (id, family_member_id, day, status, started_at) VALUES ($1, $2, '2026-01-05', 'running', now())`, [id(91), BEN])).rejects.toThrow();
+    });
+
+    it('carries a task series with its tasks in order, each under its parent, on the chore and for the person it was', async () => {
+        await importInto(db, family());
+
+        // The day the family meant, not the day before that its midnight falls on in UTC.
+        expect(await one(db, `SELECT family_member_id, chore_id, start_date::text AS starts, planned_end_date::text AS planned, work_ahead_allowed, pull_forward_count FROM task_series`)).toEqual({
+            family_member_id: BEN, chore_id: PIANO, starts: '2026-01-05', planned: '2026-02-01', work_ahead_allowed: true, pull_forward_count: 0,
+        });
+        const tasks = (await db.query(`SELECT id, parent_task_id AS parent, title, workflow_state AS state, last_active_state AS back_to, is_day_break AS break, specific_time::text AS at FROM tasks ORDER BY sort_order`)).rows;
+        expect(tasks).toEqual([
+            { id: id(131), parent: null, title: 'Read chapter 1', state: 'done', back_to: 'in_progress', break: false, at: null },
+            { id: id(132), parent: null, title: 'Exercises', state: 'needs_review', back_to: 'in_progress', break: false, at: '16:30:00' },
+            // It only ever said it was ticked.
+            { id: id(133), parent: id(132), title: 'Odd numbers only', state: 'done', back_to: 'not_started', break: false, at: null },
+            { id: id(134), parent: null, title: '', state: 'not_started', back_to: 'not_started', break: true, at: null },
+        ]);
+        // A series that goes takes its tasks, and everything said about them, with it.
+        await db.query(`DELETE FROM task_series WHERE id = $1`, [id(130)]);
+        expect(await one(db, `SELECT (SELECT count(*) FROM tasks)::int AS tasks, (SELECT count(*) FROM task_updates)::int AS updates, (SELECT count(*) FROM task_response_field_values)::int AS answers, (SELECT count(*) FROM task_attachments)::int AS files`)).toEqual({ tasks: 0, updates: 0, answers: 0, files: 0 });
+    });
+
+    it('carries what was said about a task: who said it, what it answered, the grade, the files and the answers', async () => {
+        await importInto(db, family());
+
+        expect(await one(db, `SELECT task_id, actor_id, affected_person_id, reply_to_id, from_state, to_state, scheduled_for::text AS day, grade_type_id FROM task_updates WHERE id = $1`, [id(160)])).toEqual({
+            task_id: id(132), actor_id: BEN, affected_person_id: BEN, reply_to_id: null, from_state: 'in_progress', to_state: 'needs_review', day: '2026-01-05', grade_type_id: null,
+        });
+        expect(await one(db, `SELECT actor_id, affected_person_id, reply_to_id, grade_type_id, grade_numeric_value AS grade, grade_is_provisional AS provisional FROM task_updates WHERE id = $1`, [id(161)])).toEqual({
+            actor_id: ADA, affected_person_id: BEN, reply_to_id: id(160), grade_type_id: id(120), grade: 80, provisional: true,
+        });
+        expect(await one(db, `SELECT update_id, field_id, rich_text_content AS answer FROM task_response_field_values`)).toEqual({ update_id: id(160), field_id: id(150), answer: '<p>1, 3, 5</p>' });
+        expect(await one(db, `SELECT update_id, url, width, blurhash FROM task_update_attachments`)).toEqual({ update_id: id(160), url: 'updates/page.jpg', width: 800, blurhash: 'L5H2EC=PM+yV' });
+        expect(await one(db, `SELECT task_id, url, size_bytes::int AS size FROM task_attachments`)).toEqual({ task_id: id(131), url: 'tasks/chapter.pdf', size: 20480 });
+        // Someone who leaves the family leaves what they said, with nobody's name on it.
+        await db.exec(`DELETE FROM chore_completions`);
+        await db.query(`DELETE FROM family_members WHERE id = $1`, [BEN]);
+        expect(await one(db, `SELECT actor_id, affected_person_id FROM task_updates WHERE id = $1`, [id(160)])).toEqual({ actor_id: null, affected_person_id: null });
+        expect((await one(db, `SELECT family_member_id FROM task_series`)).family_member_id).toBeNull();
+    });
+
+    it('holds one default grade scale, and clears a second', async () => {
+        const rows = family();
+        rows.gradeTypes[1].isDefault = true;
+        const { report } = await importInto(db, rows);
+
+        expect(report.conversions['gradeTypes.isDefault: a second default, cleared']).toBe(1);
+        expect((await db.query(`SELECT id FROM grade_types WHERE is_default`)).rows).toEqual([{ id: id(120) }]);
+        await expect(db.query(`UPDATE grade_types SET is_default = true WHERE id = $1`, [id(121)])).rejects.toThrow();
+    });
+
+    it('holds back what belonged to a task that is gone, and says so', async () => {
+        const rows = family();
+        // What a deleted task left behind: an update, the answer that came with it, a field, and a file.
+        rows.tasks.push({ id: id(135), text: 'Left over', order: 9, isDayBreak: false, updatedAt: '2026-01-02T08:00:00.000Z' });
+        rows.taskUpdates.push({ id: id(162), fromState: 'not_started', toState: 'in_progress', isDraft: false, scheduledForDate: '2026-01-02', createdAt: at('2026-01-02T08:00:00.000Z'), updatedAt: at('2026-01-02T08:00:00.000Z') });
+        rows.taskResponseFields.push({ id: id(151), type: 'photo', label: 'A photo', weight: 0, required: false, order: 0, createdAt: at('2026-01-02T08:00:00.000Z'), updatedAt: at('2026-01-02T08:00:00.000Z') });
+        rows.taskResponseFieldValues.push({ id: id(181), richTextContent: 'x', createdAt: at('2026-01-02T08:00:00.000Z'), updatedAt: at('2026-01-02T08:00:00.000Z'), update: id(162), field: id(151) });
+        rows.taskAttachments.push({ id: id(141), name: 'old.pdf', type: 'application/pdf', url: 'tasks/old.pdf', createdAt: '2026-01-02T08:00:00.000Z', updatedAt: '2026-01-02T08:00:00.000Z' });
+        // And an earlier answer to a field that was answered again with the same update.
+        rows.taskResponseFieldValues.push({ id: id(182), richTextContent: '<p>1, 3</p>', createdAt: at('2026-01-05T10:50:00.000Z'), updatedAt: at('2026-01-05T10:50:00.000Z'), update: id(160), field: id(150) });
+        const { rowsOf, report } = await importInto(db, rows);
+
+        expect(report.heldBack).toEqual({
+            tasks: { 'It belongs to no series.': 1 },
+            taskUpdates: { 'Its task no longer exists.': 1 },
+            taskResponseFields: { 'Its task no longer exists.': 1 },
+            taskAttachments: { 'Its task no longer exists.': 1 },
+            taskResponseFieldValues: { 'Its update no longer exists.': 1, 'A later answer to the same field came with the same update.': 1 },
+        });
+        expect((await one(db, `SELECT rich_text_content AS answer FROM task_response_field_values`)).answer).toBe('<p>1, 3, 5</p>');
+        expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
     });
 
     it('holds a completion done, marked not done, or cleared, and never two of those at once', async () => {
@@ -332,6 +445,25 @@ describe('the verification', () => {
         ['a routine\'s steps out of order', `UPDATE routine_steps SET position = 5 WHERE chore_id = '${DISHES}'`, 'routine_steps: each routine has its chores, in their order'],
         ['a marker credited to someone else', `UPDATE routine_marker_statuses SET started_by = '${BEN}'`, 'routine_marker_statuses: every marker on every day, field by field'],
         ['a countdown run on another day', `UPDATE countdown_runs SET day = day + 1`, 'countdown_runs: every run loaded, field by field'],
+        ['a grade scale with other ends', `UPDATE grade_types SET high_value = 10 WHERE id = '${id(120)}'`, 'grade_types: every scale, field by field'],
+        ['a second default grade scale gone', `UPDATE grade_types SET is_default = false`, 'grade_types: as many as were exported, and one default if there was one'],
+        ['a series starting a day early', `UPDATE task_series SET start_date = start_date - 1`, 'task_series: every series, field by field'],
+        ['a series on another chore', `UPDATE task_series SET chore_id = '${DISHES}'`, 'task_series: every series, field by field'],
+        ['a task reworded', `UPDATE tasks SET title = 'Read chapter 2' WHERE id = '${id(131)}'`, 'tasks: every task of a series, field by field'],
+        ['a task that is missing', `DELETE FROM tasks WHERE id = '${id(134)}'`, 'tasks: none loaded but those of a series that was exported'],
+        ['a task no longer done', `UPDATE tasks SET workflow_state = 'in_progress' WHERE id = '${id(133)}'`, 'tasks: the app reads the same state for each task, and the same place to return to'],
+        ['tasks out of order', `UPDATE tasks SET sort_order = 7 WHERE id = '${id(131)}'`, 'tasks: each series has its tasks in their order, each under the parent it had'],
+        ['a sub-task that lost its parent', `UPDATE tasks SET parent_task_id = NULL WHERE id = '${id(133)}'`, 'tasks: each series has its tasks in their order, each under the parent it had'],
+        ['a task file pointing elsewhere', `UPDATE task_attachments SET url = 'tasks/other.pdf'`, 'task_attachments: every file, field by field'],
+        ['a task file that is missing', `DELETE FROM task_attachments`, 'task_attachments: none loaded but those whose owner was'],
+        ['a response field no longer required', `UPDATE task_response_fields SET required = false`, 'task_response_fields: every field of a task, field by field'],
+        ['an update credited to someone else', `UPDATE task_updates SET actor_id = '${CAL}' WHERE id = '${id(160)}'`, 'task_updates: every update of a task, field by field'],
+        ['a reply that answers nothing', `UPDATE task_updates SET reply_to_id = NULL WHERE id = '${id(161)}'`, 'task_updates: every update of a task, field by field'],
+        ['a grade changed', `UPDATE task_updates SET grade_numeric_value = 100 WHERE id = '${id(161)}'`, 'task_updates: every update of a task, field by field'],
+        ['an update that is missing', `DELETE FROM task_updates WHERE id = '${id(161)}'`, 'task_updates: each task has as many updates as before'],
+        ['an update\'s photo resized', `UPDATE task_update_attachments SET width = 80`, 'task_update_attachments: every file, field by field'],
+        ['an answer rewritten', `UPDATE task_response_field_values SET rich_text_content = '<p>2</p>'`, 'task_response_field_values: every answer loaded, field by field'],
+        ['an answer that is missing', `DELETE FROM task_response_field_values`, 'task_response_field_values: one for each field answered with each update'],
         ['a history entry reworded', `UPDATE history_events SET summary = 'Completed "Trash"' WHERE id = '${id(60)}'`, 'history_events: every event, field by field'],
         ['a history entry credited to someone else', `UPDATE history_events SET actor_id = '${BEN}' WHERE id = '${id(62)}'`, 'history_events: every event, field by field'],
         ['a history entry that is missing', `DELETE FROM history_events WHERE id = '${id(61)}'`, 'history_events: as many as were exported'],

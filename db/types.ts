@@ -181,6 +181,153 @@ export interface HistoryEventMembersTable {
     family_member_id: string;
 }
 
+export interface GradeTypesTable {
+    id: string;
+    name: string;
+    kind: 'number' | 'letter' | 'stars' | 'freeform';
+    low_value: number;
+    high_value: number;
+    low_label: Generated<string>;
+    high_label: Generated<string>;
+    steps: Json | null;
+    is_default: Generated<boolean>;
+    sort_order: Generated<number>;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface TaskSeriesTable {
+    id: string;
+    name: string;
+    description: string | null;
+    family_member_id: string | null;
+    chore_id: string | null;
+    depends_on_series_id: string | null;
+    start_date: Day | null;
+    target_end_date: Day | null;
+    planned_end_date: Day | null;
+    baseline_day_break_count: number | null;
+    work_ahead_allowed: Generated<boolean>;
+    pull_forward_count: Generated<number>;
+    break_type: string | null;
+    break_start_date: Day | null;
+    break_delay_value: number | null;
+    break_delay_unit: string | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface TasksTable {
+    id: string;
+    task_series_id: string;
+    parent_task_id: string | null;
+    title: Generated<string>;
+    notes: string | null;
+    sort_order: number;
+    indentation_level: Generated<number>;
+    is_day_break: Generated<boolean>;
+    weight: number | null;
+    specific_time: TimeOfDay | null;
+    override_work_ahead: boolean | null;
+    workflow_state: Generated<'not_started' | 'in_progress' | 'blocked' | 'skipped' | 'needs_review' | 'done'>;
+    last_active_state: Generated<'not_started' | 'in_progress'>;
+    child_tasks_complete: Generated<boolean>;
+    completed_at: Instant | null;
+    completed_on: Day | null;
+    deferred_until: Day | null;
+    noted_until: Day | null;
+    is_noted_indefinitely: Generated<boolean>;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface TaskAttachmentsTable {
+    id: string;
+    task_id: string;
+    name: string;
+    type: string;
+    url: string;
+    kind: string | null;
+    size_bytes: number | null;
+    width: number | null;
+    height: number | null;
+    duration_sec: number | null;
+    thumbnail_url: string | null;
+    thumbnail_width: number | null;
+    thumbnail_height: number | null;
+    blurhash: string | null;
+    waveform_peaks: Json | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface TaskResponseFieldsTable {
+    id: string;
+    task_id: string;
+    type: 'rich_text' | 'photo' | 'video' | 'audio' | 'file';
+    label: string;
+    description: string | null;
+    weight: Generated<number>;
+    required: Generated<boolean>;
+    sort_order: Generated<number>;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface TaskUpdatesTable {
+    id: string;
+    task_id: string;
+    actor_id: string | null;
+    affected_person_id: string | null;
+    reply_to_id: string | null;
+    from_state: 'not_started' | 'in_progress' | 'blocked' | 'skipped' | 'needs_review' | 'done';
+    to_state: 'not_started' | 'in_progress' | 'blocked' | 'skipped' | 'needs_review' | 'done';
+    note: string | null;
+    is_draft: Generated<boolean>;
+    scheduled_for: Day;
+    restore_timing: 'now' | 'next_scheduled' | null;
+    grade_type_id: string | null;
+    grade_numeric_value: number | null;
+    grade_display_value: string | null;
+    grade_is_provisional: boolean | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface TaskUpdateAttachmentsTable {
+    id: string;
+    update_id: string;
+    name: string;
+    type: string;
+    url: string;
+    kind: string | null;
+    size_bytes: number | null;
+    width: number | null;
+    height: number | null;
+    duration_sec: number | null;
+    thumbnail_url: string | null;
+    thumbnail_width: number | null;
+    thumbnail_height: number | null;
+    blurhash: string | null;
+    waveform_peaks: Json | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface TaskResponseFieldValuesTable {
+    id: string;
+    update_id: string;
+    field_id: string;
+    rich_text_content: string | null;
+    file_url: string | null;
+    file_name: string | null;
+    file_type: string | null;
+    file_size_bytes: number | null;
+    thumbnail_url: string | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
 export interface InstallationTable {
     only_row: Generated<boolean>;
     id: Generated<string>;
@@ -245,6 +392,14 @@ export interface Database {
     countdown_runs: CountdownRunsTable;
     history_events: HistoryEventsTable;
     history_event_members: HistoryEventMembersTable;
+    grade_types: GradeTypesTable;
+    task_series: TaskSeriesTable;
+    tasks: TasksTable;
+    task_attachments: TaskAttachmentsTable;
+    task_response_fields: TaskResponseFieldsTable;
+    task_updates: TaskUpdatesTable;
+    task_update_attachments: TaskUpdateAttachmentsTable;
+    task_response_field_values: TaskResponseFieldValuesTable;
     installation: InstallationTable;
     auth_sessions: AuthSessionsTable;
     sync_uploads: SyncUploadsTable;
@@ -289,6 +444,42 @@ export const DATABASE_COLUMNS = {
         scheduled_for: true, restore_timing: true, metadata: true,
     },
     history_event_members: { history_event_id: true, family_member_id: true },
+    grade_types: {
+        id: true, name: true, kind: true, low_value: true, high_value: true, low_label: true, high_label: true, steps: true, is_default: true,
+        sort_order: true, created_at: true, updated_at: true,
+    },
+    task_series: {
+        id: true, name: true, description: true, family_member_id: true, chore_id: true, depends_on_series_id: true, start_date: true,
+        target_end_date: true, planned_end_date: true, baseline_day_break_count: true, work_ahead_allowed: true, pull_forward_count: true,
+        break_type: true, break_start_date: true, break_delay_value: true, break_delay_unit: true, created_at: true, updated_at: true,
+    },
+    tasks: {
+        id: true, task_series_id: true, parent_task_id: true, title: true, notes: true, sort_order: true, indentation_level: true, is_day_break: true,
+        weight: true, specific_time: true, override_work_ahead: true, workflow_state: true, last_active_state: true, child_tasks_complete: true,
+        completed_at: true, completed_on: true, deferred_until: true, noted_until: true, is_noted_indefinitely: true, created_at: true,
+        updated_at: true,
+    },
+    task_attachments: {
+        id: true, task_id: true, name: true, type: true, url: true, kind: true, size_bytes: true, width: true, height: true, duration_sec: true,
+        thumbnail_url: true, thumbnail_width: true, thumbnail_height: true, blurhash: true, waveform_peaks: true, created_at: true, updated_at: true,
+    },
+    task_response_fields: {
+        id: true, task_id: true, type: true, label: true, description: true, weight: true, required: true, sort_order: true, created_at: true,
+        updated_at: true,
+    },
+    task_updates: {
+        id: true, task_id: true, actor_id: true, affected_person_id: true, reply_to_id: true, from_state: true, to_state: true, note: true,
+        is_draft: true, scheduled_for: true, restore_timing: true, grade_type_id: true, grade_numeric_value: true, grade_display_value: true,
+        grade_is_provisional: true, created_at: true, updated_at: true,
+    },
+    task_update_attachments: {
+        id: true, update_id: true, name: true, type: true, url: true, kind: true, size_bytes: true, width: true, height: true, duration_sec: true,
+        thumbnail_url: true, thumbnail_width: true, thumbnail_height: true, blurhash: true, waveform_peaks: true, created_at: true, updated_at: true,
+    },
+    task_response_field_values: {
+        id: true, update_id: true, field_id: true, rich_text_content: true, file_url: true, file_name: true, file_type: true, file_size_bytes: true,
+        thumbnail_url: true, created_at: true, updated_at: true,
+    },
     installation: { only_row: true, id: true, data_generation: true, backend: true, writes_frozen: true, min_client_build: true },
     auth_sessions: {
         id: true, token_hash: true, principal_type: true, family_member_id: true, state: true, created_at: true, last_seen_at: true,

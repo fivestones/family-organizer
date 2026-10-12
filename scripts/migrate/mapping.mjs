@@ -10,6 +10,8 @@
 export const TABLES = [
     'settings', 'unit_definitions', 'family_members', 'chores', 'chore_assignees', 'chore_completions',
     'routines', 'routine_steps', 'routine_marker_statuses', 'countdown_runs', 'history_events', 'history_event_members',
+    'grade_types', 'task_series', 'tasks', 'task_attachments', 'task_response_fields', 'task_updates', 'task_update_attachments',
+    'task_response_field_values',
 ];
 
 /** The columns written to each table. One the database fills in for itself, such as family_members.has_pin, is not among them. */
@@ -43,6 +45,36 @@ export const COLUMNS = {
         'calendar_item_id', 'allowance_transaction_id', 'message_thread_id', 'message_id', 'scheduled_for', 'restore_timing', 'metadata',
     ],
     history_event_members: ['history_event_id', 'family_member_id'],
+    grade_types: [
+        'id', 'name', 'kind', 'low_value', 'high_value', 'low_label', 'high_label', 'steps', 'is_default', 'sort_order', 'created_at', 'updated_at',
+    ],
+    task_series: [
+        'id', 'name', 'description', 'family_member_id', 'chore_id', 'depends_on_series_id', 'start_date', 'target_end_date', 'planned_end_date',
+        'baseline_day_break_count', 'work_ahead_allowed', 'pull_forward_count', 'break_type', 'break_start_date', 'break_delay_value',
+        'break_delay_unit', 'created_at', 'updated_at',
+    ],
+    tasks: [
+        'id', 'task_series_id', 'parent_task_id', 'title', 'notes', 'sort_order', 'indentation_level', 'is_day_break', 'weight', 'specific_time',
+        'override_work_ahead', 'workflow_state', 'last_active_state', 'child_tasks_complete', 'completed_at', 'completed_on', 'deferred_until',
+        'noted_until', 'is_noted_indefinitely', 'created_at', 'updated_at',
+    ],
+    task_attachments: [
+        'id', 'task_id', 'name', 'type', 'url', 'kind', 'size_bytes', 'width', 'height', 'duration_sec', 'thumbnail_url', 'thumbnail_width',
+        'thumbnail_height', 'blurhash', 'waveform_peaks', 'created_at', 'updated_at',
+    ],
+    task_response_fields: ['id', 'task_id', 'type', 'label', 'description', 'weight', 'required', 'sort_order', 'created_at', 'updated_at'],
+    task_updates: [
+        'id', 'task_id', 'actor_id', 'affected_person_id', 'reply_to_id', 'from_state', 'to_state', 'note', 'is_draft', 'scheduled_for',
+        'restore_timing', 'grade_type_id', 'grade_numeric_value', 'grade_display_value', 'grade_is_provisional', 'created_at', 'updated_at',
+    ],
+    task_update_attachments: [
+        'id', 'update_id', 'name', 'type', 'url', 'kind', 'size_bytes', 'width', 'height', 'duration_sec', 'thumbnail_url', 'thumbnail_width',
+        'thumbnail_height', 'blurhash', 'waveform_peaks', 'created_at', 'updated_at',
+    ],
+    task_response_field_values: [
+        'id', 'update_id', 'field_id', 'rich_text_content', 'file_url', 'file_name', 'file_type', 'file_size_bytes', 'thumbnail_url', 'created_at',
+        'updated_at',
+    ],
 };
 
 /** Columns holding a JSON document. The importer hands these to Postgres as JSON text, whatever the value's shape. */
@@ -51,6 +83,9 @@ export const JSON_COLUMNS = {
     family_members: ['photo_urls', 'allowance_config'],
     chores: ['pause_state'],
     history_events: ['metadata'],
+    grade_types: ['steps'],
+    task_attachments: ['waveform_peaks'],
+    task_update_attachments: ['waveform_peaks'],
 };
 
 /**
@@ -74,6 +109,11 @@ export const LEFT_BEHIND = {
     routineMarkerStatuses: {
         key: 'The day and the marker are the key.',
     },
+    tasks: {
+        isCompleted: 'A task is done when its workflow state is done.',
+        // Declared in the schema as a link, never stored, never read.
+        prerequisites: 'Never used.',
+    },
 };
 
 // ---- Conversions ----
@@ -88,6 +128,8 @@ const optionalNumber = (value) => (typeof value === 'number' && Number.isFinite(
 const optionalInteger = (value) => (Number.isInteger(value) ? value : null);
 const optionalBoolean = (value) => (typeof value === 'boolean' ? value : null);
 const oneOf = (value, allowed) => (allowed.includes(value) ? value : null);
+/** When a row that must say when it was made never did. */
+const EPOCH = new Date(0).toISOString();
 
 /** A calendar day. Instant held days as `YYYY-MM-DD` or as the instant of that day's start in UTC. */
 function day(value, notes, what) {
@@ -101,6 +143,20 @@ function day(value, notes, what) {
     }
     if (match[2] && !/^00:00(:00(\.0+)?)?(Z|[+-]00:?00)?$/.test(match[2])) count(notes, `${what}: an instant narrowed to its UTC day`);
     return match[1];
+}
+
+/**
+ * A calendar day that was stored as the instant its midnight fell on where the family lives: the day is the one whose
+ * midnight, in UTC, is nearest. For a family east of Greenwich the UTC day of that instant is the day before, which
+ * is why this is not `day`.
+ */
+function localDay(value, notes, what) {
+    if (value == null || value === '') return null;
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return count(notes, `${what}: not a date, left empty`), null;
+    if (parsed.getTime() % 86_400_000 !== 0) count(notes, `${what}: a local midnight read as its own day`);
+    return new Date(parsed.getTime() + 43_200_000).toISOString().slice(0, 10);
 }
 
 /** An instant, as ISO 8601 with milliseconds and Z. Instant held these as ISO strings or epoch milliseconds. */
@@ -402,7 +458,7 @@ function routines(rowsOf, out) {
             name: trimmed(row.name) || 'Untitled',
             on_step_overrun: oneOf(row.onStepOverrun, ['wait', 'advance']),
             sort_order: optionalInteger(row.sortOrder) ?? 0,
-            created_at: instant(row.createdAt, out.notes, 'routines.createdAt') ?? new Date(0).toISOString(),
+            created_at: instant(row.createdAt, out.notes, 'routines.createdAt') ?? EPOCH,
         });
     }
     const routineOf = new Map(pairs(rowsOf, ['routineSteps', 'routine'], ['routines', 'steps']));
@@ -482,6 +538,244 @@ const HISTORY_DOMAINS = ['tasks', 'chores', 'calendar', 'finance', 'messages', '
  * The record of what happened. Instant held who did it twice, as a link and as an id beside it; here it is one
  * column. Who it affected was a many-to-many link and is a table of its own.
  */
+// ---- Task series ----
+
+const WORKFLOW_STATES = ['not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'];
+
+function gradeTypes(rowsOf, out) {
+    let hasDefault = false;
+    for (const row of [...rowsOf('gradeTypes')].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || String(a.id).localeCompare(String(b.id)))) {
+        const kind = oneOf(row.kind, ['number', 'letter', 'stars', 'freeform']);
+        if (!kind) { hold(out, 'gradeTypes', row, 'It has no kind the app knows.'); continue; }
+        // One scale is the default. Of several marked so, the first in order stays.
+        const isDefault = row.isDefault === true && !hasDefault;
+        const createdAt = instant(row.createdAt, out.notes, 'gradeTypes.createdAt') ?? EPOCH;
+        if (row.isDefault === true && hasDefault) count(out.notes, 'gradeTypes.isDefault: a second default, cleared');
+        hasDefault ||= isDefault;
+        out.tables.grade_types.push({
+            id: row.id,
+            name: trimmed(row.name) || 'Untitled',
+            kind,
+            low_value: optionalNumber(row.lowValue) ?? 0,
+            high_value: optionalNumber(row.highValue) ?? 0,
+            low_label: typeof row.lowLabel === 'string' ? row.lowLabel : '',
+            high_label: typeof row.highLabel === 'string' ? row.highLabel : '',
+            steps: Array.isArray(row.steps) ? row.steps : null,
+            is_default: isDefault,
+            sort_order: optionalInteger(row.order) ?? 0,
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'gradeTypes.updatedAt') ?? createdAt,
+        });
+    }
+}
+
+/** The columns every attachment table shares. */
+function attachmentColumns(row, notes, entity) {
+    const createdAt = instant(row.createdAt, notes, `${entity}.createdAt`) ?? EPOCH;
+    return {
+        name: trimmed(row.name) || 'Untitled',
+        type: trimmed(row.type) || 'application/octet-stream',
+        url: row.url,
+        kind: optionalText(row.kind),
+        size_bytes: optionalInteger(row.sizeBytes),
+        width: optionalInteger(row.width),
+        height: optionalInteger(row.height),
+        duration_sec: optionalNumber(row.durationSec),
+        thumbnail_url: optionalText(row.thumbnailUrl),
+        thumbnail_width: optionalInteger(row.thumbnailWidth),
+        thumbnail_height: optionalInteger(row.thumbnailHeight),
+        blurhash: optionalText(row.blurhash),
+        waveform_peaks: row.waveformPeaks ?? null,
+        created_at: createdAt,
+        updated_at: instant(row.updatedAt, notes, `${entity}.updatedAt`) ?? createdAt,
+    };
+}
+
+const ATTACHMENT_ATTRIBUTES = [
+    'name', 'type', 'url', 'kind', 'sizeBytes', 'width', 'height', 'durationSec', 'thumbnailUrl', 'thumbnailWidth', 'thumbnailHeight', 'blurhash',
+    'waveformPeaks', 'createdAt', 'updatedAt',
+];
+
+function taskSeries(rowsOf, out) {
+    const members = new Set(out.tables.family_members.map((row) => row.id));
+    const chores = new Set(out.tables.chores.map((row) => row.id));
+    const allSeries = new Set(rowsOf('taskSeries').map((row) => row.id));
+    const memberOf = new Map(pairs(rowsOf, ['taskSeries', 'familyMember'], ['familyMembers', 'taskSeries']));
+    const choreOf = new Map(pairs(rowsOf, ['taskSeries', 'scheduledActivity'], ['chores', 'taskSeries']));
+    for (const row of rowsOf('taskSeries')) {
+        const createdAt = instant(row.createdAt, out.notes, 'taskSeries.createdAt') ?? EPOCH;
+        out.tables.task_series.push({
+            id: row.id,
+            name: trimmed(row.name) || 'Untitled',
+            description: optionalText(row.description),
+            family_member_id: members.has(memberOf.get(row.id)) ? memberOf.get(row.id) : null,
+            chore_id: chores.has(choreOf.get(row.id)) ? choreOf.get(row.id) : null,
+            depends_on_series_id: allSeries.has(row.dependsOnSeriesId) && row.dependsOnSeriesId !== row.id ? row.dependsOnSeriesId : null,
+            start_date: localDay(row.startDate, out.notes, 'taskSeries.startDate'),
+            target_end_date: localDay(row.targetEndDate, out.notes, 'taskSeries.targetEndDate'),
+            planned_end_date: localDay(row.plannedEndDate, out.notes, 'taskSeries.plannedEndDate'),
+            baseline_day_break_count: optionalInteger(row.baselineDayBreakCount),
+            work_ahead_allowed: row.workAheadAllowed === true,
+            pull_forward_count: Math.max(0, optionalInteger(row.pullForwardCount) ?? 0),
+            break_type: optionalText(row.breakType),
+            break_start_date: localDay(row.breakStartDate, out.notes, 'taskSeries.breakStartDate'),
+            break_delay_value: optionalNumber(row.breakDelayValue),
+            break_delay_unit: optionalText(row.breakDelayUnit),
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'taskSeries.updatedAt') ?? createdAt,
+        });
+    }
+
+    // A task belongs to one series. One that belongs to none can be reached from nowhere in the app.
+    const seriesOf = new Map(pairs(rowsOf, ['tasks', 'taskSeries'], ['taskSeries', 'tasks']));
+    const parentOf = new Map(pairs(rowsOf, ['tasks', 'parentTask'], ['tasks', 'subTasks']));
+    const kept = new Set();
+    for (const row of rowsOf('tasks')) {
+        if (allSeries.has(seriesOf.get(row.id))) kept.add(row.id);
+        else hold(out, 'tasks', row, 'It belongs to no series.');
+    }
+    for (const row of rowsOf('tasks')) {
+        if (!kept.has(row.id)) continue;
+        const state = oneOf(row.workflowState, WORKFLOW_STATES) ?? (row.isCompleted === true ? 'done' : 'not_started');
+        if (!oneOf(row.workflowState, WORKFLOW_STATES)) count(out.notes, 'tasks.workflowState: not stored, taken from isCompleted');
+        const parent = parentOf.get(row.id);
+        const createdAt = instant(row.createdAt, out.notes, 'tasks.createdAt');
+        const updatedAt = instant(row.updatedAt, out.notes, 'tasks.updatedAt');
+        out.tables.tasks.push({
+            id: row.id,
+            task_series_id: seriesOf.get(row.id),
+            // A sub-task's parent is a task of the same series, or it has none.
+            parent_task_id: kept.has(parent) && parent !== row.id && seriesOf.get(parent) === seriesOf.get(row.id) ? parent : null,
+            title: typeof row.text === 'string' ? row.text : '',
+            notes: optionalText(row.notes),
+            sort_order: optionalInteger(row.order) ?? 0,
+            indentation_level: Math.max(0, optionalInteger(row.indentationLevel) ?? 0),
+            is_day_break: row.isDayBreak === true,
+            weight: optionalNumber(row.weight),
+            specific_time: timeOfDay(row.specificTime, out.notes, 'tasks.specificTime'),
+            override_work_ahead: optionalBoolean(row.overrideWorkAhead),
+            workflow_state: state,
+            // What the app assumes of a task that never said: it was last working where it is, or had not begun.
+            last_active_state: oneOf(row.lastActiveState, ['not_started', 'in_progress']) ?? (state === 'in_progress' ? 'in_progress' : 'not_started'),
+            child_tasks_complete: row.childTasksComplete !== false,
+            completed_at: instant(row.completedAt, out.notes, 'tasks.completedAt'),
+            completed_on: day(row.completedOnDate, out.notes, 'tasks.completedOnDate'),
+            deferred_until: day(row.deferredUntilDate, out.notes, 'tasks.deferredUntilDate'),
+            noted_until: day(row.notedUntilDate, out.notes, 'tasks.notedUntilDate'),
+            is_noted_indefinitely: row.isNotedIndefinitely === true,
+            created_at: createdAt ?? updatedAt ?? EPOCH,
+            updated_at: updatedAt ?? createdAt ?? EPOCH,
+        });
+    }
+
+    const attachmentTask = new Map(pairs(rowsOf, ['taskAttachments', 'task'], ['tasks', 'attachments']));
+    for (const row of rowsOf('taskAttachments')) {
+        if (!kept.has(attachmentTask.get(row.id))) { hold(out, 'taskAttachments', row, 'Its task no longer exists.'); continue; }
+        if (!trimmed(row.url)) { hold(out, 'taskAttachments', row, 'It names no file.'); continue; }
+        out.tables.task_attachments.push({ id: row.id, task_id: attachmentTask.get(row.id), ...attachmentColumns(row, out.notes, 'taskAttachments') });
+    }
+
+    const fieldTask = new Map(pairs(rowsOf, ['taskResponseFields', 'task'], ['tasks', 'responseFields']));
+    const fields = new Set();
+    for (const row of rowsOf('taskResponseFields')) {
+        if (!kept.has(fieldTask.get(row.id))) { hold(out, 'taskResponseFields', row, 'Its task no longer exists.'); continue; }
+        const type = oneOf(row.type, ['rich_text', 'photo', 'video', 'audio', 'file']);
+        if (!type) { hold(out, 'taskResponseFields', row, 'It asks for a kind of response the app does not know.'); continue; }
+        fields.add(row.id);
+        const createdAt = instant(row.createdAt, out.notes, 'taskResponseFields.createdAt') ?? EPOCH;
+        out.tables.task_response_fields.push({
+            id: row.id,
+            task_id: fieldTask.get(row.id),
+            type,
+            label: typeof row.label === 'string' ? row.label : '',
+            description: optionalText(row.description),
+            weight: optionalNumber(row.weight) ?? 0,
+            required: row.required === true,
+            sort_order: optionalInteger(row.order) ?? 0,
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'taskResponseFields.updatedAt') ?? createdAt,
+        });
+    }
+
+    const updateTask = new Map(pairs(rowsOf, ['taskUpdates', 'task'], ['tasks', 'updates']));
+    const actorOf = new Map(pairs(rowsOf, ['taskUpdates', 'actor'], ['familyMembers', 'actedTaskUpdates']));
+    const affectedOf = new Map(pairs(rowsOf, ['taskUpdates', 'affectedPerson'], ['familyMembers', 'affectedTaskUpdates']));
+    const replyTo = new Map(pairs(rowsOf, ['taskUpdates', 'replyTo'], ['taskUpdates', 'replies']));
+    const gradeOf = new Map(pairs(rowsOf, ['taskUpdates', 'gradeType'], ['gradeTypes', 'taskUpdates']));
+    const grades = new Set(out.tables.grade_types.map((row) => row.id));
+    const updates = new Set();
+    for (const row of rowsOf('taskUpdates')) {
+        if (!kept.has(updateTask.get(row.id))) { hold(out, 'taskUpdates', row, 'Its task no longer exists.'); continue; }
+        const from = oneOf(row.fromState, WORKFLOW_STATES);
+        const to = oneOf(row.toState, WORKFLOW_STATES);
+        const scheduledFor = day(row.scheduledForDate, out.notes, 'taskUpdates.scheduledForDate');
+        if (!from || !to) { hold(out, 'taskUpdates', row, 'It moves a task from or to a state the app does not know.'); continue; }
+        if (!scheduledFor) { hold(out, 'taskUpdates', row, 'It has no day.'); continue; }
+        updates.add(row.id);
+    }
+    for (const row of rowsOf('taskUpdates')) {
+        if (!updates.has(row.id)) continue;
+        const createdAt = instant(row.createdAt, out.notes, 'taskUpdates.createdAt') ?? EPOCH;
+        const reply = replyTo.get(row.id);
+        out.tables.task_updates.push({
+            id: row.id,
+            task_id: updateTask.get(row.id),
+            actor_id: members.has(actorOf.get(row.id)) ? actorOf.get(row.id) : null,
+            affected_person_id: members.has(affectedOf.get(row.id)) ? affectedOf.get(row.id) : null,
+            reply_to_id: updates.has(reply) && reply !== row.id ? reply : null,
+            from_state: row.fromState,
+            to_state: row.toState,
+            note: optionalText(row.note),
+            is_draft: row.isDraft === true,
+            scheduled_for: day(row.scheduledForDate, {}, ''),
+            restore_timing: oneOf(row.restoreTiming, ['now', 'next_scheduled']),
+            grade_type_id: grades.has(gradeOf.get(row.id)) ? gradeOf.get(row.id) : null,
+            grade_numeric_value: optionalNumber(row.gradeNumericValue),
+            grade_display_value: optionalText(row.gradeDisplayValue),
+            grade_is_provisional: optionalBoolean(row.gradeIsProvisional),
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'taskUpdates.updatedAt') ?? createdAt,
+        });
+    }
+
+    const attachmentUpdate = new Map(pairs(rowsOf, ['taskUpdateAttachments', 'update'], ['taskUpdates', 'attachments']));
+    for (const row of rowsOf('taskUpdateAttachments')) {
+        if (!updates.has(attachmentUpdate.get(row.id))) { hold(out, 'taskUpdateAttachments', row, 'Its update no longer exists.'); continue; }
+        if (!trimmed(row.url)) { hold(out, 'taskUpdateAttachments', row, 'It names no file.'); continue; }
+        out.tables.task_update_attachments.push({
+            id: row.id, update_id: attachmentUpdate.get(row.id), ...attachmentColumns(row, out.notes, 'taskUpdateAttachments'),
+        });
+    }
+
+    const valueUpdate = new Map(pairs(rowsOf, ['taskResponseFieldValues', 'update'], ['taskUpdates', 'responseFieldValues']));
+    const valueField = new Map(pairs(rowsOf, ['taskResponseFieldValues', 'field'], ['taskResponseFields', 'values']));
+    const answered = new Set();
+    const newestFirst = [...rowsOf('taskResponseFieldValues')].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || String(a.id).localeCompare(String(b.id)));
+    for (const row of newestFirst) {
+        const update = valueUpdate.get(row.id);
+        const field = valueField.get(row.id);
+        if (!updates.has(update)) { hold(out, 'taskResponseFieldValues', row, 'Its update no longer exists.'); continue; }
+        if (!fields.has(field)) { hold(out, 'taskResponseFieldValues', row, 'The field it answers no longer exists.'); continue; }
+        // One answer to a field with an update. Of several, the one written last is kept.
+        if (answered.has(`${update}\n${field}`)) { hold(out, 'taskResponseFieldValues', row, 'A later answer to the same field came with the same update.'); continue; }
+        answered.add(`${update}\n${field}`);
+        const createdAt = instant(row.createdAt, out.notes, 'taskResponseFieldValues.createdAt') ?? EPOCH;
+        out.tables.task_response_field_values.push({
+            id: row.id,
+            update_id: update,
+            field_id: field,
+            rich_text_content: typeof row.richTextContent === 'string' ? row.richTextContent : null,
+            file_url: optionalText(row.fileUrl),
+            file_name: optionalText(row.fileName),
+            file_type: optionalText(row.fileType),
+            file_size_bytes: optionalInteger(row.fileSizeBytes),
+            thumbnail_url: optionalText(row.thumbnailUrl),
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'taskResponseFieldValues.updatedAt') ?? createdAt,
+        });
+    }
+}
+
 function historyEvents(rowsOf, out) {
     const members = new Set(out.tables.family_members.map((row) => row.id));
     const actorByLink = new Map(pairs(rowsOf, ['historyEvents', 'actor'], ['familyMembers', 'actedHistoryEvents']));
@@ -554,6 +848,24 @@ function unmappedAttributes(rowsOf, out) {
             'occurredAt', 'domain', 'actionType', 'summary', 'source', 'actorFamilyMemberId', 'choreId', 'taskSeriesId', 'taskId', 'calendarItemId',
             'allowanceTransactionId', 'messageThreadId', 'messageId', 'scheduledForDate', 'restoreTiming', 'metadata',
         ],
+        gradeTypes: ['name', 'kind', 'lowValue', 'highValue', 'lowLabel', 'highLabel', 'steps', 'isDefault', 'order', 'createdAt', 'updatedAt'],
+        taskSeries: [
+            'name', 'description', 'dependsOnSeriesId', 'startDate', 'targetEndDate', 'plannedEndDate', 'baselineDayBreakCount', 'workAheadAllowed',
+            'pullForwardCount', 'breakType', 'breakStartDate', 'breakDelayValue', 'breakDelayUnit', 'createdAt', 'updatedAt',
+        ],
+        tasks: [
+            'text', 'notes', 'order', 'indentationLevel', 'isDayBreak', 'weight', 'specificTime', 'overrideWorkAhead', 'workflowState',
+            'lastActiveState', 'childTasksComplete', 'completedAt', 'completedOnDate', 'deferredUntilDate', 'notedUntilDate', 'isNotedIndefinitely',
+            'createdAt', 'updatedAt',
+        ],
+        taskAttachments: ATTACHMENT_ATTRIBUTES,
+        taskResponseFields: ['type', 'label', 'description', 'weight', 'required', 'order', 'createdAt', 'updatedAt'],
+        taskUpdates: [
+            'fromState', 'toState', 'note', 'isDraft', 'scheduledForDate', 'restoreTiming', 'gradeNumericValue', 'gradeDisplayValue',
+            'gradeIsProvisional', 'createdAt', 'updatedAt',
+        ],
+        taskUpdateAttachments: ATTACHMENT_ATTRIBUTES,
+        taskResponseFieldValues: ['richTextContent', 'fileUrl', 'fileName', 'fileType', 'fileSizeBytes', 'thumbnailUrl', 'createdAt', 'updatedAt'],
     };
     for (const [entity, names] of Object.entries(carried)) {
         const known = new Set(['id', ...names, ...Object.keys(LEFT_BEHIND[entity] ?? {})]);
@@ -583,6 +895,14 @@ const LINK_LABELS = {
     routineSteps: ['routine', 'chore'],
     // An event's attachments are a table of their own, mapped with the history area.
     historyEvents: ['actor', 'affectedFamilyMembers', 'attachments', 'message'],
+    gradeTypes: ['taskUpdates'],
+    taskSeries: ['familyMember', 'scheduledActivity', 'tasks'],
+    tasks: ['taskSeries', 'parentTask', 'subTasks', 'subsequentTasks', 'attachments', 'responseFields', 'updates'],
+    taskAttachments: ['task'],
+    taskResponseFields: ['task', 'values'],
+    taskUpdates: ['task', 'actor', 'affectedPerson', 'replyTo', 'replies', 'gradeType', 'attachments', 'responseFieldValues'],
+    taskUpdateAttachments: ['update'],
+    taskResponseFieldValues: ['update', 'field'],
 };
 
 /**
@@ -601,6 +921,8 @@ export function buildRows(rowsOf) {
     routineMarkerStatuses(rowsOf, out);
     countdownRuns(rowsOf, out);
     historyEvents(rowsOf, out);
+    gradeTypes(rowsOf, out);
+    taskSeries(rowsOf, out);
     unmappedAttributes(rowsOf, out);
     return out;
 }

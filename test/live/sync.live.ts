@@ -73,7 +73,7 @@ afterAll(() => db.destroy());
 
 beforeEach(async () => {
     __resetParentElevationRateLimitForTests();
-    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
+    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
         await sql.raw(`DELETE FROM ${table}`).execute(db);
     }
     await seedFamily({ sql: query } as any);
@@ -144,6 +144,56 @@ describe('routines and the countdown', () => {
         ]);
         // And comes back as the server holds it, the list as JSON text.
         await until(() => has(local, `SELECT 1 FROM countdown_runs WHERE skipped_chore_ids = ?`, [JSON.stringify([LAUNDRY])]), 'the device holds the run as the server sent it');
+    });
+});
+
+describe('a task series', () => {
+    it('reaches a kid whole, and what the kid hands in goes up, while a task of their own invention is refused', async () => {
+        const n = (last: number) => `00000000-0000-4000-8000-${String(last).padStart(12, '0')}`;
+        const [SERIES, TASK, FIELD, UPDATE, ANSWER, FILE] = [n(130), n(131), n(150), n(160), n(180), n(170)];
+        await sql.raw(`INSERT INTO task_series (id, name, family_member_id, chore_id, start_date, work_ahead_allowed) VALUES ('${SERIES}', 'Maths', '${ELI}', '${DISHES}', '${DAY}', true)`).execute(db);
+        await sql.raw(`INSERT INTO tasks (id, task_series_id, title, sort_order, specific_time) VALUES ('${TASK}', '${SERIES}', 'Exercises', 0, '16:30')`).execute(db);
+        await sql.raw(`INSERT INTO task_response_fields (id, task_id, type, label, required) VALUES ('${FIELD}', '${TASK}', 'rich_text', 'Your answers', true)`).execute(db);
+        const kid = await device();
+        await kid.manager.signIn({ familyMemberId: ELI });
+        const local = await synced(kid.db());
+        await until(() => has(local, `SELECT 1 FROM task_response_fields`), 'the device holds the series');
+
+        expect(await local.getAll(`SELECT name, family_member_id, chore_id, start_date, work_ahead_allowed, pull_forward_count FROM task_series`)).toEqual([
+            { name: 'Maths', family_member_id: ELI, chore_id: DISHES, start_date: DAY, work_ahead_allowed: 1, pull_forward_count: 0 },
+        ]);
+        expect(await local.getAll(`SELECT title, workflow_state, specific_time, is_day_break FROM tasks`)).toEqual([{ title: 'Exercises', workflow_state: 'not_started', specific_time: '16:30:00.000', is_day_break: 0 }]);
+        expect(await local.getAll(`SELECT type, label, required FROM task_response_fields`)).toEqual([{ type: 'rich_text', label: 'Your answers', required: 1 }]);
+
+        // No mutation for handing a task in exists yet, so this is written as one would write it.
+        await local.writeTransaction(async (transaction) => {
+            await transaction.execute(`UPDATE tasks SET workflow_state = 'needs_review', last_active_state = 'in_progress', updated_at = ? WHERE id = ?`, ['2026-03-09T16:40:00.000Z', TASK]);
+            await transaction.execute(
+                `INSERT INTO task_updates (id, task_id, actor_id, affected_person_id, from_state, to_state, note, is_draft, scheduled_for, created_at, updated_at) VALUES (?, ?, ?, ?, 'in_progress', 'needs_review', 'Done!', 0, ?, ?, ?)`,
+                [UPDATE, TASK, ELI, ELI, DAY, '2026-03-09T16:40:00.000Z', '2026-03-09T16:40:00.000Z']
+            );
+            await transaction.execute(`INSERT INTO task_response_field_values (id, update_id, field_id, rich_text_content, created_at, updated_at) VALUES (?, ?, ?, '<p>1, 3, 5</p>', ?, ?)`, [ANSWER, UPDATE, FIELD, '2026-03-09T16:40:00.000Z', '2026-03-09T16:40:00.000Z']);
+            await transaction.execute(
+                `INSERT INTO task_update_attachments (id, update_id, name, type, url, size_bytes, waveform_peaks, created_at, updated_at) VALUES (?, ?, 'page.jpg', 'image/jpeg', 'updates/page.jpg', 90210, ?, ?, ?)`,
+                [FILE, UPDATE, JSON.stringify([0.1, 0.9]), '2026-03-09T16:40:00.000Z', '2026-03-09T16:40:00.000Z']
+            );
+            await transaction.execute(`INSERT INTO local_transactions (id, mutation) VALUES (?, 'handInTask')`, [n(0xab)]);
+        });
+
+        await until(async () => (await serverRows(`SELECT 1 FROM task_update_attachments`)).length === 1, 'what was handed in has reached the server');
+        expect(await serverRows(`SELECT workflow_state, last_active_state FROM tasks`)).toEqual([{ workflow_state: 'needs_review', last_active_state: 'in_progress' }]);
+        expect(await serverRows(`SELECT task_id, actor_id, to_state, scheduled_for, is_draft FROM task_updates`)).toEqual([{ task_id: TASK, actor_id: ELI, to_state: 'needs_review', scheduled_for: DAY, is_draft: false }]);
+        expect(await serverRows(`SELECT update_id, field_id, rich_text_content FROM task_response_field_values`)).toEqual([{ update_id: UPDATE, field_id: FIELD, rich_text_content: '<p>1, 3, 5</p>' }]);
+        expect(await serverRows(`SELECT size_bytes, waveform_peaks FROM task_update_attachments`)).toEqual([{ size_bytes: 90210, waveform_peaks: [0.1, 0.9] }]);
+
+        // A kid does not add a task to a series. The device takes it, the server refuses it, and it is gone again.
+        await local.writeTransaction(async (transaction) => {
+            await transaction.execute(`INSERT INTO tasks (id, task_series_id, title, sort_order) VALUES (?, ?, 'No homework', 1)`, [n(139), SERIES]);
+            await transaction.execute(`INSERT INTO local_transactions (id, mutation) VALUES (?, 'addTask')`, [n(0xac)]);
+        });
+        await until(async () => (await serverRows(`SELECT 1 FROM write_refusals WHERE table_name = 'tasks' AND reason = 'not_allowed'`)).length === 1, 'the server has refused the task');
+        await until(async () => !(await has(local, `SELECT 1 FROM tasks WHERE id = ?`, [n(139)])), 'the device has let the task go');
+        expect(await serverRows(`SELECT count(*)::int AS tasks FROM tasks`)).toEqual([{ tasks: 1 }]);
     });
 });
 

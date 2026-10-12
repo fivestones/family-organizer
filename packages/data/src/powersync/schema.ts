@@ -74,6 +74,71 @@ const history_event_members = new Table(
     { indexes: { event: ['history_event_id'], member: ['family_member_id'] } }
 );
 
+const grade_types = new Table({
+    name: text, kind: text, low_value: real, high_value: real, low_label: text, high_label: text, steps: text, is_default: integer,
+    sort_order: integer, created_at: text, updated_at: text,
+});
+
+const task_series = new Table(
+    {
+        name: text, description: text, family_member_id: text, chore_id: text, depends_on_series_id: text, start_date: text, target_end_date: text,
+        planned_end_date: text, baseline_day_break_count: integer, work_ahead_allowed: integer, pull_forward_count: integer, break_type: text,
+        break_start_date: text, break_delay_value: real, break_delay_unit: text, created_at: text, updated_at: text,
+    },
+    { indexes: { chore: ['chore_id'], member: ['family_member_id'] } }
+);
+
+const tasks = new Table(
+    {
+        task_series_id: text, parent_task_id: text, title: text, notes: text, sort_order: integer, indentation_level: integer, is_day_break: integer,
+        weight: real, specific_time: text, override_work_ahead: integer, workflow_state: text, last_active_state: text, child_tasks_complete: integer,
+        completed_at: text, completed_on: text, deferred_until: text, noted_until: text, is_noted_indefinitely: integer, created_at: text,
+        updated_at: text,
+    },
+    { indexes: { series: ['task_series_id', 'sort_order'], parent: ['parent_task_id'] } }
+);
+
+const task_attachments = new Table(
+    {
+        task_id: text, name: text, type: text, url: text, kind: text, size_bytes: integer, width: integer, height: integer, duration_sec: real,
+        thumbnail_url: text, thumbnail_width: integer, thumbnail_height: integer, blurhash: text, waveform_peaks: text, created_at: text, updated_at: text,
+    },
+    { indexes: { task: ['task_id'] } }
+);
+
+const task_response_fields = new Table(
+    {
+        task_id: text, type: text, label: text, description: text, weight: real, required: integer, sort_order: integer, created_at: text,
+        updated_at: text,
+    },
+    { indexes: { task: ['task_id'] } }
+);
+
+const task_updates = new Table(
+    {
+        task_id: text, actor_id: text, affected_person_id: text, reply_to_id: text, from_state: text, to_state: text, note: text, is_draft: integer,
+        scheduled_for: text, restore_timing: text, grade_type_id: text, grade_numeric_value: real, grade_display_value: text,
+        grade_is_provisional: integer, created_at: text, updated_at: text,
+    },
+    { indexes: { task: ['task_id', 'created_at'], reply: ['reply_to_id'] } }
+);
+
+const task_update_attachments = new Table(
+    {
+        update_id: text, name: text, type: text, url: text, kind: text, size_bytes: integer, width: integer, height: integer, duration_sec: real,
+        thumbnail_url: text, thumbnail_width: integer, thumbnail_height: integer, blurhash: text, waveform_peaks: text, created_at: text, updated_at: text,
+    },
+    { indexes: { update: ['update_id'] } }
+);
+
+const task_response_field_values = new Table(
+    {
+        update_id: text, field_id: text, rich_text_content: text, file_url: text, file_name: text, file_type: text, file_size_bytes: integer,
+        thumbnail_url: text, created_at: text, updated_at: text,
+    },
+    { indexes: { update: ['update_id'], field: ['field_id'] } }
+);
+
 const write_refusals = new Table({
     family_member_id: text, mutation: text, reason: text, table_name: text, row_id: text, refused_at: text, dismissed_at: text,
 });
@@ -88,6 +153,7 @@ const local_transactions = new Table({ mutation: text }, { insertOnly: true });
 export const AppSchema = new Schema({
     settings, unit_definitions, family_members, chores, chore_assignees, chore_completions, routines, routine_steps, routine_marker_statuses,
     countdown_runs, history_events, history_event_members,
+    grade_types, task_series, tasks, task_attachments, task_response_fields, task_updates, task_update_attachments, task_response_field_values,
     write_refusals, local_transactions,
 });
 

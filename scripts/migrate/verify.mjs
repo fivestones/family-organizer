@@ -31,13 +31,13 @@ function sameJson(left, right) {
     return leftKeys.length === rightKeys.length && leftKeys.every((key) => sameJson(left[key], right[key]));
 }
 
-function readEntity(exportDir, entity) {
+export function readEntity(exportDir, entity) {
     const file = path.join(exportDir, 'entities', `${entity}.jsonl`);
     return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line).entity) : [];
 }
 
 /** The app's own reading of when a chore is due, bundled from shared-core so this check owes nothing to the mapping. */
-async function loadTimingResolver(root) {
+export async function loadTimingResolver(root) {
     const outfile = path.join(tmpdir(), `chore-timing-${process.pid}-${Date.now()}.cjs`);
     await build({ entryPoints: [path.join(root, 'packages/shared-core/src/chore-timing.ts')], bundle: true, platform: 'node', format: 'cjs', outfile, logLevel: 'silent' });
     const loaded = createRequire(import.meta.url)(outfile);
@@ -304,6 +304,158 @@ export async function verifyImport(db, rowsOf, timing) {
         const got = affectedAfter.get(raw.id) ?? [];
         affected(raw.id, got.length === expected.length && got.every((memberId) => expected.includes(memberId)));
     }
+
+    // ---- Task series ----
+    // Which row a link joins is read from both of the sides an export may hold it on.
+    const linked = (ownerRows, ownerLabel, childRows, childLabel) => {
+        const found = new Map();
+        for (const raw of childRows) for (const ownerId of asList(raw[childLabel])) found.set(raw.id, ownerId);
+        for (const raw of ownerRows) for (const childId of asList(raw[ownerLabel])) found.set(childId, raw.id);
+        return found;
+    };
+    const same = (left, right) => (left ?? null) === (right ?? null);
+    const textOf = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+    // A day held as the instant of a midnight somewhere: the nearest midnight in UTC is the day that was meant.
+    const nearestDay = (value) => (blank(value) ? null : /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? value : new Date(Math.round(new Date(value).getTime() / 86_400_000) * 86_400_000).toISOString().slice(0, 10));
+    const STATES = ['not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'];
+    // What the app takes a task's state to be: the state it stores, or failing that whether it was ticked.
+    const stateOf = (raw) => (STATES.includes(raw.workflowState) ? raw.workflowState : raw.isCompleted ? 'done' : 'not_started');
+
+    const rawGrades = rowsOf('gradeTypes');
+    const grades = new Map((await table('grade_types')).map((row) => [row.id, row]));
+    const grade = check('grade_types: every scale, field by field');
+    for (const raw of rawGrades) {
+        const row = grades.get(raw.id);
+        grade(raw.id, Boolean(row) && row.name === String(raw.name ?? '').trim() && row.kind === raw.kind && row.low_value === raw.lowValue && row.high_value === raw.highValue
+            && row.low_label === (raw.lowLabel ?? '') && row.high_label === (raw.highLabel ?? '') && sameJson(row.steps ?? null, raw.steps ?? null)
+            && row.sort_order === (raw.order ?? 0) && instantOf(row.created_at) === instantOf(raw.createdAt));
+    }
+    check('grade_types: as many as were exported, and one default if there was one')('count',
+        grades.size === rawGrades.length && [...grades.values()].filter((row) => row.is_default).length === Math.min(1, rawGrades.filter((raw) => raw.isDefault === true).length));
+
+    const rawSeries = rowsOf('taskSeries');
+    const rawTasks = rowsOf('tasks');
+    const seriesRows = new Map((await table('task_series')).map((row) => [row.id, row]));
+    const seriesMember = linked(rawMembers, 'taskSeries', rawSeries, 'familyMember');
+    const seriesChore = linked(rawChores, 'taskSeries', rawSeries, 'scheduledActivity');
+    const series = check('task_series: every series, field by field');
+    for (const raw of rawSeries) {
+        const row = seriesRows.get(raw.id);
+        series(raw.id, Boolean(row) && row.name === String(raw.name ?? '').trim() && same(row.description, textOf(raw.description))
+            && same(row.family_member_id, members.has(seriesMember.get(raw.id)) ? seriesMember.get(raw.id) : null)
+            && same(row.chore_id, chores.has(seriesChore.get(raw.id)) ? seriesChore.get(raw.id) : null)
+            && same(row.depends_on_series_id, rawSeries.some((other) => other.id === raw.dependsOnSeriesId) ? raw.dependsOnSeriesId : null)
+            && same(row.start_date, nearestDay(raw.startDate)) && same(row.target_end_date, nearestDay(raw.targetEndDate))
+            && same(row.planned_end_date, nearestDay(raw.plannedEndDate)) && same(row.break_start_date, nearestDay(raw.breakStartDate))
+            && same(row.baseline_day_break_count, raw.baselineDayBreakCount) && row.work_ahead_allowed === (raw.workAheadAllowed === true)
+            && row.pull_forward_count === (raw.pullForwardCount ?? 0) && same(row.break_type, textOf(raw.breakType))
+            && same(row.break_delay_value, raw.breakDelayValue) && same(row.break_delay_unit, textOf(raw.breakDelayUnit)));
+    }
+    check('task_series: as many as were exported')('count', seriesRows.size === rawSeries.length);
+
+    const taskSeriesOf = linked(rawSeries, 'tasks', rawTasks, 'taskSeries');
+    const wholeTasks = rawTasks.filter((raw) => seriesRows.has(taskSeriesOf.get(raw.id)));
+    const taskRows = new Map((await table('tasks')).map((row) => [row.id, row]));
+    const parentOf = linked(rawTasks, 'subTasks', rawTasks, 'parentTask');
+    const task = check('tasks: every task of a series, field by field');
+    for (const raw of wholeTasks) {
+        const row = taskRows.get(raw.id);
+        task(raw.id, Boolean(row) && row.task_series_id === taskSeriesOf.get(raw.id) && row.title === (raw.text ?? '') && same(row.notes, textOf(raw.notes))
+            && row.indentation_level === (raw.indentationLevel ?? 0) && row.is_day_break === (raw.isDayBreak === true) && same(row.weight, raw.weight)
+            && same(minutesOf(row.specific_time), textOf(raw.specificTime)) && same(row.override_work_ahead, raw.overrideWorkAhead)
+            && row.child_tasks_complete === (raw.childTasksComplete !== false) && instantOf(row.completed_at) === instantOf(raw.completedAt)
+            && same(row.completed_on, dayOf(raw.completedOnDate)) && same(row.deferred_until, dayOf(raw.deferredUntilDate))
+            && same(row.noted_until, dayOf(raw.notedUntilDate)) && row.is_noted_indefinitely === (raw.isNotedIndefinitely === true)
+            && instantOf(row.updated_at) === instantOf(raw.updatedAt ?? raw.createdAt ?? 0));
+    }
+    check('tasks: none loaded but those of a series that was exported')('count', taskRows.size === wholeTasks.length);
+    const taskState = check('tasks: the app reads the same state for each task, and the same place to return to');
+    for (const raw of wholeTasks) {
+        const row = taskRows.get(raw.id);
+        const lastActive = ['not_started', 'in_progress'].includes(raw.lastActiveState) ? raw.lastActiveState : stateOf(raw) === 'in_progress' ? 'in_progress' : 'not_started';
+        taskState(raw.id, Boolean(row) && row.workflow_state === stateOf(raw) && row.last_active_state === lastActive);
+    }
+    const taskOrder = check('tasks: each series has its tasks in their order, each under the parent it had');
+    for (const raw of rawSeries) {
+        const expected = wholeTasks.filter((item) => taskSeriesOf.get(item.id) === raw.id).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || String(a.id).localeCompare(String(b.id)));
+        const got = [...taskRows.values()].filter((row) => row.task_series_id === raw.id).sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
+        taskOrder(raw.id, sameJson(got.map((row) => [row.id, row.parent_task_id ?? null]), expected.map((item) => [item.id, taskRows.has(parentOf.get(item.id)) ? parentOf.get(item.id) : null])));
+    }
+
+    // An attachment table: every file of an owner that was carried, and none besides.
+    const attachmentsOf = async (name, ownerColumn, rawRows, ownerOf, owners) => {
+        const rows = new Map((await table(name)).map((row) => [row.id, row]));
+        const whole = rawRows.filter((raw) => owners.has(ownerOf.get(raw.id)));
+        const each = check(`${name}: every file, field by field`);
+        for (const raw of whole) {
+            const row = rows.get(raw.id);
+            each(raw.id, Boolean(row) && row[ownerColumn] === ownerOf.get(raw.id) && row.name === String(raw.name ?? '').trim() && row.type === raw.type && row.url === raw.url
+                && same(row.kind, textOf(raw.kind)) && same(row.size_bytes, raw.sizeBytes) && same(row.width, raw.width) && same(row.height, raw.height)
+                && same(row.duration_sec, raw.durationSec) && same(row.thumbnail_url, textOf(raw.thumbnailUrl)) && same(row.thumbnail_width, raw.thumbnailWidth)
+                && same(row.thumbnail_height, raw.thumbnailHeight) && same(row.blurhash, textOf(raw.blurhash)) && sameJson(row.waveform_peaks ?? null, raw.waveformPeaks ?? null)
+                && instantOf(row.created_at) === instantOf(raw.createdAt));
+        }
+        check(`${name}: none loaded but those whose owner was`)('count', rows.size === whole.length);
+    };
+    const rawTaskFiles = rowsOf('taskAttachments');
+    await attachmentsOf('task_attachments', 'task_id', rawTaskFiles, linked(rawTasks, 'attachments', rawTaskFiles, 'task'), taskRows);
+
+    const rawFields = rowsOf('taskResponseFields');
+    const fieldTask = linked(rawTasks, 'responseFields', rawFields, 'task');
+    const wholeFields = rawFields.filter((raw) => taskRows.has(fieldTask.get(raw.id)));
+    const fieldRows = new Map((await table('task_response_fields')).map((row) => [row.id, row]));
+    const field = check('task_response_fields: every field of a task, field by field');
+    for (const raw of wholeFields) {
+        const row = fieldRows.get(raw.id);
+        field(raw.id, Boolean(row) && row.task_id === fieldTask.get(raw.id) && row.type === raw.type && row.label === (raw.label ?? '') && same(row.description, textOf(raw.description))
+            && row.weight === (raw.weight ?? 0) && row.required === (raw.required === true) && row.sort_order === (raw.order ?? 0));
+    }
+    check('task_response_fields: none loaded but those whose task was')('count', fieldRows.size === wholeFields.length);
+
+    const rawUpdates = rowsOf('taskUpdates');
+    const updateTask = linked(rawTasks, 'updates', rawUpdates, 'task');
+    const wholeUpdates = rawUpdates.filter((raw) => taskRows.has(updateTask.get(raw.id)));
+    const updateRows = new Map((await table('task_updates')).map((row) => [row.id, row]));
+    const updateActor = linked(rawMembers, 'actedTaskUpdates', rawUpdates, 'actor');
+    const updateAffected = linked(rawMembers, 'affectedTaskUpdates', rawUpdates, 'affectedPerson');
+    const updateReply = linked([], '', rawUpdates, 'replyTo');
+    for (const raw of rawUpdates) for (const replyId of asList(raw.replies)) updateReply.set(replyId, raw.id);
+    const updateGrade = linked(rawGrades, 'taskUpdates', rawUpdates, 'gradeType');
+    const update = check('task_updates: every update of a task, field by field');
+    for (const raw of wholeUpdates) {
+        const row = updateRows.get(raw.id);
+        update(raw.id, Boolean(row) && row.task_id === updateTask.get(raw.id) && row.from_state === raw.fromState && row.to_state === raw.toState
+            && same(row.note, textOf(raw.note)) && row.is_draft === (raw.isDraft === true) && row.scheduled_for === dayOf(raw.scheduledForDate)
+            && same(row.restore_timing, raw.restoreTiming) && same(row.grade_numeric_value, raw.gradeNumericValue) && same(row.grade_display_value, textOf(raw.gradeDisplayValue))
+            && same(row.grade_is_provisional, raw.gradeIsProvisional) && instantOf(row.created_at) === instantOf(raw.createdAt)
+            && same(row.actor_id, members.has(updateActor.get(raw.id)) ? updateActor.get(raw.id) : null)
+            && same(row.affected_person_id, members.has(updateAffected.get(raw.id)) ? updateAffected.get(raw.id) : null)
+            && same(row.reply_to_id, updateRows.has(updateReply.get(raw.id)) ? updateReply.get(raw.id) : null)
+            && same(row.grade_type_id, grades.has(updateGrade.get(raw.id)) ? updateGrade.get(raw.id) : null));
+    }
+    check('task_updates: none loaded but those whose task was')('count', updateRows.size === wholeUpdates.length);
+    const updatesPerTask = check('task_updates: each task has as many updates as before');
+    for (const raw of wholeTasks) {
+        updatesPerTask(raw.id, wholeUpdates.filter((item) => updateTask.get(item.id) === raw.id).length === [...updateRows.values()].filter((row) => row.task_id === raw.id).length);
+    }
+
+    const rawUpdateFiles = rowsOf('taskUpdateAttachments');
+    await attachmentsOf('task_update_attachments', 'update_id', rawUpdateFiles, linked(rawUpdates, 'attachments', rawUpdateFiles, 'update'), updateRows);
+
+    const rawValues = rowsOf('taskResponseFieldValues');
+    const valueUpdate = linked(rawUpdates, 'responseFieldValues', rawValues, 'update');
+    const valueField = linked(rawFields, 'values', rawValues, 'field');
+    const wholeValues = rawValues.filter((raw) => updateRows.has(valueUpdate.get(raw.id)) && fieldRows.has(valueField.get(raw.id)));
+    const valueRows = new Map((await table('task_response_field_values')).map((row) => [row.id, row]));
+    const answers = new Set(wholeValues.map((raw) => `${valueUpdate.get(raw.id)}\n${valueField.get(raw.id)}`));
+    const value = check('task_response_field_values: every answer loaded, field by field');
+    for (const row of valueRows.values()) {
+        const raw = wholeValues.find((item) => item.id === row.id);
+        value(row.id, Boolean(raw) && row.update_id === valueUpdate.get(raw.id) && row.field_id === valueField.get(raw.id) && same(row.rich_text_content, raw.richTextContent)
+            && same(row.file_url, textOf(raw.fileUrl)) && same(row.file_name, textOf(raw.fileName)) && same(row.file_type, textOf(raw.fileType))
+            && same(row.file_size_bytes, raw.fileSizeBytes) && same(row.thumbnail_url, textOf(raw.thumbnailUrl)) && instantOf(row.created_at) === instantOf(raw.createdAt));
+    }
+    check('task_response_field_values: one for each field answered with each update')('count', valueRows.size === answers.size);
 
     return { checks };
 }

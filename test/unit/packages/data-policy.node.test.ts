@@ -237,6 +237,44 @@ describe('a key made of more than an id', () => {
     });
 });
 
+describe('task series', () => {
+    const allow = (action: string) => ({ parent: action, eli: action, fay: action, sharedKid: action });
+    const parentsOnly = (action: string) => ({ parent: action, eli: 'not_allowed', fay: 'not_allowed', sharedKid: 'not_allowed' });
+    const task = { id: id(131), task_series_id: id(130), title: 'Read chapter 1', workflow_state: 'not_started', sort_order: 0 };
+
+    it('are made, changed and removed by parents, with their grade scales and what each task asks for', () => {
+        expect(forEveryone({ op: 'PUT', table: 'task_series', id: id(130), data: { name: 'Maths', family_member_id: ELI } })).toEqual(parentsOnly('insert'));
+        expect(forEveryone({ op: 'PATCH', table: 'task_series', id: id(130), data: { pull_forward_count: 1 } }, { id: id(130), pull_forward_count: 0 })).toEqual(parentsOnly('update'));
+        expect(forEveryone({ op: 'DELETE', table: 'task_series', id: id(130) }, { id: id(130) })).toEqual(parentsOnly('delete'));
+        expect(forEveryone({ op: 'PUT', table: 'grade_types', id: id(120), data: { name: 'Percent', kind: 'number', low_value: 0, high_value: 100 } })).toEqual(parentsOnly('insert'));
+        expect(forEveryone({ op: 'PUT', table: 'task_response_fields', id: id(150), data: { task_id: id(131), type: 'photo', label: 'A photo' } })).toEqual(parentsOnly('insert'));
+    });
+
+    it('have their tasks worked through by anyone, and laid out by parents', () => {
+        // A kid moves a task along, as the day list lets them.
+        expect(forEveryone({ op: 'PATCH', table: 'tasks', id: id(131), data: { workflow_state: 'done', completed_on: '2026-03-09', completed_at: '2026-03-09T18:00:00.000Z' } }, task)).toEqual(allow('update'));
+        // Which series a task is in is the parent's to say: a kid neither adds a task nor moves one.
+        expect(forEveryone({ op: 'PUT', table: 'tasks', id: id(139), data: { task_series_id: id(130), title: 'Extra', sort_order: 9 } })).toEqual(parentsOnly('insert'));
+        expect(forEveryone({ op: 'PATCH', table: 'tasks', id: id(131), data: { task_series_id: id(140) } }, task)).toEqual({ parent: 'update', eli: 'column_not_allowed', fay: 'column_not_allowed', sharedKid: 'column_not_allowed' });
+        expect(forEveryone({ op: 'DELETE', table: 'tasks', id: id(131) }, task)).toEqual(allow('delete'));
+    });
+
+    it('take an update, its files and its answers from anyone signed in', () => {
+        expect(forEveryone({ op: 'PUT', table: 'task_updates', id: id(160), data: { task_id: id(131), actor_id: ELI, from_state: 'in_progress', to_state: 'needs_review', scheduled_for: '2026-03-09' } })).toEqual(allow('insert'));
+        expect(forEveryone({ op: 'PUT', table: 'task_update_attachments', id: id(170), data: { update_id: id(160), name: 'page.jpg', type: 'image/jpeg', url: 'updates/page.jpg' } })).toEqual(allow('insert'));
+        expect(forEveryone({ op: 'PUT', table: 'task_response_field_values', id: id(180), data: { update_id: id(160), field_id: id(150), rich_text_content: '<p>1, 3, 5</p>' } })).toEqual(allow('insert'));
+        expect(forEveryone({ op: 'PATCH', table: 'task_response_field_values', id: id(180), data: { update_id: id(161) } }, { id: id(180), update_id: id(160), field_id: id(150) })).toEqual(allow('update'));
+        expect(forEveryone({ op: 'PUT', table: 'task_attachments', id: id(140), data: { task_id: id(131), name: 'chapter.pdf', type: 'application/pdf', url: 'tasks/chapter.pdf' } })).toEqual(allow('insert'));
+    });
+
+    it('refuse a state, a kind of answer or a time of day the app does not have', () => {
+        expect(checkOperation({ op: 'PATCH', table: 'tasks', id: id(131), data: { workflow_state: 'finished' } }).valid).toBe(false);
+        expect(checkOperation({ op: 'PATCH', table: 'tasks', id: id(131), data: { specific_time: 'teatime' } }).valid).toBe(false);
+        expect(checkOperation({ op: 'PUT', table: 'task_response_fields', id: id(150), data: { task_id: id(131), type: 'song', label: 'Sing' } }).valid).toBe(false);
+        expect(checkOperation({ op: 'PUT', table: 'task_updates', id: id(160), data: { task_id: id(131), from_state: 'done', to_state: 'undone', scheduled_for: '2026-03-09' } }).valid).toBe(false);
+    });
+});
+
 describe('history', () => {
     const event = (actor: string | null): DeviceOperation => ({ op: 'PUT', table: 'history_events', id: id(60), data: { occurred_at: '2026-03-09T18:00:00.000Z', domain: 'chores', action_type: 'chore_marked_done', summary: 'Completed "Dishes"', actor_id: actor, metadata: '{}' } });
 

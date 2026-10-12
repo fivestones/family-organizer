@@ -56,6 +56,7 @@ This is a **Next.js 16 + InstantDB** family management app. InstantDB is the sol
 - `packages/data/src/policy/` is the write rules, shared by device and server. `packages/data/src/powersync/` is the data layer over a person's local database, and `packages/data/src/session/manager.ts` decides whose database is whose. `powersync/` is the sync service's configuration.
 - `/sync` is the web client of that slice, with a frame of its own; every other page gets the InstantDB frame from `components/AppShell.tsx`.
 - Adding a synced table means a migration (which also adds it to the publication), its columns in `powersync/sync-config.yaml`, its table in `packages/data/src/powersync/schema.ts`, its entry in the policy, and its part of `scripts/migrate/mapping.mjs`. Contract tests fail if these disagree.
+- `node scripts/migrate/rehearse.mjs` imports the newest export under `.migration/exports/` into an in-process Postgres and verifies it, printing counts only. Run it after changing a migration, the mapping or the verification. The export is the family's real data: never commit it, and never write a stored value — a name, a chore's title, a message — into a file, a test or a commit message.
 
 **Server/Admin** (`lib/instant-admin.ts`): `@instantdb/admin` for verified principal-token minting, finance ledger mutations, messaging, calendar sync, file finalization, and other workflows that require fresh reads, cross-row invariants, or elevated writes. Used by routes under `app/api/` and authenticated server actions in `app/actions.ts`.
 

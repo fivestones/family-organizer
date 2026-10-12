@@ -11,6 +11,15 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — Task series have their tables.**
+  Eight of them, by the same list as before: grade scales, series, tasks, the files on a task, what a task asks for when it is handed in, updates, the files sent with an update, and the answers given.
+  What changed shape. A task's state is one column. It used to be a workflow state with an older ticked-or-not flag behind it for rows that had none, and the app read one through the other; the import resolves that once and the flag is gone. A task belongs to exactly one series and goes when its series goes, which is what both editors already did by hand. A series' start and end are days. They were stored as the instant of midnight where the family lives, which in UTC is the evening before; the import takes the day whose midnight is nearest, so it comes out right in any time zone. The series manager today reads the UTC day from that instant, which for this family is a day early; the editor reads the local one. The column holds what the editor shows. At most one grade scale is the default, by a constraint. An answer is unique to its update and its field. A task's prerequisites were declared as a link, never stored and never read, and are not carried.
+  The rules are today's. Parents write series, grade scales and response fields. Anyone signed in writes updates, answers and files, and changes a task. Joining a task to a series is the parent's, as the link rule has it today: a kid neither adds a task to a series nor moves one to another.
+  On the real export: 2 series, 29 tasks, 97 updates, 13 response fields, 38 answers and 6 files load and verify, with 2 grade scales. **Held back: 112 rows that belonged to tasks deleted in March 2026** — 32 updates, 28 response fields, 44 answers, 7 task files and 1 file on an update. Instant kept them when their task went; the app can reach none of them. They are in the file beside the import's report, like the 46 completions, and **(you)** this is the same call as that one, to confirm or overrule. The eight files they name are still in object storage.
+  Through the real sync service, a kid's device is sent a series whole, what the kid hands in — the state, the update, the answer and a file — goes up in one transaction and is stored, and a task the kid invents is refused and disappears from the device again.
+  `scripts/migrate/rehearse.mjs` is new: it imports an export into a Postgres that lives only inside the process, verifies it, and throws it away. It needs nothing installed, so it is the quick way to find out whether an export will import, here and for anyone else moving their own data.
+  One correction to this log. An earlier entry named some of the 46 held-back completions' chores by their titles. Those are the family's words and this repository is public; they were taken out of the entry and out of the commits that carried them before anything was pushed. Held-back rows are described here by count and kind, never by content.
+
 - **2026-10-13 — The rest of the chore area has its tables: routines, their steps, the day's routine markers, and countdown runs.**
   The first step of [Phase 3](#phase-3--the-schema-and-the-data), taken by following the list the slice left for adding a table: a migration that also adds the table to the publication, its columns in the stream, its table in the device's schema, its rules, and its part of the mapping and the verification. Each of those is held to the others by a test, and they caught the one thing that was forgotten.
   A routine's steps were an entity of their own carrying a position; they are the join between a routine and its chores, with the position on it. A routine marker's status was keyed by a string of its day and its marker joined together, stored beside both; the day and the marker are the key. A countdown run keeps the id worked out from its person and day, with a constraint behind it that there is one run per person per day. Its list of skipped chores is an array of ids.
@@ -263,7 +272,7 @@ These exist only because of how Instant works, and do not survive.
 
 - **Key strings standing in for composite uniqueness.** `routineMarkerStatuses.key` is `date:markerKey` stored beside `date` and `markerKey`; `messageThreadMembers.membershipKey`, `messageReactions.reactionKey` and `messageAcknowledgements.ackKey` are the same idea. They become composite unique constraints. Each of the 17 unique attributes is reviewed: a real natural key (`unitDefinitions.code`, `contentCategories.slug`) or an idempotency key (`allowanceTransactions.distributionKey`) stays.
 - **An id stored twice.** Ten relations are held both as a link and as a plain attribute carrying the same id (`messages.threadId` beside the `thread` link). Each becomes one foreign-key column.
-- **Many-to-many links** become join tables with a composite primary key: who a calendar item pertains to, a calendar item's tags, who a history event affected, a chore's assignees, a task's prerequisites. PowerSync needs a single text `id` per synced table, which the sync query builds from the two columns.
+- **Many-to-many links** become join tables with a composite primary key: who a calendar item pertains to, a calendar item's tags, who a history event affected, a chore's assignees. PowerSync needs a single text `id` per synced table, which the sync query builds from the two columns.
 - **`choreAssignments` and `routineSteps`**, entities that exist to carry a position on a relation, become what they are: join tables with a `position` column.
 - **Balances as one JSON value.** `allowanceEnvelopes.balances` maps a currency to an amount, and every money operation reaches inside it. It becomes one row per envelope and currency.
 - **A setting found by name but keyed by a random id.** Nothing stops two rows sharing a name today. The name becomes the key.
@@ -294,6 +303,8 @@ Left behind:
 
 - The two undeclared calendar attributes, `ctag` and `syncToken`. No code reads them. This also settles the open [Scope 3](../roadmap.md#scope-3--the-correctness-sweep) item about them: they are not migrated.
 - `choreManualStarts`, already removed from the code and still present in the hosted app.
+- A task's prerequisites, a link that is declared, holds nothing, and that no code reads.
+- `tasks.isCompleted`. A task is done when its workflow state says so; the flag was the fallback for rows from before that state existed, and the import resolves it.
 - Most of `calendarSyncRuns`. The server's log of sync attempts is 61,111 of the live app's 64,895 rows and no device reads it. Recent runs are carried and the table gets a retention rule.
 
 Three entities are referenced by no code at all: `calculatedAllowancePeriods`, `deviceSessions` and `timeOfDayDefinitions`. The census found no rows in any of them, so they are simply not carried.
@@ -619,7 +630,7 @@ New environment variables: `DATABASE_URL`, `DATA_BACKEND`, `POWERSYNC_JWT_PRIVAT
 
 ## Moving the data
 
-`scripts/migrate/export.mjs` reads every entity through the Admin SDK, page by page, and writes one file per entity. It can only read: the SDK is wrapped so that nothing in the file can reach a write. `scripts/migrate/census.mjs` reports what the export holds against what the schema declares. `scripts/migrate/import.mjs` applies the mapping and loads Postgres in one transaction, and `scripts/migrate/verify.mjs` checks the result. A row the new schema cannot hold is never dropped: it is written to a file beside the import's report, with the reason.
+`scripts/migrate/export.mjs` reads every entity through the Admin SDK, page by page, and writes one file per entity. It can only read: the SDK is wrapped so that nothing in the file can reach a write. `scripts/migrate/census.mjs` reports what the export holds against what the schema declares. `scripts/migrate/import.mjs` applies the mapping and loads Postgres in one transaction, and `scripts/migrate/verify.mjs` checks the result. `scripts/migrate/rehearse.mjs` does both against a Postgres that lives only inside the process, for trying an export before there is a database to load it into. A row the new schema cannot hold is never dropped: it is written to a file beside the import's report, with the reason.
 
 The export uses the layout of Instant's own nightly backups, so the import reads either. Someone running their own copy can migrate from a backup downloaded with Instant's CLI and never run the export at all.
 
@@ -790,7 +801,7 @@ Everything else in the app is absent from staging until its area arrives in Phas
 ### Phase 3 — The schema and the data
 
 - The export script and the census, run against the live app, read-only. *Done on 12 October 2026.*
-- The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation. *Begun: the chore area is whole. Task series, calendar, finance, messaging, content, dashboards and calendar sync are left.*
+- The rest of the schema, as SQL migrations, following [the design rules](#design-rules), with the mapping file complete, a delete rule chosen for every relation. *Begun: the chore area and task series are whole. Calendar, finance, messaging, content, dashboards and calendar sync are left.*
 - Postgres and PowerSync in the production `docker-compose.yml`, with the cap on replication, the health report, the nightly dump and its copy off the machine.
 - The client schema and its indexes, for every table.
 - The import script for everything, and [verification at all five levels](#moving-the-data).
