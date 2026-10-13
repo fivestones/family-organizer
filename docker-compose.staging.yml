@@ -11,6 +11,11 @@ services:
     container_name: family-organizer-staging
     # Its own image, so building staging never replaces the one the live app runs.
     image: family-organizer:staging
+    build:
+      args:
+        # The live app's pages are compiled into every image, and will not compile without an InstantDB app to
+        # name. Staging never serves them: every page there leads to /sync. So any id will do.
+        NEXT_PUBLIC_INSTANT_APP_ID: ${NEXT_PUBLIC_INSTANT_APP_ID:-00000000-0000-4000-8000-000000000000}
     environment:
       # Every page of a deployment on PowerSync leads to /sync, the part of the app that runs on it so far.
       - DATA_BACKEND=powersync
