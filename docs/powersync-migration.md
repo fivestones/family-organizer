@@ -11,6 +11,11 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — The file actions take a session, which finishes the server's services bar two report scripts.**
+  The server actions behind the file screens, and the avatar route, now know a parent from one of the app's own sessions as well as from an Instant token. The sweep of unreferenced uploads reads which files are still pointed at from Postgres when it was asked under a session. The phone's file routes ask only for an activated device and needed nothing. With this every route and action the app's screens call has a Postgres side: finance, messages, calendar sync, the content queue, exchange rates, Shortcuts, PINs, sessions and files.
+  **Left in [Phase 6](#phase-6--the-server-on-postgres):** the two report scripts, which a developer runs by hand and which still read InstantDB. They are rewritten with the cleanup, when there is a production Postgres for them to read.
+  **Measured:** two cases under a session beside the existing thirteen for Instant tokens.
+
 - **2026-10-13 — The calendar import on Postgres.**
   `lib/server/calendar-sync.ts` connects the Apple account, records its calendars, and runs the import; the five calendar-sync routes serve it on a deployment whose clients are on PowerSync, to a parent's session or to the scheduled job's secret. The parser, the CalDAV client and the polling plan are shared with the Instant service, unchanged. The test for whether an event falls in a run's window moved out of the Instant repository into `lib/apple-caldav/window.ts` so both can use it.
   **One run at a time is an advisory lock**, taken on a connection the run keeps for as long as it lasts. There is no lock table, no expiry to guess, and nothing to clean up if the server stops mid-run.

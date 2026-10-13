@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DeleteObjectsCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
+import { isParent } from '@family-organizer/data/session/principal';
 import { requireRequestFamilyMember } from '@/lib/request-family-member';
+import { askedUnderSession, jsonError, requireSession } from '@/lib/server/request-session';
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
 const AVATAR_SIZES = ['64', '320', '1200'] as const;
@@ -76,12 +78,19 @@ function getAvatarFile(formData: FormData, size: AvatarSize): File {
 }
 
 export async function POST(request: NextRequest) {
-    const authContext = await requireRequestFamilyMember(request, { requireParent: true });
-    if ('error' in authContext) {
-        return NextResponse.json(
-            { error: authContext.error, ...('reason' in authContext && authContext.reason ? { reason: authContext.reason } : {}) },
-            { status: authContext.status }
-        );
+    if (askedUnderSession(request)) {
+        // A client on PowerSync: a parent's session, known from Postgres.
+        const asked = await requireSession(request);
+        if (!asked.ok) return asked.response;
+        if (!isParent(asked.session.principal)) return jsonError(403, 'parent_required', 'Parent access required');
+    } else {
+        const authContext = await requireRequestFamilyMember(request, { requireParent: true });
+        if ('error' in authContext) {
+            return NextResponse.json(
+                { error: authContext.error, ...('reason' in authContext && authContext.reason ? { reason: authContext.reason } : {}) },
+                { status: authContext.status }
+            );
+        }
     }
 
     let formData: FormData;

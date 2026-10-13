@@ -9,6 +9,9 @@ import { DEVICE_AUTH_COOKIE_NAME } from '@/lib/device-auth';
 import { finalizeUploadedAttachment, type AttachmentFinalizeInput } from '@/lib/attachment-finalizer';
 import { getInstantAdminDb, hashPinServer } from '@/lib/instant-admin';
 import { requireFamilyMemberToken } from '@/lib/request-family-member';
+import { isParent } from '@family-organizer/data/session/principal';
+import { getDb, isPostgresConfigured } from '@/lib/server/db';
+import { findSession } from '@/lib/server/sessions';
 import {
     planTaskUploadOrphanSweep,
     TASK_UPLOAD_OBJECT_PREFIXES,
@@ -45,16 +48,30 @@ async function requireDeviceAuth() {
     }
 }
 
+/**
+ * Who is asking. A client on PowerSync hands over its session token and is known from Postgres; one still on
+ * InstantDB hands over an Instant token and is known from there. The answer says which, because that is also
+ * where the data an action reads is.
+ */
 async function requireActionFamilyMember(
-    instantAuthToken: string | null | undefined,
+    authToken: string | null | undefined,
     options?: { requireParent?: boolean }
-) {
+): Promise<{ onPostgres: boolean }> {
     await requireDeviceAuth();
-    const context = await requireFamilyMemberToken(instantAuthToken, options);
+    if (isPostgresConfigured()) {
+        const session = await findSession(getDb(), authToken);
+        if (session) {
+            if (session.state !== 'active') throw new Error('This session can only finish sending what it has.');
+            if (!session.principal.familyMemberId) throw new Error('This auth session is not linked to a family member');
+            if (options?.requireParent && !isParent(session.principal)) throw new Error('Parent access required');
+            return { onPostgres: true };
+        }
+    }
+    const context = await requireFamilyMemberToken(authToken, options);
     if ('error' in context) {
         throw new Error(context.error);
     }
-    return context;
+    return { onPostgres: false };
 }
 
 function getS3Clients() {
@@ -205,7 +222,18 @@ async function listTaskUploadObjects(s3Internal: S3Client, bucketName: string): 
     return objects;
 }
 
-async function queryTaskUploadReferences(): Promise<unknown[]> {
+/** Every place a file's address is kept, so that a file something still points at is never swept away. */
+async function queryTaskUploadReferences(onPostgres: boolean): Promise<unknown[]> {
+    if (onPostgres) {
+        const db = getDb();
+        const [onHistory, onTasks, onUpdates, onAnswers] = [
+            await db.selectFrom('history_event_attachments').select(['url', 'thumbnail_url']).execute(),
+            await db.selectFrom('task_attachments').select(['url', 'thumbnail_url']).execute(),
+            await db.selectFrom('task_update_attachments').select(['url', 'thumbnail_url']).execute(),
+            await db.selectFrom('task_response_field_values').select(['file_url as url', 'thumbnail_url']).execute(),
+        ];
+        return [...onHistory, ...onTasks, ...onUpdates, ...onAnswers].flatMap((row) => [row.url, row.thumbnail_url]);
+    }
     const adminDb = getInstantAdminDb();
     const result = await adminDb.query({
         historyEventAttachments: {},
@@ -409,19 +437,19 @@ export async function sweepOrphanedTaskUploads(
     input: { execute?: boolean },
     instantAuthToken: string
 ): Promise<TaskUploadSweepResult> {
-    await requireActionFamilyMember(instantAuthToken, { requireParent: true });
+    const { onPostgres } = await requireActionFamilyMember(instantAuthToken, { requireParent: true });
 
     const execute = input?.execute === true;
     const { s3Internal, bucketName } = getS3Clients();
     const objects = await listTaskUploadObjects(s3Internal, bucketName);
-    let references = await queryTaskUploadReferences();
+    let references = await queryTaskUploadReferences(onPostgres);
     let plan = planTaskUploadOrphanSweep({ objects, referencedValues: references });
 
     // An execute request always performs a fresh scan. Re-read Instant once more
     // immediately before deletion so a reference added during the S3 listing is
     // protected too; the 24-hour object grace period protects uploads in flight.
     if (execute && plan.orphanedObjects.length > 0) {
-        references = await queryTaskUploadReferences();
+        references = await queryTaskUploadReferences(onPostgres);
         plan = planTaskUploadOrphanSweep({ objects, referencedValues: references });
     }
 

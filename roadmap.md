@@ -351,7 +351,7 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 [Phase 4](docs/powersync-migration.md#phase-4--identity). The slice's sessions, extended to everything that authenticates.
 
 - [~] Every route that verifies an Instant token authenticates against the app's own sessions; routes under `/api/auth/` replace the six token routes.
-  - Done for finance and messages, which serve a request made under a session from Postgres. The middleware now lets a phone, which has no cookie, through to the routes that check the device themselves. Left: files, calendar sync, the content queue, exchange rates and shortcuts.
+  - Done for finance and messages, which serve a request made under a session from Postgres. The middleware now lets a phone, which has no cookie, through to the routes that check the device themselves. Calendar sync, the content queue, exchange rates, Shortcuts and the file actions followed the same day. Left: removing the six Instant token routes, which goes with the Instant code in 7.9.
   - **(you)** Read from the code and not tried: the phones' message and finance requests carry no cookie, and the live app's middleware turns such a request away. If sending a message or changing money from a phone has been failing, that is why; this change fixes it on the next deploy. Say whether it has been.
 - [~] The session module complete on the web and the phone: expiry, revocation by a parent, and the list of writes waiting for someone to sign in.
   - The server's half of revocation is done: `DELETE /api/auth/members/<id>/sessions`. Left: the screens.
@@ -379,9 +379,10 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
   - Done on 13 October 2026: `lib/server/finance.ts`, served by the existing route to any request made under the app's own session. Its races were run on Postgres 17. The database itself now refuses an archived default envelope ([log](docs/powersync-migration.md#implementation-log)). No screen calls it until the finance screens move in 7.7.
 - [x] Messaging on unique constraints; calendar sync on advisory locks.
   - Done on 13 October 2026: `lib/server/messaging.ts` and `lib/server/calendar-sync.ts`, each beside its Instant version. The database keeps everyone in the family's thread and the parents in theirs. A calendar run holds an advisory lock, and writes nothing to an event that has not changed ([log](docs/powersync-migration.md#implementation-log)). Not run against a real Apple account.
-- [~] Members and PINs, shortcuts, the content queue, exchange rates, the server actions.
-  - Done on 13 October 2026: PINs and ending sessions (7.4), shortcuts, the content queue and exchange rates. The roster route is not carried: a device reads the roster from its own database. Left: the server actions, which are the files.
+- [x] Members and PINs, shortcuts, the content queue, exchange rates, the server actions.
+  - Done on 13 October 2026, each beside its Instant version. The roster route is not carried: a device reads the roster from its own database.
 - [ ] The report scripts rewritten; the backfill scripts removed.
+  - Left for the cleanup in 7.9: both are run by hand by a developer, and the reports need a production Postgres to read.
 
 ### 7.7 The data layer, on PowerSync
 
