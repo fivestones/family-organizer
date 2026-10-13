@@ -41,7 +41,11 @@ const TYPE_ONLY = /^(?:import|export)\s+type\s/;
 
 /** What a file imports that exists at run time: a type-only import brings no code with it. */
 function importsOf(file: string): string[] {
-    const source = readFileSync(path.join(root, file), 'utf8');
+    // An import that has been commented out imports nothing.
+    const source = readFileSync(path.join(root, file), 'utf8')
+        .split('\n')
+        .filter((line) => !line.trimStart().startsWith('//'))
+        .join('\n');
     return Array.from(source.matchAll(IMPORT))
         .filter((match) => !TYPE_ONLY.test(match[0]))
         .map((match) => match[1] ?? match[2]);

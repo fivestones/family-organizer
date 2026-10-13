@@ -4,9 +4,9 @@ import { getCachedMemberToken } from '@/lib/instant-principal-storage';
 import { resolveOneLink } from '@/lib/instant-links';
 import { filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import { requestFinanceMutation } from '@/lib/finance-mutation-client';
-import { formatBalances, type UnitDefinition } from '@/lib/money-format';
+import { formatBalances, type Envelope, type UnitDefinition } from '@/lib/money-format';
 
-export { formatBalances, type UnitDefinition };
+export { formatBalances, type Envelope, type UnitDefinition };
 
 const FAMILY_MEMBER_STORAGE_KEY = 'family_organizer_user_id';
 
@@ -139,19 +139,6 @@ async function getEnvelopeContextMap(
 // --- Type Definitions ---
 
 // **** UPDATED Envelope interface to include goal fields ****
-export interface Envelope {
-    id: string;
-    name: string;
-    balances: { [currency: string]: number };
-    archivedAt?: string | null;
-    isDefault?: boolean | null;
-    goalAmount?: number | null;
-    goalCurrency?: string | null;
-    familyMember?: { id: string; name?: string }[]; // Link to family member
-    transactions?: any[];
-    outgoingTransfers?: any[];
-    incomingTransfers?: any[];
-}
 
 // Interface for cached exchange rates
 export interface CachedExchangeRate {

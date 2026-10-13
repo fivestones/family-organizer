@@ -1,6 +1,6 @@
 // components/allowance/CombinedBalanceDisplay.tsx
 import React, { useState, useCallback, useMemo } from 'react';
-import { UnitDefinition, formatBalances } from '@/lib/currency-utils';
+import { type UnitDefinition, formatBalances } from '@/lib/money-format';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Loader2, ChevronsUpDown } from 'lucide-react';

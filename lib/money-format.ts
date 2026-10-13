@@ -1,6 +1,21 @@
 // How an amount of money, or of anything else the family counts, is written out. It knows nothing of where
 // balances are kept.
 
+/** An envelope as the money components draw it: what it is called and what it holds. */
+export interface Envelope {
+    id: string;
+    name: string;
+    balances: { [currency: string]: number };
+    archivedAt?: string | null;
+    isDefault?: boolean | null;
+    goalAmount?: number | null;
+    goalCurrency?: string | null;
+    familyMember?: { id: string; name?: string }[]; // Link to family member
+    transactions?: any[];
+    outgoingTransfers?: any[];
+    incomingTransfers?: any[];
+}
+
 export interface UnitDefinition {
     id: string;
     code: string;

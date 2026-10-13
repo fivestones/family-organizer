@@ -21,10 +21,11 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2 } from "lucide-react";
-import { Envelope } from '@/components/EnvelopeItem'; // Assuming type export
+import type { Envelope } from '@/lib/money-format';
 
 interface DeleteEnvelopeDialogProps {
-  db: any; // InstantDB instance
+  /** Not used. The old screens still hand it over. */
+  db?: unknown;
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (transferTargetId: string, newDefaultId: string | null) => Promise<void>;

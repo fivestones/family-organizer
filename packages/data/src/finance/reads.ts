@@ -58,6 +58,29 @@ export function useEnvelopes(memberId?: string | null, options?: ReadOptions): Q
     return useLiveRead(currentDevice().db, ['allowance_envelopes', 'envelope_balances', 'family_members'], (reader) => readEnvelopes(reader, memberId), toEnvelopes, NO_ENVELOPES, [memberId ?? ''], options);
 }
 
+/** What an envelope is called and whose it is, for every envelope there has ever been: the ledger names archived ones too. */
+export interface EnvelopeName {
+    id: string;
+    name: string;
+    familyMemberId: string | null;
+    isArchived: boolean;
+}
+
+const NO_NAMES: EnvelopeName[] = [];
+
+/** Live. Every envelope, archived or not, by name and owner, for showing what a ledger entry was about. */
+export function useEnvelopeNames(options?: ReadOptions): QueryResult<EnvelopeName[]> {
+    return useLiveRead(
+        currentDevice().db,
+        ['allowance_envelopes'],
+        (reader) => all(reader, sqlFor.selectFrom('allowance_envelopes').select(['id', 'name', 'family_member_id', 'archived_at']).orderBy('id')),
+        (rows) => rows.map((row) => ({ id: row.id, name: row.name ?? '', familyMemberId: row.family_member_id, isArchived: row.archived_at !== null })),
+        NO_NAMES,
+        [],
+        options
+    );
+}
+
 function toEntry(row: EntryRow): LedgerEntry {
     return {
         id: row.id,

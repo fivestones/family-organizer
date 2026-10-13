@@ -174,3 +174,26 @@ test('a parent adds someone on the settings page: they are in the family at once
     await page.getByTestId('person-button').click();
     await expect(page.getByTestId('person-option').filter({ hasText: 'Gus' })).toBeVisible();
 });
+
+test('money: a kid\'s first envelope is made by the server, a deposit shows in its balance, and the history lists it', async ({ page }) => {
+    await open(page);
+    await signInAs(page, 'Dana', '2468');
+    await page.getByTestId('main-nav-link-money').click();
+    await expect(page).toHaveURL(/\/familyMemberDetail$/);
+
+    const money = page.getByTestId('money-page');
+    await money.getByRole('button', { name: 'Eli' }).click();
+    // Nobody made this on the device: the page asked, the server made it, and it arrived by sync.
+    await expect(money.getByTestId('envelope')).toHaveCount(1);
+    await expect(money.getByTestId('envelope')).toContainText('Savings');
+    await expect(money.getByTestId('envelope')).toContainText('Default');
+
+    await page.locator('#deposit-amount').fill('12.50');
+    await page.getByRole('button', { name: 'Deposit Funds' }).click();
+    await expect(money.getByTestId('envelope-balance')).toContainText('12.50');
+    expect(await query(`SELECT transaction_type, amount, currency FROM allowance_transactions WHERE transaction_type <> 'init'`)).toEqual([{ transaction_type: 'deposit', amount: 12.5, currency: 'USD' }]);
+
+    // The list beside it shows what each member holds in all.
+    await expect(money.getByRole('button', { name: /Eli/ })).toContainText('12.50');
+});
+

@@ -378,7 +378,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [~] Settings and the family: household scheduling, currencies, countdown, grade types, dashboard settings; the family list, with adding, editing, ordering and removing a member, photos and PINs.
   - Done on 13 October 2026: everything on the old Settings page but the dashboard's own settings, which wait for the dashboards. **(you)** Not seen in a browser. On staging, as a parent: add a member with a PIN and a photo, rename and reorder, remove one; add a named window and delete one a chore uses; add a grade type and change the default; open the Apple Calendar panel.
 - [ ] The chore day in full: adding and editing chores, rotation, up for grabs, the routines and their manager, the countdown and the sequence view.
-- [ ] Money: a member's envelopes, deposits, withdrawals and transfers, transaction history, goals, and allowance distribution.
+- [~] Money: a member's envelopes, deposits, withdrawals and transfers, transaction history, goals, and allowance distribution.
+  - Done on 13 October 2026: the money page, `/familyMemberDetail`, and run in three browsers. Left: allowance distribution, which needs the chore day's sums. **(you)** On staging, as a parent: open a kid's money, deposit, withdraw, transfer between two envelopes and to another person, add an envelope with a goal, archive one, and look at the history. As a kid: rename your own envelope and choose your default.
 - [ ] Messages, with the presence server module.
 - [ ] Task series: the manager, the editor, the checklist in the chore day, responses and review.
 - [ ] The calendar, with adding and editing events and the Apple Calendar settings.

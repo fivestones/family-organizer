@@ -20,10 +20,11 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2 } from "lucide-react";
-import { Envelope, UnitDefinition, formatBalances } from '@/lib/currency-utils';
+import { type Envelope, type UnitDefinition, formatBalances } from '@/lib/money-format';
 
 interface WithdrawFormProps {
-  db: any;
+  /** Not used. The old screens still hand it over. */
+  db?: unknown;
   isOpen: boolean;
   onClose: () => void;
   // **** UPDATED: Add optional description to onSubmit signature ****
