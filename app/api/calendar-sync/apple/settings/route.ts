@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCalendarSyncAuthError, requireCalendarSyncRouteAuth } from '@/lib/calendar-sync-auth';
 import { updateAppleCalendarSyncSettings } from '@/lib/apple-caldav/sync';
+import { settingsOnPostgres } from '@/lib/server/calendar-sync-route';
+import { servesFromPostgres } from '@/lib/server/installation';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+    if (await servesFromPostgres()) return settingsOnPostgres(request);
+
     const auth = await requireCalendarSyncRouteAuth(request);
     if (!auth.authorized) {
         return NextResponse.json(

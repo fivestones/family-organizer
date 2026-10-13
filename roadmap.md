@@ -377,8 +377,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 
 - [x] Finance as locked database transactions, with the operation [the money rule](docs/powersync-migration.md#money-is-written-only-by-the-server) adds: reconciling a balance.
   - Done on 13 October 2026: `lib/server/finance.ts`, served by the existing route to any request made under the app's own session. Its races were run on Postgres 17. The database itself now refuses an archived default envelope ([log](docs/powersync-migration.md#implementation-log)). No screen calls it until the finance screens move in 7.7.
-- [~] Messaging on unique constraints; calendar sync on advisory locks.
-  - Messaging is done, 13 October 2026: `lib/server/messaging.ts`, served by the message routes to any request made under the app's own session. The database now keeps everyone in the family's thread and the parents in theirs ([log](docs/powersync-migration.md#implementation-log)). Left: calendar sync.
+- [x] Messaging on unique constraints; calendar sync on advisory locks.
+  - Done on 13 October 2026: `lib/server/messaging.ts` and `lib/server/calendar-sync.ts`, each beside its Instant version. The database keeps everyone in the family's thread and the parents in theirs. A calendar run holds an advisory lock, and writes nothing to an event that has not changed ([log](docs/powersync-migration.md#implementation-log)). Not run against a real Apple account.
 - [~] Members and PINs, shortcuts, the content queue, exchange rates, the server actions.
   - Done on 13 October 2026: PINs and ending sessions (7.4), shortcuts, the content queue and exchange rates. The roster route is not carried: a device reads the roster from its own database. Left: the server actions, which are the files.
 - [ ] The report scripts rewritten; the backfill scripts removed.

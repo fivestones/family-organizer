@@ -8,6 +8,7 @@ import { SessionManager } from '@family-organizer/data/session/manager';
 import type { InstallationConfig } from '@family-organizer/data/session/platform';
 import { __resetParentElevationRateLimitForTests } from '@/lib/parent-elevation-rate-limit';
 import { getDb, type AppDatabase } from '@/lib/server/db';
+import { connectCalendarAccount, runCalendarSync, updateCalendarSyncSettings, type CalDavClient } from '@/lib/server/calendar-sync';
 import { executeFinanceRequest, FinanceError } from '@/lib/server/finance';
 import { readDataHealth } from '@/lib/server/health';
 import * as messaging from '@/lib/server/messaging';
@@ -608,6 +609,35 @@ describe('messages asked for by several at the same moment', () => {
         await Promise.all(Array.from({ length: 12 }, (_, turn) => messaging.sendMessage(db, turn % 2 ? eli : fay, { threadId, body: `Message ${turn}` })));
         expect(await serverRows(`SELECT count(*)::int AS n FROM messages`)).toEqual([{ n: 13 }]);
         expect(await serverRows(`SELECT (SELECT max(created_at) FROM messages) = latest_message_at AS newest FROM message_threads WHERE id = '${threadId}'`)).toEqual([{ newest: true }]);
+    });
+});
+
+describe('the calendar import asked to run twice at the same moment', () => {
+    it('runs once: the second is told one is already running, and may run when it has finished', async () => {
+        process.env.CALDAV_CREDENTIAL_ENCRYPTION_KEY = 'a-test-key-for-calendar-passwords';
+        const home = 'https://caldav.example/1/calendars/home/';
+        const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:dentist', 'DTSTAMP:20260301T000000Z', 'DTSTART:20260310T150000Z', 'DTEND:20260310T160000Z', 'SUMMARY:Dentist', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+        const client: CalDavClient = {
+            discover: (async () => ({ principalUrl: 'https://caldav.example/1/principal/', calendarHomeUrl: 'https://caldav.example/1/calendars/', calendars: [{ remoteCalendarId: 'home', remoteUrl: home, displayName: 'Home', ctag: 'c1', syncToken: 't1' }] })) as any,
+            // Slow enough that the second request arrives while the first is still asking.
+            fetchEvents: (async () => {
+                await new Promise((resolve) => setTimeout(resolve, 400));
+                return { mode: 'full', events: [{ href: `${home}dentist.ics`, etag: 'e1', ics }], deletedHrefs: [], nextSyncToken: 't2' };
+            }) as any,
+            fetchMetadata: (async () => ({ ctag: 'c1', syncToken: 't1' })) as any,
+        };
+        const now = new Date('2026-03-09T12:00:00.000Z');
+        const { accountId } = await connectCalendarAccount(db, { username: 'dana@example.com', appSpecificPassword: 'abcd-efgh-ijkl-mnop' }, { client, now });
+        await updateCalendarSyncSettings(db, { accountId, selectedCalendarIds: ['home'], enabled: true }, now);
+
+        const both = await Promise.all([runCalendarSync(db, { trigger: 'manual' }, { client, now }), runCalendarSync(db, { trigger: 'manual' }, { client, now })]);
+
+        expect(both.filter((result) => result.skipped && result.reason === 'already_running')).toHaveLength(1);
+        expect(both.filter((result) => !result.skipped)).toHaveLength(1);
+        expect(await serverRows(`SELECT count(*)::int AS events FROM calendar_items`)).toEqual([{ events: 1 }]);
+        expect(await serverRows(`SELECT count(*)::int AS runs FROM calendar_sync_runs`)).toEqual([{ runs: 1 }]);
+        // The lock went with the run.
+        expect(await runCalendarSync(db, { trigger: 'manual' }, { client, now })).toMatchObject({ skipped: false, eventsUnchanged: 1 });
     });
 });
 
