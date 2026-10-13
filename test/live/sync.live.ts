@@ -74,7 +74,7 @@ afterAll(() => db.destroy());
 beforeEach(async () => {
     __resetParentElevationRateLimitForTests();
     await sql.raw(`UPDATE family_members SET default_envelope_id = NULL`).execute(db);
-    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'dashboard_configs', 'family_dashboard_layouts', 'content_attachments', 'family_rules', 'content_categories', 'announcements', 'exchange_rates', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
+    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'message_threads', 'dashboard_configs', 'family_dashboard_layouts', 'content_attachments', 'family_rules', 'content_categories', 'announcements', 'exchange_rates', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
         await sql.raw(`DELETE FROM ${table}`).execute(db);
     }
     await seedFamily({ sql: query } as any);
@@ -270,6 +270,79 @@ describe('what the family posts, and the dashboards', () => {
         await until(async () => (await serverRows(`SELECT 1 FROM dashboard_configs`)).length === 1, 'the arrangement has reached the server');
         expect(await serverRows(`SELECT family_member_id, widget_order, disabled_widgets FROM dashboard_configs`)).toEqual([{ family_member_id: ELI, widget_order: ['chores', 'balance'], disabled_widgets: ['weather'] }]);
         await until(() => has(parentDb, `SELECT 1 FROM dashboard_configs WHERE id = ?`, [ELI]), 'the parent\'s device holds the kid\'s arrangement');
+    });
+});
+
+describe('messages', () => {
+    const n = (last: number) => `00000000-0000-4000-8000-${String(last).padStart(12, '0')}`;
+    const [WITH_ELI, WITH_FAY, HELLO, SECRET, PHOTO] = [n(400), n(401), n(410), n(411), n(420)];
+    beforeEach(async () => {
+        await sql.raw(`INSERT INTO message_threads (id, thread_type, visibility, thread_key, title, created_by) VALUES
+            ('${WITH_ELI}', 'direct', 'members', 'direct:${DANA}:${ELI}', 'Dana and Eli', '${DANA}'), ('${WITH_FAY}', 'direct', 'members', 'direct:${DANA}:${FAY}', 'Dana and Fay', '${DANA}')`).execute(db);
+        await sql.raw(`INSERT INTO message_thread_members (thread_id, family_member_id, member_role) VALUES
+            ('${WITH_ELI}', '${DANA}', 'owner'), ('${WITH_ELI}', '${ELI}', 'member'), ('${WITH_FAY}', '${DANA}', 'owner'), ('${WITH_FAY}', '${FAY}', 'member')`).execute(db);
+        await sql.raw(`INSERT INTO messages (id, thread_id, author_id, body, created_at) VALUES
+            ('${HELLO}', '${WITH_ELI}', '${DANA}', 'Dinner at six', '2026-03-09T12:00:00Z'), ('${SECRET}', '${WITH_FAY}', '${DANA}', 'About the surprise', '2026-03-09T12:01:00Z')`).execute(db);
+        await sql.raw(`INSERT INTO message_attachments (id, message_id, name, type, url) VALUES ('${PHOTO}', '${SECRET}', 'cake.jpg', 'image/jpeg', 'messages/cake.jpg')`).execute(db);
+        await sql.raw(`INSERT INTO message_reactions (message_id, family_member_id, emoji) VALUES ('${HELLO}', '${ELI}', '👍'), ('${SECRET}', '${FAY}', '🎂')`).execute(db);
+        await sql.raw(`INSERT INTO message_acknowledgements (message_id, family_member_id, kind) VALUES ('${SECRET}', '${FAY}', 'seen')`).execute(db);
+    });
+    const held = async (database: AbstractPowerSyncDatabase) => ({
+        threads: (await database.getAll<{ title: string }>(`SELECT title FROM message_threads ORDER BY title`)).map((row) => row.title),
+        members: (await database.getAll(`SELECT 1 FROM message_thread_members`)).length,
+        messages: (await database.getAll<{ body: string }>(`SELECT body FROM messages ORDER BY created_at`)).map((row) => row.body),
+        files: (await database.getAll(`SELECT 1 FROM message_attachments`)).length,
+        reactions: (await database.getAll<{ emoji: string }>(`SELECT emoji FROM message_reactions ORDER BY emoji`)).map((row) => row.emoji),
+        seen: (await database.getAll(`SELECT 1 FROM message_acknowledgements`)).length,
+    });
+
+    it('reach the people in a thread and nobody else, a parent everything, and the shared kid session nothing', async () => {
+        const eli = await device();
+        await eli.manager.signIn({ familyMemberId: ELI });
+        const eliDb = await synced(eli.db());
+        await until(() => has(eliDb, `SELECT 1 FROM message_reactions`), 'Eli\'s device holds his thread');
+        expect(await held(eliDb)).toEqual({ threads: ['Dana and Eli'], members: 2, messages: ['Dinner at six'], files: 0, reactions: ['👍'], seen: 0 });
+
+        const dana = await device();
+        await dana.manager.signIn({ familyMemberId: DANA, pin: '2468' });
+        const danaDb = await synced(dana.db());
+        await until(async () => (await held(danaDb)).seen === 1, 'the parent\'s device holds every thread');
+        expect(await held(danaDb)).toEqual({ threads: ['Dana and Eli', 'Dana and Fay'], members: 4, messages: ['Dinner at six', 'About the surprise'], files: 1, reactions: ['🎂', '👍'], seen: 1 });
+
+        const shared = await device();
+        await shared.manager.signIn();
+        const sharedDb = await synced(shared.db());
+        expect(await held(sharedDb)).toEqual({ threads: [], members: 0, messages: [], files: 0, reactions: [], seen: 0 });
+    });
+
+    it('follow who is in a thread: someone added is sent what was said, and someone removed loses it', async () => {
+        const eli = await device();
+        await eli.manager.signIn({ familyMemberId: ELI });
+        const eliDb = await synced(eli.db());
+        await until(() => has(eliDb, `SELECT 1 FROM messages`), 'Eli\'s device holds his thread');
+
+        await sql.raw(`INSERT INTO message_thread_members (thread_id, family_member_id) VALUES ('${WITH_FAY}', '${ELI}')`).execute(db);
+        await until(async () => (await held(eliDb)).files === 1, 'Eli has been sent the thread he was added to, with its file');
+        expect(await held(eliDb)).toMatchObject({ threads: ['Dana and Eli', 'Dana and Fay'], messages: ['Dinner at six', 'About the surprise'], reactions: ['🎂', '👍'], seen: 1 });
+
+        await sql.raw(`DELETE FROM message_thread_members WHERE thread_id = '${WITH_FAY}' AND family_member_id = '${ELI}'`).execute(db);
+        await until(async () => (await held(eliDb)).messages.length === 1, 'Eli has lost the thread he was removed from');
+        expect(await held(eliDb)).toEqual({ threads: ['Dana and Eli'], members: 2, messages: ['Dinner at six'], files: 0, reactions: ['👍'], seen: 0 });
+    });
+
+    it('are never written by a device: a message made on one is refused and gone again', async () => {
+        const eli = await device();
+        await eli.manager.signIn({ familyMemberId: ELI });
+        const eliDb = await synced(eli.db());
+        await until(() => has(eliDb, `SELECT 1 FROM messages`), 'Eli\'s device holds his thread');
+
+        await eliDb.writeTransaction(async (transaction) => {
+            await transaction.execute(`INSERT INTO messages (id, thread_id, author_id, body, created_at, updated_at) VALUES (?, ?, ?, 'From Dana, honest', ?, ?)`, [n(412), WITH_ELI, DANA, '2026-03-09T12:05:00.000Z', '2026-03-09T12:05:00.000Z']);
+            await transaction.execute(`INSERT INTO local_transactions (id, mutation) VALUES (?, 'tamper')`, [n(0xb1)]);
+        });
+        await until(async () => (await serverRows(`SELECT 1 FROM write_refusals WHERE table_name = 'messages'`)).length === 1, 'the server has refused the message');
+        await until(async () => (await held(eliDb)).messages.length === 1, 'the device has let the message go');
+        expect(await serverRows(`SELECT count(*)::int AS messages FROM messages`)).toEqual([{ messages: 2 }]);
     });
 });
 

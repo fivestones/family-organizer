@@ -502,6 +502,88 @@ export interface HistoryEventAttachmentsTable {
     updated_at: InstantWithDefault;
 }
 
+export interface MessageThreadsTable {
+    id: string;
+    thread_type: 'family' | 'parents_only' | 'direct' | 'group' | 'linked';
+    visibility: 'family' | 'parents_only' | 'members';
+    thread_key: string;
+    title: string;
+    linked_domain: 'tasks' | 'chores' | 'calendar' | 'finance' | null;
+    linked_entity_id: string | null;
+    is_closed: Generated<boolean>;
+    created_by: string | null;
+    latest_message_at: Instant | null;
+    latest_message_author_id: string | null;
+    latest_message_preview: string | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface MessageThreadMembersTable {
+    thread_id: string;
+    family_member_id: string;
+    member_role: Generated<'member' | 'owner' | 'watcher'>;
+    notification_level: Generated<'all' | 'mentions' | 'mute' | 'watch'>;
+    is_archived: Generated<boolean>;
+    pinned_at: Instant | null;
+    joined_at: InstantWithDefault;
+    last_read_at: Instant | null;
+    last_read_message_id: string | null;
+}
+
+export interface MessagesTable {
+    id: string;
+    thread_id: string;
+    author_id: string | null;
+    body: Generated<string>;
+    importance: Generated<'normal' | 'urgent' | 'announcement' | 'needs_ack'>;
+    is_system: Generated<boolean>;
+    reply_to_id: string | null;
+    client_nonce: string | null;
+    metadata: Json | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+    edited_at: Instant | null;
+    editable_until: Instant | null;
+    deleted_at: Instant | null;
+    removed_by: string | null;
+    removed_reason: string | null;
+}
+
+export interface MessageAttachmentsTable {
+    id: string;
+    message_id: string;
+    name: string;
+    type: string;
+    url: string;
+    kind: string | null;
+    size_bytes: number | null;
+    width: number | null;
+    height: number | null;
+    duration_sec: number | null;
+    thumbnail_url: string | null;
+    thumbnail_width: number | null;
+    thumbnail_height: number | null;
+    blurhash: string | null;
+    waveform_peaks: Json | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface MessageReactionsTable {
+    message_id: string;
+    family_member_id: string;
+    emoji: string;
+    created_at: InstantWithDefault;
+}
+
+export interface MessageAcknowledgementsTable {
+    message_id: string;
+    family_member_id: string;
+    kind: 'seen' | 'acknowledged';
+    created_at: InstantWithDefault;
+}
+
 export interface InstallationTable {
     only_row: Generated<boolean>;
     id: Generated<string>;
@@ -588,6 +670,12 @@ export interface Database {
     family_dashboard_widgets: FamilyDashboardWidgetsTable;
     dashboard_configs: DashboardConfigsTable;
     history_event_attachments: HistoryEventAttachmentsTable;
+    message_threads: MessageThreadsTable;
+    message_thread_members: MessageThreadMembersTable;
+    messages: MessagesTable;
+    message_attachments: MessageAttachmentsTable;
+    message_reactions: MessageReactionsTable;
+    message_acknowledgements: MessageAcknowledgementsTable;
     installation: InstallationTable;
     auth_sessions: AuthSessionsTable;
     sync_uploads: SyncUploadsTable;
@@ -709,6 +797,25 @@ export const DATABASE_COLUMNS = {
         duration_sec: true, thumbnail_url: true, thumbnail_width: true, thumbnail_height: true, blurhash: true, waveform_peaks: true, created_at: true,
         updated_at: true,
     },
+    message_threads: {
+        id: true, thread_type: true, visibility: true, thread_key: true, title: true, linked_domain: true, linked_entity_id: true, is_closed: true,
+        created_by: true, latest_message_at: true, latest_message_author_id: true, latest_message_preview: true, created_at: true, updated_at: true,
+    },
+    message_thread_members: {
+        thread_id: true, family_member_id: true, member_role: true, notification_level: true, is_archived: true, pinned_at: true, joined_at: true,
+        last_read_at: true, last_read_message_id: true,
+    },
+    messages: {
+        id: true, thread_id: true, author_id: true, body: true, importance: true, is_system: true, reply_to_id: true, client_nonce: true,
+        metadata: true, created_at: true, updated_at: true, edited_at: true, editable_until: true, deleted_at: true, removed_by: true,
+        removed_reason: true,
+    },
+    message_attachments: {
+        id: true, message_id: true, name: true, type: true, url: true, kind: true, size_bytes: true, width: true, height: true, duration_sec: true,
+        thumbnail_url: true, thumbnail_width: true, thumbnail_height: true, blurhash: true, waveform_peaks: true, created_at: true, updated_at: true,
+    },
+    message_reactions: { message_id: true, family_member_id: true, emoji: true, created_at: true },
+    message_acknowledgements: { message_id: true, family_member_id: true, kind: true, created_at: true },
     installation: { only_row: true, id: true, data_generation: true, backend: true, writes_frozen: true, min_client_build: true },
     auth_sessions: {
         id: true, token_hash: true, principal_type: true, family_member_id: true, state: true, created_at: true, last_seen_at: true,

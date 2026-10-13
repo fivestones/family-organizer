@@ -101,6 +101,71 @@ streams:
         blurhash, waveform_peaks, created_at, updated_at
         FROM history_event_attachments
 
+  # Messages, for the person signed in: the threads they are in, with who else is, what was said, and what was done
+  # with it. The kid session a shared device rests on is nobody, and is sent none.
+  messaging_member:
+    auto_subscribe: true
+    queries:
+      - >-
+        SELECT id, thread_type, visibility, thread_key, title, linked_domain, linked_entity_id, is_closed, created_by, latest_message_at,
+        latest_message_author_id, latest_message_preview, created_at, updated_at
+        FROM message_threads
+        WHERE id IN (SELECT thread_id FROM message_thread_members WHERE family_member_id = auth.parameter('family_member_id'))
+      - >-
+        SELECT thread_id || '.' || family_member_id AS id, thread_id, family_member_id, member_role, notification_level, is_archived, pinned_at, joined_at,
+        last_read_at, last_read_message_id
+        FROM message_thread_members
+        WHERE thread_id IN (SELECT thread_id FROM message_thread_members WHERE family_member_id = auth.parameter('family_member_id'))
+      - >-
+        SELECT id, thread_id, author_id, body, importance, is_system, reply_to_id, client_nonce, metadata, created_at, updated_at, edited_at, editable_until,
+        deleted_at, removed_by, removed_reason
+        FROM messages
+        WHERE thread_id IN (SELECT thread_id FROM message_thread_members WHERE family_member_id = auth.parameter('family_member_id'))
+      - >-
+        SELECT id, message_id, name, type, url, kind, size_bytes, width, height, duration_sec, thumbnail_url, thumbnail_width, thumbnail_height, blurhash,
+        waveform_peaks, created_at, updated_at
+        FROM message_attachments
+        WHERE message_id IN (SELECT id FROM messages WHERE thread_id IN (SELECT thread_id FROM message_thread_members WHERE family_member_id = auth.parameter('family_member_id')))
+      - >-
+        SELECT message_id || '.' || family_member_id || '.' || emoji AS id, message_id, family_member_id, emoji, created_at FROM message_reactions
+        WHERE message_id IN (SELECT id FROM messages WHERE thread_id IN (SELECT thread_id FROM message_thread_members WHERE family_member_id = auth.parameter('family_member_id')))
+      - >-
+        SELECT message_id || '.' || family_member_id || '.' || kind AS id, message_id, family_member_id, kind, created_at
+        FROM message_acknowledgements
+        WHERE message_id IN (SELECT id FROM messages WHERE thread_id IN (SELECT thread_id FROM message_thread_members WHERE family_member_id = auth.parameter('family_member_id')))
+
+  # A parent is sent every thread, as a parent may read every thread today.
+  messaging_parent:
+    auto_subscribe: true
+    queries:
+      - >-
+        SELECT id, thread_type, visibility, thread_key, title, linked_domain, linked_entity_id, is_closed, created_by, latest_message_at,
+        latest_message_author_id, latest_message_preview, created_at, updated_at
+        FROM message_threads
+        WHERE auth.parameter('type') = 'parent'
+      - >-
+        SELECT thread_id || '.' || family_member_id AS id, thread_id, family_member_id, member_role, notification_level, is_archived, pinned_at, joined_at,
+        last_read_at, last_read_message_id
+        FROM message_thread_members
+        WHERE auth.parameter('type') = 'parent'
+      - >-
+        SELECT id, thread_id, author_id, body, importance, is_system, reply_to_id, client_nonce, metadata, created_at, updated_at, edited_at, editable_until,
+        deleted_at, removed_by, removed_reason
+        FROM messages
+        WHERE auth.parameter('type') = 'parent'
+      - >-
+        SELECT id, message_id, name, type, url, kind, size_bytes, width, height, duration_sec, thumbnail_url, thumbnail_width, thumbnail_height, blurhash,
+        waveform_peaks, created_at, updated_at
+        FROM message_attachments
+        WHERE auth.parameter('type') = 'parent'
+      - >-
+        SELECT message_id || '.' || family_member_id || '.' || emoji AS id, message_id, family_member_id, emoji, created_at FROM message_reactions
+        WHERE auth.parameter('type') = 'parent'
+      - >-
+        SELECT message_id || '.' || family_member_id || '.' || kind AS id, message_id, family_member_id, kind, created_at
+        FROM message_acknowledgements
+        WHERE auth.parameter('type') = 'parent'
+
   # What the server refused, for the person who made the write.
   refusals_member:
     auto_subscribe: true

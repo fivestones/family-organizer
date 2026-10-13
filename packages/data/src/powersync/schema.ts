@@ -216,6 +216,39 @@ const history_event_attachments = new Table(
     { indexes: { event: ['history_event_id'] } }
 );
 
+const message_threads = new Table({
+    thread_type: text, visibility: text, thread_key: text, title: text, linked_domain: text, linked_entity_id: text, is_closed: integer,
+    created_by: text, latest_message_at: text, latest_message_author_id: text, latest_message_preview: text, created_at: text, updated_at: text,
+});
+
+const message_thread_members = new Table(
+    {
+        thread_id: text, family_member_id: text, member_role: text, notification_level: text, is_archived: integer, pinned_at: text, joined_at: text,
+        last_read_at: text, last_read_message_id: text,
+    },
+    { indexes: { thread: ['thread_id'], member: ['family_member_id'] } }
+);
+
+const messages = new Table(
+    {
+        thread_id: text, author_id: text, body: text, importance: text, is_system: integer, reply_to_id: text, client_nonce: text, metadata: text,
+        created_at: text, updated_at: text, edited_at: text, editable_until: text, deleted_at: text, removed_by: text, removed_reason: text,
+    },
+    { indexes: { thread: ['thread_id', 'created_at'] } }
+);
+
+const message_attachments = new Table(
+    {
+        message_id: text, name: text, type: text, url: text, kind: text, size_bytes: integer, width: integer, height: integer, duration_sec: real,
+        thumbnail_url: text, thumbnail_width: integer, thumbnail_height: integer, blurhash: text, waveform_peaks: text, created_at: text, updated_at: text,
+    },
+    { indexes: { message: ['message_id'] } }
+);
+
+const message_reactions = new Table({ message_id: text, family_member_id: text, emoji: text, created_at: text }, { indexes: { message: ['message_id'] } });
+
+const message_acknowledgements = new Table({ message_id: text, family_member_id: text, kind: text, created_at: text }, { indexes: { message: ['message_id'] } });
+
 const write_refusals = new Table({
     family_member_id: text, mutation: text, reason: text, table_name: text, row_id: text, refused_at: text, dismissed_at: text,
 });
@@ -233,6 +266,7 @@ export const AppSchema = new Schema({
     grade_types, task_series, tasks, task_attachments, task_response_fields, task_updates, task_update_attachments, task_response_field_values,
     allowance_envelopes, envelope_balances, allowance_transactions, exchange_rates,
     announcements, content_categories, content_queue_items, family_rules, family_rule_versions, content_attachments, family_dashboard_layouts, family_dashboard_widgets, dashboard_configs, history_event_attachments,
+    message_threads, message_thread_members, messages, message_attachments, message_reactions, message_acknowledgements,
     write_refusals, local_transactions,
 });
 

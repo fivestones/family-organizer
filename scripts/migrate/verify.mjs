@@ -653,6 +653,88 @@ export async function verifyImport(db, rowsOf, timing) {
     const rawEventFiles = rowsOf('historyEventAttachments');
     await attachmentsOf('history_event_attachments', 'history_event_id', rawEventFiles, linked(rawEvents, 'attachments', rawEventFiles, 'event'), events);
 
+    // ---- Messages ----
+    // A reference Instant held twice, as an attribute and as a link, is read here from the link alone where there
+    // is one, so that this check does not lean on the same copy the import preferred.
+    const rawThreads = rowsOf('messageThreads');
+    const rawMessages = rowsOf('messages');
+    const rawSeats = rowsOf('messageThreadMembers');
+    const threadRows = new Map((await table('message_threads')).map((row) => [row.id, row]));
+    const thread = check('message_threads: every thread, field by field');
+    for (const raw of rawThreads) {
+        const row = threadRows.get(raw.id);
+        thread(raw.id, Boolean(row) && row.thread_type === raw.threadType && row.visibility === raw.visibility && row.thread_key === raw.threadKey && row.title === raw.title
+            && same(row.linked_domain, raw.linkedDomain) && same(row.linked_entity_id, textOf(raw.linkedEntityId)) && row.is_closed === (raw.isClosed === true)
+            && same(row.created_by, memberOrNone(raw.createdByFamilyMemberId)) && instantOf(row.latest_message_at) === instantOf(raw.latestMessageAt)
+            && same(row.latest_message_author_id, memberOrNone(raw.latestMessageAuthorId)) && same(row.latest_message_preview, raw.latestMessagePreview) && instantOf(row.created_at) === instantOf(raw.createdAt));
+    }
+    check('message_threads: as many as were exported')('count', threadRows.size === rawThreads.length);
+
+    const messageThread = linked(rawThreads, 'messages', rawMessages, 'thread');
+    const messageAuthor = linked(rawMembers, 'authoredMessages', rawMessages, 'author');
+    const messageReply = linked([], '', rawMessages, 'replyTo');
+    const messageRows = new Map((await table('messages')).map((row) => [row.id, row]));
+    const threadOfMessage = (raw) => messageThread.get(raw.id) ?? raw.threadId;
+    const wholeMessages = rawMessages.filter((raw) => threadRows.has(threadOfMessage(raw)));
+    const message = check('messages: every message of a thread, word for word, by whom and in answer to what');
+    for (const raw of wholeMessages) {
+        const row = messageRows.get(raw.id);
+        const reply = messageReply.get(raw.id) ?? raw.replyToMessageId ?? null;
+        message(raw.id, Boolean(row) && row.thread_id === threadOfMessage(raw) && same(row.author_id, memberOrNone(messageAuthor.get(raw.id) ?? raw.authorFamilyMemberId)) && row.body === (raw.body ?? '')
+            && row.importance === (raw.importance ?? 'normal') && row.is_system === (raw.isSystem === true) && same(row.reply_to_id, messageRows.has(reply) ? reply : null) && same(row.client_nonce, textOf(raw.clientNonce))
+            && instantOf(row.created_at) === instantOf(raw.createdAt) && instantOf(row.edited_at) === instantOf(raw.editedAt) && instantOf(row.editable_until) === instantOf(raw.editableUntil)
+            && instantOf(row.deleted_at) === instantOf(raw.deletedAt) && same(row.removed_by, memberOrNone(raw.removedByFamilyMemberId)) && same(row.removed_reason, textOf(raw.removedReason)));
+    }
+    check('messages: none loaded but those of a thread that was')('count', messageRows.size === wholeMessages.length);
+    const perThread = check('messages: each thread has as many messages, and as many removed, as before');
+    for (const raw of rawThreads) {
+        const before = wholeMessages.filter((item) => threadOfMessage(item) === raw.id);
+        const after = [...messageRows.values()].filter((row) => row.thread_id === raw.id);
+        perThread(raw.id, before.length === after.length && before.filter((item) => !blank(item.deletedAt)).length === after.filter((row) => row.deleted_at !== null).length);
+    }
+
+    const seatThread = linked(rawThreads, 'members', rawSeats, 'thread');
+    const seatPerson = linked(rawMembers, 'messageThreadMemberships', rawSeats, 'familyMember');
+    const seatRows = await table('message_thread_members');
+    const seats = check('message_thread_members: each thread has exactly the people it had, each keeping it as they did');
+    for (const raw of rawThreads) {
+        const before = rawSeats.filter((seat) => (seatThread.get(seat.id) ?? seat.threadId) === raw.id && members.has(seatPerson.get(seat.id) ?? seat.familyMemberId));
+        const after = seatRows.filter((row) => row.thread_id === raw.id);
+        seats(raw.id, before.length === after.length && before.every((seat) => {
+            const row = after.find((item) => item.family_member_id === (seatPerson.get(seat.id) ?? seat.familyMemberId));
+            return Boolean(row) && row.member_role === seat.memberRole && row.notification_level === seat.notificationLevel && row.is_archived === (seat.isArchived === true)
+                && (row.pinned_at !== null) === (seat.isPinned === true) && instantOf(row.joined_at) === instantOf(seat.joinedAt) && instantOf(row.last_read_at) === instantOf(seat.lastReadAt)
+                && same(row.last_read_message_id, messageRows.get(seat.lastReadMessageId)?.thread_id === raw.id ? seat.lastReadMessageId : null);
+        }));
+    }
+    const perPerson = check('message_thread_members: each person is in as many threads as before');
+    for (const raw of rawMembers) {
+        perPerson(raw.id, rawSeats.filter((seat) => (seatPerson.get(seat.id) ?? seat.familyMemberId) === raw.id && threadRows.has(seatThread.get(seat.id) ?? seat.threadId)).length === seatRows.filter((row) => row.family_member_id === raw.id).length);
+    }
+
+    const rawMessageFiles = rowsOf('messageAttachments');
+    await attachmentsOf('message_attachments', 'message_id', rawMessageFiles, linked(rawMessages, 'attachments', rawMessageFiles, 'message'), messageRows);
+
+    const rawReactions = rowsOf('messageReactions');
+    const rawAcks = rowsOf('messageAcknowledgements');
+    const reactionMessage = linked(rawMessages, 'reactions', rawReactions, 'message');
+    const ackMessage = linked(rawMessages, 'acknowledgements', rawAcks, 'message');
+    const reactionRows = await table('message_reactions');
+    const ackRows = await table('message_acknowledgements');
+    const responses = check('message_reactions, message_acknowledgements: each message has the reactions and acknowledgements it had, from the people it had them from');
+    for (const raw of wholeMessages) {
+        const reactionsBefore = rawReactions.filter((item) => (reactionMessage.get(item.id) ?? item.messageId) === raw.id && members.has(item.familyMemberId)).map((item) => `${item.familyMemberId} ${item.emoji}`).sort();
+        const reactionsAfter = reactionRows.filter((row) => row.message_id === raw.id).map((row) => `${row.family_member_id} ${row.emoji}`).sort();
+        // One that says neither seen nor acknowledged, in its own words or at the end of its key, cannot be carried.
+        const acksBefore = rawAcks.filter((item) => (ackMessage.get(item.id) ?? item.messageId) === raw.id && members.has(item.familyMemberId))
+            .map((item) => [item.familyMemberId, item.kind ?? String(item.ackKey ?? '').split(':').pop()]).filter(([, kind]) => kind === 'seen' || kind === 'acknowledged').map((pair) => pair.join(' ')).sort();
+        const acksAfter = ackRows.filter((row) => row.message_id === raw.id).map((row) => `${row.family_member_id} ${row.kind}`).sort();
+        // Said twice is said once.
+        responses(raw.id, sameJson([...new Set(reactionsBefore)], reactionsAfter) && sameJson([...new Set(acksBefore)], acksAfter));
+    }
+    check('message_reactions, message_acknowledgements: none on a message that was not exported')('count',
+        reactionRows.every((row) => messageRows.has(row.message_id)) && ackRows.every((row) => messageRows.has(row.message_id)));
+
     return { checks };
 }
 

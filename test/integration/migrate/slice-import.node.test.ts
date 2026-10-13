@@ -25,7 +25,7 @@ type Rows = Record<string, Array<Record<string, unknown>>>;
 
 /** A small family as Instant would export it, with each link on the side Instant's schema declares it forward. */
 function family(): Rows {
-    return withContent(withMoney(withTaskSeries(base())));
+    return withMessages(withContent(withMoney(withTaskSeries(base()))));
 }
 
 function base(): Rows {
@@ -136,6 +136,51 @@ function withContent(rows: Rows): Rows {
     };
 }
 
+/**
+ * The family's thread, where Ada asked for an acknowledgement, Ben answered and reacted, and Cal's message was
+ * removed by Ada; and a thread about the piano chore that nobody has written in yet.
+ */
+function withMessages(rows: Rows): Rows {
+    const [FAMILY, ABOUT_PIANO] = [id(400), id(401)];
+    const made = { createdAt: '2026-01-02T08:00:00.000Z', updatedAt: '2026-01-05T12:10:00.000Z' };
+    const seat = (n: number, thread: string, person: string, fields: Record<string, unknown> = {}) => ({
+        id: id(n), threadId: thread, familyMemberId: person, membershipKey: `${thread}:${person}`, memberRole: 'member', notificationLevel: 'all', isArchived: false, isPinned: false, pinnedAt: null,
+        joinedAt: '2026-01-02T08:00:00.000Z', sortTimestamp: '2026-01-05T12:05:00.000Z', lastReadAt: null, lastReadMessageId: null, ...fields,
+    });
+    const said = (n: number, minute: number, author: string, body: string, fields: Record<string, unknown> = {}) => ({
+        id: id(n), threadId: FAMILY, authorFamilyMemberId: author, body, importance: 'normal', isSystem: false, clientNonce: `nonce-${n}`, metadata: null, replyToMessageId: null, editedAt: null,
+        createdAt: `2026-01-05T12:${String(minute).padStart(2, '0')}:00.000Z`, updatedAt: `2026-01-05T12:${String(minute).padStart(2, '0')}:00.000Z`, editableUntil: `2026-01-05T12:${String(minute + 15).padStart(2, '0')}:00.000Z`,
+        deletedAt: null, removedByFamilyMemberId: null, removedReason: null, attachments: [], reactions: [], acknowledgements: [], ...fields,
+    });
+    return {
+        ...rows,
+        messageThreads: [
+            { id: FAMILY, threadType: 'family', visibility: 'family', threadKey: 'family', title: 'Family', titleNormalized: 'family', searchText: 'family', linkedDomain: null, linkedEntityId: null, isClosed: false, createdByFamilyMemberId: ADA, latestMessageAt: '2026-01-05T12:05:00.000Z', latestMessageAuthorId: BEN, latestMessagePreview: 'On my way', ...made, members: [id(410), id(411), id(412)], messages: [id(420), id(421), id(422)] },
+            { id: ABOUT_PIANO, threadType: 'linked', visibility: 'members', threadKey: `linked:chores:${PIANO}`, title: 'Piano', titleNormalized: 'piano', searchText: 'piano ada ben', linkedDomain: 'chores', linkedEntityId: PIANO, isClosed: false, createdByFamilyMemberId: ADA, latestMessageAt: null, latestMessageAuthorId: null, latestMessagePreview: null, ...made, members: [id(413), id(414)], messages: [] },
+        ],
+        messageThreadMembers: [
+            seat(410, FAMILY, ADA, { memberRole: 'owner', isPinned: true, pinnedAt: '2026-01-03T08:00:00.000Z', lastReadAt: '2026-01-05T12:11:00.000Z', lastReadMessageId: id(422) }),
+            seat(411, FAMILY, BEN, { lastReadAt: '2026-01-05T12:05:00.000Z', lastReadMessageId: id(421) }),
+            seat(412, FAMILY, CAL, { notificationLevel: 'mute', isArchived: true }),
+            seat(413, ABOUT_PIANO, ADA, { memberRole: 'owner' }),
+            seat(414, ABOUT_PIANO, BEN, { memberRole: 'watcher', notificationLevel: 'watch' }),
+        ],
+        messages: [
+            said(420, 0, ADA, 'Dinner at six', { importance: 'needs_ack', attachments: [id(430)], reactions: [id(440)], acknowledgements: [id(450), id(451)] }),
+            said(421, 5, BEN, 'On my way', { replyToMessageId: id(420), replyTo: id(420) }),
+            // Removed by a parent, and from before a message said how important it was.
+            said(422, 10, CAL, '', { importance: null, isSystem: null, clientNonce: null, deletedAt: '2026-01-05T12:11:00.000Z', removedByFamilyMemberId: ADA, removedReason: 'Removed by parent' }),
+        ],
+        messageAttachments: [{ id: id(430), name: 'menu.jpg', type: 'image/jpeg', url: 'messages/menu.jpg', kind: 'image', sizeBytes: 1024, width: 200, height: 100, createdAt: '2026-01-05T12:00:00.000Z', updatedAt: '2026-01-05T12:00:00.000Z' }],
+        messageReactions: [{ id: id(440), messageId: id(420), familyMemberId: BEN, emoji: '👍', reactionKey: `reaction:${id(420)}:${BEN}:👍`, createdAt: '2026-01-05T12:01:00.000Z' }],
+        messageAcknowledgements: [
+            { id: id(450), messageId: id(420), familyMemberId: BEN, kind: 'acknowledged', ackKey: `ack:${id(420)}:${BEN}:acknowledged`, createdAt: '2026-01-05T12:02:00.000Z' },
+            // An older row, which said what it was only at the end of its key.
+            { id: id(451), messageId: id(420), familyMemberId: CAL, ackKey: `ack:${id(420)}:${CAL}:seen`, createdAt: '2026-01-05T12:03:00.000Z' },
+        ],
+    };
+}
+
 const at = (iso: string) => Date.parse(iso);
 
 /**
@@ -227,6 +272,7 @@ describe('importing an export', () => {
             allowance_envelopes: 3, envelope_balances: 3, allowance_transactions: 6, exchange_rates: 1,
             announcements: 2, content_categories: 1, content_queue_items: 1, family_rules: 1, family_rule_versions: 2, content_attachments: 1,
             family_dashboard_layouts: 1, family_dashboard_widgets: 1, dashboard_configs: 1, history_event_attachments: 1,
+            message_threads: 2, messages: 3, message_thread_members: 5, message_attachments: 1, message_reactions: 1, message_acknowledgements: 2,
         });
         expect(report.heldBack).toEqual({});
         expect(report.storedButNotMapped).toEqual({});
@@ -508,6 +554,74 @@ describe('importing an export', () => {
         expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
     });
 
+    it('carries messages: each thread with the people in it and how each keeps it, and what was said, answered, removed and done with it', async () => {
+        await importInto(db, family());
+        const [FAMILY, ABOUT_PIANO] = [id(400), id(401)];
+
+        expect(await one(db, `SELECT thread_type, visibility, thread_key, linked_domain, linked_entity_id, latest_message_at FROM message_threads WHERE id = $1`, [ABOUT_PIANO])).toEqual({
+            thread_type: 'linked', visibility: 'members', thread_key: `linked:chores:${PIANO}`, linked_domain: 'chores', linked_entity_id: PIANO, latest_message_at: null,
+        });
+        expect((await db.query(`SELECT family_member_id AS who, member_role AS role, notification_level AS notify, is_archived AS archived, pinned_at IS NOT NULL AS pinned, last_read_message_id AS read FROM message_thread_members WHERE thread_id = $1 ORDER BY family_member_id`, [FAMILY])).rows).toEqual([
+            { who: ADA, role: 'owner', notify: 'all', archived: false, pinned: true, read: id(422) },
+            { who: BEN, role: 'member', notify: 'all', archived: false, pinned: false, read: id(421) },
+            { who: CAL, role: 'member', notify: 'mute', archived: true, pinned: false, read: null },
+        ]);
+        expect((await db.query(`SELECT author_id AS by, body, importance, is_system AS system, reply_to_id AS answers, deleted_at IS NOT NULL AS removed, removed_by FROM messages ORDER BY created_at`)).rows).toEqual([
+            { by: ADA, body: 'Dinner at six', importance: 'needs_ack', system: false, answers: null, removed: false, removed_by: null },
+            { by: BEN, body: 'On my way', importance: 'normal', system: false, answers: id(420), removed: false, removed_by: null },
+            { by: CAL, body: '', importance: 'normal', system: false, answers: null, removed: true, removed_by: ADA },
+        ]);
+        expect((await db.query(`SELECT message_id, family_member_id, emoji FROM message_reactions`)).rows).toEqual([{ message_id: id(420), family_member_id: BEN, emoji: '👍' }]);
+        // What an acknowledgement was is its own column, for a row that said so and for one that said it only in its key.
+        expect((await db.query(`SELECT family_member_id AS who, kind FROM message_acknowledgements ORDER BY created_at`)).rows).toEqual([{ who: BEN, kind: 'acknowledged' }, { who: CAL, kind: 'seen' }]);
+        expect(await one(db, `SELECT message_id, url FROM message_attachments`)).toEqual({ message_id: id(420), url: 'messages/menu.jpg' });
+
+        // One thread of each kind, a person in a thread once, a reaction once, and a place in a thread only at one of its own messages.
+        await expect(db.query(`INSERT INTO message_threads (id, thread_type, visibility, thread_key, title) VALUES ($1, 'family', 'family', 'family', 'Family again')`, [id(402)])).rejects.toThrow();
+        await expect(db.query(`INSERT INTO message_thread_members (thread_id, family_member_id) VALUES ($1, $2)`, [FAMILY, BEN])).rejects.toThrow();
+        await expect(db.query(`INSERT INTO message_reactions (message_id, family_member_id, emoji) VALUES ($1, $2, '👍')`, [id(420), BEN])).rejects.toThrow();
+        await expect(db.query(`UPDATE message_thread_members SET last_read_message_id = $1 WHERE thread_id = $2 AND family_member_id = $3`, [id(421), ABOUT_PIANO, ADA])).rejects.toThrow();
+    });
+
+    it('keeps what was said when the person who said it leaves, and loses a place in a thread only with the message it was at', async () => {
+        await importInto(db, family());
+
+        await db.query(`DELETE FROM messages WHERE id = $1`, [id(421)]);
+        expect((await one(db, `SELECT last_read_message_id AS read, last_read_at IS NOT NULL AS had_read FROM message_thread_members WHERE thread_id = $1 AND family_member_id = $2`, [id(400), BEN]))).toEqual({ read: null, had_read: true });
+        await db.exec(`DELETE FROM chore_completions; DELETE FROM family_members WHERE id = '${CAL}'`);
+        expect(await one(db, `SELECT author_id, removed_by FROM messages WHERE id = $1`, [id(422)])).toEqual({ author_id: null, removed_by: ADA });
+        expect(await one(db, `SELECT (SELECT count(*) FROM message_thread_members WHERE family_member_id = '${CAL}')::int AS seats, (SELECT count(*) FROM message_acknowledgements)::int AS acks`)).toEqual({ seats: 0, acks: 1 });
+        // A thread that goes takes everything in it.
+        await db.query(`DELETE FROM message_threads WHERE id = $1`, [id(400)]);
+        expect(await one(db, `SELECT (SELECT count(*) FROM messages)::int AS messages, (SELECT count(*) FROM message_attachments)::int AS files, (SELECT count(*) FROM message_reactions)::int AS reactions`)).toEqual({ messages: 0, files: 0, reactions: 0 });
+    });
+
+    it('settles what messages left loose: a place in the wrong thread, a pin with no time, and what belongs to nobody or nothing', async () => {
+        const rows = family();
+        // Ada's place in the piano thread names a message of the family thread, and Ben pinned his without a time.
+        Object.assign(rows.messageThreadMembers[3], { lastReadMessageId: id(420), lastReadAt: '2026-01-05T12:00:00.000Z' });
+        Object.assign(rows.messageThreadMembers[4], { isPinned: true });
+        rows.messageThreadMembers.push({ ...rows.messageThreadMembers[4], id: id(415), familyMemberId: id(9), membershipKey: 'gone' });
+        rows.messages.push({ ...rows.messages[1], id: id(423), threadId: id(499), replyToMessageId: null, replyTo: undefined });
+        rows.messageReactions.push({ ...rows.messageReactions[0], id: id(441) });
+        rows.messageAcknowledgements.push({ id: id(452), messageId: id(420), familyMemberId: ADA, ackKey: 'ack:something-else', createdAt: '2026-01-05T12:04:00.000Z' });
+        const { rowsOf, report } = await importInto(db, rows);
+
+        expect(report.conversions).toMatchObject({
+            'messageThreadMembers.lastReadMessageId: a message of another thread, left empty': 1,
+            'messageThreadMembers: pinned at no recorded time, taken as when they joined': 1,
+        });
+        expect(report.heldBack).toEqual({
+            messageThreadMembers: { 'It is for nobody in the family.': 1 },
+            messages: { 'It is in no thread.': 1 },
+            messageReactions: { 'The same person already gave the message the same emoji.': 1 },
+            messageAcknowledgements: { 'It does not say whether the message was seen or acknowledged.': 1 },
+        });
+        expect(await one(db, `SELECT last_read_message_id AS read, last_read_at IS NOT NULL AS had_read FROM message_thread_members WHERE thread_id = $1 AND family_member_id = $2`, [id(401), ADA])).toEqual({ read: null, had_read: true });
+        expect((await one(db, `SELECT pinned_at = joined_at AS pinned_when_joined FROM message_thread_members WHERE thread_id = $1 AND family_member_id = $2`, [id(401), BEN])).pinned_when_joined).toBe(true);
+        expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
+    });
+
     it('holds a completion done, marked not done, or cleared, and never two of those at once', async () => {
         await importInto(db, family());
         const state = async (completionId: string) => one(db, `SELECT completed_at IS NOT NULL AS done, not_done, allowance_awarded AS awarded, marked_by FROM chore_completions WHERE id = $1`, [completionId]);
@@ -656,6 +770,19 @@ describe('the verification', () => {
         ['a widget\'s settings changed', `UPDATE family_dashboard_widgets SET config = '{"format":"12h"}'`, 'family_dashboard_widgets: every widget, where it sat, with its settings'],
         ['a person\'s arrangement reordered', `UPDATE dashboard_configs SET widget_order = '["balance","chores"]'`, 'dashboard_configs: each person\'s own arrangement, as they last left it'],
         ['a history entry\'s file gone', `DELETE FROM history_event_attachments`, 'history_event_attachments: none loaded but those whose owner was'],
+        ['a thread retitled', `UPDATE message_threads SET title = 'Everyone' WHERE id = '${id(400)}'`, 'message_threads: every thread, field by field'],
+        ['a thread about another chore', `UPDATE message_threads SET linked_entity_id = '${DISHES}' WHERE id = '${id(401)}'`, 'message_threads: every thread, field by field'],
+        ['a message reworded', `UPDATE messages SET body = 'Dinner at seven' WHERE id = '${id(420)}'`, 'messages: every message of a thread, word for word, by whom and in answer to what'],
+        ['a message by someone else', `UPDATE messages SET author_id = '${CAL}' WHERE id = '${id(421)}'`, 'messages: every message of a thread, word for word, by whom and in answer to what'],
+        ['a removed message put back', `UPDATE messages SET deleted_at = NULL WHERE id = '${id(422)}'`, 'messages: each thread has as many messages, and as many removed, as before'],
+        ['a message in another thread', `UPDATE message_thread_members SET last_read_message_id = NULL; UPDATE messages SET reply_to_id = NULL; UPDATE messages SET thread_id = '${id(401)}' WHERE id = '${id(421)}'`, 'messages: each thread has as many messages, and as many removed, as before'],
+        ['someone dropped from a thread', `DELETE FROM message_thread_members WHERE thread_id = '${id(400)}' AND family_member_id = '${CAL}'`, 'message_thread_members: each thread has exactly the people it had, each keeping it as they did'],
+        ['a thread no longer muted', `UPDATE message_thread_members SET notification_level = 'all' WHERE family_member_id = '${CAL}'`, 'message_thread_members: each thread has exactly the people it had, each keeping it as they did'],
+        ['a thread unpinned', `UPDATE message_thread_members SET pinned_at = NULL`, 'message_thread_members: each thread has exactly the people it had, each keeping it as they did'],
+        ['someone added to a thread', `INSERT INTO message_thread_members (thread_id, family_member_id) VALUES ('${id(401)}', '${CAL}')`, 'message_thread_members: each person is in as many threads as before'],
+        ['a message\'s file renamed', `UPDATE message_attachments SET name = 'other.jpg'`, 'message_attachments: every file, field by field'],
+        ['a reaction changed', `UPDATE message_reactions SET emoji = '👎'`, 'message_reactions, message_acknowledgements: each message has the reactions and acknowledgements it had, from the people it had them from'],
+        ['a seen turned into an acknowledgement', `UPDATE message_acknowledgements SET kind = 'acknowledged' WHERE family_member_id = '${CAL}'`, 'message_reactions, message_acknowledgements: each message has the reactions and acknowledgements it had, from the people it had them from'],
         ['a history entry reworded', `UPDATE history_events SET summary = 'Completed "Trash"' WHERE id = '${id(60)}'`, 'history_events: every event, field by field'],
         ['a history entry credited to someone else', `UPDATE history_events SET actor_id = '${BEN}' WHERE id = '${id(62)}'`, 'history_events: every event, field by field'],
         ['a history entry that is missing', `DELETE FROM history_events WHERE id = '${id(61)}'`, 'history_events: as many as were exported'],

@@ -15,6 +15,8 @@ export const TABLES = [
     'allowance_envelopes', 'envelope_balances', 'allowance_transactions', 'exchange_rates',
     'announcements', 'content_categories', 'content_queue_items', 'family_rules', 'family_rule_versions', 'content_attachments',
     'family_dashboard_layouts', 'family_dashboard_widgets', 'dashboard_configs', 'history_event_attachments',
+    // A member's place in a thread names a message, so the messages go in first.
+    'message_threads', 'messages', 'message_thread_members', 'message_attachments', 'message_reactions', 'message_acknowledgements',
 ];
 
 /** The columns written to each table. One the database fills in for itself, such as family_members.has_pin, is not among them. */
@@ -105,6 +107,24 @@ export const COLUMNS = {
         'id', 'history_event_id', 'name', 'type', 'url', 'kind', 'size_bytes', 'width', 'height', 'duration_sec', 'thumbnail_url', 'thumbnail_width',
         'thumbnail_height', 'blurhash', 'waveform_peaks', 'created_at', 'updated_at',
     ],
+    message_threads: [
+        'id', 'thread_type', 'visibility', 'thread_key', 'title', 'linked_domain', 'linked_entity_id', 'is_closed', 'created_by', 'latest_message_at',
+        'latest_message_author_id', 'latest_message_preview', 'created_at', 'updated_at',
+    ],
+    message_thread_members: [
+        'thread_id', 'family_member_id', 'member_role', 'notification_level', 'is_archived', 'pinned_at', 'joined_at', 'last_read_at',
+        'last_read_message_id',
+    ],
+    messages: [
+        'id', 'thread_id', 'author_id', 'body', 'importance', 'is_system', 'reply_to_id', 'client_nonce', 'metadata', 'created_at', 'updated_at',
+        'edited_at', 'editable_until', 'deleted_at', 'removed_by', 'removed_reason',
+    ],
+    message_attachments: [
+        'id', 'message_id', 'name', 'type', 'url', 'kind', 'size_bytes', 'width', 'height', 'duration_sec', 'thumbnail_url', 'thumbnail_width',
+        'thumbnail_height', 'blurhash', 'waveform_peaks', 'created_at', 'updated_at',
+    ],
+    message_reactions: ['message_id', 'family_member_id', 'emoji', 'created_at'],
+    message_acknowledgements: ['message_id', 'family_member_id', 'kind', 'created_at'],
 };
 
 /** Columns holding a JSON document. The importer hands these to Postgres as JSON text, whatever the value's shape. */
@@ -120,6 +140,8 @@ export const JSON_COLUMNS = {
     family_dashboard_widgets: ['config'],
     dashboard_configs: ['widget_order', 'disabled_widgets', 'widget_settings'],
     history_event_attachments: ['waveform_peaks'],
+    messages: ['metadata'],
+    message_attachments: ['waveform_peaks'],
 };
 
 /**
@@ -142,6 +164,17 @@ export const LEFT_BEHIND = {
     },
     routineMarkerStatuses: {
         key: 'The day and the marker are the key.',
+    },
+    messageThreads: {
+        searchText: 'Written for a search Instant could not do without it, and never read.',
+        titleNormalized: 'Written for a search Instant could not do without it, and never read.',
+    },
+    messageThreadMembers: {
+        membershipKey: 'The thread and the person are the key.',
+        sortTimestamp: 'A copy of when the thread last had a message. The list of threads orders by the thread.',
+    },
+    messageReactions: {
+        reactionKey: 'The message, the person and the emoji are the key.',
     },
     announcements: {
         isActive: 'It is showing while archived_at is empty.',
@@ -866,6 +899,146 @@ function content(rowsOf, out) {
     }
 }
 
+// ---- Messages ----
+
+function messaging(rowsOf, out) {
+    const members = new Set(out.tables.family_members.map((row) => row.id));
+    const member = (id) => (members.has(id) ? id : null);
+    // A reference held twice, as an attribute and as a link: the attribute, or failing that the link.
+    const either = (row, attribute, linked) => row[attribute] || linked.get(row.id) || null;
+
+    const threads = new Set();
+    const keys = new Set();
+    for (const row of rowsOf('messageThreads')) {
+        const type = oneOf(row.threadType, ['family', 'parents_only', 'direct', 'group', 'linked']);
+        const visibility = oneOf(row.visibility, ['family', 'parents_only', 'members']);
+        const key = trimmed(row.threadKey);
+        if (!type || !visibility) { hold(out, 'messageThreads', row, 'It is of no kind the app knows.'); continue; }
+        if (!key) { hold(out, 'messageThreads', row, 'It has no key.'); continue; }
+        if (keys.has(key)) { hold(out, 'messageThreads', row, 'Another thread already has its key.'); continue; }
+        keys.add(key);
+        threads.add(row.id);
+        const createdAt = instant(row.createdAt, out.notes, 'messageThreads.createdAt') ?? EPOCH;
+        out.tables.message_threads.push({
+            id: row.id,
+            thread_type: type,
+            visibility,
+            thread_key: key,
+            title: typeof row.title === 'string' ? row.title : '',
+            linked_domain: oneOf(row.linkedDomain, ['tasks', 'chores', 'calendar', 'finance']),
+            linked_entity_id: optionalText(row.linkedEntityId),
+            is_closed: row.isClosed === true,
+            created_by: member(row.createdByFamilyMemberId),
+            latest_message_at: instant(row.latestMessageAt, out.notes, 'messageThreads.latestMessageAt'),
+            latest_message_author_id: member(row.latestMessageAuthorId),
+            latest_message_preview: typeof row.latestMessagePreview === 'string' ? row.latestMessagePreview : null,
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'messageThreads.updatedAt') ?? createdAt,
+        });
+    }
+
+    const messageThread = new Map(pairs(rowsOf, ['messages', 'thread'], ['messageThreads', 'messages']));
+    const messageAuthor = new Map(pairs(rowsOf, ['messages', 'author'], ['familyMembers', 'authoredMessages']));
+    const messageReply = new Map(pairs(rowsOf, ['messages', 'replyTo'], ['messages', 'replies']));
+    const threadOf = new Map();
+    for (const row of rowsOf('messages')) {
+        const thread = either(row, 'threadId', messageThread);
+        if (threads.has(thread)) threadOf.set(row.id, thread);
+        else hold(out, 'messages', row, 'It is in no thread.');
+    }
+    for (const row of rowsOf('messages')) {
+        if (!threadOf.has(row.id)) continue;
+        const createdAt = instant(row.createdAt, out.notes, 'messages.createdAt') ?? EPOCH;
+        const reply = either(row, 'replyToMessageId', messageReply);
+        out.tables.messages.push({
+            id: row.id,
+            thread_id: threadOf.get(row.id),
+            author_id: member(either(row, 'authorFamilyMemberId', messageAuthor)),
+            body: typeof row.body === 'string' ? row.body : '',
+            importance: oneOf(row.importance, ['normal', 'urgent', 'announcement', 'needs_ack']) ?? 'normal',
+            is_system: row.isSystem === true,
+            // A reply answers a message of its own thread.
+            reply_to_id: threadOf.get(reply) === threadOf.get(row.id) && reply !== row.id ? reply : null,
+            client_nonce: optionalText(row.clientNonce),
+            metadata: isRecord(row.metadata) ? row.metadata : null,
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'messages.updatedAt') ?? createdAt,
+            edited_at: instant(row.editedAt, out.notes, 'messages.editedAt'),
+            editable_until: instant(row.editableUntil, out.notes, 'messages.editableUntil'),
+            deleted_at: instant(row.deletedAt, out.notes, 'messages.deletedAt'),
+            removed_by: member(row.removedByFamilyMemberId),
+            removed_reason: optionalText(row.removedReason),
+        });
+    }
+
+    const memberThread = new Map(pairs(rowsOf, ['messageThreadMembers', 'thread'], ['messageThreads', 'members']));
+    const memberPerson = new Map(pairs(rowsOf, ['messageThreadMembers', 'familyMember'], ['familyMembers', 'messageThreadMemberships']));
+    const seated = new Set();
+    for (const row of rowsOf('messageThreadMembers')) {
+        const thread = either(row, 'threadId', memberThread);
+        const person = either(row, 'familyMemberId', memberPerson);
+        if (!threads.has(thread)) { hold(out, 'messageThreadMembers', row, 'Its thread no longer exists.'); continue; }
+        if (!members.has(person)) { hold(out, 'messageThreadMembers', row, 'It is for nobody in the family.'); continue; }
+        if (seated.has(`${thread}\n${person}`)) { hold(out, 'messageThreadMembers', row, 'The person is already in the thread.'); continue; }
+        seated.add(`${thread}\n${person}`);
+        const joinedAt = instant(row.joinedAt, out.notes, 'messageThreadMembers.joinedAt') ?? EPOCH;
+        const pinnedAt = instant(row.pinnedAt, out.notes, 'messageThreadMembers.pinnedAt');
+        if (row.isPinned === true && !pinnedAt) count(out.notes, 'messageThreadMembers: pinned at no recorded time, taken as when they joined');
+        // How far someone has read is a message of that thread. Nothing checked that it was, and nothing reads it.
+        if (threadOf.has(row.lastReadMessageId) && threadOf.get(row.lastReadMessageId) !== thread) count(out.notes, 'messageThreadMembers.lastReadMessageId: a message of another thread, left empty');
+        out.tables.message_thread_members.push({
+            thread_id: thread,
+            family_member_id: person,
+            member_role: oneOf(row.memberRole, ['member', 'owner', 'watcher']) ?? 'member',
+            notification_level: oneOf(row.notificationLevel, ['all', 'mentions', 'mute', 'watch']) ?? 'all',
+            is_archived: row.isArchived === true,
+            // Pinned was a flag beside the time of pinning. The flag is what the app read.
+            pinned_at: row.isPinned === true ? pinnedAt ?? joinedAt : null,
+            joined_at: joinedAt,
+            last_read_at: instant(row.lastReadAt, out.notes, 'messageThreadMembers.lastReadAt'),
+            last_read_message_id: threadOf.get(row.lastReadMessageId) === thread ? row.lastReadMessageId : null,
+        });
+    }
+
+    const fileMessage = new Map(pairs(rowsOf, ['messageAttachments', 'message'], ['messages', 'attachments']));
+    for (const row of rowsOf('messageAttachments')) {
+        if (!threadOf.has(fileMessage.get(row.id))) { hold(out, 'messageAttachments', row, 'Its message no longer exists.'); continue; }
+        if (!trimmed(row.url)) { hold(out, 'messageAttachments', row, 'It names no file.'); continue; }
+        out.tables.message_attachments.push({ id: row.id, message_id: fileMessage.get(row.id), ...attachmentColumns(row, out.notes, 'messageAttachments') });
+    }
+
+    const reactionMessage = new Map(pairs(rowsOf, ['messageReactions', 'message'], ['messages', 'reactions']));
+    const reactionPerson = new Map(pairs(rowsOf, ['messageReactions', 'familyMember'], ['familyMembers', 'messageReactions']));
+    const reacted = new Set();
+    for (const row of rowsOf('messageReactions')) {
+        const message = either(row, 'messageId', reactionMessage);
+        const person = either(row, 'familyMemberId', reactionPerson);
+        const emoji = trimmed(row.emoji);
+        if (!threadOf.has(message)) { hold(out, 'messageReactions', row, 'Its message no longer exists.'); continue; }
+        if (!members.has(person)) { hold(out, 'messageReactions', row, 'It is by nobody in the family.'); continue; }
+        if (!emoji) { hold(out, 'messageReactions', row, 'It has no emoji.'); continue; }
+        if (reacted.has(`${message}\n${person}\n${emoji}`)) { hold(out, 'messageReactions', row, 'The same person already gave the message the same emoji.'); continue; }
+        reacted.add(`${message}\n${person}\n${emoji}`);
+        out.tables.message_reactions.push({ message_id: message, family_member_id: person, emoji, created_at: instant(row.createdAt, out.notes, 'messageReactions.createdAt') ?? EPOCH });
+    }
+
+    const ackMessage = new Map(pairs(rowsOf, ['messageAcknowledgements', 'message'], ['messages', 'acknowledgements']));
+    const ackPerson = new Map(pairs(rowsOf, ['messageAcknowledgements', 'familyMember'], ['familyMembers', 'messageAcknowledgements']));
+    const acknowledged = new Set();
+    for (const row of rowsOf('messageAcknowledgements')) {
+        const message = either(row, 'messageId', ackMessage);
+        const person = either(row, 'familyMemberId', ackPerson);
+        // Whether it says seen or acknowledged, which an older row kept only at the end of its key.
+        const kind = oneOf(row.kind, ['seen', 'acknowledged']) ?? oneOf(String(row.ackKey ?? '').split(':').at(-1), ['seen', 'acknowledged']);
+        if (!threadOf.has(message)) { hold(out, 'messageAcknowledgements', row, 'Its message no longer exists.'); continue; }
+        if (!members.has(person)) { hold(out, 'messageAcknowledgements', row, 'It is by nobody in the family.'); continue; }
+        if (!kind) { hold(out, 'messageAcknowledgements', row, 'It does not say whether the message was seen or acknowledged.'); continue; }
+        if (acknowledged.has(`${message}\n${person}\n${kind}`)) { hold(out, 'messageAcknowledgements', row, 'The same person already did the same with the message.'); continue; }
+        acknowledged.add(`${message}\n${person}\n${kind}`);
+        out.tables.message_acknowledgements.push({ message_id: message, family_member_id: person, kind, created_at: instant(row.createdAt, out.notes, 'messageAcknowledgements.createdAt') ?? EPOCH });
+    }
+}
+
 // ---- Task series ----
 
 const WORKFLOW_STATES = ['not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'];
@@ -1189,6 +1362,20 @@ function unmappedAttributes(rowsOf, out) {
         familyDashboardWidgets: ['widgetType', 'x', 'y', 'w', 'h', 'z', 'config', 'createdAt', 'updatedAt'],
         dashboardConfigs: ['widgetOrder', 'disabledWidgets', 'widgetSettings', 'updatedAt'],
         historyEventAttachments: ATTACHMENT_ATTRIBUTES,
+        messageThreads: [
+            'threadType', 'visibility', 'threadKey', 'title', 'linkedDomain', 'linkedEntityId', 'isClosed', 'createdByFamilyMemberId', 'latestMessageAt',
+            'latestMessageAuthorId', 'latestMessagePreview', 'createdAt', 'updatedAt',
+        ],
+        messageThreadMembers: [
+            'threadId', 'familyMemberId', 'memberRole', 'notificationLevel', 'isArchived', 'isPinned', 'pinnedAt', 'joinedAt', 'lastReadAt', 'lastReadMessageId',
+        ],
+        messages: [
+            'threadId', 'authorFamilyMemberId', 'body', 'importance', 'isSystem', 'replyToMessageId', 'clientNonce', 'metadata', 'createdAt', 'updatedAt',
+            'editedAt', 'editableUntil', 'deletedAt', 'removedByFamilyMemberId', 'removedReason',
+        ],
+        messageAttachments: ATTACHMENT_ATTRIBUTES,
+        messageReactions: ['messageId', 'familyMemberId', 'emoji', 'createdAt'],
+        messageAcknowledgements: ['messageId', 'familyMemberId', 'kind', 'ackKey', 'createdAt'],
         gradeTypes: ['name', 'kind', 'lowValue', 'highValue', 'lowLabel', 'highLabel', 'steps', 'isDefault', 'order', 'createdAt', 'updatedAt'],
         taskSeries: [
             'name', 'description', 'dependsOnSeriesId', 'startDate', 'targetEndDate', 'plannedEndDate', 'baselineDayBreakCount', 'workAheadAllowed',
@@ -1248,6 +1435,12 @@ const LINK_LABELS = {
     familyDashboardWidgets: ['layout'],
     dashboardConfigs: ['familyMember'],
     historyEventAttachments: ['event'],
+    messageThreads: ['members', 'messages'],
+    messageThreadMembers: ['thread', 'familyMember'],
+    messages: ['thread', 'author', 'replyTo', 'replies', 'attachments', 'reactions', 'acknowledgements', 'historyEvent'],
+    messageAttachments: ['message'],
+    messageReactions: ['message', 'familyMember'],
+    messageAcknowledgements: ['message', 'familyMember'],
     gradeTypes: ['taskUpdates'],
     taskSeries: ['familyMember', 'scheduledActivity', 'tasks'],
     tasks: ['taskSeries', 'parentTask', 'subTasks', 'subsequentTasks', 'attachments', 'responseFields', 'updates'],
@@ -1278,6 +1471,7 @@ export function buildRows(rowsOf) {
     taskSeries(rowsOf, out);
     finance(rowsOf, out);
     content(rowsOf, out);
+    messaging(rowsOf, out);
     unmappedAttributes(rowsOf, out);
     return out;
 }

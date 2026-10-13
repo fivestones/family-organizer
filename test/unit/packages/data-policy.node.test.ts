@@ -341,6 +341,16 @@ describe('what the family posts, and the dashboards', () => {
     });
 });
 
+describe('messages', () => {
+    it('are no device\'s to write: there is no rule for them, because there is nothing a device may send', () => {
+        for (const table of ['message_threads', 'message_thread_members', 'messages', 'message_attachments', 'message_reactions', 'message_acknowledgements']) {
+            expect(Object.keys(POLICY)).not.toContain(table);
+            expect(checkOperation({ op: 'PUT', table, id: id(400), data: {} }).valid).toBe(false);
+            expect(checkOperation({ op: 'DELETE', table, id: id(400) }).valid).toBe(false);
+        }
+    });
+});
+
 describe('history', () => {
     const event = (actor: string | null): DeviceOperation => ({ op: 'PUT', table: 'history_events', id: id(60), data: { occurred_at: '2026-03-09T18:00:00.000Z', domain: 'chores', action_type: 'chore_marked_done', summary: 'Completed "Dishes"', actor_id: actor, metadata: '{}' } });
 
