@@ -5,7 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import * as choreTiming from '@/packages/shared-core/src/chore-timing';
 import { applyMigrations, listMigrations } from '@/db/migrate.mjs';
-import { describeImport, loadTables, readExport } from '@/scripts/migrate/import.mjs';
+import { describeImport, loadTables, readExport, unknownIn } from '@/scripts/migrate/import.mjs';
 import { buildRows } from '@/scripts/migrate/mapping.mjs';
 import { verifyImport } from '@/scripts/migrate/verify.mjs';
 
@@ -744,6 +744,15 @@ describe('importing an export', () => {
         expect(report.conversions['choreManualStarts: not carried — Removed from the app before the move. The countdown\'s runs replaced it.']).toBe(1);
         expect(Object.keys(report.conversions).filter((note) => note.startsWith('$users: not carried'))).toHaveLength(1);
         expect(report.storedButNotMapped).toEqual({ pets: { '(every row)': 1 } });
+    });
+
+    it('names what it does not know, so that the import can stop before anything is lost without a word', async () => {
+        const rows = family();
+        rows.pets = [{ id: id(903), name: 'Rex' }];
+        Object.assign(rows.chores[0], { room: 'kitchen' });
+
+        expect(unknownIn(buildRows(readExport(writeExport(rows)))).sort()).toEqual(['chores: room (1 row)', 'pets: (every row) (1 row)']);
+        expect(unknownIn(buildRows(readExport(writeExport(family()))))).toEqual([]);
     });
 
     it('holds a completion done, marked not done, or cleared, and never two of those at once', async () => {

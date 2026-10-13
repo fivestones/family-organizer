@@ -76,6 +76,16 @@ export async function loadTables(db, tables, { replace = false } = {}) {
     }
 }
 
+/**
+ * What an export holds that this version has never heard of: an entity or an attribute that is neither mapped nor
+ * left behind on purpose. Someone who has added to the schema of their own copy will have some. Loading the rest
+ * would lose it without a word, so the import stops until it is mapped, or listed as left behind in mapping.mjs,
+ * or the person says to go on without it.
+ */
+export function unknownIn(built) {
+    return Object.entries(built.unmapped).map(([entity, names]) => `${entity}: ${Object.entries(names).map(([name, rows]) => `${name} (${rows} row${rows === 1 ? '' : 's'})`).join(', ')}`);
+}
+
 /** What the import did, in counts and reasons only. */
 export function describeImport(built, exportDir) {
     const reasons = {};
@@ -103,6 +113,16 @@ async function main() {
 
     const built = buildRows(readExport(exportDir));
     const report = describeImport(built, path.relative(root, exportDir));
+
+    const unknown = unknownIn(built);
+    if (unknown.length && !args.includes('--leave-unknown-behind')) {
+        console.error('This export holds something this version of the app does not know, and nothing has been loaded:\n');
+        for (const line of unknown) console.error(`  ${line}`);
+        console.error('\nIf your copy of the app added it, map it in scripts/migrate/mapping.mjs, or list it there as left behind.');
+        console.error('To load everything else and leave it behind, run again with --leave-unknown-behind.');
+        process.exitCode = 1;
+        return;
+    }
 
     const { default: pg } = await import('pg');
     const client = new pg.Client({ connectionString: process.env.DATABASE_URL });

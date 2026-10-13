@@ -16,6 +16,7 @@ This file says **what to do next and how far along it is**. It does not define b
 | [CLAUDE.md](CLAUDE.md) | Architecture, commands, and conventions |
 | [docs/dependency-maintenance.md](docs/dependency-maintenance.md) | Security updates and deployment dependency cleanup ([Scope 0](#scope-0--dependency-maintenance)) |
 | [docs/powersync-migration.md](docs/powersync-migration.md) | The move off InstantDB to PowerSync and Postgres: decisions, target design, phases ([Scope 7](#scope-7--the-move-to-powersync)) |
+| [docs/upgrade-from-instantdb.md](docs/upgrade-from-instantdb.md) | For anyone running their own copy: how their data moves, and how to try it on their own data today |
 
 **How to use it**
 
@@ -316,7 +317,9 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [ ] Phone: the same in a development build. **(you)** Install it.
 - [x] The tests of [what the slice must show](docs/powersync-migration.md#phase-2--one-slice-end-to-end): a completion crossing between devices, online and offline; a kid's hostile uploads refused; two claims for one chore; a lost answer not applied twice; a parent signed out with writes waiting; a session ending with a queue; two tabs.
   - `npm run test:sync:live` runs devices through the real PowerSync service in Docker, with two uploads racing for one row on a real Postgres. `npm run test:sync:e2e` runs the web client in three browsers, two tabs among them.
-- [ ] **(you)** One staging hostname over HTTPS through the reverse proxy, with `/powersync/` on it sent to the PowerSync service: prefix removed, WebSocket upgrades passed, response buffering off. The live app's address needs nothing yet. [docs/powersync-staging.md](docs/powersync-staging.md) is the walk-through, from an empty server folder to the app open on a device.
+- [~] **(you)** One staging hostname over HTTPS through the reverse proxy, with `/powersync/` on it sent to the PowerSync service: prefix removed, WebSocket upgrades passed, response buffering off. [docs/powersync-staging.md](docs/powersync-staging.md) is the walk-through.
+  - Staging is running on feynman since 13 October 2026, in its own folder, with the real export imported, on `127.0.0.1:8440` (the app) and `127.0.0.1:8430` (the sync service). The Caddy rule was run for real on another machine.
+  - **(you)** In the NixOS configuration the matcher is defined as `@budgeter` and used as `@family-organizer-staging`. Make both `@family-organizer-staging` and rebuild; until then `st.dat.im` answers with an empty page.
 - [ ] **(you)** Use it on an iPad and an iPhone, in Safari, as a home-screen app and in Orion: does it load, sync, work offline, and start with no network? Compare a few real chore days with the live app.
 - [~] Revise the specification's later phases from what building it showed.
   - Done from what building and testing it showed: Phases 4, 5 and 7 now say what the slice already built and what is left. To be done again after it has been on real devices.
@@ -331,7 +334,7 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [x] The rest of the schema as SQL migrations, following [the design rules](docs/powersync-migration.md#design-rules), with the mapping from every Instant attribute and link to its column, and a delete rule chosen for every relation.
   - Done on 13 October 2026, area by area, each with its migration, stream, device table, rules, mapping, verification and tests: the chore area, task series, money, content and dashboards, history, messaging with its two streams, the calendar, and the six tables only the server keeps. 55 tables in eleven migrations, 45 of them sent to devices ([log](docs/powersync-migration.md#implementation-log)).
   - **(you)** 112 rows belonging to tasks deleted in March 2026 are held back from the import, as the 46 orphaned completions are: 32 updates, 28 response fields, 44 answers and 8 files that no screen can reach ([log](docs/powersync-migration.md#implementation-log)). Say if any of it should be kept.
-  - **(you)** One member has four envelopes all marked as the default, and the import keeps the first. After an import, check on staging that it is the one you expect. Four empty envelopes whose members were deleted are carried as they are.
+  - One member has four envelopes all marked as the default, and the import keeps the first. David, 13 October 2026: that is what the app did with them, so it is right. Four empty envelopes whose members were deleted are carried as they are.
 - [x] Postgres and PowerSync in the production `docker-compose.yml`, with the cap on what replication may hold back, the health report, and the nightly dump copied off the machine.
   - Done on 13 October 2026. `scripts/powersync/nightly.sh` backs the database up, copies the dumps to an rclone remote and compacts PowerSync's storage; `/api/health` says how each is doing. Run for real against a throwaway stack, restore included; not yet from a scheduler, or to a real remote ([log](docs/powersync-migration.md#implementation-log)).
   - **(you)** Say where the copies go: set `BACKUP_OFFSITE_REMOTE` and put an rclone configuration in `./rclone`, ideally a `crypt` remote. When Postgres is in production, add the script to the server's crontab.
@@ -406,7 +409,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 
 - [ ] Delete every Instant implementation in the data layer and on the server, the seam between implementations, the Instant packages, schema and permission files, the choice of backend and the `instant-auth-*` routes.
 - [ ] Rewrite [CLAUDE.md](CLAUDE.md) and `AGENTS.md`, which currently tell every agent to build on InstantDB.
-- [ ] Rewrite the README's setup, add the upgrade guide for other people running the app, and note the PowerSync licence.
+- [ ] Rewrite the README's setup, finish [the upgrade guide](docs/upgrade-from-instantdb.md) for other people running the app, and note the PowerSync licence.
+  - The guide exists as far as the data goes: export, rehearse, and a plain answer. The import stops on anything it does not know. Left: the steps of the move itself, when the app can make it.
 - [ ] Update the reference documents in `docs/`.
 - [ ] Close what this makes moot: the hosted `choreManualStarts` deletion in [2.6](#26-checks-for-you) and the undeclared calendar attributes in [Scope 3](#scope-3--the-correctness-sweep).
 - [ ] Ship the phone build without Instant. Done when a search of the repository for `instant` finds only history.

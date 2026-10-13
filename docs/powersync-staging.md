@@ -56,10 +56,10 @@ The name after `@` on the first line must be the name `handle` is given on the s
 **4. Load the family's data.** With the export copied to `.migration/exports/` in the staging folder:
 
 ```bash
-docker compose run --rm -v "$PWD/.migration:/app/.migration" family-organizer node scripts/migrate/import.mjs
+docker compose run --rm --user "$(id -u):$(id -g)" -v "$PWD/.migration:/app/.migration" family-organizer node scripts/migrate/import.mjs
 ```
 
-It prints how many rows went into each table, anything it held back, and every conversion that changed how a value is held.
+It runs as you, so the export can stay readable by nobody else. It prints how many rows went into each table, anything it held back, and every conversion that changed how a value is held, and writes a report with the held-back rows under `.migration/imports/`.
 
 **5. Tell staging's clients to use PowerSync.**
 

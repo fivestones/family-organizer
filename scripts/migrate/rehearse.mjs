@@ -11,7 +11,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { applyMigrations } from '../../db/migrate.mjs';
-import { describeImport, loadTables, readExport } from './import.mjs';
+import { describeImport, loadTables, readExport, unknownIn } from './import.mjs';
 import { buildRows } from './mapping.mjs';
 import { loadTimingResolver, readEntity, verifyImport } from './verify.mjs';
 
@@ -52,7 +52,11 @@ async function main() {
         console.log(`  ${wrong.length ? 'FAIL' : 'ok  '}  ${name} (${compared} compared${wrong.length ? `, ${wrong.length} wrong: ${wrong.slice(0, 3).join(', ')}` : ''})`);
     }
     console.log(failed ? `\n${failed} check${failed === 1 ? '' : 's'} failed.` : '\nEvery check passed.');
-    if (failed) process.exitCode = 1;
+    const unknown = unknownIn(built);
+    if (unknown.length) console.log('\nThe export holds something this version does not know, listed above. The import will stop until it is mapped, listed as left behind, or you pass --leave-unknown-behind.');
+    const held = Object.values(built.heldBack).reduce((sum, rows) => sum + rows.length, 0);
+    if (!failed && !unknown.length) console.log(held ? `This export will import. ${held} row${held === 1 ? '' : 's'} will be held back, for the reasons above, and kept in a file beside the import's report.` : 'This export will import, whole.');
+    if (failed || unknown.length) process.exitCode = 1;
 }
 
 main().catch((error) => {

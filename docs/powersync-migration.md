@@ -11,6 +11,16 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — Staging is running on David's server, and the way to it was wrong in three places.**
+  David followed the staging guide and it failed. The guide assumed nginx on a Docker network shared with the live app, in the live app's folder. His server is NixOS with Caddy on the host, staging has a checkout of its own, and the live app is on another machine. Three things were wrong, and each is fixed.
+  Started plainly in its own folder, Compose tried to start the live stack and stopped on MinIO's images, **which can no longer be pulled from Docker Hub at all**. Staging now shares nothing with the live app: its own folder and `.env`, its own image, its own network, two ports on localhost for the host's proxy, and no file storage. `setup-env.mjs --staging` writes the whole `.env`, so every step is plain `docker compose`.
+  The image would not build, because the live app's pages are compiled into it and stop the build when there is no InstantDB app id. Staging's build is given a placeholder. That the build needs an id at all is a wrinkle of having both backends in one image, and goes with the Instant code in [Phase 9](#phase-9--cleanup).
+  The import could not read the export, because the folder had been closed to everyone but David and the container runs as someone else. It runs as him.
+  **What is running there now**, set up over SSH at David's word: the app, Postgres and the sync service; the real export imported, 50 tables and 13,629 rows, with the same 158 rows held back as everywhere else; clients told to use PowerSync. Asked from the server itself, the app activates a device, leads it to `/sync` and signs it in, and the sync service takes the app's token and sends the family stream: by table, exactly the rows the import loaded. **That is the comparison of a device's data with the real data that the entry above said had not been made**, by count and not field by field.
+  The Caddy rule was run here before it was needed there: a Caddy carrying it stood in front of the sync service and all 17 live tests passed through it, by WebSocket and by HTTP streaming.
+  **(you)** One line stands between this and a device. In the NixOS configuration the matcher is defined as `@budgeter` and used as `@family-organizer-staging`; until they agree, `st.dat.im` is answered by the wildcard site with an empty page. Changing a server's system configuration is not something done for you.
+  **(you)** MinIO's images being gone from Docker Hub means a fresh install of this app, anyone's, no longer starts, and the live app's server has only its cached copies. That is not part of this move and needs its own decision.
+
 - **2026-10-13 — Every write rule is shown by a write: who may add, change and remove a row of each table a device may write.**
   [Phase 5](#phase-5--sync-and-the-write-rules) asked for a behavioral case for every cell of Appendix B. `test/integration/server/write-rules-matrix.node.test.ts` is that: 37 tables, by three kinds of write, by four kinds of person — a parent, the kid a row belongs to, another kid, and the kid session a shared device rests on. Each cell sends the write through the upload route to a real database and then looks at the database: the row is there, changed or gone exactly when the cell says it may be. A second list covers the part of a row a person may not change though they may change the rest. Breaking one rule on purpose failed exactly its one cell.
   The 34 refusals the live Instant matrix asserts were checked off against it one by one. 30 are cells or columns here. Three are about a table that is not carried. One, a second payout with the same key, is a constraint of the database and is shown with the import. The matrix also holds the list of writable tables to the rules file, so a table added to one and not the other fails.
@@ -659,7 +669,7 @@ PowerSync supports all three ([supported platforms](https://docs.powersync.com/r
 
 **How it is checked.** Playwright runs only Chromium today. It gains Firefox and WebKit, and the sync and offline end-to-end tests run on all three, which covers engines the family does not use. Playwright's WebKit is not iOS Safari, so real devices are still needed: an iPad and an iPhone, each in a Safari tab, as a home-screen app and in Orion, and Firefox wherever the family uses it.
 
-**For other people running the app** the larger change is on the server, not the device: their deployment gains Postgres and the PowerSync service, and their reverse proxy one more rule, sending a path to it. The upgrade guide says so first.
+**For other people running the app** the larger change is on the server, not the device: their deployment gains Postgres and the PowerSync service, and their reverse proxy one more rule, sending a path to it. The upgrade guide says so first. [It exists](upgrade-from-instantdb.md) as far as the data goes: someone can export their own data and rehearse its import today, with nobody else's help, and is told plainly whether it will import.
 
 ## The phone
 
@@ -946,7 +956,7 @@ Keep the Instant app read-only and untouched until the August deadline, and down
 
 - Delete every Instant implementation in the data layer and on the server, and with them the seam between implementations, the journal of unconfirmed writes and the choice of backend; the Instant packages, `instant.schema.ts`, `instant.perms.ts` and the suites that guard it, the `instant-auth-*` routes and the MMKV store.
 - Rewrite `CLAUDE.md` and `AGENTS.md`, which currently instruct every agent to build on InstantDB.
-- Rewrite the README's setup, add the upgrade guide for other people running the app, state the supported browsers and devices, and note the PowerSync licence.
+- Rewrite the README's setup, finish [the upgrade guide for other people running the app](upgrade-from-instantdb.md) with the steps of the move itself, state the supported browsers and devices, and note the PowerSync licence.
 - Update the reference documents in `docs/`.
 - Close the roadmap items this makes moot: the hosted `choreManualStarts` deletion and the undeclared calendar attributes.
 - Ship the phone build without Instant.
