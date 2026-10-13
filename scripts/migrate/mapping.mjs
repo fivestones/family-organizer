@@ -1007,20 +1007,29 @@ function messaging(rowsOf, out) {
         if (threads.has(thread)) threadOf.set(row.id, thread);
         else hold(out, 'messages', row, 'It is in no thread.');
     }
+    const nonces = new Set();
     for (const row of rowsOf('messages')) {
         if (!threadOf.has(row.id)) continue;
         const createdAt = instant(row.createdAt, out.notes, 'messages.createdAt') ?? EPOCH;
         const reply = either(row, 'replyToMessageId', messageReply);
+        const author = member(either(row, 'authorFamilyMemberId', messageAuthor));
+        // A device's own word for a message names one message of one person in one thread. The first keeps it.
+        let nonce = optionalText(row.clientNonce);
+        if (nonce && author) {
+            const sent = `${threadOf.get(row.id)}\n${author}\n${nonce}`;
+            if (nonces.has(sent)) { count(out.notes, 'messages.clientNonce: used for a second message, cleared'); nonce = null; }
+            nonces.add(sent);
+        }
         out.tables.messages.push({
             id: row.id,
             thread_id: threadOf.get(row.id),
-            author_id: member(either(row, 'authorFamilyMemberId', messageAuthor)),
+            author_id: author,
             body: typeof row.body === 'string' ? row.body : '',
             importance: oneOf(row.importance, ['normal', 'urgent', 'announcement', 'needs_ack']) ?? 'normal',
             is_system: row.isSystem === true,
             // A reply answers a message of its own thread.
             reply_to_id: threadOf.get(reply) === threadOf.get(row.id) && reply !== row.id ? reply : null,
-            client_nonce: optionalText(row.clientNonce),
+            client_nonce: nonce,
             metadata: isRecord(row.metadata) ? row.metadata : null,
             created_at: createdAt,
             updated_at: instant(row.updatedAt, out.notes, 'messages.updatedAt') ?? createdAt,

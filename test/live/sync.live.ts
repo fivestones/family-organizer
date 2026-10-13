@@ -10,6 +10,7 @@ import { __resetParentElevationRateLimitForTests } from '@/lib/parent-elevation-
 import { getDb, type AppDatabase } from '@/lib/server/db';
 import { executeFinanceRequest, FinanceError } from '@/lib/server/finance';
 import { readDataHealth } from '@/lib/server/health';
+import * as messaging from '@/lib/server/messaging';
 import { hashPinServer } from '@/lib/server/pin';
 import { createSession } from '@/lib/server/sessions';
 import { applyUpload } from '@/lib/server/upload';
@@ -585,6 +586,28 @@ describe('money asked for by several at the same moment', () => {
         expect(await held(spending)).toBe(0);
         expect(await held(savings)).toBe(deposits * 2);
         await everyBalanceMatchesItsLedger();
+    });
+});
+
+describe('messages asked for by several at the same moment', () => {
+    it('make one thread for two people and send one message for one word, whoever gets there first', async () => {
+        const eli = await messaging.messagingActor(db, { type: 'kid', familyMemberId: ELI });
+        const fay = await messaging.messagingActor(db, { type: 'kid', familyMemberId: FAY });
+
+        const opened = await Promise.all(Array.from({ length: 8 }, (_, turn) => messaging.createThread(db, turn % 2 ? eli : fay, { threadType: 'direct', participantIds: [ELI, FAY] })));
+        expect(new Set(opened.map((thread) => thread.threadId)).size).toBe(1);
+        expect(opened.filter((thread) => thread.created)).toHaveLength(1);
+        expect(await serverRows(`SELECT count(*)::int AS n FROM message_thread_members`)).toEqual([{ n: 2 }]);
+
+        const threadId = opened[0].threadId;
+        const sent = await Promise.all(Array.from({ length: 8 }, () => messaging.sendMessage(db, eli, { threadId, body: 'On my way', clientNonce: 'eli-on-my-way' })));
+        expect(new Set(sent.map((message) => message.messageId)).size).toBe(1);
+        expect(sent.filter((message) => !message.alreadySent)).toHaveLength(1);
+
+        // Everyone talking at once: every message is kept, and the thread names the newest of them.
+        await Promise.all(Array.from({ length: 12 }, (_, turn) => messaging.sendMessage(db, turn % 2 ? eli : fay, { threadId, body: `Message ${turn}` })));
+        expect(await serverRows(`SELECT count(*)::int AS n FROM messages`)).toEqual([{ n: 13 }]);
+        expect(await serverRows(`SELECT (SELECT max(created_at) FROM messages) = latest_message_at AS newest FROM message_threads WHERE id = '${threadId}'`)).toEqual([{ newest: true }]);
     });
 });
 

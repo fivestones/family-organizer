@@ -15,6 +15,9 @@ export const jsonError = (status: number, code: string, error: string, headers: 
 
 export const jsonOk = (body: unknown) => NextResponse.json(body, { headers: noStore });
 
+/** Whether a request is made under the app's own session, which is how a client on PowerSync asks for anything. */
+export const askedUnderSession = (request: NextRequest) => request.headers.has(SESSION_TOKEN_HEADER);
+
 export type DatabaseContext = { ok: true; db: AppDatabase } | { ok: false; response: NextResponse };
 
 /** An activated device, on a deployment that has Postgres. Every route of the new backend starts here. */

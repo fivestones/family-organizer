@@ -5,7 +5,7 @@ import type { FinanceMutationRequest } from '@/lib/finance-mutation-client';
 import { executeServerFinanceMutation, FinanceMutationError } from '@/lib/finance-mutation-server';
 import { requireRequestFamilyMember } from '@/lib/request-family-member';
 import { executeFinanceRequest, FinanceError } from '@/lib/server/finance';
-import { jsonError, jsonOk, requireSession, SESSION_TOKEN_HEADER } from '@/lib/server/request-session';
+import { askedUnderSession, jsonError, jsonOk, requireSession } from '@/lib/server/request-session';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  * still on InstantDB asks with an Instant token and is served as before.
  */
 export async function POST(request: NextRequest) {
-    if (request.headers.has(SESSION_TOKEN_HEADER)) return postUnderSession(request);
+    if (askedUnderSession(request)) return postUnderSession(request);
 
     const authContext = await requireRequestFamilyMember(request);
     if ('error' in authContext) {

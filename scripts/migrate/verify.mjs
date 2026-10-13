@@ -677,11 +677,22 @@ export async function verifyImport(db, rowsOf, timing) {
     const threadOfMessage = (raw) => messageThread.get(raw.id) ?? raw.threadId;
     const wholeMessages = rawMessages.filter((raw) => threadRows.has(threadOfMessage(raw)));
     const message = check('messages: every message of a thread, word for word, by whom and in answer to what');
+    // One person's word for a message is kept by the first message in a thread to carry it.
+    const wordsUsed = new Set();
+    const wordOf = (raw) => {
+        const word = textOf(raw.clientNonce);
+        const by = memberOrNone(messageAuthor.get(raw.id) ?? raw.authorFamilyMemberId);
+        if (!word || !by) return word;
+        const used = [threadOfMessage(raw), by, word].join('|');
+        if (wordsUsed.has(used)) return null;
+        wordsUsed.add(used);
+        return word;
+    };
     for (const raw of wholeMessages) {
         const row = messageRows.get(raw.id);
         const reply = messageReply.get(raw.id) ?? raw.replyToMessageId ?? null;
         message(raw.id, Boolean(row) && row.thread_id === threadOfMessage(raw) && same(row.author_id, memberOrNone(messageAuthor.get(raw.id) ?? raw.authorFamilyMemberId)) && row.body === (raw.body ?? '')
-            && row.importance === (raw.importance ?? 'normal') && row.is_system === (raw.isSystem === true) && same(row.reply_to_id, messageRows.has(reply) ? reply : null) && same(row.client_nonce, textOf(raw.clientNonce))
+            && row.importance === (raw.importance ?? 'normal') && row.is_system === (raw.isSystem === true) && same(row.reply_to_id, messageRows.has(reply) ? reply : null) && same(row.client_nonce, wordOf(raw))
             && instantOf(row.created_at) === instantOf(raw.createdAt) && instantOf(row.edited_at) === instantOf(raw.editedAt) && instantOf(row.editable_until) === instantOf(raw.editableUntil)
             && instantOf(row.deleted_at) === instantOf(raw.deletedAt) && same(row.removed_by, memberOrNone(raw.removedByFamilyMemberId)) && same(row.removed_reason, textOf(raw.removedReason)));
     }

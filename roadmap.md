@@ -373,7 +373,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 
 - [x] Finance as locked database transactions, with the operation [the money rule](docs/powersync-migration.md#money-is-written-only-by-the-server) adds: reconciling a balance.
   - Done on 13 October 2026: `lib/server/finance.ts`, served by the existing route to any request made under the app's own session. Its races were run on Postgres 17. The database itself now refuses an archived default envelope ([log](docs/powersync-migration.md#implementation-log)). No screen calls it until the finance screens move in 7.7.
-- [ ] Messaging on unique constraints; calendar sync on advisory locks.
+- [~] Messaging on unique constraints; calendar sync on advisory locks.
+  - Messaging is done, 13 October 2026: `lib/server/messaging.ts`, served by the message routes to any request made under the app's own session. The database now keeps everyone in the family's thread and the parents in theirs ([log](docs/powersync-migration.md#implementation-log)). Left: calendar sync.
 - [ ] Members and PINs, shortcuts, the content queue, exchange rates, the server actions.
 - [ ] The report scripts rewritten; the backfill scripts removed.
 

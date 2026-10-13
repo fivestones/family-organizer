@@ -647,9 +647,12 @@ describe('importing an export', () => {
         rows.messages.push({ ...rows.messages[1], id: id(423), threadId: id(499), replyToMessageId: null, replyTo: undefined });
         rows.messageReactions.push({ ...rows.messageReactions[0], id: id(441) });
         rows.messageAcknowledgements.push({ id: id(452), messageId: id(420), familyMemberId: ADA, ackKey: 'ack:something-else', createdAt: '2026-01-05T12:04:00.000Z' });
+        // Ben's device sent one message twice, under the one word it had given it.
+        rows.messages.push({ ...rows.messages[1], id: id(424), replyToMessageId: null, replyTo: undefined });
         const { rowsOf, report } = await importInto(db, rows);
 
         expect(report.conversions).toMatchObject({
+            'messages.clientNonce: used for a second message, cleared': 1,
             'messageThreadMembers.lastReadMessageId: a message of another thread, left empty': 1,
             'messageThreadMembers: pinned at no recorded time, taken as when they joined': 1,
         });
