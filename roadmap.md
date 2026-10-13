@@ -373,7 +373,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 
 [Phase 7](docs/powersync-migration.md#phase-7--the-data-layer-on-powersync). Each page gets a new version under `app/sync/`: its area's types, reads and mutations on the device's database, the page with the interface of the one it replaces, and a browser test against the real sync service. Each ends with **(you)** using it on staging.
 
-- [ ] The frame: every page of the new app in one layout with its navigation, shown at the old page's address on a PowerSync deployment.
+- [x] The frame: every page of the new app in one layout with its navigation, shown at the old page's address on a PowerSync deployment.
+  - Done on 13 October 2026, and run in three browsers. A page with no new version yet says so. **(you)** After the next deploy to staging, `st.dat.im` shows the old header and navigation; Chores and Settings work, the rest say they are on their way.
 - [ ] Settings and the family: household scheduling, currencies, countdown, grade types, dashboard settings; the family list, with adding, editing, ordering and removing a member, photos and PINs.
 - [ ] The chore day in full: adding and editing chores, rotation, up for grabs, the routines and their manager, the countdown and the sequence view.
 - [ ] Money: a member's envelopes, deposits, withdrawals and transfers, transaction history, goals, and allowance distribution.

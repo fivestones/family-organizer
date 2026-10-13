@@ -18,6 +18,7 @@ const PUBLIC_ALLOWLIST_PATHS = [
 const PUBLIC_ALLOWLIST_PREFIXES = ['/api/mobile/'];
 
 const POWERSYNC_HOME = '/sync';
+const isPowerSyncPage = (pathname: string) => pathname === POWERSYNC_HOME || pathname.startsWith(`${POWERSYNC_HOME}/`);
 /** A page of the app, as opposed to an API route or one of the files a page loads. */
 const isAppPage = (pathname: string) => !pathname.startsWith('/api/') && !pathname.startsWith('/_next/') && !pathname.startsWith('/@powersync/') && !/\.[a-z0-9]+$/i.test(pathname);
 
@@ -47,10 +48,10 @@ export async function middleware(request: NextRequest) {
         // --- B. PASS: Check if device is already authenticated ---
         const deviceCookie = request.cookies.get(DEVICE_AUTH_COOKIE_NAME);
         if (deviceCookie && deviceCookie.value === expectedToken) {
-            // A deployment on PowerSync has one page so far. Every other page still needs InstantDB, which such
-            // a deployment does not have, so it is sent to the page that works.
-            if (process.env.DATA_BACKEND === 'powersync' && isAppPage(pathname) && pathname !== POWERSYNC_HOME) {
-                return NextResponse.redirect(new URL(POWERSYNC_HOME, request.url));
+            // On a deployment whose clients are on PowerSync, every page is shown from the app built on it, which
+            // lives under /sync, at the address the old page had. The old pages need InstantDB and are not reached.
+            if (process.env.DATA_BACKEND === 'powersync' && isAppPage(pathname) && !isPowerSyncPage(pathname)) {
+                return NextResponse.rewrite(new URL(`${POWERSYNC_HOME}${pathname === '/' ? '' : pathname}`, request.url));
             }
             return NextResponse.next();
         }

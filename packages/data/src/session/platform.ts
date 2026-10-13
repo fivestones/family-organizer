@@ -32,7 +32,7 @@ export interface DevicePlatform {
         set(key: string, value: string): Promise<void>;
     };
     /** Calls the app's own server. Rejects when the server cannot be reached. */
-    request(path: string, init?: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown; sessionToken?: string }): Promise<ServerResponse>;
+    request(path: string, init?: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown; sessionToken?: string }): Promise<ServerResponse>;
     /** A full address for the sync service from what the configuration gives. */
     resolveUrl(pathOrUrl: string): string;
     createId(): string;

@@ -108,4 +108,27 @@ describe('middleware device auth gate', () => {
         expect(setCookie).toContain(VALID_COOKIE);
         expect(setCookie).not.toContain('Domain=');
     });
+
+    it('shows the app built on PowerSync at every page\'s own address, on a deployment whose clients are on it', async () => {
+        const at = (path: string) => middleware(new NextRequest(`http://localhost:3000${path}`, { headers: { cookie: VALID_COOKIE } }));
+        const shown = async (path: string) => (await at(path)).headers.get('x-middleware-rewrite');
+
+        // On InstantDB, as every deployment was: each page is its own.
+        expect(await shown('/calendar')).toBeNull();
+
+        process.env.DATA_BACKEND = 'powersync';
+        try {
+            expect(await shown('/')).toBe('http://localhost:3000/sync');
+            expect(await shown('/calendar')).toBe('http://localhost:3000/sync/calendar');
+            expect(await shown('/task-series/abc')).toBe('http://localhost:3000/sync/task-series/abc');
+            // Already there, or not a page at all: left alone.
+            expect(await shown('/sync/settings')).toBeNull();
+            expect(await shown('/api/client-config')).toBeNull();
+            expect(await shown('/@powersync/worker.js')).toBeNull();
+            // An unactivated device still gets nothing.
+            expect((await middleware(new NextRequest('http://localhost:3000/calendar'))).status).toBe(404);
+        } finally {
+            delete process.env.DATA_BACKEND;
+        }
+    });
 });

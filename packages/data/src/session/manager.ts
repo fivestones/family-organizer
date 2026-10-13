@@ -454,7 +454,7 @@ export class SessionManager {
         if (key && held && held.state === 'active') {
             const db = await this.database(key);
             if (this.snapshot.device?.db !== db) await this.connect(key);
-            device = this.snapshot.device?.db === db ? this.snapshot.device : { db, principal: held.principal, createId: this.platform.createId, now: this.platform.now };
+            device = this.snapshot.device?.db === db ? this.snapshot.device : { db, principal: held.principal, createId: this.platform.createId, now: this.platform.now, sessionToken: held.token, request: (path, init) => this.platform.request(path, { ...init, sessionToken: held.token }) };
         }
         const waiting: WaitingChanges[] = [];
         for (const [waitingKey, session] of Object.entries(this.state.sessions)) {

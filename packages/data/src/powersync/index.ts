@@ -1,5 +1,7 @@
 import type { DataBackend } from '../backend';
+import { setDataBackend } from '../backend';
 import { createPowerSyncChoresBackend } from './chores';
+import { setCurrentDevice } from './current';
 import type { Device } from './device';
 import { createPowerSyncFamilyBackend } from './family';
 import { createPowerSyncSettingsBackend } from './settings';
@@ -19,4 +21,13 @@ export function createPowerSyncBackend(device: Device): DataBackend {
         units: createPowerSyncUnitsBackend(device),
         chores: createPowerSyncChoresBackend(device),
     };
+}
+
+/**
+ * Points the whole data layer at one person's database: the areas with a seam, and the areas written directly on
+ * PowerSync. The app's frame calls it when someone is signed in, before it mounts anything that reads.
+ */
+export function bindDevice(device: Device): void {
+    setDataBackend(createPowerSyncBackend(device));
+    setCurrentDevice(device);
 }

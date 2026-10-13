@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { DEVICE_KEY, ELI, FAY, query, resetFamily } from './support/family';
 
-// The slice of the app that runs on PowerSync, in a real browser, against the real sync service.
+// The app on PowerSync, in a real browser, against the real sync service.
 
 test.beforeEach(async () => {
     await resetFamily();
 });
 
 /**
- * Opens the app on an activated device. On a PowerSync deployment every page leads to /sync.
+ * Opens the app on an activated device. On a PowerSync deployment every address shows the app built on it.
  *
  * The activation cookie is put in place directly. The app marks it for secure connections only when it runs a
  * production build, and this test serves one over plain http, where WebKit will not keep such a cookie.
@@ -17,7 +17,7 @@ test.beforeEach(async () => {
 async function open(page: Page) {
     await page.context().addCookies([{ name: 'activation_token', value: createHash('sha256').update(DEVICE_KEY).digest('hex'), url: 'http://127.0.0.1:3210' }]);
     await page.goto('/');
-    await expect(page).toHaveURL(/\/sync$/);
+    await expect(page).toHaveURL(/3210\/$/);
     await expect(page.getByTestId('powersync-app')).toHaveAttribute('data-phase', 'ready');
     await expect(page.getByTestId('sync-badge')).toContainText('Up to date');
 }
@@ -97,7 +97,7 @@ test('the app starts with no network from what it kept, and a chore ticked then 
 
     // Opened afresh, at the app's home address, with nothing to load it from but what was kept.
     expect((await page.goto('/'))?.ok()).toBe(true);
-    await expect(page).toHaveURL(/\/sync$/);
+    await expect(page).toHaveURL(/3210\/$/);
     await expect(page.getByTestId('person-button')).toContainText('Eli');
     await expect(chore(page, 'Dishes')).toBeVisible();
 
@@ -112,14 +112,18 @@ test('the app starts with no network from what it kept, and a chore ticked then 
 test('a parent steps in with a PIN, sees the settings, and is signed out back to the kid', async ({ page }) => {
     await open(page);
     await signInAs(page, 'Eli');
-    await page.getByTestId('tab-settings').click();
+    // Through the navigation, as a person would: the address is the old page's, and the page is the new one.
+    await page.getByTestId('main-nav-group-trigger-admin').click();
+    await page.getByTestId('main-nav-group-item-settings').click();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.getByTestId('parent-only')).toBeVisible();
     await expect(page.getByTestId('settings')).toHaveCount(0);
 
     await signInAs(page, 'Dana', '2468');
-    await page.getByTestId('tab-settings').click();
     await expect(page.getByTestId('settings')).toBeVisible();
     // A parent may tick for a kid, and the server records who pressed.
-    await page.getByTestId('tab-chores').click();
+    await page.getByTestId('main-nav-link-chores').click();
+    await expect(page).toHaveURL(/\/chores$/);
     await person(page, 'Dishes', FAY).click();
     await expect.poll(async () => query(`SELECT completed_by, marked_by FROM chore_completions`)).toEqual([{ completed_by: FAY, marked_by: (await query(`SELECT id FROM family_members WHERE name = 'Dana'`))[0].id }]);
 
@@ -138,4 +142,14 @@ test('the wrong PIN signs nobody in', async ({ page }) => {
 
     await expect(page.getByRole('alert')).toContainText('not right');
     expect(await query(`SELECT 1 FROM auth_sessions WHERE family_member_id = $1`, [FAY])).toEqual([]);
+});
+
+test('a page that has no new version yet says so, and the rest of the app is one click away', async ({ page }) => {
+    await open(page);
+    await page.getByTestId('main-nav-link-calendar').click();
+
+    await expect(page).toHaveURL(/\/calendar$/);
+    await expect(page.getByTestId('not-moved-yet')).toBeVisible();
+    await page.getByRole('link', { name: 'Go to today’s chores' }).click();
+    await expect(chore(page, 'Dishes')).toBeVisible();
 });

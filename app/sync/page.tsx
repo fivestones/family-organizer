@@ -1,6 +1,6 @@
-import { SyncPreview } from '@/components/sync/SyncPreview';
+import { ChoresPage } from '@/components/sync/ChoresPage';
 
-/** The app on PowerSync, as far as it has been built (docs/powersync-migration.md, Phase 2). */
-export default function SyncPage() {
-    return <SyncPreview />;
+/** Home. It is the day's chores until the dashboards are built, which come last because they read everything else. */
+export default function HomePage() {
+    return <ChoresPage />;
 }

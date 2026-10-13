@@ -2,25 +2,29 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { CloudOff, Loader2 } from 'lucide-react';
-import { createPowerSyncBackend } from '@family-organizer/data/powersync';
+import Link from 'next/link';
+import { bindDevice } from '@family-organizer/data/powersync';
 import { SessionManager, type SessionSnapshot } from '@family-organizer/data/session/manager';
 import type { InstallationConfig } from '@family-organizer/data/session/platform';
-import CountdownSettings from '@/components/CountdownSettings';
-import CurrencySettings from '@/components/CurrencySettings';
+import { MainNav } from '@/components/MainNav';
+import NavbarDate from '@/components/NavbarDate';
 import { PwaServiceWorkerRegistration } from '@/components/PwaServiceWorkerRegistration';
+import { ThemedHeader, ThemedMain } from '@/components/ThemedAppShell';
 import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/toaster';
-import { principalKey, setDataBackend, useFamilyMembers, type Principal } from '@/lib/data';
+import { principalKey, useFamilyMembers, type Principal } from '@/lib/data';
+import { DashboardThemeProvider } from '@/lib/freeform-dashboard/DashboardThemeContext';
 import { createWebPlatform, missingBrowserFeatures, type StorageMode } from '@/lib/powersync/web-platform';
 import { cn } from '@/lib/utils';
-import { ChoreDayScreen } from './ChoreDayScreen';
 import { PersonSwitcher } from './PersonSwitcher';
 import { RefusalList } from './RefusalList';
+import { SessionProvider } from './session';
 import { SyncBadge } from './SyncBadge';
 import { useOfflineStart } from './useOfflineStart';
 
-// The app on PowerSync, as far as it has been built: a day's chores and two of the settings panels, with real
-// sessions, a local database for each person, and sync (docs/powersync-migration.md, Phase 2).
+// The frame of the app on PowerSync: it starts the session manager, signs this device in, points the data layer at
+// the signed-in person's local database, and draws the header every page shares. A page is what it is given to
+// show (docs/powersync-migration.md, "How the app gets there").
 
 type Started =
     | { phase: 'ready'; manager: SessionManager; storageMode: StorageMode }
@@ -87,10 +91,9 @@ function Centered({ children }: { children: React.ReactNode }) {
 
 const personName = (principal: Principal, names: ReadonlyMap<string, string>) => (principal.familyMemberId ? names.get(principal.familyMemberId) ?? 'someone' : 'the shared sign-in');
 
-function SignedIn({ manager, snapshot, storageMode }: { manager: SessionManager; snapshot: SessionSnapshot; storageMode: StorageMode }) {
+function SignedIn({ manager, snapshot, storageMode, children }: { manager: SessionManager; snapshot: SessionSnapshot; storageMode: StorageMode; children: React.ReactNode }) {
     const device = snapshot.device!;
     const { principal } = device;
-    const [view, setView] = useState<'chores' | 'settings'>('chores');
     const { data: members } = useFamilyMembers();
     const names = useMemo(() => new Map(members.map((member) => [member.id, member.name])), [members]);
 
@@ -111,84 +114,72 @@ function SignedIn({ manager, snapshot, storageMode }: { manager: SessionManager;
         };
     }, [manager, snapshot.steppedIn]);
 
+    const notices = (
+        <>
+            {storageMode === 'memory' ? (
+                <Notice tone="warning">This browser will not let the app keep anything. It works while you are online, and forgets everything when you close it.</Notice>
+            ) : null}
+            {snapshot.waiting.map((waiting) => (
+                <Notice key={principalKey(waiting.principal)} tone="warning">
+                    <div className="flex flex-wrap items-center justify-between gap-2" data-testid="waiting-changes">
+                        <p>
+                            {waiting.count === 1 ? '1 change' : `${waiting.count} changes`} by {personName(waiting.principal, names)} {waiting.count === 1 ? 'is' : 'are'} waiting for them to sign in on this device again.
+                        </p>
+                        {principal.type === 'parent' ? (
+                            <Button variant="outline" size="sm" onClick={() => void manager.discardWaiting(waiting.principal)}>
+                                Discard
+                            </Button>
+                        ) : null}
+                    </div>
+                </Notice>
+            ))}
+            {snapshot.stranded.length ? (
+                <Notice tone="warning">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p>
+                            {snapshot.stranded.reduce((sum, stranded) => sum + stranded.count, 0)} changes made on this device before the family’s data was replaced could not be sent. They will need to be made again.
+                        </p>
+                        <Button variant="outline" size="sm" onClick={() => void manager.discardStranded()}>
+                            Got it
+                        </Button>
+                    </div>
+                </Notice>
+            ) : null}
+            <RefusalList />
+        </>
+    );
+
     return (
-        <div className="flex h-full flex-col">
-            <header className="flex shrink-0 items-center justify-between gap-3 border-b bg-background/95 px-4 py-2.5 backdrop-blur sm:px-6">
-                <div className="flex min-w-0 items-baseline gap-2">
-                    <h1 className="truncate text-lg font-bold tracking-tight">Family Organizer</h1>
-                    <span className="hidden rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-sky-800 sm:inline">Sync preview</span>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                    <SyncBadge db={device.db} />
-                    <PersonSwitcher manager={manager} principal={principal} steppedIn={snapshot.steppedIn} />
-                </div>
-            </header>
-
-            <main className="min-h-0 flex-1 overflow-y-auto">
-                <div className="mx-auto w-full max-w-2xl space-y-4 px-4 py-5 sm:px-6">
-                    {storageMode === 'memory' ? (
-                        <Notice tone="warning">This browser will not let the app keep anything. It works while you are online, and forgets everything when you close it.</Notice>
-                    ) : null}
-                    {snapshot.waiting.map((waiting) => (
-                        <Notice key={principalKey(waiting.principal)} tone="warning">
-                            <div className="flex flex-wrap items-center justify-between gap-2" data-testid="waiting-changes">
-                                <p>
-                                    {waiting.count === 1 ? '1 change' : `${waiting.count} changes`} by {personName(waiting.principal, names)} {waiting.count === 1 ? 'is' : 'are'} waiting for them to sign in on this device again.
-                                </p>
-                                {principal.type === 'parent' ? (
-                                    <Button variant="outline" size="sm" onClick={() => void manager.discardWaiting(waiting.principal)}>
-                                        Discard
-                                    </Button>
-                                ) : null}
-                            </div>
-                        </Notice>
-                    ))}
-                    {snapshot.stranded.length ? (
-                        <Notice tone="warning">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p>
-                                    {snapshot.stranded.reduce((sum, stranded) => sum + stranded.count, 0)} changes made on this device before the family’s data was replaced could not be sent. They will need to be made again.
-                                </p>
-                                <Button variant="outline" size="sm" onClick={() => void manager.discardStranded()}>
-                                    Got it
-                                </Button>
-                            </div>
-                        </Notice>
-                    ) : null}
-                    <RefusalList />
-
-                    <nav className="inline-flex rounded-lg border bg-muted p-1 text-sm" aria-label="Sections">
-                        {(['chores', 'settings'] as const).map((name) => (
-                            <button
-                                key={name}
-                                type="button"
-                                data-testid={`tab-${name}`}
-                                aria-current={view === name}
-                                onClick={() => setView(name)}
-                                className={cn('rounded-md px-3 py-1.5 font-medium capitalize transition-colors', view === name ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}
-                            >
-                                {name}
-                            </button>
-                        ))}
-                    </nav>
-
-                    {view === 'chores' ? (
-                        <ChoreDayScreen principal={principal} />
-                    ) : principal.type === 'parent' ? (
-                        <div className="space-y-4" data-testid="settings">
-                            <CurrencySettings />
-                            <CountdownSettings />
+        <SessionProvider manager={manager} snapshot={snapshot}>
+            <DashboardThemeProvider>
+                <div className="flex h-full flex-col">
+                    <ThemedHeader>
+                        <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-6">
+                            <Link href="/" className="shrink-0 whitespace-nowrap text-lg font-bold tracking-tight transition-opacity hover:opacity-80 sm:text-xl">
+                                Family Organizer
+                            </Link>
+                            <MainNav className="min-w-0 flex-1" />
                         </div>
-                    ) : (
-                        <Notice>Settings are a parent’s to change. Sign in as a parent to see them.</Notice>
-                    )}
+                        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+                            <SyncBadge db={device.db} />
+                            <NavbarDate />
+                            <PersonSwitcher manager={manager} principal={principal} steppedIn={snapshot.steppedIn} />
+                        </div>
+                    </ThemedHeader>
+                    <ThemedMain>
+                        {/* What the device has to say about itself sits above whichever page is open, and takes no room when there is nothing. */}
+                        <div className="mx-auto w-full max-w-3xl space-y-3 px-4 empty:hidden sm:px-6 [&:not(:empty)]:pt-4" data-testid="device-notices">
+                            {notices}
+                        </div>
+                        {children}
+                    </ThemedMain>
                 </div>
-            </main>
-        </div>
+            </DashboardThemeProvider>
+        </SessionProvider>
     );
 }
 
-function Ready({ manager, storageMode }: { manager: SessionManager; storageMode: StorageMode }) {
+function Ready({ manager, storageMode, children }: { manager: SessionManager; storageMode: StorageMode; children: React.ReactNode }) {
     const snapshot = useSyncExternalStore(manager.subscribe, manager.getSnapshot, manager.getSnapshot);
     const [problem, setProblem] = useState<string | null>(null);
     const device = snapshot.device;
@@ -215,7 +206,7 @@ function Ready({ manager, storageMode }: { manager: SessionManager; storageMode:
     // below is mounted afresh when the person changes.
     const personKey = useMemo(() => {
         if (!device) return null;
-        setDataBackend(createPowerSyncBackend(device));
+        bindDevice(device);
         return principalKey(device.principal);
     }, [device]);
 
@@ -227,10 +218,14 @@ function Ready({ manager, storageMode }: { manager: SessionManager; storageMode:
             </Centered>
         );
     }
-    return <SignedIn key={personKey} manager={manager} snapshot={snapshot} storageMode={storageMode} />;
+    return (
+        <SignedIn key={personKey} manager={manager} snapshot={snapshot} storageMode={storageMode}>
+            {children}
+        </SignedIn>
+    );
 }
 
-export default function PowerSyncApp() {
+export default function PowerSyncApp({ children }: { children: React.ReactNode }) {
     const [started, setStarted] = useState<Started | null>(null);
     const startsOffline = useOfflineStart();
     useEffect(() => {
@@ -249,7 +244,9 @@ export default function PowerSyncApp() {
                     <p>Starting…</p>
                 </Centered>
             ) : started.phase === 'ready' ? (
-                <Ready manager={started.manager} storageMode={started.storageMode} />
+                <Ready manager={started.manager} storageMode={started.storageMode}>
+                    {children}
+                </Ready>
             ) : started.phase === 'unsupported' ? (
                 <Centered>
                     <p className="text-base font-medium text-foreground">This browser cannot run Family Organizer.</p>
