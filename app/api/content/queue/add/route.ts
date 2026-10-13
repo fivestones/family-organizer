@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { id } from '@instantdb/admin';
 import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
 import { getInstantAdminDb } from '@/lib/instant-admin';
+import { addQueueItem, NoSuchCategoryError } from '@/lib/server/content-queue';
+import { getDb } from '@/lib/server/db';
+import { servesFromPostgres } from '@/lib/server/installation';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +44,9 @@ export async function POST(request: NextRequest) {
     }
 
     try {
+        if (await servesFromPostgres()) {
+            return NextResponse.json(await addQueueItem(getDb(), body), { status: 201, headers: { 'Cache-Control': 'no-store' } });
+        }
         const adminDb = getInstantAdminDb();
 
         // Look up category by slug
@@ -91,6 +97,7 @@ export async function POST(request: NextRequest) {
             { status: 201, headers: { 'Cache-Control': 'no-store' } },
         );
     } catch (error) {
+        if (error instanceof NoSuchCategoryError) return NextResponse.json({ error: error.message }, { status: 404 });
         console.error('Failed to add content queue item', error);
         return NextResponse.json(
             { error: 'Failed to add item to queue' },

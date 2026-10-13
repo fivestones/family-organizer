@@ -30,3 +30,13 @@ export async function readClientConfig(): Promise<ClientConfig> {
         powersyncUrl: process.env.POWERSYNC_URL || '/powersync',
     };
 }
+
+/**
+ * Whether this deployment's clients are on PowerSync. A route with no session to go by, such as one a shortcut or
+ * a scheduled job calls, serves from Postgres when they are and from InstantDB when they are not.
+ */
+export async function servesFromPostgres(): Promise<boolean> {
+    if (!isPostgresConfigured()) return false;
+    const row = await getDb().selectFrom('installation').select('backend').executeTakeFirstOrThrow();
+    return row.backend === 'powersync';
+}

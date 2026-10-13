@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
 import { getInstantAdminDb } from '@/lib/instant-admin';
+import { currentQueueItem, NoSuchCategoryError } from '@/lib/server/content-queue';
+import { getDb } from '@/lib/server/db';
+import { servesFromPostgres } from '@/lib/server/installation';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +26,9 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+        if (await servesFromPostgres()) {
+            return NextResponse.json(await currentQueueItem(getDb(), categorySlug), { headers: { 'Cache-Control': 'no-store' } });
+        }
         const adminDb = getInstantAdminDb();
 
         const result = await adminDb.query({
@@ -61,6 +67,7 @@ export async function GET(request: NextRequest) {
             { headers: { 'Cache-Control': 'no-store' } },
         );
     } catch (error) {
+        if (error instanceof NoSuchCategoryError) return NextResponse.json({ error: error.message }, { status: 404 });
         console.error('Failed to get current content queue item', error);
         return NextResponse.json(
             { error: 'Failed to get current item' },

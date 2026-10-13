@@ -5,6 +5,9 @@ import {
     MOBILE_SHORTCUT_CHORE_CAPABILITY,
     MOBILE_SHORTCUT_TOKEN_HEADER,
 } from '@/lib/mobile-shortcut-tokens';
+import { getDb } from '@/lib/server/db';
+import { servesFromPostgres } from '@/lib/server/installation';
+import { checkShortcutToken, createShortcutChore, SHORTCUT_CHORE_CAPABILITY, SHORTCUT_TOKEN_HEADER } from '@/lib/server/shortcuts';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +28,8 @@ function statusForCreateError(message: string) {
 }
 
 export async function POST(request: NextRequest) {
+    if (await servesFromPostgres()) return postToPostgres(request);
+
     const auth = await authorizeMobileShortcutToken({
         token: request.headers.get(MOBILE_SHORTCUT_TOKEN_HEADER),
         capability: MOBILE_SHORTCUT_CHORE_CAPABILITY,
@@ -50,5 +55,23 @@ export async function POST(request: NextRequest) {
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to create chore';
         return noStoreJson({ error: message }, statusForCreateError(message));
+    }
+}
+
+async function postToPostgres(request: NextRequest) {
+    const db = getDb();
+    const auth = await checkShortcutToken(db, request.headers.get(SHORTCUT_TOKEN_HEADER), SHORTCUT_CHORE_CAPABILITY);
+    if (!auth.ok) return noStoreJson({ error: 'Unauthorized shortcut', reason: auth.reason }, 401);
+    const body = (await request.json().catch(() => null)) as ShortcutCreateChoreBody | null;
+    if (!body) return noStoreJson({ error: 'Invalid request body' }, 400);
+    const installation = await db.selectFrom('installation').select('writes_frozen').executeTakeFirstOrThrow();
+    if (installation.writes_frozen) return noStoreJson({ error: 'Changes are paused for a moment. Try again shortly.' }, 503);
+    try {
+        return noStoreJson(await createShortcutChore(db, { title: String(body.title || ''), assigneeFamilyMemberId: String(body.assigneeFamilyMemberId || '') }));
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create chore';
+        const status = statusForCreateError(message);
+        if (status === 500) console.error('Failed to create a chore for a shortcut', error);
+        return noStoreJson({ error: status === 500 ? 'Failed to create chore' : message }, status);
     }
 }

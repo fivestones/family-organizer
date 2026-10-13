@@ -8,6 +8,10 @@ import {
     getParentElevationRateLimitKey,
     recordParentElevationFailure,
 } from '@/lib/parent-elevation-rate-limit';
+import { getDb } from '@/lib/server/db';
+import { servesFromPostgres } from '@/lib/server/installation';
+import { issueShortcutToken, SHORTCUT_CHORE_CAPABILITY } from '@/lib/server/shortcuts';
+import { verifySignIn } from '@/lib/server/sign-in';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +42,8 @@ export async function POST(request: NextRequest) {
         return noStoreJson({ error: 'Unauthorized device', reason: 'bearer_required' }, 401);
     }
 
-    if (!isInstantFamilyAuthConfigured()) {
+    const onPostgres = await servesFromPostgres();
+    if (!onPostgres && !isInstantFamilyAuthConfigured()) {
         return noStoreJson({ error: 'Instant auth is not configured' }, 503);
     }
 
@@ -71,6 +76,28 @@ export async function POST(request: NextRequest) {
             { error: 'Too many parent elevation attempts. Try again later.' },
             429
         );
+    }
+
+    if (onPostgres) {
+        // The same steps as below, against Postgres: the member is a parent, their PIN is right, and a token is issued.
+        const db = getDb();
+        const parent = /^[0-9a-f-]{36}$/i.test(familyMemberId) ? await db.selectFrom('family_members').select('role').where('id', '=', familyMemberId).executeTakeFirst() : undefined;
+        const checked = parent?.role === 'parent' ? await verifySignIn(db, familyMemberId, body.pin) : null;
+        if (!checked?.ok) {
+            recordParentElevationFailure(rateLimitKey);
+            if (!parent) return noStoreJson({ error: 'Family member not found' }, 404);
+            if (!checked) return noStoreJson({ error: 'Selected member is not a parent' }, 403);
+            return checked.reason === 'pin_required' ? noStoreJson({ error: 'PIN is required' }, 400) : noStoreJson({ error: 'Incorrect PIN' }, 403);
+        }
+        const issued = await issueShortcutToken(db, {
+            capability: SHORTCUT_CHORE_CAPABILITY,
+            label,
+            parentFamilyMemberId: familyMemberId,
+            issuedPlatform: deviceAuth.mobileSession.platform,
+            issuedDeviceName: deviceAuth.mobileSession.deviceName || null,
+        });
+        clearParentElevationRateLimit(rateLimitKey);
+        return noStoreJson({ shortcutToken: issued.token, parentFamilyMemberId: issued.parentFamilyMemberId, label: issued.label });
     }
 
     const member = (await getFamilyMemberById(familyMemberId)) as any;

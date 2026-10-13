@@ -11,6 +11,11 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — Exchange rates, the content queue and Shortcuts on Postgres.**
+  Three small services, each beside its Instant version: `lib/server/exchange-rates.ts`, `content-queue.ts` and `shortcuts.ts`. Exchange rates are served to a request made under a session. The other two are called by things that have no session, a scheduled job and an iOS Shortcut holding its own token, so their routes ask the deployment which backend its clients are on and serve from Postgres when it is PowerSync.
+  Each is shorter than what it replaces because the database does the keeping: a rate is one row for a pair of currencies, brought up to date in place; adding to a queue and moving it on hold the category's row, so two at once cannot both be last or both go live; a shortcut's chore and who it is for are written together.
+  **Measured:** eleven cases on the in-process Postgres, the routes among them, one driven as a phone and then as a shortcut with only its token. **Not done:** the queue's `loop_when_empty` is carried and still read by nothing, as before.
+
 - **2026-10-13 — Identity: a PIN is set by the server, a parent can sign someone out everywhere, and a phone can reach what it needs.**
   `PUT /api/auth/pin` sets or removes a member's PIN for a parent. `DELETE /api/auth/members/<id>/sessions` ends every session that member has. Both need a parent's session.
   **A phone could not have reached most of the new routes.** A phone has no activation cookie: it proves itself with a token in `Authorization`, which only a route can check, and the middleware turned away every API request without the cookie except those under `/api/mobile/` and `/api/calendar-sync/`. The routes that check the device themselves are now named in one list, and the middleware lets a request through to those: the session, sync and configuration routes, finance and messages. A test fails if a route under one of them stops making the check. In making the list exact it turned out that a name without a trailing slash would also have let through any route whose name merely began with it; such a name now means one route.

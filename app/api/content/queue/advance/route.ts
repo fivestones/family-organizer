@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDeviceAuthContextFromNextRequest } from '@/lib/device-auth-server';
 import { getInstantAdminDb } from '@/lib/instant-admin';
+import { advanceQueue, NoSuchCategoryError } from '@/lib/server/content-queue';
+import { getDb } from '@/lib/server/db';
+import { servesFromPostgres } from '@/lib/server/installation';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +39,9 @@ export async function POST(request: NextRequest) {
     }
 
     try {
+        if (await servesFromPostgres()) {
+            return NextResponse.json(await advanceQueue(getDb(), body.categorySlug), { headers: { 'Cache-Control': 'no-store' } });
+        }
         const adminDb = getInstantAdminDb();
 
         const result = await adminDb.query({
@@ -109,6 +115,7 @@ export async function POST(request: NextRequest) {
             { headers: { 'Cache-Control': 'no-store' } },
         );
     } catch (error) {
+        if (error instanceof NoSuchCategoryError) return NextResponse.json({ error: error.message }, { status: 404 });
         console.error('Failed to advance content queue', error);
         return NextResponse.json(
             { error: 'Failed to advance queue' },
