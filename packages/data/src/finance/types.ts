@@ -60,3 +60,47 @@ export interface ReconcileResult {
 
 /** An envelope's id from the two operations that make one; nothing from those that only move money. */
 export type FinanceResult = string | null | AllowancePayoutResult | ReconcileResult;
+
+/** A place a member keeps money, or anything else the family counts. */
+export interface Envelope {
+    id: string;
+    /** Whose it is. `null` for one whose member has left the family. */
+    familyMemberId: string | null;
+    name: string;
+    description: string | null;
+    goalAmount: number | null;
+    goalCurrency: string | null;
+    /** What it holds, by currency. A currency it holds none of is not there. */
+    balances: Record<string, number>;
+    /** The envelope its member's money goes into when nobody says. */
+    isDefault: boolean;
+}
+
+/** One line of the ledger: something that happened to an envelope. It is never changed. */
+export interface LedgerEntry {
+    id: string;
+    envelopeId: string;
+    /** For a transfer, where the money came from and where it went. */
+    sourceEnvelopeId: string | null;
+    destinationEnvelopeId: string | null;
+    /** `deposit`, `withdrawal`, `transfer-in`, and so on. An old entry keeps the word it was written with. */
+    type: string;
+    /** Negative for money leaving the envelope. */
+    amount: number;
+    currency: string;
+    description: string;
+    /** The family member who made it. */
+    createdBy: string | null;
+    /** ISO 8601. */
+    createdAt: string;
+}
+
+/** The last rate fetched between two currencies: one of `baseCurrency` is `rate` of `targetCurrency`. */
+export interface ExchangeRate {
+    baseCurrency: string;
+    targetCurrency: string;
+    rate: number;
+    /** ISO 8601. */
+    fetchedAt: string;
+}
+

@@ -1,9 +1,14 @@
 import type { Principal } from '@family-organizer/data';
 import { setCurrentDevice } from '@family-organizer/data/powersync/current';
 import { AppSchema } from '@family-organizer/data/powersync/schema';
+import { DELETE as signOutEverywhereRoute } from '@/app/api/auth/members/[memberId]/sessions/route';
+import { PUT as pinRoute } from '@/app/api/auth/pin/route';
+import { GET as exchangeRatesRoute } from '@/app/api/exchange-rates/route';
+import { POST as financeRoute } from '@/app/api/finance/mutations/route';
 import { createSession } from '@/lib/server/sessions';
 import { applyUpload, type UploadOutcome } from '@/lib/server/upload';
 import { openTestDevice, type TestDevice, type TestServer } from './device';
+import { deviceRequest } from './family-fixture';
 import type { TestDatabase } from './postgres';
 
 // For tests of an area of the data layer written on PowerSync: a real Postgres as the server, real local
@@ -49,9 +54,33 @@ export async function deliver(server: TestDatabase, device: TestDevice, tables: 
     }
 }
 
+/** The app's own route handlers, as a device reaches them. What a pattern captures is the route's parameter of the name given. */
+const ROUTES: Array<[string, RegExp, (request: any, context: any) => Promise<Response>, string?]> = [
+    ['POST', /^\/api\/finance\/mutations$/, financeRoute],
+    ['PUT', /^\/api\/auth\/pin$/, pinRoute],
+    ['DELETE', /^\/api\/auth\/members\/([^/]+)\/sessions$/, signOutEverywhereRoute, 'memberId'],
+    ['GET', /^\/api\/exchange-rates$/, exchangeRatesRoute],
+];
+
+/** A server for a test device that is the real one: each request goes to the route's own handler, under a real session of that person's. */
+export function realServer(server: () => TestDatabase, principal: Principal): TestServer {
+    let token: string | null = null;
+    return async (path, init) => {
+        token ??= (await createSession(server().db, principal)).token;
+        const method = init.method ?? 'GET';
+        for (const [routeMethod, pattern, handler, parameter] of ROUTES) {
+            const match = routeMethod === method ? pattern.exec(path) : null;
+            if (!match) continue;
+            const response = await handler(deviceRequest(path, { method, body: init.body, sessionToken: token }), { params: Promise.resolve(parameter ? { [parameter]: match[1] } : {}) });
+            return { status: response.status, body: await response.json().catch(() => ({})) };
+        }
+        return { status: 404, body: { error: `The tests have no route for ${method} ${path}` } };
+    };
+}
+
 export interface Household {
     /** Opens a device signed in as someone, holding everything the server holds, and makes it the one mutations act on. */
-    deviceFor(principal: Principal, options?: { now?: string; server?: TestServer }): Promise<TestDevice>;
+    deviceFor(principal: Principal, options?: { now?: string; server?: TestServer; online?: boolean }): Promise<TestDevice>;
     /** Makes a device the one hooks and mutations act on, as the app's frame does when the person changes. */
     use(device: TestDevice): void;
     /** Sends everything a device has queued to the upload route as that device's person, then delivers what the server holds. */
@@ -63,7 +92,8 @@ export function household(server: () => TestDatabase): Household {
     const devices: TestDevice[] = [];
     return {
         async deviceFor(principal, options = {}) {
-            const device = await openTestDevice(principal, options);
+            // Online, what the device asks of the server goes to the real routes. Otherwise it is offline unless a test stands in.
+            const device = await openTestDevice(principal, { ...options, server: options.server ?? (options.online ? realServer(server, principal) : undefined) });
             devices.push(device);
             await deliver(server(), device);
             setCurrentDevice(device.device);
