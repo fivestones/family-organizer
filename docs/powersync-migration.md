@@ -11,6 +11,14 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — Every write rule is shown by a write: who may add, change and remove a row of each table a device may write.**
+  [Phase 5](#phase-5--sync-and-the-write-rules) asked for a behavioral case for every cell of Appendix B. `test/integration/server/write-rules-matrix.node.test.ts` is that: 37 tables, by three kinds of write, by four kinds of person — a parent, the kid a row belongs to, another kid, and the kid session a shared device rests on. Each cell sends the write through the upload route to a real database and then looks at the database: the row is there, changed or gone exactly when the cell says it may be. A second list covers the part of a row a person may not change though they may change the rest. Breaking one rule on purpose failed exactly its one cell.
+  The 34 refusals the live Instant matrix asserts were checked off against it one by one. 30 are cells or columns here. Three are about a table that is not carried. One, a second payout with the same key, is a constraint of the database and is shown with the import. The matrix also holds the list of writable tables to the rules file, so a table added to one and not the other fails.
+  What a device does when it lies or is late — sends an existing row as new, deletes and re-creates, retries after a lost answer, races another device — is shown on completions, where it matters most, by the upload tests and, for the race, on Postgres 17 by the live tests. It is not repeated for every table: the route treats every table alike.
+  The matrix runs on the in-process Postgres, which is Postgres itself built to run inside the test and has one connection. "A real Postgres" in the plan's sense, with two connections, is the live suite.
+  The record of uploads is pruned after ninety days, at most once a day for each running server, on the back of an upload.
+  Left in Phase 5: nothing that is known. The sync configuration was completed with the schema.
+
 - **2026-10-13 — The nightly jobs and the health report are in the compose file, which finishes what [Phase 3](#phase-3--the-schema-and-the-data) can do without David.**
   Postgres and PowerSync were already in `docker-compose.yml` under their profile, with the cap on what replication may hold back. What was missing was everything that keeps the data once Instant is not keeping it.
   `scripts/powersync/nightly.sh` runs three jobs from the host's scheduler, each a service that does nothing until called: a dump of the database, checked by reading it back; a copy of the dumps to an rclone remote; and the compaction PowerSync asks for. It is the arrangement Budgeter's backup already uses. Each job records that it finished in a small table, and nothing is recorded that did not happen: the script stops at the first failure.
@@ -885,10 +893,10 @@ The slice's streams, upload route and rules, extended to every table.
 
 Built in the slice: the `family` stream and the two for refusals; the upload route; and the policy, with its tests, for the tables the slice has. Adding a table is now a fixed list of small things, each held to the others by a test: a migration that also adds it to the publication, its columns in the stream, its table in the device's schema, its entry in the policy with a case for each kind of person, and its part of the mapping and the verification. What is left:
 
-- The two messaging streams.
-- The policy for every other table a device may write, with [a behavioral case for every cell of Appendix B](#the-write-rules) and for each way a device can lie or be late.
-- The live permission matrix, ported.
-- Pruning of the upload record.
+- The two messaging streams. *Done with the messaging tables.*
+- The policy for every other table a device may write, with [a behavioral case for every cell of Appendix B](#the-write-rules) and for each way a device can lie or be late. *Done: a matrix of every table, person and kind of write, sent for real.*
+- The live permission matrix, ported. *Done: each of its 34 refusals is a case here, bar three for a table that is not carried.*
+- Pruning of the upload record. *Done.*
 
 Done when every case passes against a real Postgres.
 

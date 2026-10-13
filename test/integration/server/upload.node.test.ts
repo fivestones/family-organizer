@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DeviceOperation, Principal } from '@family-organizer/data';
 import { POST } from '@/app/api/sync/upload/route';
 import { createSession, drainSession, endSession, type Session } from '@/lib/server/sessions';
-import { applyUpload, GenerationChangedError, WritesFrozenError, type UploadedTransaction } from '@/lib/server/upload';
+import { applyUpload, GenerationChangedError, pruneUploads, UPLOAD_RECORD_DAYS, WritesFrozenError, type UploadedTransaction } from '@/lib/server/upload';
 import { DANA, deviceRequest, DISHES, ELI, FAY, LAUNDRY, seedFamily } from '@/test/utils/family-fixture';
 import { createTestDatabase, type TestDatabase } from '@/test/utils/postgres';
 
@@ -176,6 +176,23 @@ describe('a transaction that is sent again', () => {
         const other = await send(eli, completing(ELI, { completionId: id(41), chore: LAUNDRY }), { uploadId: 'aaaaaaaa-0000-4000-8000-000000000002' });
         expect(other).toEqual({ outcome: { ok: true }, replayed: false });
         expect(await rows(`SELECT upload_id FROM sync_uploads ORDER BY upload_id`)).toEqual([{ upload_id: 'aaaaaaaa-0000-4000-8000-000000000001' }, { upload_id: 'aaaaaaaa-0000-4000-8000-000000000002' }]);
+    });
+});
+
+describe('the record of uploads', () => {
+    it('is kept for ninety days, so a late retry is still answered and not applied again, and dropped after', async () => {
+        const eli = await asEli();
+        const first = transaction(completing(ELI, { completionId: id(40) }));
+        await applyUpload(database.db, eli, first);
+        const daysOn = (days: number) => new Date(Date.now() + days * 86_400_000);
+
+        expect(await pruneUploads(database.db, daysOn(UPLOAD_RECORD_DAYS - 1))).toBe(0);
+        expect(await applyUpload(database.db, eli, first)).toEqual({ outcome: { ok: true }, replayed: true });
+
+        expect(await pruneUploads(database.db, daysOn(UPLOAD_RECORD_DAYS + 1))).toBe(1);
+        expect(await rows(`SELECT 1 FROM sync_uploads`)).toEqual([]);
+        // What it wrote is untouched: only the record of having written it goes.
+        expect(await completion(id(40))).toMatchObject({ completed_by: ELI });
     });
 });
 

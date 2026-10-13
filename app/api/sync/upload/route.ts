@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { jsonError, jsonOk, requireSession } from '@/lib/server/request-session';
-import { applyUpload, GenerationChangedError, parseUpload, WritesFrozenError } from '@/lib/server/upload';
+import { applyUpload, GenerationChangedError, parseUpload, pruneUploadsOccasionally, WritesFrozenError } from '@/lib/server/upload';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
 
     try {
         const result = await applyUpload(context.db, context.session, upload);
+        pruneUploadsOccasionally(context.db);
         return jsonOk({ ...result.outcome, replayed: result.replayed });
     } catch (error) {
         if (error instanceof WritesFrozenError) return jsonError(503, 'writes_frozen', 'Writes are paused for a moment', { 'Retry-After': '30' });

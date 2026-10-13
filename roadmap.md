@@ -354,10 +354,14 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 
 [Phase 5](docs/powersync-migration.md#phase-5--sync-and-the-write-rules). The slice's streams, upload route and rules, extended to every table.
 
-- [ ] The sync configuration complete: `family`, `messaging_member`, `messaging_parent`, and the two refusal streams.
-- [ ] The write policy for every table a device may write, with [a behavioral case](docs/powersync-migration.md#the-write-rules) for every rule in Appendix B and for each way a device can lie or be late. Done when all pass against a real Postgres.
-- [ ] The live permission matrix, ported case by case.
-- [ ] Pruning of the record of uploads.
+- [x] The sync configuration complete: `family`, `messaging_member`, `messaging_parent`, and the two refusal streams.
+  - Done with the schema on 13 October 2026. Membership of a thread is a subquery, which the sync service takes as written.
+- [x] The write policy for every table a device may write, with [a behavioral case](docs/powersync-migration.md#the-write-rules) for every rule in Appendix B and for each way a device can lie or be late. Done when all pass against a real Postgres.
+  - Done on 13 October 2026: `test/integration/server/write-rules-matrix.node.test.ts` sends every kind of write to each of the 37 writable tables as each of four kinds of person, 445 cases, and checks the database after each. It runs on the in-process Postgres; races run on Postgres 17 in `npm run test:sync:live`. Lying and lateness are shown on completions, not repeated per table ([log](docs/powersync-migration.md#implementation-log)).
+- [x] The live permission matrix, ported case by case.
+  - Each of its 34 refusals is a case in the matrix or beside it, bar three for a table that is not carried.
+- [x] Pruning of the record of uploads.
+  - After ninety days, at most once a day for each running server.
 
 ### 7.6 The server on Postgres
 

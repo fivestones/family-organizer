@@ -35,6 +35,35 @@ export interface UploadResult {
     replayed: boolean;
 }
 
+/**
+ * How long the record of an upload is kept. A device that was applied but never heard so retries, and the record
+ * is what answers it without applying it again; a device silent for longer than this is treated as new.
+ */
+export const UPLOAD_RECORD_DAYS = 90;
+const DAY_MS = 86_400_000;
+
+/** Removes the records of uploads too old to be retried. Returns how many went. */
+export async function pruneUploads(db: AppDatabase, now: Date = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - UPLOAD_RECORD_DAYS * DAY_MS).toISOString();
+    const result = await db.deleteFrom('sync_uploads').where('received_at', '<', cutoff).executeTakeFirst();
+    return Number(result.numDeletedRows ?? 0);
+}
+
+let lastPruneAt = 0;
+/**
+ * Prunes at most once a day for each running server, on the back of an upload: with no uploads there is nothing
+ * to prune. It is never waited for, and a failure is left for the next day.
+ */
+export function pruneUploadsOccasionally(db: AppDatabase, now: Date = new Date()): void {
+    if (now.getTime() - lastPruneAt < DAY_MS) return;
+    lastPruneAt = now.getTime();
+    void pruneUploads(db, now).catch(() => {});
+}
+/** For tests: forget when the last prune was. */
+export function __resetUploadPruningForTests(): void {
+    lastPruneAt = 0;
+}
+
 /** The server is not taking writes just now. The device keeps what it has and tries again. */
 export class WritesFrozenError extends Error {}
 /** The data under the app has been replaced since the device's database was made. */
