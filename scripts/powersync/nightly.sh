@@ -8,8 +8,10 @@
 # staging, names itself and its extra compose file there, with COMPOSE_PROJECT_NAME and COMPOSE_FILE. Each job stops
 # the script if it fails, so nothing is recorded that did not happen.
 #
-# Copying off the machine needs BACKUP_OFFSITE_REMOTE, an rclone remote, and its configuration in ./rclone. Until
-# that is set the backups stay on the disk they describe, and the app's health report says so every day.
+# The dumps are plain files in BACKUP_DIR (./backups unless set), one a night. Getting them off the machine is
+# either this script's job or somebody else's, and BACKUP_OFFSITE_REMOTE says which: an rclone remote, with its
+# configuration in ./rclone, and they are copied there each night; the word `external`, and they are left for
+# whatever already backs that folder up. Until it is set to one or the other the app's health report keeps asking.
 set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)
 env_file="${1:-}"

@@ -88,7 +88,7 @@ Not needed to try the app, but staging is the place to see the backup work befor
 sh scripts/powersync/nightly.sh
 ```
 
-It writes a dump under `./backups`, says it has nowhere to copy it to until `BACKUP_OFFSITE_REMOTE` is set, and compacts the sync service's storage. `https://<staging hostname>/api/health` then shows, under `data`, the sync service connected, how old the backup is, and anything that wants attention.
+It writes a dump under `./backups` and compacts the sync service's storage. Getting dumps off the machine is its job only if `BACKUP_OFFSITE_REMOTE` names an rclone remote; set it to `external` if your own backup takes that folder. `https://<staging hostname>/api/health` then shows, under `data`, the sync service connected, how old the backup is, and anything that wants attention.
 
 ## Taking it down
 

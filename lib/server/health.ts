@@ -33,8 +33,21 @@ export interface DataHealth {
 const hoursBetween = (from: string, to: Date) => (to.getTime() - new Date(from).getTime()) / 3_600_000;
 const toOneDecimal = (hours: number) => Math.round(hours * 10) / 10;
 
+/**
+ * Who gets the backups off this machine. `rclone`: the nightly job copies them to a remote. `external`: something
+ * outside the app looks after the backup folder, such as the machine's own backup, and the app has nothing to say
+ * about it. `nobody`: neither has been arranged, which the report keeps saying until one is.
+ */
+export type OffsiteArrangement = 'rclone' | 'external' | 'nobody';
+
+/** Read from BACKUP_OFFSITE_REMOTE: unset, the word `external`, or an rclone remote. */
+export function offsiteArrangement(setting: string | undefined): OffsiteArrangement {
+    const value = setting?.trim() ?? '';
+    return value === '' ? 'nobody' : value.toLowerCase() === 'external' ? 'external' : 'rclone';
+}
+
 /** The report, from what the database said. Pure, so every case of it can be shown without a database in that state. */
-export function describeDataHealth(slots: readonly SlotRow[], lastRuns: Readonly<Record<string, string | undefined>>, now: Date): DataHealth {
+export function describeDataHealth(slots: readonly SlotRow[], lastRuns: Readonly<Record<string, string | undefined>>, now: Date, offsiteBy: OffsiteArrangement = 'nobody'): DataHealth {
     const attention: string[] = [];
     const slot = slots.find((row) => row.wal_status !== 'lost') ?? slots[0];
     const state = !slot ? 'none' : slot.wal_status === 'lost' ? 'lost' : slot.active ? 'streaming' : 'waiting';
@@ -49,9 +62,14 @@ export function describeDataHealth(slots: readonly SlotRow[], lastRuns: Readonly
     const [backupAge, offsiteAge] = [age('backup'), age('offsite')];
     if (backupAge === null) attention.push('No backup has been made. Schedule scripts/powersync/nightly.sh.');
     else if (backupAge > A_NIGHT_AND_A_HALF_HOURS) attention.push(`The newest backup is ${Math.round(backupAge)} hours old.`);
-    // A backup kept only on the disk it describes is lost with that disk.
-    if (backupAge !== null && offsiteAge === null) attention.push('Backups are not being copied off this machine. Set BACKUP_OFFSITE_REMOTE.');
-    else if (offsiteAge !== null && offsiteAge > A_NIGHT_AND_A_HALF_HOURS) attention.push(`Backups were last copied off this machine ${Math.round(offsiteAge)} hours ago.`);
+    // A backup kept only on the disk it describes is lost with that disk. Where something else looks after the
+    // folder, that is not the app's to check.
+    if (offsiteBy === 'nobody' && backupAge !== null) {
+        attention.push('Backups stay on this machine. Set BACKUP_OFFSITE_REMOTE to an rclone remote, or to `external` if something else already copies the backup folder elsewhere.');
+    } else if (offsiteBy === 'rclone') {
+        if (backupAge !== null && offsiteAge === null) attention.push('Backups have not been copied off this machine yet.');
+        else if (offsiteAge !== null && offsiteAge > A_NIGHT_AND_A_HALF_HOURS) attention.push(`Backups were last copied off this machine ${Math.round(offsiteAge)} hours ago.`);
+    }
 
     return { postgres: 'ok', replication: { state, lagBytes }, backup: last('backup'), offsite: last('offsite'), compaction: last('compact'), attention };
 }
@@ -65,7 +83,7 @@ export async function readDataHealth(db: AppDatabase, now: Date = new Date(), ti
             WHERE slot_type = 'logical' AND database = current_database()
         `.execute(db);
         const runs = await db.selectFrom('maintenance_runs').select(['kind', (eb) => eb.fn.max('finished_at').as('last_at')]).groupBy('kind').execute();
-        return describeDataHealth(slots.rows, Object.fromEntries(runs.map((row) => [row.kind, row.last_at ?? undefined])), now);
+        return describeDataHealth(slots.rows, Object.fromEntries(runs.map((row) => [row.kind, row.last_at ?? undefined])), now, offsiteArrangement(process.env.BACKUP_OFFSITE_REMOTE));
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {

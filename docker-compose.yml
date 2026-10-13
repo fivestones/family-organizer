@@ -233,7 +233,8 @@ services:
       - data
 
   # Copies the dumps to an rclone remote, which can be almost anywhere, and can encrypt them on the way with a
-  # `crypt` remote. It only ever adds: a dump deleted here stays where it was copied to.
+  # `crypt` remote. It only ever adds: a dump deleted here stays where it was copied to. Where the machine's own
+  # backup already takes the folder, BACKUP_OFFSITE_REMOTE=external says so and this does nothing.
   fo-offsite:
     image: rclone/rclone:1.73.1
     profiles: ["maintenance"]
@@ -243,6 +244,10 @@ services:
       - |
         if [ -z "$$BACKUP_OFFSITE_REMOTE" ]; then
           echo "BACKUP_OFFSITE_REMOTE is not set: the backups are not being copied off this machine." >&2
+          exit 3
+        fi
+        if [ "$$BACKUP_OFFSITE_REMOTE" = "external" ]; then
+          echo "Something outside the app copies the backup folder elsewhere (BACKUP_OFFSITE_REMOTE=external). Nothing to do."
           exit 3
         fi
         exec rclone copy --ignore-existing /backups "$$BACKUP_OFFSITE_REMOTE"
