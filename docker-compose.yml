@@ -208,6 +208,70 @@ services:
         aliases:
           - ${POWERSYNC_HOST_ALIAS:-family-organizer-powersync}
 
+  # --- 5. The nightly jobs ---
+  # None of these runs on its own. scripts/powersync/nightly.sh starts each in turn from the host's scheduler:
+  # a backup, its copy off this machine, and the compaction PowerSync asks for.
+  fo-backup:
+    image: postgres:17-alpine
+    profiles: ["maintenance"]
+    depends_on:
+      fo-postgres:
+        condition: service_healthy
+    entrypoint: ["sh", "/backup.sh"]
+    environment:
+      - PGHOST=fo-postgres
+      - PGUSER=family_organizer
+      - PGPASSWORD=${POSTGRES_PASSWORD:-}
+      - PGDATABASE=family_organizer
+      # A dump older than this many days is deleted, here and nowhere else: the copies off the machine are kept.
+      - BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      # Every dump is the whole family's data. Keep this directory out of anything that is shared or published.
+      - ${BACKUP_DIR:-./backups}:/backups
+      - ./scripts/powersync/backup.sh:/backup.sh:ro
+    networks:
+      - data
+
+  # Copies the dumps to an rclone remote, which can be almost anywhere, and can encrypt them on the way with a
+  # `crypt` remote. It only ever adds: a dump deleted here stays where it was copied to.
+  fo-offsite:
+    image: rclone/rclone:1.73.1
+    profiles: ["maintenance"]
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ -z "$$BACKUP_OFFSITE_REMOTE" ]; then
+          echo "BACKUP_OFFSITE_REMOTE is not set: the backups are not being copied off this machine." >&2
+          exit 3
+        fi
+        exec rclone copy --ignore-existing /backups "$$BACKUP_OFFSITE_REMOTE"
+    environment:
+      - BACKUP_OFFSITE_REMOTE=${BACKUP_OFFSITE_REMOTE:-}
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups:ro
+      - ${RCLONE_CONFIG_DIR:-./rclone}:/config/rclone:ro
+
+  fo-powersync-compact:
+    image: journeyapps/powersync-service:1.26.1
+    profiles: ["maintenance"]
+    depends_on:
+      fo-postgres:
+        condition: service_healthy
+    command: ["compact"]
+    environment:
+      - POWERSYNC_CONFIG_PATH=/config/service.yaml
+      - PS_DATA_SOURCE_URI=postgres://powersync:${POWERSYNC_DB_PASSWORD:-}@fo-postgres:5432/family_organizer
+      - PS_STORAGE_SOURCE_URI=postgres://powersync:${POWERSYNC_DB_PASSWORD:-}@fo-postgres:5432/powersync_storage
+      - PS_PORT=8080
+      - PS_JWK_N=${POWERSYNC_JWK_N:-}
+      - PS_JWK_E=${POWERSYNC_JWK_E:-}
+      - PS_JWK_KID=${POWERSYNC_JWT_KID:-}
+    volumes:
+      - ./powersync:/config:ro
+    networks:
+      - data
+
 volumes:
   minio_data:
   postgres_data:

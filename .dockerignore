@@ -2,3 +2,7 @@
 .migration
 .claude
 .env.staging
+
+# Database dumps from the nightly backup, and the rclone configuration that copies them: the family's data and a secret.
+/backups/
+/rclone/

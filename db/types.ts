@@ -783,6 +783,12 @@ export interface WriteRefusalsTable {
     dismissed_at: Instant | null;
 }
 
+export interface MaintenanceRunsTable {
+    kind: 'backup' | 'offsite' | 'compact';
+    finished_at: InstantWithDefault;
+    detail: string | null;
+}
+
 export interface SchemaMigrationsTable {
     version: string;
     applied_at: InstantWithDefault;
@@ -843,6 +849,7 @@ export interface Database {
     auth_sessions: AuthSessionsTable;
     sync_uploads: SyncUploadsTable;
     write_refusals: WriteRefusalsTable;
+    maintenance_runs: MaintenanceRunsTable;
     schema_migrations: SchemaMigrationsTable;
 }
 
@@ -1024,5 +1031,6 @@ export const DATABASE_COLUMNS = {
         id: true, family_member_id: true, principal_type: true, mutation: true, reason: true, table_name: true, row_id: true, refused_at: true,
         dismissed_at: true,
     },
+    maintenance_runs: { kind: true, finished_at: true, detail: true },
     schema_migrations: { version: true, applied_at: true },
 } satisfies { [Table in keyof Database]: Record<keyof Database[Table], true> };

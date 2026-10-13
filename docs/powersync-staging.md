@@ -89,6 +89,23 @@ These are the checks only a real device can make ([Phase 2](powersync-migration.
 - Sign in as a parent over a kid, with "This is my own device" off, and sign out again. Does it go back to the kid?
 - Compare a few days' chores with the live app.
 
+## The nightly jobs, once by hand
+
+Not needed to try the app, but staging is the place to see the backup work before production depends on it. Add two lines to `.env.staging`, so the script knows which copy of the project it is for:
+
+```bash
+COMPOSE_PROJECT_NAME=family-organizer-staging
+COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml
+```
+
+Then run it:
+
+```bash
+sh scripts/powersync/nightly.sh .env.staging
+```
+
+It writes a dump under `./backups`, says it has nowhere to copy it to until `BACKUP_OFFSITE_REMOTE` is set, and compacts the sync service's storage. `https://<staging hostname>/api/health` then shows, under `data`, the sync service connected, how old the backup is, and anything that wants attention. On this machine it has been run against a throwaway stack, restore included; it has not been run on your server, from a scheduler, or to a real remote.
+
 ## Taking it down
 
 ```bash

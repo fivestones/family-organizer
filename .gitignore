@@ -70,3 +70,7 @@ mobile/eas.json
 
 # The PowerSync web client's worker and WebAssembly files, copied from node_modules before a build.
 public/@powersync/
+
+# Database dumps from the nightly backup, and the rclone configuration that copies them: the family's data and a secret.
+/backups/
+/rclone/

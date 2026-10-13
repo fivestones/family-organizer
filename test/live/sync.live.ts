@@ -8,6 +8,7 @@ import { SessionManager } from '@family-organizer/data/session/manager';
 import type { InstallationConfig } from '@family-organizer/data/session/platform';
 import { __resetParentElevationRateLimitForTests } from '@/lib/parent-elevation-rate-limit';
 import { getDb, type AppDatabase } from '@/lib/server/db';
+import { readDataHealth } from '@/lib/server/health';
 import { hashPinServer } from '@/lib/server/pin';
 import { createSession } from '@/lib/server/sessions';
 import { applyUpload } from '@/lib/server/upload';
@@ -74,7 +75,7 @@ afterAll(() => db.destroy());
 beforeEach(async () => {
     __resetParentElevationRateLimitForTests();
     await sql.raw(`UPDATE family_members SET default_envelope_id = NULL`).execute(db);
-    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'calendar_sync_accounts', 'calendar_items', 'calendar_tags', 'message_threads', 'dashboard_configs', 'family_dashboard_layouts', 'content_attachments', 'family_rules', 'content_categories', 'announcements', 'exchange_rates', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
+    for (const table of ['maintenance_runs', 'write_refusals', 'sync_uploads', 'auth_sessions', 'calendar_sync_accounts', 'calendar_items', 'calendar_tags', 'message_threads', 'dashboard_configs', 'family_dashboard_layouts', 'content_attachments', 'family_rules', 'content_categories', 'announcements', 'exchange_rates', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
         await sql.raw(`DELETE FROM ${table}`).execute(db);
     }
     await seedFamily({ sql: query } as any);
@@ -109,6 +110,21 @@ describe('what a device is sent', () => {
         await db.updateTable('family_members').set({ pin_hash: hashPinServer('9999') }).where('id', '=', ELI).execute();
 
         await until(() => has(local, `SELECT 1 FROM family_members WHERE id = ? AND has_pin = 1`, [ELI]), 'the device sees the PIN is set');
+    });
+});
+
+describe('the health report', () => {
+    it('sees the sync service connected to the database, and close behind it', async () => {
+        const kid = await device();
+        await kid.manager.signIn({ familyMemberId: ELI });
+        await synced(kid.db());
+
+        const health = await readDataHealth(db);
+        expect(health.postgres).toBe('ok');
+        expect(health.replication?.state).toBe('streaming');
+        expect(health.replication?.lagBytes).toBeLessThan(16 * 1024 * 1024);
+        // Nothing has backed this throwaway database up, and the report says so.
+        expect(health.attention).toEqual(['No backup has been made. Schedule scripts/powersync/nightly.sh.']);
     });
 });
 

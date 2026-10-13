@@ -180,6 +180,7 @@ When mocking InstantDB in jsdom tests, mock `@/lib/db` to avoid booting the real
 | `DATA_BACKEND` | `powersync` sends every page to `/sync`, the part of the app that runs on it. Read at run time |
 | `POWERSYNC_JWT_PRIVATE_KEY` / `POWERSYNC_JWT_KID` / `POWERSYNC_JWK_N` / `POWERSYNC_JWK_E` | The key the app signs sync tokens with, and its public half for the sync service. `node scripts/powersync/setup-env.mjs` prints all of these |
 | `POSTGRES_PASSWORD` / `POWERSYNC_DB_PASSWORD` | For the Postgres and PowerSync services in `docker-compose.yml`'s `powersync` profile |
+| `BACKUP_DIR` / `BACKUP_KEEP_DAYS` / `BACKUP_OFFSITE_REMOTE` / `RCLONE_CONFIG_DIR` | For `scripts/powersync/nightly.sh`: where database dumps go, how long they stay, and the rclone remote they are copied to |
 
 Act as a world-class senior frontend engineer with deep expertise in InstantDB
 and UI/UX design. Your primary goal is to generate complete and functional apps
