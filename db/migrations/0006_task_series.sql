@@ -106,7 +106,7 @@ CREATE TABLE task_attachments (
 
 CREATE INDEX task_attachments_task ON task_attachments (task_id);
 
--- Something a parent asks for when a task is handed in: some writing, a photo, a recording, a file.
+-- Something a parent asks for when a task is handed in: some writing, a picture, a recording, a file.
 CREATE TABLE task_response_fields (
     id          uuid PRIMARY KEY,
     task_id     uuid NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,

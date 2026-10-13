@@ -473,7 +473,7 @@ describe('two kids claiming one chore with no network', () => {
 
 describe('two uploads that reach the server at the same moment', () => {
     // The in-process Postgres the other tests use has one connection and cannot run two transactions at once.
-    // This one can, so this is where a race for one row is run for real.
+    // Here there are two, so this is where a race for one row is run for real.
     it('for the same up-for-grabs chore: one holds it and the other is refused, every time', async () => {
         const eli = (await createSession(db, { type: 'kid', familyMemberId: ELI })).session;
         const fay = (await createSession(db, { type: 'kid', familyMemberId: FAY })).session;

@@ -108,7 +108,7 @@ function withMoney(rows: Rows): Rows {
 /**
  * What the family posts: an announcement showing and one taken down, a verse on show from the queue with a picture,
  * and a house rule in its second version. The phone layout of the dashboard with one widget, Ben's own
- * arrangement of his, and a photo on the history entry for the dishes.
+ * arrangement of his, and a picture on the history entry for the dishes.
  */
 function withContent(rows: Rows): Rows {
     const made = { createdAt: '2026-01-02T08:00:00.000Z', updatedAt: '2026-01-03T08:00:00.000Z' };
@@ -225,7 +225,7 @@ const at = (iso: string) => Date.parse(iso);
 
 /**
  * Ben's maths series on his piano chore: a task done, a task handed in with a sub-task under it, and a day break.
- * Ben handed the second task in with an answer and a photo, and Ada answered him with a provisional grade.
+ * Ben handed the second task in with an answer and a picture, and Ada answered him with a provisional grade.
  */
 function withTaskSeries(rows: Rows): Rows {
     const member = (memberId: string) => rows.familyMembers.find((row) => row.id === memberId)!;
