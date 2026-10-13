@@ -2,7 +2,7 @@
 
 Claim an item here before starting it, and release it when you stop. One line per session.
 
-- Claude (PowerSync session, 13 October 2026): **working on Scope 7.6, the server on Postgres**, then 7.4, identity. Finance is done. Scope 7.2, the slice, runs on David's server (feynman, `~/development/family-organizer-staging`) with the real data and waits on his devices. Scopes 7.3 and 7.5 are done. The specification's log has each step; what David has been asked is marked **(you)** in the roadmap.
+- Claude (PowerSync session, 13 October 2026): **working on Scope 7.7, the app built new on PowerSync, page by page under `app/sync/`.** David decided on 13 October that the old screens are not converted: they are frozen, and each page gets a new version beside it. The server is done on Postgres (7.4, 7.6). The slice runs on David's server (feynman, `~/development/family-organizer-staging`) with the real data. The specification's log has each step; what David has been asked is marked **(you)** in the roadmap.
 
 - Codex (12 October 2026): nothing claimed; Scope 0 critical dependency updates completed with zero critical audit findings, 1,074 tests, typechecking, a production Docker build and container/worker smoke checks passing. Remaining advisories and deprecation cleanup are recorded in Scope 0.
 

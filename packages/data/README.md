@@ -20,11 +20,11 @@ src/
 
 An area's `types.ts`, `hooks.ts` and `mutations.ts` know nothing about any database. Its `backend.ts` is the smallest interface that lets them work.
 
-## The two implementations
+## Two kinds of area
 
-`instant/` implements each area over InstantDB so the app keeps running on its live database while screens move here. It is the only place adapter code lives, it faces Instant, and it is deleted once the app has moved. A PowerSync implementation of the same interfaces runs beside it until then. Nothing is ever written to make PowerSync look like Instant.
+The first areas — settings, units, the family roster's read, the chore day — were written before 13 October 2026, when the plan was to move every old screen onto this layer. Each has a `backend.ts`, an implementation over InstantDB in `instant/` and one over PowerSync in `powersync/`, chosen at startup, because old screens on the live app read through them. The InstantDB side and the seam between the two are deleted when the app has moved.
 
-The seam between the two is scaffolding as well. When the Instant implementation is deleted, each area's `backend.ts` and the registry in `src/backend.ts` go with it, and the hooks and mutations call the SQL directly.
+Every area since is written once, on PowerSync, because the screens that use it are new and run nowhere else. Its `hooks.ts` and `mutations.ts` read and write the signed-in person's local database directly, through `powersync/current.ts`, with nothing in between. Nothing is ever written to make PowerSync look like InstantDB.
 
 ## Rules
 

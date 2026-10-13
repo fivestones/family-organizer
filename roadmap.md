@@ -239,15 +239,15 @@ The ninth group, "Bugs, correctness issues, and behavior gaps", is gone: its thr
 
 **The finished app is built for PowerSync, not adapted to it** (David, 12 October 2026): a relational schema designed as one, reads and writes in SQL, the server on database transactions, and nothing left in an Instant shape because it used to be Instant's ([the finished app](docs/powersync-migration.md#the-finished-app)). There is no compatibility layer.
 
-It gets there on `main`, so the app stays shippable ([how](docs/powersync-migration.md#how-the-app-gets-there)). Screens move to a shared data layer of typed reads and mutations, implemented over Instant (7.1). One slice of that layer is first taken all the way through on PowerSync, on staging, on a copy of the real data (7.2), so its shape is proven on the backend it is for before the rest of the screens are moved. Then the layer is implemented natively on PowerSync, area by area (7.7), the backend is switched (7.8), and the Instant implementation is deleted (7.9).
+It gets there on `main`, with the live app untouched ([how](docs/powersync-migration.md#how-the-app-gets-there)). **David decided on 13 October 2026 that the screens are built new, beside the old ones**: each page gets a second version straight on PowerSync, shown only on a PowerSync deployment, and the old screens are frozen until they are deleted in 7.9. The data layer is written once, on PowerSync. The server is done on Postgres (7.4, 7.6). What is left is the pages (7.7), the cutover (7.8) and the cleanup (7.9).
 
 **The plan was revised on 12 October 2026, after a review** ([log](docs/powersync-migration.md#implementation-log)). A device keeps [one database per person](docs/powersync-migration.md#one-database-per-person). [The upload route](docs/powersync-migration.md#writes-the-upload-endpoint) judges a write by what the server holds and records every upload once. [Money is written only by the server](docs/powersync-migration.md#money-is-written-only-by-the-server). [Cutover has a protocol](docs/powersync-migration.md#the-cutover-protocol) for clients that are stale, offline or holding unsent writes. None of that revision is built yet.
 
 **If the rehearsal in 7.8 has not passed by 31 May 2027, self-host Instant first** — a small project of its own, most of which the rehearsal will already have done — so the deadline cannot be missed ([why](docs/powersync-migration.md#why-and-by-when)).
 
-**While this scope is open**, other work follows the rules [set out in the specification](docs/powersync-migration.md#working-on-main-while-this-is-in-flight). In short: once an area is converted in 7.1, its screens reach data only through its hooks and mutations; once it has a PowerSync implementation in 7.7, a change is made in both; and nothing new reaches Instant outside the data layer.
+**While this scope is open**, other work follows the rules [set out in the specification](docs/powersync-migration.md#working-on-main-while-this-is-in-flight). In short: a fix or a feature goes into the new screen under `app/sync/`, and into the old one too only when the family cannot wait for cutover; and nothing new reaches Instant.
 
-**7.2 is next.** 7.1 is paused after its first area until the slice has run, and everything from 7.3 on is provisional until what the slice shows has been written into the specification.
+**7.7 is next:** the pages.
 
 ### 7.0 The spike
 
@@ -276,26 +276,11 @@ A throwaway branch; its output is findings in the specification's log ([Phase 0]
 
 ### 7.1 The data layer, over Instant
 
-On `main`, Instant still the only backend ([Phase 1](docs/powersync-migration.md#phase-1--the-data-layer-over-instant)). For each area: design its types, reads and mutations for the relational end state; implement them over Instant; move every web and phone screen to them; rewrite its tests. Each ends with **(you)** a look over that area's screens on the live app.
+**Closed on 13 October 2026 where it stood** ([Phase 1](docs/powersync-migration.md#phase-1--the-data-layer-over-instant)). David decided the rest of the app is built new on PowerSync, beside the old screens, so no other area is moved over Instant and no other old screen is edited.
 
-**Paused after the first area, until 7.2 has run.** What is below is as far as it goes for now.
-
-- [~] Family and settings — first, because it is small and sets the pattern.
-  - Done: `packages/data` exists, with its Instant implementation and the test that lists every file still reaching Instant directly (117 now). The five household settings and the unit definitions are on it everywhere they are read or written, web and phone. Three faults the review found in the settings adapter are fixed, with tests.
-  - Started: `FamilyMember`, `useFamilyMembers()` and `useFamilyMember(id)` exist and are tested; seven screens read the roster through them — the dashboard, the message screen, transaction history and four dashboard widgets.
-  - **Left: family members.** The other twenty or so plain roster reads; the signed-in member in `AuthProvider`, with the session module; and creating, editing, reordering and removing members in `FamilyMembersList`.
-  - **(you)** Not seen in a browser or on a device. On the web: Settings — toggle a currency, save household scheduling, save countdown settings, switch the dashboard theme, set and remove the family photo — then the chore day and the countdown, which read those settings. Anywhere a balance is shown — the family list, Finance, the dashboards, allowance distribution — to see that amounts still carry their symbols, and define a new unit from a currency picker. On the phone: Chores, Routine markers, the countdown, Finance and the dashboard balances, and in More → Settings create a unit and look at the raw list at the bottom.
-- [ ] Chores, routines and the countdown.
-- [ ] Task series.
-- [ ] Calendar.
-- [ ] Finance.
-- [ ] Messaging, including presence behind `useThreadPresence`.
-- [ ] History.
-- [ ] Content.
-- [ ] Dashboards — last, because they mostly consume other areas' reads.
-- [ ] The session module, replacing `db.useAuth()` in components.
-- [~] Nothing new reaches Instant outside the data layer.
-  - Done: `test/contracts/instant-boundary.contract.node.test.ts` fails if a new file reaches Instant, or if any file queries or writes a converted area's entities; another test compiles the package under strict settings. Left: it becomes a ban on the import once the list is empty. Done when no screen imports Instant or builds a query.
+- [x] Settings, unit definitions and the family roster's read: types, reads and mutations in `packages/data`, with an Instant implementation, and the old screens that use them moved onto it. It stays until 7.9.
+  - **(you)** Still not seen in a browser or on a device. On the web: Settings — toggle a currency, save household scheduling, save countdown settings, switch the dashboard theme, set and remove the family photo — then the chore day and the countdown, which read those settings. Anywhere a balance is shown, to see that amounts still carry their symbols. On the phone: Chores, Routine markers, the countdown, Finance and the dashboard balances, and in More → Settings create a unit.
+- [x] Nothing new reaches Instant: `test/contracts/instant-boundary.contract.node.test.ts` fails if a new file does.
 
 ### 7.2 One slice, end to end
 
@@ -384,21 +369,23 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [ ] The report scripts rewritten; the backfill scripts removed.
   - Left for the cleanup in 7.9: both are run by hand by a developer, and the reports need a production Postgres to read.
 
-### 7.7 The data layer, on PowerSync
+### 7.7 The app, built new on PowerSync
 
-[Phase 7](docs/powersync-migration.md#phase-7--the-data-layer-on-powersync). For each remaining area: its reads and mutations in SQL behind the same interface, and its parity cases — the Instant implementation over the live data against the PowerSync one over the imported copy, compared field by field. Each ends with **(you)** a look over that area's screens on staging.
+[Phase 7](docs/powersync-migration.md#phase-7--the-data-layer-on-powersync). Each page gets a new version under `app/sync/`: its area's types, reads and mutations on the device's database, the page with the interface of the one it replaces, and a browser test against the real sync service. Each ends with **(you)** using it on staging.
 
-- [ ] The rest of family and settings.
-- [ ] Chores, routines and the countdown.
-- [ ] Task series.
-- [ ] Calendar.
-- [ ] Finance, with the four places that write money from a device today moved as the money rule requires.
-- [ ] Messaging, with the presence server module.
-- [ ] History.
-- [ ] Content.
-- [ ] Dashboards.
+- [ ] The frame: every page of the new app in one layout with its navigation, shown at the old page's address on a PowerSync deployment.
+- [ ] Settings and the family: household scheduling, currencies, countdown, grade types, dashboard settings; the family list, with adding, editing, ordering and removing a member, photos and PINs.
+- [ ] The chore day in full: adding and editing chores, rotation, up for grabs, the routines and their manager, the countdown and the sequence view.
+- [ ] Money: a member's envelopes, deposits, withdrawals and transfers, transaction history, goals, and allowance distribution.
+- [ ] Messages, with the presence server module.
+- [ ] Task series: the manager, the editor, the checklist in the chore day, responses and review.
+- [ ] The calendar, with adding and editing events and the Apple Calendar settings.
+- [ ] What the family posts: announcements, house rules, the content queue.
+- [ ] History and files.
+- [ ] The dashboards.
+- [ ] The phone, screen by screen, on the same data layer.
 - [~] Browsers: the service worker caching PowerSync's files, the storage-persistence request, a plain screen for a browser that cannot run the app, Firefox and WebKit added to Playwright, and the oldest supported browsers tried once. The app must keep working for anyone it works for today.
-  - Done with the slice's web client, for `/sync`: all but the last. Left: the oldest supported browsers, tried once.
+  - Done with the slice's web client: all but the last. Left: the oldest supported browsers, tried once.
 
 ### 7.8 Rehearsal and cutover
 

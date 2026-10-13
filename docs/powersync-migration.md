@@ -11,6 +11,12 @@
 
 Record each completed phase here, newest first, in the prose style the audits use: what was built, what the work showed the plan had wrong, and what was left.
 
+- **2026-10-13 — David's decision: new screens beside the old. The plan's Phase 1 is closed where it stands.**
+  With the server finished, what was left was the screens: about 95 files and 75,000 lines that read InstantDB directly. The plan had each of them edited in place to read through the data layer, with every area of that layer written twice, over InstantDB first and PowerSync after. David was asked whether to do that or to build a second version of each page straight on PowerSync, and chose the second.
+  **What it means.** Each page gets a new version under `app/sync/`, in the frame the slice already has, and is shown only on a deployment whose clients are on PowerSync: staging now, production at cutover. The old screens are not edited. They are frozen, and deleted at cleanup. A fix goes into the new screen; it goes into the old one too only when the family cannot wait for cutover. No further area of the data layer gets an InstantDB implementation: a new area is its types, reads and mutations written directly on the device's database, with no seam to be removed later.
+  **What it costs and saves.** Until cutover the repository holds two versions of each screen, and a change the family needs at once is made twice. It saves the InstantDB adapter for every remaining area, about half the data code, and it means the family's daily app is not being rebuilt under them: nothing in it changes until the day it is replaced. David checks new screens on staging with a copy of the real data, not area by area on the live app.
+  **What changes in this document.** [How the app gets there](#how-the-app-gets-there), [Phase 1](#phase-1--the-data-layer-over-instant), [Phase 7](#phase-7--the-data-layer-on-powersync) and [working on main](#working-on-main-while-this-is-in-flight) are revised below. Settings, units, the roster's read and the chore day keep the two implementations they already have, because screens the live app uses already read through them.
+
 - **2026-10-13 — The file actions take a session, which finishes the server's services bar two report scripts.**
   The server actions behind the file screens, and the avatar route, now know a parent from one of the app's own sessions as well as from an Instant token. The sweep of unreferenced uploads reads which files are still pointed at from Postgres when it was asked under a session. The phone's file routes ask only for an activated device and needed nothing. With this every route and action the app's screens call has a Postgres side: finance, messages, calendar sync, the content queue, exchange rates, Shortcuts, PINs, sessions and files.
   **Left in [Phase 6](#phase-6--the-server-on-postgres):** the two report scripts, which a developer runs by hand and which still read InstantDB. They are rewritten with the cleanup, when there is a production Postgres for them to read.
@@ -501,23 +507,17 @@ Read and write call sites on `a4aed13`, client and server together, by area. The
 
 ## How the app gets there
 
-Rewriting every screen's data access and replacing the database underneath it are two large changes. Done together on a branch, nothing could be checked until all of it was finished, against a codebase that took eighteen commits while this plan was being written. So they are done separately, on `main`.
+Revised on 13 October 2026, by David's decision ([log](#implementation-log)). The first plan edited every screen in place to read through a data layer written twice, over InstantDB and then over PowerSync. It was right to start that way: one area and one slice went all the way through, and what a mutation, a loading state, a change of person and a refusal mean was settled on the backend they are for. It is not how the rest is done.
 
-They are not done strictly one after the other, though. Converting every screen before any of it had met PowerSync would fix the data layer's API around one backend's habits: what it means for a mutation to have finished, what loading is, what a change of person does, how a refusal arrives. So a thin slice goes all the way through first.
+**The app on PowerSync is built beside the app on InstantDB, page by page, on `main`.**
 
-**First, one area's data layer, over Instant** ([Phase 1](#phase-1--the-data-layer-over-instant), done as far as settings, units and reading the family roster). The area's API and types are designed for the relational end state. Its first implementation runs on Instant: the query objects and transaction-building that live in components today move into `packages/data/src/instant/` and are mapped into the new types. The app keeps running on the live database.
+- **A page's new version lives under `app/sync/`**, in a frame of its own: the session manager, the signed-in person's local database, the header and its navigation. The middleware shows it in place of the old page, at the same address, on a deployment whose clients are on PowerSync. On any other deployment it is not reached.
+- **The old screens are frozen.** They keep running the live app on InstantDB, unedited, until they are deleted at cleanup. A fix or a feature goes into the new screen. It goes into the old one as well only when the family cannot wait for cutover.
+- **A new screen looks and behaves as the old one does.** It is the old screen's interface over new plumbing. Where the old one held a query and a list of operations, the new one calls a read and a mutation from the data layer.
+- **The data layer is written once, on PowerSync.** A new area is its types, its reads in SQL and its mutations as local transactions, with nothing between a hook and the device's database. Settings, units, the roster's read and the chore day keep the InstantDB implementation they were given before this decision, because old screens already read through them; that implementation and its seam are deleted at cleanup.
+- **The server chooses per request.** Each service has a Postgres implementation beside its InstantDB one. A request made under one of the app's own sessions is served from Postgres; a route with no session to go by asks the deployment which backend its clients are on.
 
-**Then one slice on PowerSync, end to end** ([Phase 2](#phase-2--one-slice-end-to-end)): those reads, a day's chores, and completing a chore, on a staging deployment, on a copy of the real data, through real sessions, the real upload route and the real rules. What it shows is written back into this plan before anything else is built on it.
-
-**Then the rest of the screens move to the data layer, over Instant** (Phase 1, resumed), area by area, each looked at on real data as it lands.
-
-**Then each area gets its PowerSync implementation** ([Phase 7](#phase-7--the-data-layer-on-powersync)). TypeScript holds both implementations to one interface per area, and the server tells each client which to use, so the PowerSync build runs on staging while production stays on Instant.
-
-**Then the Instant files are deleted** ([Phase 9](#phase-9--cleanup)), and the seam with them.
-
-The adapter code in this plan is therefore all on the Instant side — it maps Instant's results into the app's types — and none of it outlives cutover. Nothing is ever written to make PowerSync look like Instant.
-
-The same pattern holds on the server: each service gets a Postgres implementation beside its Instant one, with the same function signatures, and the routes do not change.
+Staging runs the new app on a copy of the real data as it grows, so each page is used for real before it is the family's. Nothing is ever written to make PowerSync look like InstantDB, and no screen is ever asked to run on both.
 
 ## Reads: the sync configuration
 
@@ -801,17 +801,11 @@ On Instant the count comes from a journal the data layer's Instant implementatio
 
 ## Working on main while this is in flight
 
-`main` stays deployable on Instant throughout. Which implementation runs — of the data layer, the server's services and the session module — is decided when the app starts, from what the server says, so the same image runs on PowerSync in a staging deployment. There is no long-lived branch.
+`main` stays deployable on InstantDB throughout: the old screens are not edited, so the live app is what it was. The same image runs the new app in a staging deployment, because which app a page shows is decided as a request arrives. There is no long-lived branch.
 
-The rules for other work change as the scope advances:
-
-- **Until an area is converted in Phase 1**, work on it as today.
-- **Once an area is converted**, its screens reach data only through its hooks and mutations. A new read or write is added to the area's API, not to a component.
-- **Once an area has its PowerSync implementation in Phase 7**, a change to that area's API is made in both implementations in the same commit — the typecheck fails otherwise — and a schema change is an edit to `instant.schema.ts`, a SQL migration and a mapping entry together.
-- **A change to `instant.perms.ts`** is also made in the write policy, with a behavioral case, from Phase 5 on.
-- **Nothing new reaches Instant directly.** `test/contracts/instant-boundary.contract.node.test.ts` lists every file that still does. No file may join the list, a converted file must leave it, and a converted area's entities may not be queried or written outside the data layer by any file, listed or not. The list tracks files, so a file already on it can still gain a query for an area that has not been converted; that gap closes as areas convert, and at cleanup the list is empty and the rule becomes a ban on the import.
-
-The third rule is real double work, so the gap between Phase 7 and cutover should be kept short and light on data-model changes.
+- **A fix or a feature goes into the new screen** under `app/sync/`, and its reads and writes into the data layer.
+- **It goes into the old screen as well only when the family cannot wait for cutover.** A schema change the old screen needs is then an edit to `instant.schema.ts`, a SQL migration and a mapping entry together; a change to `instant.perms.ts` is also made in the write policy, with a behavioral case.
+- **Nothing new reaches InstantDB.** `test/contracts/instant-boundary.contract.node.test.ts` lists every file that does, and no file may join the list. Nothing under `app/sync/`, `components/sync/` or the data layer's PowerSync side may import an old screen that is on the list.
 
 ## Testing
 
@@ -850,33 +844,7 @@ A throwaway branch. Its only output is findings written into this document's log
 
 ### Phase 1 — The data layer, over Instant
 
-On `main`, Instant still the only backend.
-
-For each area, in this order — family and settings first, because it is small and sets the pattern; dashboards last, because they mostly consume other areas' reads:
-
-1. Family and settings
-2. Chores, routines and the countdown
-3. Task series
-4. Calendar
-5. Finance
-6. Messaging, including `useThreadPresence`
-7. History
-8. Content
-9. Dashboards
-
-the work is the same:
-
-- Design the area's types, reads and mutations for the relational end state, and write them down in the area's `types.ts`.
-- Implement them over Instant, moving the area's query objects and transaction-building out of its components.
-- Move every screen in the area, web and phone, to the hooks and mutations.
-- Rewrite the area's tests against the new API.
-- **(you)** Look over the area's screens on the live app.
-
-**Paused after the first area.** Settings, units and reading the family roster are done. The rest of family and settings, and every other area, waits for Phase 2, so that no more of the API is fixed before it has run on the backend it is for.
-
-Also in this phase: the session module over Instant, replacing `db.useAuth()` in components.
-
-Done when no file outside the data layer's Instant implementation, the session module and the server's Instant modules imports `@instantdb/*` or builds a query.
+**Closed on 13 October 2026 where it stood.** Settings, the unit definitions, the family roster's read and, with the slice, the chore day were given their types, reads and mutations and an implementation over InstantDB, and the old screens that use them were moved onto it. That stays as it is until cleanup. No other area is moved over InstantDB, and no other old screen is edited: the rest of the app is built new, beside it, in [Phase 7](#phase-7--the-data-layer-on-powersync).
 
 ### Phase 2 — One slice, end to end
 
@@ -960,15 +928,20 @@ Done when the integration suites for those areas pass on Postgres, the concurren
 
 ### Phase 7 — The data layer, on PowerSync
 
-The slice built this for settings, units, the roster's reads and the chore day, and built what every area stands on: typed SQL, live reads that see one moment, mutations that ask the rules first and name their transactions, and the browser client. For each remaining area, in the Phase 1 order:
+The app, built new on PowerSync, page by page. The slice built what every page stands on: typed SQL, live reads that see one moment, mutations that ask the rules first and name their transactions, sessions and a database for each person, and the browser client.
 
-- Its queries and mutations in SQL, behind the same interface.
-- The area's parity cases, recorded from Instant and compared.
-- **(you)** Look over the area's screens on staging.
+For each page, the work is the same:
 
-Also in this phase: the service worker caching PowerSync's files; the storage-persistence request; the screen for a browser that cannot run the app; Firefox and WebKit added to Playwright; the oldest supported browsers tried; presence's server module; and the moves [the money rule](#money-is-written-only-by-the-server) requires in the finance screens.
+- Its area's types, reads and mutations, written on the device's database and tested against a real one.
+- The page itself under `app/sync/`, with the interface of the page it replaces.
+- A browser test of the page against the real sync service.
+- **(you)** Use it on staging, beside the old page on the live app.
 
-Done when the staging deployment runs the whole app on an imported copy of the live data and the parity suite passes.
+In this order, which is roughly how much each is used: the frame and its navigation; settings and the family; the chore day in full, with routines and the countdown; money; messages; task series; the calendar; what the family posts; history and files; the dashboards, which read everything else. Then the phone, screen by screen, on the same data layer.
+
+Also in this phase: the service worker caching PowerSync's files; the storage-persistence request; the screen for a browser that cannot run the app; the oldest supported browsers tried; presence's server module.
+
+Done when staging runs every page of the app on an imported copy of the live data, on the web and on the phone.
 
 ### Phase 8 — Rehearsal and cutover
 
