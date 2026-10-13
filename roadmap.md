@@ -371,7 +371,8 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 
 [Phase 6](docs/powersync-migration.md#phase-6--the-server-on-postgres). Each service is rewritten against Postgres beside its Instant version, keeping its function signatures.
 
-- [ ] Finance as locked database transactions, with the operation [the money rule](docs/powersync-migration.md#money-is-written-only-by-the-server) adds: reconciling a balance.
+- [x] Finance as locked database transactions, with the operation [the money rule](docs/powersync-migration.md#money-is-written-only-by-the-server) adds: reconciling a balance.
+  - Done on 13 October 2026: `lib/server/finance.ts`, served by the existing route to any request made under the app's own session. Its races were run on Postgres 17. The database itself now refuses an archived default envelope ([log](docs/powersync-migration.md#implementation-log)). No screen calls it until the finance screens move in 7.7.
 - [ ] Messaging on unique constraints; calendar sync on advisory locks.
 - [ ] Members and PINs, shortcuts, the content queue, exchange rates, the server actions.
 - [ ] The report scripts rewritten; the backfill scripts removed.

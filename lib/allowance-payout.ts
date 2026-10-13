@@ -5,9 +5,16 @@ import type { Envelope } from '@/lib/currency-utils';
 import { getAllowanceTransactionAuditFields, reconcileEnvelopes } from '@/lib/currency-utils';
 import { activeAllowanceEnvelopesQuery, filterActiveAllowanceEnvelopes } from '@/lib/allowance-envelopes';
 import { buildHistoryEventTransactions } from '@/lib/history-events';
+import {
+    createAllowanceDistributionHistoryId,
+    createAllowanceDistributionKey,
+    createAllowanceDistributionTransactionId,
+    normalizeCurrency,
+    toDateKey,
+} from '@/lib/allowance-distribution-key';
 
-const DISTRIBUTION_TRANSACTION_NAMESPACE = '4b2ecb70-5267-45af-867f-c3297ad0de68';
-const DISTRIBUTION_HISTORY_NAMESPACE = '532f561b-00b2-41c6-a89c-6cc0dc856370';
+export { createAllowanceDistributionKey, createAllowanceDistributionTransactionId };
+
 const DEFAULT_ENVELOPE_NAMESPACE = '382a139c-d654-49e5-8d6e-281b0aa070af';
 
 export interface AllowancePayoutPeriodInput {
@@ -36,26 +43,6 @@ export interface AtomicAllowancePayoutResult {
     envelopeId: string | null;
 }
 
-function toDateKey(value: Date | string) {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-        throw new Error('Allowance payout period contains an invalid date.');
-    }
-
-    const year = parsed.getUTCFullYear();
-    const month = String(parsed.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(parsed.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-function normalizeCurrency(currency: string) {
-    const normalized = String(currency || '').trim().toUpperCase();
-    if (!normalized) {
-        throw new Error('Allowance payout currency is required.');
-    }
-    return normalized;
-}
-
 function normalizeBalances(balances: Envelope['balances'] | null | undefined) {
     const normalized: Record<string, number> = {};
     for (const [currency, rawAmount] of Object.entries(balances || {})) {
@@ -65,31 +52,6 @@ function normalizeBalances(balances: Envelope['balances'] | null | undefined) {
         normalized[normalizedCurrency] = (normalized[normalizedCurrency] || 0) + amount;
     }
     return normalized;
-}
-
-export function createAllowanceDistributionKey(
-    memberId: string,
-    periodStartDate: Date | string,
-    periodEndDate: Date | string,
-    currency: string
-) {
-    return `allowance:${memberId}:${toDateKey(periodStartDate)}:${toDateKey(periodEndDate)}:${normalizeCurrency(currency)}`;
-}
-
-export function createAllowanceDistributionTransactionId(
-    memberId: string,
-    periodStartDate: Date | string,
-    periodEndDate: Date | string,
-    currency: string
-) {
-    return uuidv5(
-        createAllowanceDistributionKey(memberId, periodStartDate, periodEndDate, currency),
-        DISTRIBUTION_TRANSACTION_NAMESPACE
-    );
-}
-
-function createAllowanceDistributionHistoryId(transactionId: string) {
-    return uuidv5(transactionId, DISTRIBUTION_HISTORY_NAMESPACE);
 }
 
 function createDefaultEnvelopeId(memberId: string) {

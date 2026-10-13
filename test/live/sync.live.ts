@@ -8,6 +8,7 @@ import { SessionManager } from '@family-organizer/data/session/manager';
 import type { InstallationConfig } from '@family-organizer/data/session/platform';
 import { __resetParentElevationRateLimitForTests } from '@/lib/parent-elevation-rate-limit';
 import { getDb, type AppDatabase } from '@/lib/server/db';
+import { executeFinanceRequest, FinanceError } from '@/lib/server/finance';
 import { readDataHealth } from '@/lib/server/health';
 import { hashPinServer } from '@/lib/server/pin';
 import { createSession } from '@/lib/server/sessions';
@@ -509,6 +510,81 @@ describe('two uploads that reach the server at the same moment', () => {
         expect(results.map((result) => result.outcome)).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
         expect(results.filter((result) => !result.replayed)).toHaveLength(1);
         expect(await serverRows(`SELECT count(*)::int AS n FROM chore_completions`)).toEqual([{ n: 1 }]);
+    });
+});
+
+describe('money asked for by several at the same moment', () => {
+    const parent = { type: 'parent' as const, familyMemberId: DANA };
+    const ask = (request: Parameters<typeof executeFinanceRequest>[2]) => executeFinanceRequest(db, parent, request);
+    /** Whether each went through. One that did not must have been turned down for a reason, never broken. */
+    const settled = async (requests: Promise<unknown>[]) =>
+        (await Promise.allSettled(requests)).map((result) => {
+            if (result.status === 'rejected' && !(result.reason instanceof FinanceError)) throw result.reason;
+            return result.status === 'fulfilled';
+        });
+    const held = async (envelopeId: string) => Number((await serverRows(`SELECT COALESCE(sum(amount), 0)::double precision AS total FROM envelope_balances WHERE envelope_id = '${envelopeId}'`))[0].total);
+    const everyBalanceMatchesItsLedger = async () => {
+        for (const memberId of [ELI, FAY]) expect(await ask({ operation: 'reconcile', familyMemberId: memberId })).toEqual({ fixedEnvelopeIds: [], unverifiableEnvelopeIds: [] });
+    };
+
+    it('never pays out more than an envelope holds', async () => {
+        const savings = (await ask({ operation: 'create-initial', familyMemberId: ELI })) as string;
+        await ask({ operation: 'deposit', envelopeId: savings, amount: 10, currency: 'USD' });
+
+        const went = await settled(Array.from({ length: 20 }, () => ask({ operation: 'withdraw', envelopeId: savings, amount: 1, currency: 'USD' })));
+
+        expect(went.filter(Boolean)).toHaveLength(10);
+        expect(await held(savings)).toBe(0);
+        expect(await serverRows(`SELECT count(*)::int AS n FROM allowance_transactions WHERE transaction_type = 'withdrawal'`)).toEqual([{ n: 10 }]);
+        await everyBalanceMatchesItsLedger();
+    });
+
+    it('moves money both ways between two envelopes without either waiting on the other for ever', async () => {
+        const elis = (await ask({ operation: 'create-initial', familyMemberId: ELI })) as string;
+        const fays = (await ask({ operation: 'create-initial', familyMemberId: FAY })) as string;
+        await ask({ operation: 'deposit', envelopeId: elis, amount: 50, currency: 'USD' });
+        await ask({ operation: 'deposit', envelopeId: fays, amount: 50, currency: 'USD' });
+
+        const went = await settled(
+            Array.from({ length: 30 }, (_, turn) =>
+                ask({ operation: 'transfer-person', sourceEnvelopeId: turn % 2 ? elis : fays, destinationEnvelopeId: turn % 2 ? fays : elis, amount: 1 + (turn % 3), currency: 'USD' })
+            )
+        );
+
+        expect(went.every(Boolean)).toBe(true);
+        expect((await held(elis)) + (await held(fays))).toBe(100);
+        await everyBalanceMatchesItsLedger();
+    });
+
+    it('pays an allowance period once, and makes a first envelope once', async () => {
+        const period = { id: 'week', periodStartDate: '2026-03-01', periodEndDate: '2026-03-07', amount: 5, completionsToMark: [] };
+
+        const results = await Promise.all(Array.from({ length: 6 }, () => ask({ operation: 'allowance-payout', memberId: ELI, primaryCurrency: 'USD', periods: [period] })));
+        const envelopes = await Promise.all(Array.from({ length: 6 }, () => ask({ operation: 'create-initial', familyMemberId: FAY })));
+
+        expect(results.filter((result) => (result as { processedPeriodIds: string[] }).processedPeriodIds.length === 1)).toHaveLength(1);
+        expect(await serverRows(`SELECT count(*)::int AS n FROM allowance_envelopes WHERE family_member_id = '${ELI}'`)).toEqual([{ n: 1 }]);
+        expect(await serverRows(`SELECT amount FROM envelope_balances`)).toEqual([{ amount: 5 }]);
+        expect(new Set(envelopes).size).toBe(1);
+        expect(await serverRows(`SELECT count(*)::int AS n FROM allowance_envelopes WHERE family_member_id = '${FAY}'`)).toEqual([{ n: 1 }]);
+    });
+
+    it('loses nothing when an envelope is archived while money is on its way in', async () => {
+        const savings = (await ask({ operation: 'create-initial', familyMemberId: ELI })) as string;
+        const spending = (await ask({ operation: 'create-envelope', familyMemberId: ELI, name: 'Spending', isDefault: false })) as string;
+
+        const went = await settled([
+            ...Array.from({ length: 8 }, () => ask({ operation: 'deposit', envelopeId: spending, amount: 2, currency: 'USD' })),
+            ask({ operation: 'archive', envelopeId: spending, transferToEnvelopeId: savings }),
+            ...Array.from({ length: 8 }, () => ask({ operation: 'deposit', envelopeId: spending, amount: 2, currency: 'USD' })),
+        ]);
+
+        // Every deposit that was taken is in the envelope that remains; every other was turned down.
+        const deposits = went.filter((ok, index) => ok && index !== 8).length;
+        expect(went[8]).toBe(true);
+        expect(await held(spending)).toBe(0);
+        expect(await held(savings)).toBe(deposits * 2);
+        await everyBalanceMatchesItsLedger();
     });
 });
 
