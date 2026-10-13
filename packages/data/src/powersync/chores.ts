@@ -42,7 +42,7 @@ function toTiming(row: ChoreRow): ChoreTiming {
     }
 }
 
-function toChore(row: ChoreRow, assigneeIds: readonly string[]): Chore {
+export function toChore(row: ChoreRow, assigneeIds: readonly string[]): Chore {
     const exdates = fromJson(row.exdates);
     return {
         id: row.id,
@@ -79,6 +79,18 @@ function toCompletion(row: CompletionRow): ChoreCompletion {
         notDone: flag(row.not_done),
         allowanceAwarded: flag(row.allowance_awarded),
     };
+}
+
+/** Every chore with who it is assigned to, in the family's order. */
+export async function readChores(reader: Reader): Promise<Pick<RawChoreDay, 'chores' | 'assignees'>> {
+    return {
+        chores: await all<ChoreRow>(reader, sqlFor.selectFrom('chores').selectAll().orderBy('sort_order').orderBy('id')),
+        assignees: await all<AssigneeRow>(reader, sqlFor.selectFrom('chore_assignees').select(['chore_id', 'family_member_id']).orderBy('position').orderBy('family_member_id')),
+    };
+}
+
+export function toChores(raw: Pick<RawChoreDay, 'chores' | 'assignees'>): Chore[] {
+    return [...toChoreDay('', { ...raw, completions: [] }).chores];
 }
 
 /** Three flat reads, each on an indexed column, taken at one moment. */

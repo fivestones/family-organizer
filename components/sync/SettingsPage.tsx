@@ -5,6 +5,9 @@ import CurrencySettings from '@/components/CurrencySettings';
 import DashboardThemeSelector from '@/components/freeform-dashboard/DashboardThemeSelector';
 import FamilyMembersList from './family/FamilyMembersList';
 import { ParentOnly } from './ParentOnly';
+import AppleCalendarSyncSettings from './settings/AppleCalendarSyncSettings';
+import GradeTypeSettings from './settings/GradeTypeSettings';
+import HouseholdSchedulingSettings from './settings/HouseholdSchedulingSettings';
 
 /** Everything a parent sets up for the household, in the order the old page has it. */
 export function SettingsPage() {
@@ -24,7 +27,19 @@ export function SettingsPage() {
                 <CurrencySettings />
 
                 <div className="mt-8">
+                    <HouseholdSchedulingSettings />
+                </div>
+
+                <div className="mt-8">
                     <CountdownSettings />
+                </div>
+
+                <div className="mt-8">
+                    <GradeTypeSettings />
+                </div>
+
+                <div className="mt-8">
+                    <AppleCalendarSyncSettings />
                 </div>
             </div>
         </ParentOnly>
