@@ -47,6 +47,7 @@ describe('the family roster, over Instant', () => {
             photoUrls: { '64': 'sam-64.png', '320': 'sam-320.png' },
             sortOrder: 0,
             hasPin: true,
+            defaultEnvelopeId: null,
             allowanceAmount: null,
             allowanceCurrency: null,
             allowanceRrule: null,

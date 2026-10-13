@@ -5,7 +5,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/currency-utils', () => ({
+vi.mock('@/lib/money-format', () => ({
     formatBalances: (balances: Record<string, number>) =>
         Object.entries(balances)
             .map(([code, amount]) => `${code}:${amount}`)
