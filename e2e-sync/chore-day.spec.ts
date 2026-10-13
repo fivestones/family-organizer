@@ -153,3 +153,24 @@ test('a page that has no new version yet says so, and the rest of the app is one
     await page.getByRole('link', { name: 'Go to today’s chores' }).click();
     await expect(chore(page, 'Dishes')).toBeVisible();
 });
+
+test('a parent adds someone on the settings page: they are in the family at once and on the server, with a first envelope', async ({ page }) => {
+    await open(page);
+    await signInAs(page, 'Dana', '2468');
+    await page.getByTestId('main-nav-group-trigger-admin').click();
+    await page.getByTestId('main-nav-group-item-settings').click();
+    await expect(page.getByTestId('settings')).toBeVisible();
+    // Every section of the old page that has been moved is here.
+    for (const heading of ['Household Scheduling', 'Grade Types']) await expect(page.getByText(heading, { exact: false }).first()).toBeVisible();
+
+    await page.getByRole('button', { name: 'Add Family Member' }).click();
+    await page.locator('#name').fill('Gus');
+    await page.getByRole('button', { name: 'Add Member' }).click();
+
+    await expect.poll(async () => (await query<{ name: string }>(`SELECT name FROM family_members ORDER BY sort_order`)).map((row) => row.name)).toEqual(['Dana', 'Eli', 'Fay', 'Gus']);
+    // The envelope is the server's to make, and is made once the member has reached it.
+    await expect.poll(async () => query(`SELECT e.name FROM allowance_envelopes e JOIN family_members m ON m.id = e.family_member_id AND m.default_envelope_id = e.id WHERE m.name = 'Gus'`), { timeout: 20_000 }).toEqual([{ name: 'Savings' }]);
+    // The person switcher reads the same roster.
+    await page.getByTestId('person-button').click();
+    await expect(page.getByTestId('person-option').filter({ hasText: 'Gus' })).toBeVisible();
+});

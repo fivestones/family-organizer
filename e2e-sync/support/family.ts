@@ -37,7 +37,8 @@ export async function resetFamily(): Promise<void> {
     const client = new pg.Client({ connectionString: databaseUrl });
     await client.connect();
     try {
-        for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'history_event_members', 'history_events', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
+        await client.query(`UPDATE family_members SET default_envelope_id = NULL`);
+        for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'grade_types', 'history_event_members', 'history_events', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
             await client.query(`DELETE FROM ${table}`);
         }
         await client.query(`UPDATE installation SET backend = 'powersync', writes_frozen = false`);
