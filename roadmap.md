@@ -328,13 +328,16 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 - [x] The export script and its census, run read-only against the live app.
   - Run on 12 October 2026: 64,895 rows, of which 61,111 are the server's calendar sync log; what a device would hold is about 3,800 rows. The data is clean, and all ten references that are held twice agree with themselves ([log](docs/powersync-migration.md#implementation-log)).
   - **(you)** For an official copy as well, sign the Instant CLI in and run `npx instant-cli@latest backup download --latest`. Instant keeps seven nightly backups.
-- [~] The rest of the schema as SQL migrations, following [the design rules](docs/powersync-migration.md#design-rules), with the mapping from every Instant attribute and link to its column, and a delete rule chosen for every relation.
-  - Done: the chore area is whole, with routines, their steps, the day's routine markers and countdown runs added on 13 October 2026, each with its stream, device table, rules, mapping and verification. Task series followed the same day, in eight tables, money in four, content, dashboards and history files in ten, and messaging in six with its two streams. Left: calendar, and the tables only the server keeps (calendar sync, shortcut tokens, push devices).
+- [x] The rest of the schema as SQL migrations, following [the design rules](docs/powersync-migration.md#design-rules), with the mapping from every Instant attribute and link to its column, and a delete rule chosen for every relation.
+  - Done on 13 October 2026, area by area, each with its migration, stream, device table, rules, mapping, verification and tests: the chore area, task series, money, content and dashboards, history, messaging with its two streams, the calendar, and the six tables only the server keeps. 55 tables in eleven migrations, 45 of them sent to devices ([log](docs/powersync-migration.md#implementation-log)).
   - **(you)** 112 rows belonging to tasks deleted in March 2026 are held back from the import, as the 46 orphaned completions are: 32 updates, 28 response fields, 44 answers and 8 files that no screen can reach ([log](docs/powersync-migration.md#implementation-log)). Say if any of it should be kept.
   - **(you)** One member has four envelopes all marked as the default, and the import keeps the first. After an import, check on staging that it is the one you expect. Four empty envelopes whose members were deleted are carried as they are.
 - [ ] Postgres and PowerSync in the production `docker-compose.yml`, with the cap on what replication may hold back, the health report, and the nightly dump copied off the machine.
-- [ ] The client schema and its indexes, for every table.
-- [ ] The import script for everything, with [verification](docs/powersync-migration.md#moving-the-data) of rows, relations and money worked out from the raw export. Done when a fresh import of the live data verifies clean.
+- [x] The client schema and its indexes, for every table.
+  - Done with each table. The indexes are chosen from how each table will be read; they are checked against the plans of the real reads in 7.7.
+- [x] The import script for everything, with [verification](docs/powersync-migration.md#moving-the-data) of rows, relations and money worked out from the raw export. Done when a fresh import of the live data verifies clean.
+  - Done on 13 October 2026: the live export imports into Postgres 17 and all 102 checks pass. `node scripts/migrate/rehearse.mjs` does the same in-process, with nothing installed. With the real data loaded the sync service replicated every published table without an error; what a device holds was compared row by row only for the test fixtures.
+  - The calendar import's log is 61,111 rows of which 8,679 are carried: the last thirty days, and every older run that failed or changed an event.
 - [ ] **(you)** `/powersync/` on the app's own address sent to the PowerSync service by the reverse proxy, with response buffering off; and somewhere off the machine for backups.
 
 ### 7.4 Identity

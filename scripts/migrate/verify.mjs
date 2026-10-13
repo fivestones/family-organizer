@@ -735,6 +735,165 @@ export async function verifyImport(db, rowsOf, timing) {
     check('message_reactions, message_acknowledgements: none on a message that was not exported')('count',
         reactionRows.every((row) => messageRows.has(row.message_id)) && ackRows.every((row) => messageRows.has(row.message_id)));
 
+    // ---- The calendar ----
+    const everyItem = rowsOf('calendarItems');
+    const externalIdOf = new Map(everyItem.filter((raw) => typeof raw.sourceExternalId === 'string' && raw.sourceExternalId.trim()).map((raw) => [raw.sourceExternalId.trim(), raw.id]));
+    // An occurrence names its repeating event by id, or by what the calendar it came from calls that event.
+    const masterIdOf = (raw) => (everyItem.some((item) => item.id === raw.recurringEventId) ? raw.recurringEventId : externalIdOf.get(String(raw.recurringEventId ?? '').trim()));
+    // One whose event is gone cannot be held, and is not looked for.
+    const rawItems2 = everyItem.filter((raw) => blank(raw.recurringEventId) || masterIdOf(raw));
+    const rawTags = rowsOf('calendarTags');
+    const itemRows2 = new Map((await table('calendar_items')).map((row) => [row.id, row]));
+    const lower = (value) => (blank(value) ? null : String(value).toLowerCase());
+    // A zone is a name. Where Instant held a whole iCalendar description of one, its name is the line that says TZID.
+    const zoneOf = (value) => {
+        const text = textOf(value);
+        const name = text && /BEGIN:VTIMEZONE/i.test(text) ? (text.split(/\r?\n/).find((line) => line.startsWith('TZID:')) ?? '').slice(5).trim() || null : text;
+        try { return name && new Intl.DateTimeFormat('en', { timeZone: name }) ? name : null; } catch { return null; }
+    };
+    const emptyAsNone = (value) => (value == null || (Array.isArray(value) && !value.length) || (typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length) ? null : value);
+    const calendarItem = check('calendar_items: every event, field by field, on the days or at the instants it was');
+    for (const raw of rawItems2) {
+        const row = itemRows2.get(raw.id);
+        const allDay = raw.isAllDay === true;
+        calendarItem(raw.id, Boolean(row) && row.title === String(raw.title ?? '').trim() && same(row.description, textOf(raw.description)) && same(row.location, textOf(raw.location)) && same(row.url, textOf(raw.url))
+            && (allDay
+                ? row.start_date === dayOf(raw.startDate) && row.end_date === dayOf(raw.endDate) && row.starts_at === null && row.ends_at === null
+                : instantOf(row.starts_at) === instantOf(raw.startDate) && instantOf(row.ends_at) === instantOf(raw.endDate) && row.start_date === null && row.end_date === null)
+            && same(row.time_zone, zoneOf(raw.timeZone)) && row.status === (lower(raw.status) ?? 'confirmed') && row.event_type === (textOf(raw.eventType) ?? 'default') && row.visibility === (textOf(raw.visibility) ?? 'default')
+            && row.transparency === (raw.transparency ?? (allDay ? 'transparent' : 'opaque')) && same(row.priority, raw.priority) && same(row.uid, textOf(raw.uid)) && row.sequence === (raw.sequence ?? 0)
+            && instantOf(row.dtstamp) === instantOf(raw.dtStamp) && instantOf(row.last_modified) === instantOf(raw.lastModified)
+            && sameJson(row.organizer ?? null, emptyAsNone(raw.organizer)) && sameJson(row.attendees ?? null, emptyAsNone(raw.attendees)) && sameJson(row.alarms ?? null, emptyAsNone(raw.alarms)) && sameJson(row.x_props ?? null, emptyAsNone(raw.xProps))
+            && same(row.travel_duration_before_minutes, raw.travelDurationBeforeMinutes) && same(row.travel_duration_after_minutes, raw.travelDurationAfterMinutes));
+    }
+    check('calendar_items: as many as were exported')('count', itemRows2.size === rawItems2.length);
+
+    // The three numbers Instant kept to find an event by its day are not carried. They can be, because they are
+    // what the event's start already says, read in the event's own time zone.
+    const partsIn = (instantValue, zone) => {
+        const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date(instantValue)).map((part) => [part.type, Number(part.value)]));
+        return [parts.year, parts.month, parts.day];
+    };
+    const zones = [...new Set([...itemRows2.values()].map((row) => row.time_zone).filter(Boolean)), 'UTC'];
+    const onItsDay = check('calendar_items: each event starts on the year, month and day Instant had it filed under, in its own time zone');
+    for (const raw of rawItems2) {
+        const row = itemRows2.get(raw.id);
+        if (!row) { onItsDay(raw.id, false); continue; }
+        const filed = [raw.year, raw.month, raw.dayOfMonth];
+        // An event that names no zone was filed in whichever one the device that made it was in.
+        const candidates = row.start_date ? [row.start_date.split('-').map(Number)] : (row.time_zone ? [row.time_zone] : zones).map((zone) => partsIn(row.starts_at, zone));
+        // An event made in the app was filed with its month counted from nought.
+        onItsDay(raw.id, candidates.some((parts) => sameJson(parts, filed) || sameJson([parts[0], parts[1] - 1, parts[2]], filed)));
+    }
+
+    const tokensOf = (raw, attribute, label) => [...new Set([
+        ...asList(raw[attribute]).filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()),
+        ...asList(raw.recurrenceLines).filter((line) => typeof line === 'string' && line.toUpperCase().startsWith(`${label}:`)).flatMap((line) => line.slice(label.length + 1).split(',')).map((token) => token.trim()).filter(Boolean),
+    ])].sort();
+    const repeats = check('calendar_items: each event repeats by the rule it did, with the same occurrences added and taken out');
+    for (const raw of rawItems2) {
+        const row = itemRows2.get(raw.id);
+        const ruleBefore = textOf(raw.rrule) ?? asList(raw.recurrenceLines).find((line) => /^RRULE:/i.test(String(line))) ?? null;
+        repeats(raw.id, Boolean(row) && same(row.rrule, ruleBefore ? String(ruleBefore).replace(/^RRULE:/i, '') : null)
+            && sameJson([...row.exdates].sort(), tokensOf(raw, 'exdates', 'EXDATE')) && sameJson([...row.rdates].sort(), tokensOf(raw, 'rdates', 'RDATE')));
+    }
+    const exception = check('calendar_items: each changed occurrence belongs to the repeating event it did, as the occurrence it was');
+    for (const raw of rawItems2.filter((item) => textOf(item.recurringEventId))) {
+        const row = itemRows2.get(raw.id);
+        exception(raw.id, Boolean(row) && row.recurring_event_id === masterIdOf(raw) && row.recurrence_id === textOf(raw.recurrenceId) && same(row.recurrence_id_range, textOf(raw.recurrenceIdRange)));
+    }
+    check('calendar_items: no event is an occurrence of another unless it was')('count',
+        [...itemRows2.values()].filter((row) => row.recurring_event_id).length === rawItems2.filter((item) => textOf(item.recurringEventId)).length);
+    const imported = check('calendar_items: each event brought in from elsewhere says from where, as it did');
+    for (const raw of rawItems2) {
+        const row = itemRows2.get(raw.id);
+        imported(raw.id, Boolean(row) && same(row.source_type, textOf(raw.sourceType)) && row.source_read_only === (raw.sourceReadOnly === true) && same(row.source_sync_status, textOf(raw.sourceSyncStatus))
+            && same(row.source_calendar_name, textOf(raw.sourceCalendarName)) && same(row.source_external_id, textOf(raw.sourceExternalId)) && same(row.source_remote_url, textOf(raw.sourceRemoteUrl)));
+    }
+
+    const itemPeopleBefore = new Map(rawItems2.map((raw) => [raw.id, new Set(asList(raw.pertainsTo))]));
+    for (const raw of rawMembers) for (const itemId of asList(raw.calendarItems)) itemPeopleBefore.get(itemId)?.add(raw.id);
+    const itemPeopleAfter = await table('calendar_item_members');
+    const forWhom = check('calendar_item_members: each event is for exactly the people it was');
+    for (const raw of rawItems2) {
+        const before = [...itemPeopleBefore.get(raw.id)].filter((id) => members.has(id)).sort();
+        forWhom(raw.id, sameJson(before, itemPeopleAfter.filter((row) => row.calendar_item_id === raw.id).map((row) => row.family_member_id).sort()));
+    }
+    const tagRows = new Map((await table('calendar_tags')).map((row) => [row.id, row]));
+    const itemTagsBefore = new Map(rawItems2.map((raw) => [raw.id, new Set(asList(raw.tags))]));
+    for (const raw of rawTags) for (const itemId of asList(raw.calendarItems)) itemTagsBefore.get(itemId)?.add(raw.id);
+    const tagName = new Map(rawTags.map((raw) => [raw.id, String(raw.name ?? '').trim().replace(/\s+/g, ' ').toLowerCase()]));
+    const itemTagsAfter = await table('calendar_item_tags');
+    const tagged = check('calendar_item_tags: each event has the tags it had, by name');
+    for (const raw of rawItems2) {
+        const before = [...new Set([...itemTagsBefore.get(raw.id)].map((id) => tagName.get(id)).filter(Boolean))].sort();
+        tagged(raw.id, sameJson(before, itemTagsAfter.filter((row) => row.calendar_item_id === raw.id).map((row) => tagRows.get(row.tag_id)?.name.toLowerCase()).sort()));
+    }
+    check('calendar_tags: one for each name that was used')('count', tagRows.size === new Set([...tagName.values()].filter(Boolean)).size);
+
+    // ---- What only the server keeps ----
+    const rawAccounts = rowsOf('calendarSyncAccounts');
+    const rawCalendars = rowsOf('calendarSyncCalendars');
+    const accountRows = new Map((await table('calendar_sync_accounts')).map((row) => [row.id, row]));
+    const account = check('calendar_sync_accounts: every account, field by field, with its password as it was encrypted');
+    for (const raw of rawAccounts) {
+        const row = accountRows.get(raw.id);
+        account(raw.id, Boolean(row) && row.provider === raw.provider && row.username === raw.username && row.password_ciphertext === raw.passwordCiphertext && row.password_key_version === raw.passwordKeyVersion
+            && row.account_label === raw.accountLabel && row.status === raw.status && same(row.apple_principal_url, textOf(raw.applePrincipalUrl)) && same(row.apple_calendar_home_url, textOf(raw.appleCalendarHomeUrl))
+            && sameJson(row.selected_calendar_ids, asList(raw.selectedCalendarIds)) && same(row.sync_window_past_days, raw.syncWindowPastDays) && same(row.sync_window_future_days, raw.syncWindowFutureDays)
+            && instantOf(row.last_successful_sync_at) === instantOf(raw.lastSuccessfulSyncAt) && same(row.last_error_code, textOf(raw.lastErrorCode)));
+    }
+    const calendarRows = new Map((await table('calendar_sync_calendars')).map((row) => [row.id, row]));
+    const syncCalendar = check('calendar_sync_calendars: every calendar of an account, field by field');
+    for (const raw of rawCalendars.filter((item) => accountRows.has(item.accountId))) {
+        const row = calendarRows.get(raw.id);
+        syncCalendar(raw.id, Boolean(row) && row.account_id === raw.accountId && row.remote_calendar_id === raw.remoteCalendarId && same(row.remote_url, textOf(raw.remoteUrl)) && row.display_name === raw.displayName
+            && row.is_enabled === (raw.isEnabled === true) && same(row.last_ctag, textOf(raw.lastCtag)) && same(row.last_sync_token, textOf(raw.lastSyncToken)) && same(row.color, textOf(raw.color))
+            && same(row.time_zone, zoneOf(raw.timeZone)) && instantOf(row.last_successful_sync_at) === instantOf(raw.lastSuccessfulSyncAt));
+    }
+    check('calendar sync: as many accounts and calendars as were exported')('count', accountRows.size === rawAccounts.length && calendarRows.size === rawCalendars.filter((item) => accountRows.has(item.accountId)).length);
+    const stateRows = new Map((await table('calendar_item_sync_state')).map((row) => [row.calendar_item_id, row]));
+    const state = check('calendar_item_sync_state: what the import knew of each event it brought in, so it finds the event again and not a second one');
+    for (const raw of rawItems2.filter((item) => textOf(item.sourceAccountKey))) {
+        const row = stateRows.get(raw.id);
+        const from = rawCalendars.find((item) => item.accountId === raw.sourceAccountKey && item.remoteCalendarId === raw.sourceCalendarId);
+        state(raw.id, from
+            ? Boolean(row) && row.calendar_id === from.id && same(row.remote_etag, textOf(raw.sourceRemoteEtag)) && same(row.remote_ctag, textOf(raw.sourceRemoteCtag)) && same(row.raw_hash, textOf(raw.sourceRawHash))
+                && instantOf(row.last_seen_at) === instantOf(raw.sourceLastSeenAt ?? raw.sourceImportedAt) && (blank(raw.sourceImportedAt) || instantOf(row.imported_at) === instantOf(raw.sourceImportedAt))
+            : !row);
+    }
+    check('calendar_item_sync_state: none for an event that was not brought in')('count', stateRows.size <= rawItems2.filter((item) => textOf(item.sourceAccountKey)).length);
+
+    const rawRuns = rowsOf('calendarSyncRuns');
+    const runRows = new Map((await table('calendar_sync_runs')).map((row) => [row.id, row]));
+    const newestRun = rawRuns.reduce((latest, raw) => Math.max(latest, instantOf(raw.startedAt) ?? 0), 0);
+    const happened = (raw) => raw.status !== 'success' || (raw.eventsCreated ?? 0) + (raw.eventsUpdated ?? 0) + (raw.eventsCancelled ?? 0) + (raw.eventsMarkedDeleted ?? 0) > 0;
+    const wanted = rawRuns.filter((raw) => accountRows.has(raw.accountId) && (instantOf(raw.startedAt) >= newestRun - 30 * 86_400_000 || happened(raw)));
+    check('calendar_sync_runs: the last thirty days of the log, and every older run in which something happened')('count', runRows.size === wanted.length && wanted.every((raw) => runRows.has(raw.id)));
+    const failedRun = check('calendar_sync_runs: every failed run, with what went wrong');
+    for (const raw of wanted.filter((item) => item.status !== 'success')) {
+        const row = runRows.get(raw.id);
+        failedRun(raw.id, Boolean(row) && row.status === raw.status && row.trigger === raw.trigger && instantOf(row.started_at) === instantOf(raw.startedAt) && same(row.error_code, textOf(raw.errorCode)) && same(row.error_message, textOf(raw.errorMessage)));
+    }
+
+    const rawTokens = rowsOf('shortcutTokens');
+    const tokenRows = new Map((await table('shortcut_tokens')).map((row) => [row.id, row]));
+    const token = check('shortcut_tokens: every token of a parent still in the family, working or revoked as it was');
+    for (const raw of rawTokens.filter((item) => members.has(item.parentFamilyMemberId))) {
+        const row = tokenRows.get(raw.id);
+        token(raw.id, Boolean(row) && row.token_hash === raw.tokenHash && row.capability === raw.capability && row.parent_family_member_id === raw.parentFamilyMemberId && row.label === raw.label
+            && instantOf(row.revoked_at) === instantOf(raw.revokedAt) && instantOf(row.last_used_at) === instantOf(raw.lastUsedAt));
+    }
+    const rawPush = rowsOf('pushDevices');
+    const pushRows = new Map((await table('push_devices')).map((row) => [row.id, row]));
+    const push = check('push_devices: every device of someone in the family, with its token');
+    for (const raw of rawPush.filter((item) => members.has(item.familyMemberId))) {
+        const row = pushRows.get(raw.id);
+        push(raw.id, Boolean(row) && row.token === raw.token && row.family_member_id === raw.familyMemberId && row.platform === raw.platform && row.is_enabled === (raw.isEnabled !== false));
+    }
+    check('shortcut_tokens, push_devices: none loaded but those of someone in the family')('count',
+        tokenRows.size === rawTokens.filter((item) => members.has(item.parentFamilyMemberId)).length && pushRows.size === rawPush.filter((item) => members.has(item.familyMemberId)).length);
+
     return { checks };
 }
 

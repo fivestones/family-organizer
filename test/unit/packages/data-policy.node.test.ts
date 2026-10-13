@@ -351,6 +351,40 @@ describe('messages', () => {
     });
 });
 
+describe('the calendar', () => {
+    const parentsOnly = (action: string) => ({ parent: action, eli: 'not_allowed', fay: 'not_allowed', sharedKid: 'not_allowed' });
+    const event = { id: id(510), title: 'Sports day', start_date: '2026-03-09', end_date: '2026-03-10' };
+
+    it('is written by parents: events, whom each is for, tags, and what is tagged', () => {
+        expect(forEveryone({ op: 'PUT', table: 'calendar_items', id: id(510), data: { title: 'Sports day', start_date: '2026-03-09', end_date: '2026-03-10', exdates: '[]', rdates: '[]' } })).toEqual(parentsOnly('insert'));
+        expect(forEveryone({ op: 'PATCH', table: 'calendar_items', id: id(510), data: { title: 'Sports afternoon' } }, event)).toEqual(parentsOnly('update'));
+        expect(forEveryone({ op: 'DELETE', table: 'calendar_items', id: id(510) }, event)).toEqual(parentsOnly('delete'));
+        expect(forEveryone({ op: 'PUT', table: 'calendar_item_members', id: `${id(510)}.${ELI}`, data: {} })).toEqual(parentsOnly('insert'));
+        expect(forEveryone({ op: 'PUT', table: 'calendar_tags', id: id(500), data: { name: 'School' } })).toEqual(parentsOnly('insert'));
+        expect(forEveryone({ op: 'PUT', table: 'calendar_item_tags', id: `${id(510)}.${id(500)}`, data: {} })).toEqual(parentsOnly('insert'));
+    });
+
+    it('takes the occurrences added to and taken out of a repeating event as a list of text, whatever the text holds', () => {
+        expect(readValue({ kind: 'texts' }, '["2026-03-16T16:00:00","2026-03-23"]')).toEqual({ valid: true, value: ['2026-03-16T16:00:00', '2026-03-23'] });
+        expect(readValue({ kind: 'texts' }, '["a, b","{c}"]')).toEqual({ valid: true, value: ['a, b', '{c}'] });
+        expect(readValue({ kind: 'texts' }, '[]')).toEqual({ valid: true, value: [] });
+        expect(readValue({ kind: 'texts' }, '[1,2]')).toEqual({ valid: false });
+        expect(readValue({ kind: 'texts' }, '2026-03-16')).toEqual({ valid: false });
+    });
+
+    it('refuses a status or a way of taking up time that iCalendar does not have', () => {
+        expect(checkOperation({ op: 'PATCH', table: 'calendar_items', id: id(510), data: { status: 'maybe' } }).valid).toBe(false);
+        expect(checkOperation({ op: 'PATCH', table: 'calendar_items', id: id(510), data: { transparency: 'see-through' } }).valid).toBe(false);
+    });
+
+    it('has nothing of what the server keeps for itself', () => {
+        for (const table of ['calendar_sync_accounts', 'calendar_sync_calendars', 'calendar_item_sync_state', 'calendar_sync_runs', 'shortcut_tokens', 'push_devices']) {
+            expect(Object.keys(POLICY)).not.toContain(table);
+            expect(checkOperation({ op: 'PUT', table, id: id(520), data: {} }).valid).toBe(false);
+        }
+    });
+});
+
 describe('history', () => {
     const event = (actor: string | null): DeviceOperation => ({ op: 'PUT', table: 'history_events', id: id(60), data: { occurred_at: '2026-03-09T18:00:00.000Z', domain: 'chores', action_type: 'chore_marked_done', summary: 'Completed "Dishes"', actor_id: actor, metadata: '{}' } });
 

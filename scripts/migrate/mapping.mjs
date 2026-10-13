@@ -17,6 +17,8 @@ export const TABLES = [
     'family_dashboard_layouts', 'family_dashboard_widgets', 'dashboard_configs', 'history_event_attachments',
     // A member's place in a thread names a message, so the messages go in first.
     'message_threads', 'messages', 'message_thread_members', 'message_attachments', 'message_reactions', 'message_acknowledgements',
+    'calendar_tags', 'calendar_items', 'calendar_item_members', 'calendar_item_tags',
+    'calendar_sync_accounts', 'calendar_sync_calendars', 'calendar_item_sync_state', 'calendar_sync_runs', 'shortcut_tokens', 'push_devices',
 ];
 
 /** The columns written to each table. One the database fills in for itself, such as family_members.has_pin, is not among them. */
@@ -125,6 +127,36 @@ export const COLUMNS = {
     ],
     message_reactions: ['message_id', 'family_member_id', 'emoji', 'created_at'],
     message_acknowledgements: ['message_id', 'family_member_id', 'kind', 'created_at'],
+    calendar_tags: ['id', 'name', 'created_at', 'updated_at'],
+    calendar_items: [
+        'id', 'title', 'description', 'location', 'url', 'start_date', 'end_date', 'starts_at', 'ends_at', 'time_zone', 'status', 'event_type',
+        'visibility', 'transparency', 'priority', 'uid', 'sequence', 'dtstamp', 'last_modified', 'rrule', 'rdates', 'exdates', 'recurring_event_id',
+        'recurrence_id', 'recurrence_id_range', 'organizer', 'attendees', 'alarms', 'x_props', 'travel_duration_before_minutes',
+        'travel_duration_after_minutes', 'source_type', 'source_read_only', 'source_sync_status', 'source_calendar_name', 'source_external_id',
+        'source_remote_url', 'created_at', 'updated_at',
+    ],
+    calendar_item_members: ['calendar_item_id', 'family_member_id'],
+    calendar_item_tags: ['calendar_item_id', 'tag_id'],
+    calendar_sync_accounts: [
+        'id', 'provider', 'account_label', 'username', 'password_ciphertext', 'password_key_version', 'apple_principal_url', 'apple_calendar_home_url',
+        'status', 'selected_calendar_ids', 'sync_window_past_days', 'sync_window_future_days', 'repair_scan_interval_hours', 'last_attempted_sync_at',
+        'last_successful_sync_at', 'last_error_at', 'last_error_code', 'last_error_message', 'created_at', 'updated_at',
+    ],
+    calendar_sync_calendars: [
+        'id', 'account_id', 'remote_calendar_id', 'remote_url', 'display_name', 'description', 'color', 'time_zone', 'is_enabled', 'last_ctag',
+        'last_sync_token', 'last_seen_at', 'last_successful_sync_at', 'created_at', 'updated_at',
+    ],
+    calendar_item_sync_state: ['calendar_item_id', 'calendar_id', 'remote_etag', 'remote_ctag', 'raw_hash', 'imported_at', 'last_seen_at'],
+    calendar_sync_runs: [
+        'id', 'account_id', 'provider', 'trigger', 'status', 'started_at', 'finished_at', 'duration_ms', 'calendars_processed',
+        'remote_events_fetched', 'events_created', 'events_updated', 'events_unchanged', 'events_cancelled', 'events_marked_deleted', 'error_code',
+        'error_message', 'details',
+    ],
+    shortcut_tokens: [
+        'id', 'token_hash', 'capability', 'label', 'parent_family_member_id', 'issued_device_name', 'issued_platform', 'created_at', 'last_used_at',
+        'revoked_at',
+    ],
+    push_devices: ['id', 'family_member_id', 'token', 'platform', 'is_enabled', 'last_seen_at'],
 };
 
 /** Columns holding a JSON document. The importer hands these to Postgres as JSON text, whatever the value's shape. */
@@ -142,6 +174,8 @@ export const JSON_COLUMNS = {
     history_event_attachments: ['waveform_peaks'],
     messages: ['metadata'],
     message_attachments: ['waveform_peaks'],
+    calendar_items: ['organizer', 'attendees', 'alarms', 'x_props'],
+    calendar_sync_runs: ['details'],
 };
 
 /**
@@ -164,6 +198,21 @@ export const LEFT_BEHIND = {
     },
     routineMarkerStatuses: {
         key: 'The day and the marker are the key.',
+    },
+    calendarItems: {
+        year: 'Read from when it starts.',
+        month: 'Read from when it starts.',
+        dayOfMonth: 'Read from when it starts.',
+        // Declared in the schema, never stored, never read.
+        conferenceData: 'Never used.',
+    },
+    calendarTags: {
+        normalizedName: 'The name, lower-cased, which the database can do for itself.',
+    },
+    calendarSyncCalendars: {
+        // Stored by an earlier version of the import and declared nowhere. Nothing reads them.
+        ctag: 'Superseded by lastCtag.',
+        syncToken: 'Superseded by lastSyncToken.',
     },
     messageThreads: {
         searchText: 'Written for a search Instant could not do without it, and never read.',
@@ -193,6 +242,17 @@ export const LEFT_BEHIND = {
     },
 };
 
+/** Whole entities that are deliberately not carried. One the export holds that is neither mapped nor here is reported. */
+export const ENTITIES_LEFT_BEHIND = {
+    $users: 'Instant\'s own record of each principal. Who someone is comes from the app\'s sessions.',
+    $files: 'Instant\'s file storage, which the app never used.',
+    calculatedAllowancePeriods: 'Referenced by no code.',
+    calendarSyncLocks: 'A table of locks, because Instant has none. The database locks for itself.',
+    choreManualStarts: 'Removed from the app before the move. The countdown\'s runs replaced it.',
+    deviceSessions: 'Referenced by no code.',
+    timeOfDayDefinitions: 'Referenced by no code.',
+};
+
 // ---- Conversions ----
 
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -205,6 +265,7 @@ const optionalNumber = (value) => (typeof value === 'number' && Number.isFinite(
 const optionalInteger = (value) => (Number.isInteger(value) ? value : null);
 const optionalBoolean = (value) => (typeof value === 'boolean' ? value : null);
 const oneOf = (value, allowed) => (allowed.includes(value) ? value : null);
+const blankValue = (value) => value == null || value === '';
 /** When a row that must say when it was made never did. */
 const EPOCH = new Date(0).toISOString();
 
@@ -1039,6 +1100,302 @@ function messaging(rowsOf, out) {
     }
 }
 
+// ---- The calendar ----
+
+/**
+ * A time zone, by its name. A calendar brought in from elsewhere may describe its zone at length, as iCalendar does,
+ * where a name was wanted; the name is taken out of the description.
+ */
+function zoneName(value, notes, what) {
+    const text = trimmed(value);
+    if (!text) return null;
+    const described = /BEGIN:VTIMEZONE/i.test(text) ? /^TZID:(.+)$/im.exec(text)?.[1]?.trim() : null;
+    if (described) count(notes, `${what}: a whole time zone description, its name taken`);
+    const name = described ?? text;
+    try {
+        new Intl.DateTimeFormat('en', { timeZone: name });
+        return name;
+    } catch {
+        return count(notes, `${what}: not a time zone, left empty`), null;
+    }
+}
+
+/** How long the log of import runs is kept for. An older run is carried only if something happened in it. */
+const SYNC_RUN_DAYS = 30;
+
+function calendar(rowsOf, out) {
+    const members = new Set(out.tables.family_members.map((row) => row.id));
+    const texts = (value) => asList(value).filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim());
+
+    // One tag of a name. A second is folded into the first, and what it tagged is tagged with the first.
+    const tagOf = new Map();
+    const tagNames = new Map();
+    for (const row of rowsOf('calendarTags')) {
+        const name = trimmed(row.name).replace(/\s+/g, ' ');
+        if (!name) { hold(out, 'calendarTags', row, 'It has no name.'); continue; }
+        const kept = tagNames.get(name.toLowerCase());
+        if (kept) { count(out.notes, 'calendarTags: a second tag of the same name, folded into the first'); tagOf.set(row.id, kept); continue; }
+        tagNames.set(name.toLowerCase(), row.id);
+        tagOf.set(row.id, row.id);
+        const createdAt = instant(row.createdAt, out.notes, 'calendarTags.createdAt') ?? EPOCH;
+        out.tables.calendar_tags.push({ id: row.id, name, created_at: createdAt, updated_at: instant(row.updatedAt, out.notes, 'calendarTags.updatedAt') ?? createdAt });
+    }
+
+    // An exception to a repeating event named that event by its id, or by what the calendar it came from calls it.
+    const all = rowsOf('calendarItems');
+    const byId = new Map(all.map((row) => [row.id, row]));
+    const byExternalId = new Map(all.filter((row) => trimmed(row.sourceExternalId)).map((row) => [trimmed(row.sourceExternalId), row.id]));
+    const masterOf = (row) => {
+        const named = trimmed(row.recurringEventId);
+        if (!named) return null;
+        return byId.has(named) ? named : byExternalId.get(named) ?? undefined;
+    };
+
+    const kept = new Set();
+    const prepared = new Map();
+    const uids = new Set();
+    const externalIds = new Set();
+    const occurrences = new Set();
+    for (const row of all) {
+        const allDay = row.isAllDay === true;
+        const start = allDay ? day(row.startDate, out.notes, 'calendarItems.startDate') : instant(row.startDate, out.notes, 'calendarItems.startDate');
+        let end = allDay ? day(row.endDate, out.notes, 'calendarItems.endDate') : instant(row.endDate, out.notes, 'calendarItems.endDate');
+        if (!start) { hold(out, 'calendarItems', row, 'It does not say when it starts.'); continue; }
+        if (allDay && (!end || end <= start)) { count(out.notes, 'calendarItems.endDate: not after the start of an all-day event, taken as the next day'); end = new Date(Date.parse(`${start}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10); }
+        if (!allDay && (!end || end < start)) { count(out.notes, 'calendarItems.endDate: before the start, taken as the start'); end = start; }
+
+        const master = masterOf(row);
+        const recurrenceId = optionalText(row.recurrenceId);
+        if (master === undefined) { hold(out, 'calendarItems', row, 'It is one occurrence of a repeating event that no longer exists.'); continue; }
+        if (master === row.id) { hold(out, 'calendarItems', row, 'It names itself as the event it is an occurrence of.'); continue; }
+        if (master && !recurrenceId) { hold(out, 'calendarItems', row, 'It does not say which occurrence of its event it is.'); continue; }
+        if (master && occurrences.has(`${master}\n${recurrenceId}`)) { hold(out, 'calendarItems', row, 'Another item already stands for the same occurrence.'); continue; }
+        if (master) occurrences.add(`${master}\n${recurrenceId}`);
+        if (!master && recurrenceId) count(out.notes, 'calendarItems.recurrenceId: on an event that is no occurrence of another, cleared');
+
+        let externalId = optionalText(row.sourceExternalId);
+        if (externalId && externalIds.has(externalId)) { hold(out, 'calendarItems', row, 'Another item is already the same event of the same calendar.'); continue; }
+        if (externalId) externalIds.add(externalId);
+        let uid = optionalText(row.uid);
+        if (uid && uids.has(uid)) { count(out.notes, 'calendarItems.uid: already another item\'s, cleared'); uid = null; }
+        if (uid) uids.add(uid);
+
+        // The rule and its dates were also kept written out as lines. The app read both, so both are read here.
+        const lines = texts(row.recurrenceLines);
+        const fromLines = (label) => lines.filter((line) => line.toUpperCase().startsWith(`${label}:`)).flatMap((line) => line.slice(label.length + 1).split(',')).map((token) => token.trim()).filter(Boolean);
+        const rule = optionalText(row.rrule) ?? lines.find((line) => /^RRULE:/i.test(line)) ?? null;
+        const exdates = [...new Set([...texts(row.exdates), ...fromLines('EXDATE')])];
+        const rdates = [...new Set([...texts(row.rdates), ...fromLines('RDATE')])];
+        if (exdates.length > texts(row.exdates).length || rdates.length > texts(row.rdates).length || (rule && !optionalText(row.rrule))) count(out.notes, 'calendarItems.recurrenceLines: held a rule or a date the other attributes did not, which is kept');
+
+        const status = oneOf(String(row.status ?? '').toLowerCase(), ['tentative', 'confirmed', 'cancelled']);
+        if (!status && !blankValue(row.status)) count(out.notes, 'calendarItems.status: not one iCalendar has, taken as confirmed');
+        const updatedAt = instant(row.updatedAt, out.notes, 'calendarItems.updatedAt');
+        const createdAt = instant(row.createdAt, out.notes, 'calendarItems.createdAt') ?? instant(row.dtStamp, out.notes, 'calendarItems.dtStamp') ?? updatedAt ?? EPOCH;
+        kept.add(row.id);
+        prepared.set(row.id, {
+            id: row.id,
+            title: trimmed(row.title) || 'Untitled event',
+            description: optionalText(row.description),
+            location: optionalText(row.location),
+            url: optionalText(row.url),
+            start_date: allDay ? start : null,
+            end_date: allDay ? end : null,
+            starts_at: allDay ? null : start,
+            ends_at: allDay ? null : end,
+            time_zone: zoneName(row.timeZone, out.notes, 'calendarItems.timeZone'),
+            status: status ?? 'confirmed',
+            event_type: optionalText(row.eventType) ?? 'default',
+            visibility: optionalText(row.visibility) ?? 'default',
+            // What the import assumes of an event that does not say: a day's event leaves the day free, a timed one does not.
+            transparency: oneOf(row.transparency, ['opaque', 'transparent']) ?? (allDay ? 'transparent' : 'opaque'),
+            priority: optionalInteger(row.priority),
+            uid,
+            sequence: Math.max(0, optionalInteger(row.sequence) ?? 0),
+            dtstamp: instant(row.dtStamp, out.notes, 'calendarItems.dtStamp'),
+            last_modified: instant(row.lastModified, out.notes, 'calendarItems.lastModified'),
+            rrule: rule ? rule.replace(/^RRULE:/i, '') : null,
+            rdates,
+            exdates,
+            recurring_event_id: master,
+            recurrence_id: master ? recurrenceId : null,
+            recurrence_id_range: master ? optionalText(row.recurrenceIdRange) : null,
+            organizer: isRecord(row.organizer) ? row.organizer : null,
+            attendees: Array.isArray(row.attendees) && row.attendees.length ? row.attendees : null,
+            alarms: Array.isArray(row.alarms) && row.alarms.length ? row.alarms : null,
+            x_props: isRecord(row.xProps) && Object.keys(row.xProps).length ? row.xProps : null,
+            travel_duration_before_minutes: optionalInteger(row.travelDurationBeforeMinutes),
+            travel_duration_after_minutes: optionalInteger(row.travelDurationAfterMinutes),
+            source_type: optionalText(row.sourceType),
+            source_read_only: row.sourceReadOnly === true,
+            source_sync_status: oneOf(row.sourceSyncStatus, ['active', 'cancelled', 'deleted-remote']),
+            source_calendar_name: optionalText(row.sourceCalendarName),
+            source_external_id: externalId,
+            source_remote_url: optionalText(row.sourceRemoteUrl),
+            created_at: createdAt,
+            updated_at: updatedAt ?? createdAt,
+        });
+    }
+    // An occurrence goes with its event: one whose event could not be held is held back too.
+    for (const [id, next] of prepared) {
+        if (next.recurring_event_id && !kept.has(next.recurring_event_id)) { kept.delete(id); hold(out, 'calendarItems', byId.get(id), 'The repeating event it is an occurrence of could not be held.'); continue; }
+        out.tables.calendar_items.push(next);
+    }
+
+    const seen = new Set();
+    for (const [item, person] of pairs(rowsOf, ['calendarItems', 'pertainsTo'], ['familyMembers', 'calendarItems'])) {
+        if (!kept.has(item) || !members.has(person) || seen.has(`${item}\n${person}`)) continue;
+        seen.add(`${item}\n${person}`);
+        out.tables.calendar_item_members.push({ calendar_item_id: item, family_member_id: person });
+    }
+    for (const [item, tag] of pairs(rowsOf, ['calendarItems', 'tags'], ['calendarTags', 'calendarItems'])) {
+        const keptTag = tagOf.get(tag);
+        if (!kept.has(item) || !keptTag || seen.has(`${item}\n${keptTag}`)) continue;
+        seen.add(`${item}\n${keptTag}`);
+        out.tables.calendar_item_tags.push({ calendar_item_id: item, tag_id: keptTag });
+    }
+
+    // ---- What the import of another calendar keeps for itself ----
+    const accounts = new Set();
+    for (const row of rowsOf('calendarSyncAccounts')) {
+        if (!trimmed(row.username) || !trimmed(row.passwordCiphertext)) { hold(out, 'calendarSyncAccounts', row, 'It has no user name or no password to sign in with.'); continue; }
+        accounts.add(row.id);
+        const createdAt = instant(row.createdAt, out.notes, 'calendarSyncAccounts.createdAt') ?? EPOCH;
+        out.tables.calendar_sync_accounts.push({
+            id: row.id,
+            provider: trimmed(row.provider) || 'apple-caldav',
+            account_label: trimmed(row.accountLabel) || trimmed(row.username),
+            username: trimmed(row.username),
+            password_ciphertext: row.passwordCiphertext,
+            password_key_version: trimmed(row.passwordKeyVersion),
+            apple_principal_url: optionalText(row.applePrincipalUrl),
+            apple_calendar_home_url: optionalText(row.appleCalendarHomeUrl),
+            status: trimmed(row.status) || 'active',
+            selected_calendar_ids: texts(row.selectedCalendarIds),
+            sync_window_past_days: optionalInteger(row.syncWindowPastDays),
+            sync_window_future_days: optionalInteger(row.syncWindowFutureDays),
+            repair_scan_interval_hours: optionalInteger(row.repairScanIntervalHours),
+            last_attempted_sync_at: instant(row.lastAttemptedSyncAt, out.notes, 'calendarSyncAccounts.lastAttemptedSyncAt'),
+            last_successful_sync_at: instant(row.lastSuccessfulSyncAt, out.notes, 'calendarSyncAccounts.lastSuccessfulSyncAt'),
+            last_error_at: instant(row.lastErrorAt, out.notes, 'calendarSyncAccounts.lastErrorAt'),
+            last_error_code: optionalText(row.lastErrorCode),
+            last_error_message: optionalText(row.lastErrorMessage),
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'calendarSyncAccounts.updatedAt') ?? createdAt,
+        });
+    }
+    const calendarOf = new Map();
+    for (const row of rowsOf('calendarSyncCalendars')) {
+        const remote = trimmed(row.remoteCalendarId);
+        if (!accounts.has(row.accountId)) { hold(out, 'calendarSyncCalendars', row, 'Its account no longer exists.'); continue; }
+        if (!remote) { hold(out, 'calendarSyncCalendars', row, 'It does not say which calendar of the account it is.'); continue; }
+        if (calendarOf.has(`${row.accountId}\n${remote}`)) { hold(out, 'calendarSyncCalendars', row, 'Another row is already the same calendar of the same account.'); continue; }
+        calendarOf.set(`${row.accountId}\n${remote}`, row.id);
+        const createdAt = instant(row.createdAt, out.notes, 'calendarSyncCalendars.createdAt') ?? EPOCH;
+        out.tables.calendar_sync_calendars.push({
+            id: row.id,
+            account_id: row.accountId,
+            remote_calendar_id: remote,
+            remote_url: optionalText(row.remoteUrl),
+            display_name: trimmed(row.displayName) || remote,
+            description: optionalText(row.description),
+            color: optionalText(row.color),
+            time_zone: zoneName(row.timeZone, out.notes, 'calendarSyncCalendars.timeZone'),
+            is_enabled: row.isEnabled === true,
+            last_ctag: optionalText(row.lastCtag),
+            last_sync_token: optionalText(row.lastSyncToken),
+            last_seen_at: instant(row.lastSeenAt, out.notes, 'calendarSyncCalendars.lastSeenAt'),
+            last_successful_sync_at: instant(row.lastSuccessfulSyncAt, out.notes, 'calendarSyncCalendars.lastSuccessfulSyncAt'),
+            created_at: createdAt,
+            updated_at: instant(row.updatedAt, out.notes, 'calendarSyncCalendars.updatedAt') ?? createdAt,
+        });
+    }
+    for (const row of all) {
+        if (!kept.has(row.id) || !trimmed(row.sourceAccountKey)) continue;
+        const calendarId = calendarOf.get(`${row.sourceAccountKey}\n${trimmed(row.sourceCalendarId)}`);
+        // Without its calendar the import cannot find the event again, and will bring it in afresh if it is still there.
+        if (!calendarId) { count(out.notes, 'calendarItems: brought in from a calendar that is no longer known, kept without what the import knew of it'); continue; }
+        const importedAt = instant(row.sourceImportedAt, out.notes, 'calendarItems.sourceImportedAt') ?? prepared.get(row.id).created_at;
+        out.tables.calendar_item_sync_state.push({
+            calendar_item_id: row.id,
+            calendar_id: calendarId,
+            remote_etag: optionalText(row.sourceRemoteEtag),
+            remote_ctag: optionalText(row.sourceRemoteCtag),
+            raw_hash: optionalText(row.sourceRawHash),
+            imported_at: importedAt,
+            last_seen_at: instant(row.sourceLastSeenAt, out.notes, 'calendarItems.sourceLastSeenAt') ?? importedAt,
+        });
+    }
+
+    // The log of runs is nearly all of what Instant holds and nearly all of it says that nothing happened. The last
+    // thirty days are carried, and from before that only the runs in which something did.
+    const runs = rowsOf('calendarSyncRuns');
+    const newest = runs.reduce((latest, row) => (String(row.startedAt ?? '') > latest ? String(row.startedAt) : latest), '');
+    const cutoff = newest ? new Date(Date.parse(newest) - SYNC_RUN_DAYS * 86_400_000).toISOString() : '';
+    const eventful = (row) => row.status !== 'success' || ['eventsCreated', 'eventsUpdated', 'eventsCancelled', 'eventsMarkedDeleted'].some((name) => (row[name] ?? 0) > 0);
+    for (const row of runs) {
+        const startedAt = instant(row.startedAt, out.notes, 'calendarSyncRuns.startedAt');
+        if (!accounts.has(row.accountId) || !startedAt) { count(out.notes, 'calendarSyncRuns: of no account, or at no time, left behind'); continue; }
+        if (startedAt < cutoff && !eventful(row)) { count(out.notes, `calendarSyncRuns: older than ${SYNC_RUN_DAYS} days with nothing to report, left behind`); continue; }
+        out.tables.calendar_sync_runs.push({
+            id: row.id,
+            account_id: row.accountId,
+            provider: trimmed(row.provider) || 'apple-caldav',
+            trigger: trimmed(row.trigger) || 'cron',
+            status: trimmed(row.status) || 'success',
+            started_at: startedAt,
+            finished_at: instant(row.finishedAt, out.notes, 'calendarSyncRuns.finishedAt'),
+            duration_ms: optionalInteger(row.durationMs),
+            calendars_processed: optionalInteger(row.calendarsProcessed),
+            remote_events_fetched: optionalInteger(row.remoteEventsFetched),
+            events_created: optionalInteger(row.eventsCreated),
+            events_updated: optionalInteger(row.eventsUpdated),
+            events_unchanged: optionalInteger(row.eventsUnchanged),
+            events_cancelled: optionalInteger(row.eventsCancelled),
+            events_marked_deleted: optionalInteger(row.eventsMarkedDeleted),
+            error_code: optionalText(row.errorCode),
+            error_message: optionalText(row.errorMessage),
+            details: row.details ?? null,
+        });
+    }
+
+    const hashes = new Set();
+    for (const row of rowsOf('shortcutTokens')) {
+        if (!members.has(row.parentFamilyMemberId)) { hold(out, 'shortcutTokens', row, 'The parent it was issued to is no longer in the family.'); continue; }
+        if (!trimmed(row.tokenHash) || hashes.has(row.tokenHash)) { hold(out, 'shortcutTokens', row, 'It has no token, or another row has the same one.'); continue; }
+        hashes.add(row.tokenHash);
+        out.tables.shortcut_tokens.push({
+            id: row.id,
+            token_hash: row.tokenHash,
+            capability: trimmed(row.capability),
+            label: trimmed(row.label) || 'Shortcut',
+            parent_family_member_id: row.parentFamilyMemberId,
+            issued_device_name: optionalText(row.issuedDeviceName),
+            issued_platform: optionalText(row.issuedPlatform),
+            created_at: instant(row.createdAt, out.notes, 'shortcutTokens.createdAt') ?? EPOCH,
+            last_used_at: instant(row.lastUsedAt, out.notes, 'shortcutTokens.lastUsedAt'),
+            revoked_at: instant(row.revokedAt, out.notes, 'shortcutTokens.revokedAt'),
+        });
+    }
+
+    const pushOwner = new Map(pairs(rowsOf, ['pushDevices', 'familyMember'], ['familyMembers', 'pushDevices']));
+    const pushTokens = new Set();
+    for (const row of rowsOf('pushDevices')) {
+        const owner = row.familyMemberId || pushOwner.get(row.id);
+        if (!members.has(owner)) { hold(out, 'pushDevices', row, 'It belongs to nobody in the family.'); continue; }
+        if (!trimmed(row.token) || pushTokens.has(row.token)) { hold(out, 'pushDevices', row, 'It has no token, or another device has the same one.'); continue; }
+        pushTokens.add(row.token);
+        out.tables.push_devices.push({
+            id: row.id,
+            family_member_id: owner,
+            token: row.token,
+            platform: trimmed(row.platform) || 'unknown',
+            is_enabled: row.isEnabled !== false,
+            last_seen_at: instant(row.lastSeenAt, out.notes, 'pushDevices.lastSeenAt') ?? EPOCH,
+        });
+    }
+}
+
 // ---- Task series ----
 
 const WORKFLOW_STATES = ['not_started', 'in_progress', 'blocked', 'skipped', 'needs_review', 'done'];
@@ -1376,6 +1733,29 @@ function unmappedAttributes(rowsOf, out) {
         messageAttachments: ATTACHMENT_ATTRIBUTES,
         messageReactions: ['messageId', 'familyMemberId', 'emoji', 'createdAt'],
         messageAcknowledgements: ['messageId', 'familyMemberId', 'kind', 'ackKey', 'createdAt'],
+        calendarTags: ['name', 'createdAt', 'updatedAt'],
+        calendarItems: [
+            'title', 'description', 'location', 'url', 'startDate', 'endDate', 'isAllDay', 'timeZone', 'status', 'eventType', 'visibility', 'transparency',
+            'priority', 'uid', 'sequence', 'dtStamp', 'lastModified', 'rrule', 'rdates', 'exdates', 'recurrenceLines', 'recurringEventId', 'recurrenceId',
+            'recurrenceIdRange', 'organizer', 'attendees', 'alarms', 'xProps', 'travelDurationBeforeMinutes', 'travelDurationAfterMinutes', 'sourceType',
+            'sourceReadOnly', 'sourceSyncStatus', 'sourceCalendarName', 'sourceExternalId', 'sourceRemoteUrl', 'sourceAccountKey', 'sourceCalendarId',
+            'sourceRemoteEtag', 'sourceRemoteCtag', 'sourceRawHash', 'sourceImportedAt', 'sourceLastSeenAt', 'createdAt', 'updatedAt',
+        ],
+        calendarSyncAccounts: [
+            'provider', 'accountLabel', 'username', 'passwordCiphertext', 'passwordKeyVersion', 'applePrincipalUrl', 'appleCalendarHomeUrl', 'status',
+            'selectedCalendarIds', 'syncWindowPastDays', 'syncWindowFutureDays', 'repairScanIntervalHours', 'lastAttemptedSyncAt', 'lastSuccessfulSyncAt',
+            'lastErrorAt', 'lastErrorCode', 'lastErrorMessage', 'createdAt', 'updatedAt',
+        ],
+        calendarSyncCalendars: [
+            'accountId', 'remoteCalendarId', 'remoteUrl', 'displayName', 'description', 'color', 'timeZone', 'isEnabled', 'lastCtag', 'lastSyncToken',
+            'lastSeenAt', 'lastSuccessfulSyncAt', 'createdAt', 'updatedAt',
+        ],
+        calendarSyncRuns: [
+            'accountId', 'provider', 'trigger', 'status', 'startedAt', 'finishedAt', 'durationMs', 'calendarsProcessed', 'remoteEventsFetched',
+            'eventsCreated', 'eventsUpdated', 'eventsUnchanged', 'eventsCancelled', 'eventsMarkedDeleted', 'errorCode', 'errorMessage', 'details',
+        ],
+        shortcutTokens: ['tokenHash', 'capability', 'label', 'parentFamilyMemberId', 'issuedDeviceName', 'issuedPlatform', 'createdAt', 'lastUsedAt', 'revokedAt'],
+        pushDevices: ['familyMemberId', 'token', 'platform', 'isEnabled', 'lastSeenAt'],
         gradeTypes: ['name', 'kind', 'lowValue', 'highValue', 'lowLabel', 'highLabel', 'steps', 'isDefault', 'order', 'createdAt', 'updatedAt'],
         taskSeries: [
             'name', 'description', 'dependsOnSeriesId', 'startDate', 'targetEndDate', 'plannedEndDate', 'baselineDayBreakCount', 'workAheadAllowed',
@@ -1406,6 +1786,13 @@ function unmappedAttributes(rowsOf, out) {
             }
         }
         if (unknown.size) out.unmapped[entity] = Object.fromEntries(unknown);
+    }
+    // And whole entities: one that is left behind on purpose is counted, and one nobody knows is reported.
+    for (const entity of rowsOf.entities?.() ?? []) {
+        const rows = rowsOf(entity).length;
+        if (!rows || entity in carried) continue;
+        if (entity in ENTITIES_LEFT_BEHIND) out.notes[`${entity}: not carried — ${ENTITIES_LEFT_BEHIND[entity]}`] = rows;
+        else out.unmapped[entity] = { '(every row)': rows };
     }
 }
 
@@ -1441,6 +1828,9 @@ const LINK_LABELS = {
     messageAttachments: ['message'],
     messageReactions: ['message', 'familyMember'],
     messageAcknowledgements: ['message', 'familyMember'],
+    calendarItems: ['pertainsTo', 'tags'],
+    calendarTags: ['calendarItems'],
+    pushDevices: ['familyMember'],
     gradeTypes: ['taskUpdates'],
     taskSeries: ['familyMember', 'scheduledActivity', 'tasks'],
     tasks: ['taskSeries', 'parentTask', 'subTasks', 'subsequentTasks', 'attachments', 'responseFields', 'updates'],
@@ -1472,6 +1862,7 @@ export function buildRows(rowsOf) {
     finance(rowsOf, out);
     content(rowsOf, out);
     messaging(rowsOf, out);
+    calendar(rowsOf, out);
     unmappedAttributes(rowsOf, out);
     return out;
 }

@@ -21,7 +21,7 @@ import { buildRows, COLUMNS, JSON_COLUMNS, TABLES } from './mapping.mjs';
 /** Every row of an entity, as the export holds it. An entity with no file has no rows. */
 export function readExport(exportDir) {
     const cache = new Map();
-    return (entity) => {
+    const rowsOf = (entity) => {
         if (!cache.has(entity)) {
             const file = path.join(exportDir, 'entities', `${entity}.jsonl`);
             const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : [];
@@ -29,6 +29,9 @@ export function readExport(exportDir) {
         }
         return cache.get(entity);
     };
+    /** Every entity the export has a file for, so that one nobody reads is noticed. */
+    rowsOf.entities = () => (existsSync(path.join(exportDir, 'entities')) ? readdirSync(path.join(exportDir, 'entities')) : []).filter((name) => name.endsWith('.jsonl')).map((name) => name.slice(0, -'.jsonl'.length));
+    return rowsOf;
 }
 
 /** Writes the built rows, table by table in foreign-key order, inside one transaction. */

@@ -25,7 +25,7 @@ type Rows = Record<string, Array<Record<string, unknown>>>;
 
 /** A small family as Instant would export it, with each link on the side Instant's schema declares it forward. */
 function family(): Rows {
-    return withMessages(withContent(withMoney(withTaskSeries(base()))));
+    return withCalendar(withMessages(withContent(withMoney(withTaskSeries(base())))));
 }
 
 function base(): Rows {
@@ -181,6 +181,46 @@ function withMessages(rows: Rows): Rows {
     };
 }
 
+/** How a calendar elsewhere describes its time zone: at length, where the app wanted a name. */
+const KATHMANDU = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VTIMEZONE', 'TZID:Asia/Kathmandu', 'BEGIN:STANDARD', 'TZOFFSETFROM:+0530', 'TZOFFSETTO:+0545', 'END:STANDARD', 'END:VTIMEZONE', 'END:VCALENDAR'].join('\n');
+const PIANO_LESSON = 'apple:account:home:ABC-123:single';
+
+/**
+ * A sports day the family put in for Ben and Cal, tagged for school; and a weekly piano lesson brought in from
+ * Ada's calendar elsewhere, with one week taken out and one week moved an hour later. Behind them, what only the
+ * server keeps: the account and calendar the lesson came from, the log of runs, a Shortcut's token, a phone.
+ */
+function withCalendar(rows: Rows): Rows {
+    const made = { createdAt: '2026-01-02T08:00:00.000Z', updatedAt: '2026-01-03T08:00:00.000Z' };
+    const plain = { description: '', location: '', url: '', status: 'confirmed', eventType: 'default', visibility: 'default', sequence: 0, dtStamp: '2026-01-02T08:00:00.000Z', lastModified: '2026-01-03T08:00:00.000Z', organizer: null, attendees: [], alarms: [], rrule: '', rdates: [], exdates: [], recurrenceLines: [], recurrenceId: '', recurringEventId: '', recurrenceIdRange: '', xProps: {}, ...made };
+    const brought = { sourceType: 'apple-caldav', sourceReadOnly: true, sourceSyncStatus: 'active', sourceCalendarName: 'Family', sourceCalendarId: 'home', sourceAccountKey: id(520), sourceRemoteUrl: 'https://caldav.example.org/home/abc.ics', sourceRemoteEtag: '"e1"', sourceRemoteCtag: 'c1', sourceRawHash: 'h1', sourceImportedAt: '2026-01-02T08:00:00.000Z', sourceLastSeenAt: '2026-01-05T12:00:00.000Z', timeZone: KATHMANDU, xProps: { appleUid: 'ABC-123', categories: [], class: '' } };
+    const run = (n: number, startedAt: string, fields: Record<string, unknown> = {}) => ({ id: id(n), accountId: id(520), provider: 'apple-caldav', trigger: 'cron', status: 'success', startedAt, finishedAt: startedAt, durationMs: 900, errorCode: null, errorMessage: null, ...fields });
+    return {
+        ...rows,
+        calendarTags: [{ id: id(500), name: 'School', normalizedName: 'school', ...made }],
+        calendarItems: [
+            // Made in the app, which filed an event under a month counted from nought.
+            { id: id(510), ...plain, title: 'Sports day', location: 'School field', isAllDay: true, startDate: '2026-01-09', endDate: '2026-01-10', year: 2026, month: 0, dayOfMonth: 9, timeZone: 'Asia/Kathmandu', transparency: 'transparent', uid: id(510), travelDurationBeforeMinutes: 20, pertainsTo: [BEN, CAL], tags: [id(500)] },
+            // Four in the afternoon in Kathmandu, every Monday, but not on the nineteenth.
+            { id: id(511), ...plain, ...brought, title: 'Piano lesson', isAllDay: false, startDate: '2026-01-05T10:15:00.000Z', endDate: '2026-01-05T11:00:00.000Z', year: 2026, month: 1, dayOfMonth: 5, transparency: 'opaque', sequence: 2, uid: PIANO_LESSON, sourceExternalId: PIANO_LESSON, rrule: 'RRULE:FREQ=WEEKLY;BYDAY=MO', exdates: ['2026-01-19T16:00:00'], recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=MO', 'EXDATE:2026-01-19T16:00:00'], alarms: [{ action: 'DISPLAY', trigger: '-PT15M', description: 'Reminder' }], pertainsTo: [BEN], tags: [] },
+            // The lesson on the twelfth, moved to five. It names its event as the calendar it came from does.
+            { id: id(512), ...plain, ...brought, title: 'Piano lesson', isAllDay: false, startDate: '2026-01-12T11:15:00.000Z', endDate: '2026-01-12T12:00:00.000Z', year: 2026, month: 1, dayOfMonth: 12, transparency: 'opaque', uid: 'apple:account:home:ABC-123:2026-01-12T16:00:00', sourceExternalId: 'apple:account:home:ABC-123:2026-01-12T16:00:00', recurringEventId: PIANO_LESSON, recurrenceId: '2026-01-12T16:00:00', sourceRemoteEtag: '"e2"', sourceRawHash: 'h2', pertainsTo: [], tags: [] },
+        ],
+        calendarSyncAccounts: [{ id: id(520), provider: 'apple-caldav', accountLabel: 'Ada', username: 'ada@example.org', passwordCiphertext: 'v1:ciphertext', passwordKeyVersion: 'v1', applePrincipalUrl: 'https://caldav.example.org/principal/', appleCalendarHomeUrl: 'https://caldav.example.org/home/', status: 'active', selectedCalendarIds: ['home', 'a calendar, since removed'], syncWindowPastDays: 30, syncWindowFutureDays: 365, repairScanIntervalHours: 24, lastAttemptedSyncAt: '2026-01-05T12:00:00.000Z', lastSuccessfulSyncAt: '2026-01-05T12:00:00.000Z', lastErrorAt: null, lastErrorCode: null, lastErrorMessage: null, ...made }],
+        // With two attributes an earlier version of the import wrote, which nothing reads.
+        calendarSyncCalendars: [{ id: id(521), accountId: id(520), remoteCalendarId: 'home', remoteUrl: 'https://caldav.example.org/home/', displayName: 'Family', description: '', color: '#FF2968', timeZone: KATHMANDU, isEnabled: true, lastCtag: 'c1', lastSyncToken: 't1', ctag: 'c0', syncToken: 't0', lastSeenAt: '2026-01-05T12:00:00.000Z', lastSuccessfulSyncAt: '2026-01-05T12:00:00.000Z', ...made }],
+        calendarSyncRuns: [
+            run(530, '2026-01-05T12:00:00.000Z'),
+            // Three from long before: one in which nothing happened, one that failed, and one that brought something in.
+            run(531, '2025-10-01T12:00:00.000Z'),
+            run(532, '2025-10-02T12:00:00.000Z', { status: 'failed', errorCode: 'auth_failed', errorMessage: 'The password was not accepted.' }),
+            run(533, '2025-10-03T12:00:00.000Z', { eventsCreated: 2, remoteEventsFetched: 2, calendarsProcessed: 1 }),
+        ],
+        shortcutTokens: [{ id: id(540), tokenHash: 'sha256:abc', capability: 'shortcut_chore_quick_create_v1', label: 'Ada\'s phone', parentFamilyMemberId: ADA, issuedDeviceName: 'iPhone', issuedPlatform: 'ios', createdAt: '2026-01-02T08:00:00.000Z', lastUsedAt: null, revokedAt: null }],
+        pushDevices: [{ id: id(550), familyMemberId: BEN, token: 'ExponentPushToken[abc]', platform: 'ios', isEnabled: true, lastSeenAt: '2026-01-05T12:00:00.000Z' }],
+    };
+}
+
 const at = (iso: string) => Date.parse(iso);
 
 /**
@@ -273,6 +313,8 @@ describe('importing an export', () => {
             announcements: 2, content_categories: 1, content_queue_items: 1, family_rules: 1, family_rule_versions: 2, content_attachments: 1,
             family_dashboard_layouts: 1, family_dashboard_widgets: 1, dashboard_configs: 1, history_event_attachments: 1,
             message_threads: 2, messages: 3, message_thread_members: 5, message_attachments: 1, message_reactions: 1, message_acknowledgements: 2,
+            calendar_tags: 1, calendar_items: 3, calendar_item_members: 3, calendar_item_tags: 1,
+            calendar_sync_accounts: 1, calendar_sync_calendars: 1, calendar_item_sync_state: 2, calendar_sync_runs: 3, shortcut_tokens: 1, push_devices: 1,
         });
         expect(report.heldBack).toEqual({});
         expect(report.storedButNotMapped).toEqual({});
@@ -622,6 +664,88 @@ describe('importing an export', () => {
         expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
     });
 
+    it('carries the calendar: a day\'s event on its days, a timed one at its instants, and a repeating one with its rule and its changed occurrence', async () => {
+        const { report } = await importInto(db, family());
+
+        // An all-day event ends on the day after its last, as iCalendar has it.
+        expect(await one(db, `SELECT start_date::text AS starts, end_date::text AS ends, starts_at, ends_at, time_zone, transparency, travel_duration_before_minutes AS travel, source_type FROM calendar_items WHERE id = $1`, [id(510)])).toEqual({
+            starts: '2026-01-09', ends: '2026-01-10', starts_at: null, ends_at: null, time_zone: 'Asia/Kathmandu', transparency: 'transparent', travel: 20, source_type: null,
+        });
+        expect((await db.query(`SELECT family_member_id FROM calendar_item_members WHERE calendar_item_id = $1 ORDER BY family_member_id`, [id(510)])).rows).toEqual([{ family_member_id: BEN }, { family_member_id: CAL }]);
+        expect(await one(db, `SELECT t.name FROM calendar_item_tags j JOIN calendar_tags t ON t.id = j.tag_id WHERE j.calendar_item_id = $1`, [id(510)])).toEqual({ name: 'School' });
+
+        // The rule without its label, the week taken out as iCalendar names it, and the zone by its name.
+        expect(await one(db, `SELECT start_date, starts_at, ends_at, time_zone, rrule, exdates, rdates, alarms, sequence, source_read_only, source_sync_status, source_external_id FROM calendar_items WHERE id = $1`, [id(511)])).toMatchObject({
+            start_date: null, time_zone: 'Asia/Kathmandu', rrule: 'FREQ=WEEKLY;BYDAY=MO', exdates: ['2026-01-19T16:00:00'], rdates: [], alarms: [{ action: 'DISPLAY', trigger: '-PT15M', description: 'Reminder' }],
+            sequence: 2, source_read_only: true, source_sync_status: 'active', source_external_id: PIANO_LESSON,
+        });
+        expect((await one(db, `SELECT starts_at = '2026-01-05T10:15:00Z' AND ends_at = '2026-01-05T11:00:00Z' AS at_its_time FROM calendar_items WHERE id = $1`, [id(511)])).at_its_time).toBe(true);
+        // The moved lesson names the event it belongs to by that event's id, whatever it called it before.
+        expect(await one(db, `SELECT recurring_event_id, recurrence_id FROM calendar_items WHERE id = $1`, [id(512)])).toEqual({ recurring_event_id: id(511), recurrence_id: '2026-01-12T16:00:00' });
+        expect(report.conversions['calendarItems.timeZone: a whole time zone description, its name taken']).toBe(2);
+
+        // What the schema will not hold: both kinds of time at once, an occurrence of nothing, the same occurrence twice.
+        await expect(db.query(`UPDATE calendar_items SET start_date = '2026-01-05', end_date = '2026-01-06' WHERE id = $1`, [id(511)])).rejects.toThrow();
+        await expect(db.query(`UPDATE calendar_items SET end_date = start_date WHERE id = $1`, [id(510)])).rejects.toThrow();
+        await expect(db.query(`UPDATE calendar_items SET recurrence_id = '2026-01-26T16:00:00' WHERE id = $1`, [id(510)])).rejects.toThrow();
+        await expect(db.query(`INSERT INTO calendar_items (id, title, starts_at, ends_at, recurring_event_id, recurrence_id) VALUES ($1, 'Again', now(), now(), $2, '2026-01-12T16:00:00')`, [id(513), id(511)])).rejects.toThrow();
+        await expect(db.query(`INSERT INTO calendar_tags (id, name) VALUES ($1, 'SCHOOL')`, [id(501)])).rejects.toThrow();
+        // A repeating event that goes takes its changed occurrences with it.
+        await db.query(`DELETE FROM calendar_items WHERE id = $1`, [id(511)]);
+        expect((await db.query(`SELECT id FROM calendar_items`)).rows).toEqual([{ id: id(510) }]);
+    });
+
+    it('keeps what the calendar import knows off the event\'s own row, and carries the recent log of its runs and whatever happened before that', async () => {
+        const { report } = await importInto(db, family());
+
+        expect(await one(db, `SELECT s.calendar_id, s.remote_etag, s.raw_hash, c.remote_calendar_id, c.time_zone, c.last_ctag, a.username, a.selected_calendar_ids FROM calendar_item_sync_state s JOIN calendar_sync_calendars c ON c.id = s.calendar_id JOIN calendar_sync_accounts a ON a.id = c.account_id WHERE s.calendar_item_id = $1`, [id(512)])).toEqual({
+            calendar_id: id(521), remote_etag: '"e2"', raw_hash: 'h2', remote_calendar_id: 'home', time_zone: 'Asia/Kathmandu', last_ctag: 'c1', username: 'ada@example.org',
+            // A name with a comma in it comes through as one name.
+            selected_calendar_ids: ['home', 'a calendar, since removed'],
+        });
+        expect((await one(db, `SELECT count(*)::int AS n FROM calendar_item_sync_state WHERE calendar_item_id = $1`, [id(510)])).n).toBe(0);
+        expect((await db.query(`SELECT id, status, error_code, events_created FROM calendar_sync_runs ORDER BY started_at`)).rows).toEqual([
+            { id: id(532), status: 'failed', error_code: 'auth_failed', events_created: null }, { id: id(533), status: 'success', error_code: null, events_created: 2 }, { id: id(530), status: 'success', error_code: null, events_created: null },
+        ]);
+        expect(report.conversions['calendarSyncRuns: older than 30 days with nothing to report, left behind']).toBe(1);
+        expect(report.heldBack).toEqual({});
+        expect(await one(db, `SELECT parent_family_member_id, capability, revoked_at FROM shortcut_tokens`)).toEqual({ parent_family_member_id: ADA, capability: 'shortcut_chore_quick_create_v1', revoked_at: null });
+        expect(await one(db, `SELECT family_member_id, token, is_enabled FROM push_devices`)).toEqual({ family_member_id: BEN, token: 'ExponentPushToken[abc]', is_enabled: true });
+        // None of it is published to the sync service.
+        const published = (await db.query<{ tablename: string }>(`SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'`)).rows.map((row) => row.tablename);
+        expect(published.filter((name) => /calendar_sync|sync_state|shortcut_tokens|push_devices/.test(name))).toEqual([]);
+    });
+
+    it('settles what the calendar left loose: a date kept only in the written-out lines, an occurrence of nothing, a tag named twice', async () => {
+        const rows = family();
+        // A week taken out that only the lines recorded, and a rule that only the lines recorded.
+        Object.assign(rows.calendarItems[1], { rrule: '', exdates: [], recurrenceLines: ['RRULE:FREQ=WEEKLY;BYDAY=MO', 'EXDATE:2026-01-19T16:00:00,2026-01-26T16:00:00'] });
+        rows.calendarItems.push({ ...rows.calendarItems[2], id: id(514), uid: 'lost', sourceExternalId: 'lost', recurringEventId: 'an event that is gone', recurrenceId: '2026-02-02T16:00:00' });
+        rows.calendarTags.push({ id: id(502), name: 'school', normalizedName: 'school', createdAt: '2026-01-04T08:00:00.000Z', updatedAt: '2026-01-04T08:00:00.000Z', calendarItems: [id(511)] });
+        const { rowsOf, report } = await importInto(db, rows);
+
+        expect(report.conversions).toMatchObject({
+            'calendarItems.recurrenceLines: held a rule or a date the other attributes did not, which is kept': 1,
+            'calendarTags: a second tag of the same name, folded into the first': 1,
+        });
+        expect(report.heldBack).toEqual({ calendarItems: { 'It is one occurrence of a repeating event that no longer exists.': 1 } });
+        expect(await one(db, `SELECT rrule, exdates FROM calendar_items WHERE id = $1`, [id(511)])).toEqual({ rrule: 'FREQ=WEEKLY;BYDAY=MO', exdates: ['2026-01-19T16:00:00', '2026-01-26T16:00:00'] });
+        expect((await db.query(`SELECT calendar_item_id, tag_id FROM calendar_item_tags ORDER BY calendar_item_id`)).rows).toEqual([{ calendar_item_id: id(510), tag_id: id(500) }, { calendar_item_id: id(511), tag_id: id(500) }]);
+        expect(failed(await verifyImport(db, rowsOf, choreTiming))).toEqual([]);
+    });
+
+    it('accounts for every entity in an export: one left behind on purpose is counted, and one nobody knows is reported', async () => {
+        const rows = family();
+        rows.$users = [{ id: id(900), email: 'ada@example.org' }, { id: id(901), email: null }];
+        rows.choreManualStarts = [{ id: id(902), date: '2026-01-05' }];
+        rows.pets = [{ id: id(903), name: 'Rex' }];
+        const { report } = await importInto(db, rows);
+
+        expect(report.conversions['choreManualStarts: not carried — Removed from the app before the move. The countdown\'s runs replaced it.']).toBe(1);
+        expect(Object.keys(report.conversions).filter((note) => note.startsWith('$users: not carried'))).toHaveLength(1);
+        expect(report.storedButNotMapped).toEqual({ pets: { '(every row)': 1 } });
+    });
+
     it('holds a completion done, marked not done, or cleared, and never two of those at once', async () => {
         await importInto(db, family());
         const state = async (completionId: string) => one(db, `SELECT completed_at IS NOT NULL AS done, not_done, allowance_awarded AS awarded, marked_by FROM chore_completions WHERE id = $1`, [completionId]);
@@ -783,6 +907,25 @@ describe('the verification', () => {
         ['a message\'s file renamed', `UPDATE message_attachments SET name = 'other.jpg'`, 'message_attachments: every file, field by field'],
         ['a reaction changed', `UPDATE message_reactions SET emoji = '👎'`, 'message_reactions, message_acknowledgements: each message has the reactions and acknowledgements it had, from the people it had them from'],
         ['a seen turned into an acknowledgement', `UPDATE message_acknowledgements SET kind = 'acknowledged' WHERE family_member_id = '${CAL}'`, 'message_reactions, message_acknowledgements: each message has the reactions and acknowledgements it had, from the people it had them from'],
+        ['an event a day late', `UPDATE calendar_items SET start_date = start_date + 1, end_date = end_date + 1 WHERE id = '${id(510)}'`, 'calendar_items: every event, field by field, on the days or at the instants it was'],
+        ['an event an hour late', `UPDATE calendar_items SET starts_at = starts_at + interval '1 hour', ends_at = ends_at + interval '1 hour' WHERE id = '${id(512)}'`, 'calendar_items: every event, field by field, on the days or at the instants it was'],
+        ['an event in another time zone', `UPDATE calendar_items SET time_zone = 'Europe/London' WHERE id = '${id(511)}'`, 'calendar_items: every event, field by field, on the days or at the instants it was'],
+        ['an event filed under another day', `UPDATE calendar_items SET starts_at = starts_at + interval '9 hours', ends_at = ends_at + interval '9 hours' WHERE id = '${id(511)}'`, 'calendar_items: each event starts on the year, month and day Instant had it filed under, in its own time zone'],
+        ['an event repeating daily', `UPDATE calendar_items SET rrule = 'FREQ=DAILY' WHERE id = '${id(511)}'`, 'calendar_items: each event repeats by the rule it did, with the same occurrences added and taken out'],
+        ['a week put back in', `UPDATE calendar_items SET exdates = '{}' WHERE id = '${id(511)}'`, 'calendar_items: each event repeats by the rule it did, with the same occurrences added and taken out'],
+        ['a changed occurrence standing for another week', `UPDATE calendar_items SET recurrence_id = '2026-01-26T16:00:00' WHERE id = '${id(512)}'`, 'calendar_items: each changed occurrence belongs to the repeating event it did, as the occurrence it was'],
+        ['a changed occurrence cut loose', `UPDATE calendar_items SET recurring_event_id = NULL, recurrence_id = NULL WHERE id = '${id(512)}'`, 'calendar_items: no event is an occurrence of another unless it was'],
+        ['an event that forgot where it came from', `UPDATE calendar_items SET source_read_only = false WHERE id = '${id(511)}'`, 'calendar_items: each event brought in from elsewhere says from where, as it did'],
+        ['an event for someone else', `UPDATE calendar_item_members SET family_member_id = '${ADA}' WHERE calendar_item_id = '${id(511)}'`, 'calendar_item_members: each event is for exactly the people it was'],
+        ['an event that lost its tag', `DELETE FROM calendar_item_tags`, 'calendar_item_tags: each event has the tags it had, by name'],
+        ['a calendar account with another password', `UPDATE calendar_sync_accounts SET password_ciphertext = 'v1:other'`, 'calendar_sync_accounts: every account, field by field, with its password as it was encrypted'],
+        ['a calendar that forgot how far it had read', `UPDATE calendar_sync_calendars SET last_sync_token = NULL`, 'calendar_sync_calendars: every calendar of an account, field by field'],
+        ['an event the import would no longer recognize', `UPDATE calendar_item_sync_state SET raw_hash = 'other' WHERE calendar_item_id = '${id(511)}'`, 'calendar_item_sync_state: what the import knew of each event it brought in, so it finds the event again and not a second one'],
+        ['an event the import has lost track of', `DELETE FROM calendar_item_sync_state WHERE calendar_item_id = '${id(512)}'`, 'calendar_item_sync_state: what the import knew of each event it brought in, so it finds the event again and not a second one'],
+        ['a failed run missing from the log', `DELETE FROM calendar_sync_runs WHERE id = '${id(532)}'`, 'calendar_sync_runs: the last thirty days of the log, and every older run in which something happened'],
+        ['a failed run with another reason', `UPDATE calendar_sync_runs SET error_code = 'timeout' WHERE id = '${id(532)}'`, 'calendar_sync_runs: every failed run, with what went wrong'],
+        ['a revoked Shortcut token', `UPDATE shortcut_tokens SET revoked_at = now()`, 'shortcut_tokens: every token of a parent still in the family, working or revoked as it was'],
+        ['a phone with another token', `UPDATE push_devices SET token = 'other'`, 'push_devices: every device of someone in the family, with its token'],
         ['a history entry reworded', `UPDATE history_events SET summary = 'Completed "Trash"' WHERE id = '${id(60)}'`, 'history_events: every event, field by field'],
         ['a history entry credited to someone else', `UPDATE history_events SET actor_id = '${BEN}' WHERE id = '${id(62)}'`, 'history_events: every event, field by field'],
         ['a history entry that is missing', `DELETE FROM history_events WHERE id = '${id(61)}'`, 'history_events: as many as were exported'],

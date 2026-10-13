@@ -304,6 +304,30 @@ describe('two rows that name each other', () => {
     });
 });
 
+describe('a calendar event', () => {
+    const EVENT = id(510);
+    const weekly: DeviceOperation = { op: 'PUT', table: 'calendar_items', id: EVENT, data: {
+        title: 'Piano lesson', starts_at: '2026-03-09T10:15:00.000Z', ends_at: '2026-03-09T11:00:00.000Z', time_zone: 'Asia/Kathmandu', rrule: 'FREQ=WEEKLY;BYDAY=MO',
+        // One occurrence named as iCalendar names it, and one piece of text chosen to break a list that was put together by hand.
+        exdates: JSON.stringify(['2026-03-16T16:00:00', 'a "quoted", {braced} one']), rdates: '[]', alarms: JSON.stringify([{ action: 'DISPLAY', trigger: '-PT15M' }]),
+    } };
+
+    it('is written by a parent with its list of occurrences whole, whatever the text in it', async () => {
+        expect((await send(await asParent(), [weekly, { op: 'PUT', table: 'calendar_item_members', id: `${EVENT}.${ELI}`, data: {} }], { mutation: 'createEvent' })).outcome).toEqual({ ok: true });
+        expect(await rows(`SELECT rrule, exdates, rdates, alarms, status, transparency, start_date FROM calendar_items`)).toEqual([{
+            rrule: 'FREQ=WEEKLY;BYDAY=MO', exdates: ['2026-03-16T16:00:00', 'a "quoted", {braced} one'], rdates: [], alarms: [{ action: 'DISPLAY', trigger: '-PT15M' }], status: 'confirmed', transparency: 'opaque', start_date: null,
+        }]);
+        expect(await rows(`SELECT family_member_id FROM calendar_item_members`)).toEqual([{ family_member_id: ELI }]);
+    });
+
+    it('is not a kid\'s to write, and cannot be both a day\'s event and a timed one', async () => {
+        expect((await send(await asEli(), [weekly], { mutation: 'createEvent' })).outcome).toMatchObject({ ok: false, reason: 'not_allowed' });
+        const both: DeviceOperation = { ...weekly, data: { ...weekly.data, start_date: '2026-03-09', end_date: '2026-03-10' } };
+        expect((await send(await asParent(), [both], { mutation: 'createEvent' })).outcome).toMatchObject({ ok: false, reason: 'invalid', table: 'calendar_items' });
+        expect(await rows(`SELECT 1 FROM calendar_items`)).toEqual([]);
+    });
+});
+
 describe('what a parent writes', () => {
     it('reaches each kind of column in the form the database keeps it', async () => {
         const result = await send(await asParent(), [

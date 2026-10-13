@@ -59,6 +59,11 @@ const readers: Record<ColumnKind, (value: unknown) => Read> = {
         if (!parsed.valid || !Array.isArray(parsed.value) || !parsed.value.every(isUuid)) return INVALID;
         return { valid: true, value: parsed.value.map((id: string) => id.toLowerCase()) };
     },
+    texts: (value) => {
+        const parsed = typeof value === 'string' ? parseJson(value) : INVALID;
+        if (!parsed.valid || !Array.isArray(parsed.value) || !parsed.value.every((item: unknown) => typeof item === 'string')) return INVALID;
+        return { valid: true, value: parsed.value };
+    },
 };
 
 /** A value from a device, in the server's form, or not valid for the column. Empty is always allowed here; whether a column may be empty is the database's to say. */

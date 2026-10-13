@@ -584,6 +584,159 @@ export interface MessageAcknowledgementsTable {
     created_at: InstantWithDefault;
 }
 
+export interface CalendarTagsTable {
+    id: string;
+    name: string;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface CalendarItemsTable {
+    id: string;
+    title: string;
+    description: string | null;
+    location: string | null;
+    url: string | null;
+    start_date: Day | null;
+    end_date: Day | null;
+    starts_at: Instant | null;
+    ends_at: Instant | null;
+    time_zone: string | null;
+    status: Generated<'tentative' | 'confirmed' | 'cancelled'>;
+    event_type: Generated<string>;
+    visibility: Generated<string>;
+    transparency: Generated<'opaque' | 'transparent'>;
+    priority: number | null;
+    uid: string | null;
+    sequence: Generated<number>;
+    dtstamp: Instant | null;
+    last_modified: Instant | null;
+    rrule: string | null;
+    rdates: Generated<string[]>;
+    exdates: Generated<string[]>;
+    recurring_event_id: string | null;
+    recurrence_id: string | null;
+    recurrence_id_range: string | null;
+    organizer: Json | null;
+    attendees: Json | null;
+    alarms: Json | null;
+    x_props: Json | null;
+    travel_duration_before_minutes: number | null;
+    travel_duration_after_minutes: number | null;
+    source_type: string | null;
+    source_read_only: Generated<boolean>;
+    source_sync_status: 'active' | 'cancelled' | 'deleted-remote' | null;
+    source_calendar_name: string | null;
+    source_external_id: string | null;
+    source_remote_url: string | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface CalendarItemMembersTable {
+    calendar_item_id: string;
+    family_member_id: string;
+}
+
+export interface CalendarItemTagsTable {
+    calendar_item_id: string;
+    tag_id: string;
+}
+
+export interface CalendarSyncAccountsTable {
+    id: string;
+    provider: string;
+    account_label: string;
+    username: string;
+    password_ciphertext: string;
+    password_key_version: string;
+    apple_principal_url: string | null;
+    apple_calendar_home_url: string | null;
+    status: string;
+    selected_calendar_ids: Generated<string[]>;
+    sync_window_past_days: number | null;
+    sync_window_future_days: number | null;
+    repair_scan_interval_hours: number | null;
+    last_attempted_sync_at: Instant | null;
+    last_successful_sync_at: Instant | null;
+    last_error_at: Instant | null;
+    last_error_code: string | null;
+    last_error_message: string | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface CalendarSyncCalendarsTable {
+    id: string;
+    account_id: string;
+    remote_calendar_id: string;
+    remote_url: string | null;
+    display_name: string;
+    description: string | null;
+    color: string | null;
+    time_zone: string | null;
+    is_enabled: Generated<boolean>;
+    last_ctag: string | null;
+    last_sync_token: string | null;
+    last_seen_at: Instant | null;
+    last_successful_sync_at: Instant | null;
+    created_at: InstantWithDefault;
+    updated_at: InstantWithDefault;
+}
+
+export interface CalendarItemSyncStateTable {
+    calendar_item_id: string;
+    calendar_id: string;
+    remote_etag: string | null;
+    remote_ctag: string | null;
+    raw_hash: string | null;
+    imported_at: InstantWithDefault;
+    last_seen_at: InstantWithDefault;
+}
+
+export interface CalendarSyncRunsTable {
+    id: string;
+    account_id: string;
+    provider: string;
+    trigger: string;
+    status: string;
+    started_at: Instant;
+    finished_at: Instant | null;
+    duration_ms: number | null;
+    calendars_processed: number | null;
+    remote_events_fetched: number | null;
+    events_created: number | null;
+    events_updated: number | null;
+    events_unchanged: number | null;
+    events_cancelled: number | null;
+    events_marked_deleted: number | null;
+    error_code: string | null;
+    error_message: string | null;
+    details: Json | null;
+}
+
+export interface ShortcutTokensTable {
+    id: string;
+    token_hash: string;
+    capability: string;
+    label: string;
+    parent_family_member_id: string;
+    issued_device_name: string | null;
+    issued_platform: string | null;
+    created_at: InstantWithDefault;
+    last_used_at: Instant | null;
+    revoked_at: Instant | null;
+}
+
+export interface PushDevicesTable {
+    id: string;
+    family_member_id: string;
+    token: string;
+    platform: string;
+    is_enabled: Generated<boolean>;
+    last_seen_at: InstantWithDefault;
+}
+
 export interface InstallationTable {
     only_row: Generated<boolean>;
     id: Generated<string>;
@@ -676,6 +829,16 @@ export interface Database {
     message_attachments: MessageAttachmentsTable;
     message_reactions: MessageReactionsTable;
     message_acknowledgements: MessageAcknowledgementsTable;
+    calendar_tags: CalendarTagsTable;
+    calendar_items: CalendarItemsTable;
+    calendar_item_members: CalendarItemMembersTable;
+    calendar_item_tags: CalendarItemTagsTable;
+    calendar_sync_accounts: CalendarSyncAccountsTable;
+    calendar_sync_calendars: CalendarSyncCalendarsTable;
+    calendar_item_sync_state: CalendarItemSyncStateTable;
+    calendar_sync_runs: CalendarSyncRunsTable;
+    shortcut_tokens: ShortcutTokensTable;
+    push_devices: PushDevicesTable;
     installation: InstallationTable;
     auth_sessions: AuthSessionsTable;
     sync_uploads: SyncUploadsTable;
@@ -816,6 +979,41 @@ export const DATABASE_COLUMNS = {
     },
     message_reactions: { message_id: true, family_member_id: true, emoji: true, created_at: true },
     message_acknowledgements: { message_id: true, family_member_id: true, kind: true, created_at: true },
+    calendar_tags: { id: true, name: true, created_at: true, updated_at: true },
+    calendar_items: {
+        id: true, title: true, description: true, location: true, url: true, start_date: true, end_date: true, starts_at: true, ends_at: true,
+        time_zone: true, status: true, event_type: true, visibility: true, transparency: true, priority: true, uid: true, sequence: true,
+        dtstamp: true, last_modified: true, rrule: true, rdates: true, exdates: true, recurring_event_id: true, recurrence_id: true,
+        recurrence_id_range: true, organizer: true, attendees: true, alarms: true, x_props: true, travel_duration_before_minutes: true,
+        travel_duration_after_minutes: true, source_type: true, source_read_only: true, source_sync_status: true, source_calendar_name: true,
+        source_external_id: true, source_remote_url: true, created_at: true, updated_at: true,
+    },
+    calendar_item_members: { calendar_item_id: true, family_member_id: true },
+    calendar_item_tags: { calendar_item_id: true, tag_id: true },
+    calendar_sync_accounts: {
+        id: true, provider: true, account_label: true, username: true, password_ciphertext: true, password_key_version: true,
+        apple_principal_url: true, apple_calendar_home_url: true, status: true, selected_calendar_ids: true, sync_window_past_days: true,
+        sync_window_future_days: true, repair_scan_interval_hours: true, last_attempted_sync_at: true, last_successful_sync_at: true,
+        last_error_at: true, last_error_code: true, last_error_message: true, created_at: true, updated_at: true,
+    },
+    calendar_sync_calendars: {
+        id: true, account_id: true, remote_calendar_id: true, remote_url: true, display_name: true, description: true, color: true, time_zone: true,
+        is_enabled: true, last_ctag: true, last_sync_token: true, last_seen_at: true, last_successful_sync_at: true, created_at: true,
+        updated_at: true,
+    },
+    calendar_item_sync_state: {
+        calendar_item_id: true, calendar_id: true, remote_etag: true, remote_ctag: true, raw_hash: true, imported_at: true, last_seen_at: true,
+    },
+    calendar_sync_runs: {
+        id: true, account_id: true, provider: true, trigger: true, status: true, started_at: true, finished_at: true, duration_ms: true,
+        calendars_processed: true, remote_events_fetched: true, events_created: true, events_updated: true, events_unchanged: true,
+        events_cancelled: true, events_marked_deleted: true, error_code: true, error_message: true, details: true,
+    },
+    shortcut_tokens: {
+        id: true, token_hash: true, capability: true, label: true, parent_family_member_id: true, issued_device_name: true, issued_platform: true,
+        created_at: true, last_used_at: true, revoked_at: true,
+    },
+    push_devices: { id: true, family_member_id: true, token: true, platform: true, is_enabled: true, last_seen_at: true },
     installation: { only_row: true, id: true, data_generation: true, backend: true, writes_frozen: true, min_client_build: true },
     auth_sessions: {
         id: true, token_hash: true, principal_type: true, family_member_id: true, state: true, created_at: true, last_seen_at: true,

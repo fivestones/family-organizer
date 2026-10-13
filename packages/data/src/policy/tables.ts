@@ -378,6 +378,45 @@ export const POLICY = {
 
 
 
+    calendar_tags: {
+        key: ['id'],
+        columns: {
+            id: uuid, name: text, created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    calendar_items: {
+        key: ['id'],
+        columns: {
+            id: uuid, title: text, description: text, location: text, url: text, start_date: day, end_date: day, starts_at: instant, ends_at: instant,
+            time_zone: text, status: oneOf('tentative', 'confirmed', 'cancelled'), event_type: text, visibility: text,
+            transparency: oneOf('opaque', 'transparent'), priority: integer, uid: text, sequence: integer, dtstamp: instant, last_modified: instant,
+            rrule: text, rdates: { kind: 'texts' }, exdates: { kind: 'texts' }, recurring_event_id: uuid, recurrence_id: text,
+            recurrence_id_range: text, organizer: json, attendees: json, alarms: json, x_props: json, travel_duration_before_minutes: integer,
+            travel_duration_after_minutes: integer, source_type: text, source_read_only: boolean,
+            source_sync_status: oneOf('active', 'cancelled', 'deleted-remote'), source_calendar_name: text, source_external_id: text,
+            source_remote_url: text, created_at: instant, updated_at: instant,
+        },
+        ...parentsWrite,
+    },
+
+    calendar_item_members: {
+        key: ['calendar_item_id', 'family_member_id'],
+        columns: {
+            calendar_item_id: uuid, family_member_id: uuid,
+        },
+        ...parentsWrite,
+    },
+
+    calendar_item_tags: {
+        key: ['calendar_item_id', 'tag_id'],
+        columns: {
+            calendar_item_id: uuid, tag_id: uuid,
+        },
+        ...parentsWrite,
+    },
+
     history_events: {
         key: ['id'],
         columns: {

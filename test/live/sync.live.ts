@@ -74,7 +74,7 @@ afterAll(() => db.destroy());
 beforeEach(async () => {
     __resetParentElevationRateLimitForTests();
     await sql.raw(`UPDATE family_members SET default_envelope_id = NULL`).execute(db);
-    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'message_threads', 'dashboard_configs', 'family_dashboard_layouts', 'content_attachments', 'family_rules', 'content_categories', 'announcements', 'exchange_rates', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
+    for (const table of ['write_refusals', 'sync_uploads', 'auth_sessions', 'calendar_sync_accounts', 'calendar_items', 'calendar_tags', 'message_threads', 'dashboard_configs', 'family_dashboard_layouts', 'content_attachments', 'family_rules', 'content_categories', 'announcements', 'exchange_rates', 'allowance_transactions', 'envelope_balances', 'allowance_envelopes', 'task_series', 'grade_types', 'history_event_members', 'history_events', 'countdown_runs', 'routine_marker_statuses', 'routine_steps', 'routines', 'chore_completions', 'chore_assignees', 'chores', 'family_members', 'unit_definitions', 'settings']) {
         await sql.raw(`DELETE FROM ${table}`).execute(db);
     }
     await seedFamily({ sql: query } as any);
@@ -343,6 +343,54 @@ describe('messages', () => {
         await until(async () => (await serverRows(`SELECT 1 FROM write_refusals WHERE table_name = 'messages'`)).length === 1, 'the server has refused the message');
         await until(async () => (await held(eliDb)).messages.length === 1, 'the device has let the message go');
         expect(await serverRows(`SELECT count(*)::int AS messages FROM messages`)).toEqual([{ messages: 2 }]);
+    });
+});
+
+describe('the calendar', () => {
+    it('reaches a kid with an event\'s days or instants and its occurrences, takes a parent\'s new event, and keeps the import\'s own notes on the server', async () => {
+        const n = (last: number) => `00000000-0000-4000-8000-${String(last).padStart(12, '0')}`;
+        const [LESSON, ACCOUNT, CALENDAR, SPORTS, TAG] = [n(511), n(520), n(521), n(510), n(500)];
+        await sql.raw(`INSERT INTO calendar_items (id, title, starts_at, ends_at, time_zone, rrule, exdates, alarms, source_type, source_read_only, source_sync_status, source_calendar_name, source_external_id) VALUES
+            ('${LESSON}', 'Piano lesson', '2026-03-09T10:15:00Z', '2026-03-09T11:00:00Z', 'Asia/Kathmandu', 'FREQ=WEEKLY;BYDAY=MO', '{2026-03-16T16:00:00}', '[{"action":"DISPLAY","trigger":"-PT15M"}]', 'apple-caldav', true, 'active', 'Family', 'apple:account:home:ABC-123:single')`).execute(db);
+        await sql.raw(`INSERT INTO calendar_item_members (calendar_item_id, family_member_id) VALUES ('${LESSON}', '${ELI}')`).execute(db);
+        await sql.raw(`INSERT INTO calendar_sync_accounts (id, provider, account_label, username, password_ciphertext, password_key_version, status) VALUES ('${ACCOUNT}', 'apple-caldav', 'Dana', 'dana@example.org', 'v1:ciphertext', 'v1', 'active')`).execute(db);
+        await sql.raw(`INSERT INTO calendar_sync_calendars (id, account_id, remote_calendar_id, display_name, is_enabled) VALUES ('${CALENDAR}', '${ACCOUNT}', 'home', 'Family', true)`).execute(db);
+        await sql.raw(`INSERT INTO calendar_item_sync_state (calendar_item_id, calendar_id, remote_etag, raw_hash) VALUES ('${LESSON}', '${CALENDAR}', '"e1"', 'h1')`).execute(db);
+        const kid = await device();
+        await kid.manager.signIn({ familyMemberId: ELI });
+        const kidDb = await synced(kid.db());
+        await until(() => has(kidDb, `SELECT 1 FROM calendar_item_members`), 'the kid\'s device holds the calendar');
+
+        // A list reaches a device as JSON text, and a timed event has no days.
+        expect(await kidDb.getAll(`SELECT title, start_date, starts_at, ends_at, time_zone, rrule, exdates, rdates, source_read_only, source_sync_status FROM calendar_items`)).toEqual([{
+            title: 'Piano lesson', start_date: null, starts_at: '2026-03-09T10:15:00.000Z', ends_at: '2026-03-09T11:00:00.000Z', time_zone: 'Asia/Kathmandu', rrule: 'FREQ=WEEKLY;BYDAY=MO',
+            exdates: '["2026-03-16T16:00:00"]', rdates: '[]', source_read_only: 1, source_sync_status: 'active',
+        }]);
+
+        // The import seeing the event again touches only its own notes, and a device is sent nothing for it.
+        const before = await kidDb.getAll(`SELECT * FROM calendar_items`);
+        await sql.raw(`UPDATE calendar_item_sync_state SET last_seen_at = now() WHERE calendar_item_id = '${LESSON}'`).execute(db);
+
+        const parent = await device();
+        await parent.manager.signIn({ familyMemberId: DANA, pin: '2468' });
+        const parentDb = await synced(parent.db());
+        await parentDb.writeTransaction(async (transaction) => {
+            await transaction.execute(`INSERT INTO calendar_tags (id, name, created_at, updated_at) VALUES (?, 'School', ?, ?)`, [TAG, '2026-03-09T12:00:00.000Z', '2026-03-09T12:00:00.000Z']);
+            await transaction.execute(
+                `INSERT INTO calendar_items (id, title, start_date, end_date, status, transparency, exdates, rdates, sequence, source_read_only, created_at, updated_at) VALUES (?, 'Sports day', '2026-03-13', '2026-03-14', 'confirmed', 'transparent', '[]', ?, 0, 0, ?, ?)`,
+                [SPORTS, JSON.stringify(['2026-03-20']), '2026-03-09T12:00:00.000Z', '2026-03-09T12:00:00.000Z']
+            );
+            await transaction.execute(`INSERT INTO calendar_item_members (id, calendar_item_id, family_member_id) VALUES (?, ?, ?)`, [`${SPORTS}.${ELI}`, SPORTS, ELI]);
+            await transaction.execute(`INSERT INTO calendar_item_tags (id, calendar_item_id, tag_id) VALUES (?, ?, ?)`, [`${SPORTS}.${TAG}`, SPORTS, TAG]);
+            await transaction.execute(`INSERT INTO local_transactions (id, mutation) VALUES (?, 'createEvent')`, [n(0xb2)]);
+        });
+        await until(async () => (await serverRows(`SELECT 1 FROM calendar_item_tags`)).length === 1, 'the event has reached the server');
+        expect(await serverRows(`SELECT start_date, end_date, starts_at, rdates, exdates FROM calendar_items WHERE id = '${SPORTS}'`)).toEqual([{ start_date: '2026-03-13', end_date: '2026-03-14', starts_at: null, rdates: ['2026-03-20'], exdates: [] }]);
+        await until(() => has(kidDb, `SELECT 1 FROM calendar_item_tags t JOIN calendar_tags g ON g.id = t.tag_id WHERE t.calendar_item_id = ? AND g.name = 'School'`, [SPORTS]), 'the kid\'s device holds the new event with its tag');
+
+        // By now anything sent for the lesson would have arrived: its row on the kid's device is as it was.
+        expect((await kidDb.getAll(`SELECT * FROM calendar_items WHERE id = ?`, [LESSON]))).toEqual(before);
+        expect((await kidDb.getAll<{ name: string }>(`SELECT name FROM sqlite_master WHERE name LIKE '%calendar_item_sync_state%' OR name LIKE '%calendar_sync%' OR name LIKE '%shortcut%' OR name LIKE '%push_devices%'`)).map((row) => row.name)).toEqual([]);
     });
 });
 

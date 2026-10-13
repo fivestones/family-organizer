@@ -72,6 +72,8 @@ function valueFor(operation: CheckedOperation, column: string, value: unknown): 
     if (kind === 'json') return sql`${JSON.stringify(value)}::jsonb`;
     if (kind === 'days') return sql`${`{${(value as string[]).join(',')}}`}::date[]`;
     if (kind === 'uuids') return sql`${`{${(value as string[]).join(',')}}`}::uuid[]`;
+    // Text may hold a comma or a brace, so a list of it is handed over as JSON and unpacked by the database.
+    if (kind === 'texts') return sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(value)}::jsonb))`;
     return sql`${value}`;
 }
 

@@ -249,6 +249,24 @@ const message_reactions = new Table({ message_id: text, family_member_id: text, 
 
 const message_acknowledgements = new Table({ message_id: text, family_member_id: text, kind: text, created_at: text }, { indexes: { message: ['message_id'] } });
 
+const calendar_tags = new Table({ name: text, created_at: text, updated_at: text });
+
+const calendar_items = new Table(
+    {
+        title: text, description: text, location: text, url: text, start_date: text, end_date: text, starts_at: text, ends_at: text, time_zone: text,
+        status: text, event_type: text, visibility: text, transparency: text, priority: integer, uid: text, sequence: integer, dtstamp: text,
+        last_modified: text, rrule: text, rdates: text, exdates: text, recurring_event_id: text, recurrence_id: text, recurrence_id_range: text,
+        organizer: text, attendees: text, alarms: text, x_props: text, travel_duration_before_minutes: integer, travel_duration_after_minutes: integer,
+        source_type: text, source_read_only: integer, source_sync_status: text, source_calendar_name: text, source_external_id: text,
+        source_remote_url: text, created_at: text, updated_at: text,
+    },
+    { indexes: { days: ['start_date', 'end_date'], instants: ['starts_at', 'ends_at'], series: ['recurring_event_id'] } }
+);
+
+const calendar_item_members = new Table({ calendar_item_id: text, family_member_id: text }, { indexes: { item: ['calendar_item_id'], member: ['family_member_id'] } });
+
+const calendar_item_tags = new Table({ calendar_item_id: text, tag_id: text }, { indexes: { item: ['calendar_item_id'], tag: ['tag_id'] } });
+
 const write_refusals = new Table({
     family_member_id: text, mutation: text, reason: text, table_name: text, row_id: text, refused_at: text, dismissed_at: text,
 });
@@ -267,6 +285,7 @@ export const AppSchema = new Schema({
     allowance_envelopes, envelope_balances, allowance_transactions, exchange_rates,
     announcements, content_categories, content_queue_items, family_rules, family_rule_versions, content_attachments, family_dashboard_layouts, family_dashboard_widgets, dashboard_configs, history_event_attachments,
     message_threads, message_thread_members, messages, message_attachments, message_reactions, message_acknowledgements,
+    calendar_tags, calendar_items, calendar_item_members, calendar_item_tags,
     write_refusals, local_transactions,
 });
 
