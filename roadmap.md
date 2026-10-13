@@ -350,9 +350,13 @@ One feature on PowerSync, on staging, on a copy of the real data, built with the
 
 [Phase 4](docs/powersync-migration.md#phase-4--identity). The slice's sessions, extended to everything that authenticates.
 
-- [ ] Every route that verifies an Instant token authenticates against the app's own sessions; routes under `/api/auth/` replace the six token routes.
-- [ ] The session module complete on the web and the phone: expiry, revocation by a parent, and the list of writes waiting for someone to sign in.
-- [ ] `has_pin` in place of a synced PIN hash, and a server route that sets a PIN.
+- [~] Every route that verifies an Instant token authenticates against the app's own sessions; routes under `/api/auth/` replace the six token routes.
+  - Done for finance and messages, which serve a request made under a session from Postgres. The middleware now lets a phone, which has no cookie, through to the routes that check the device themselves. Left: files, calendar sync, the content queue, exchange rates and shortcuts.
+  - **(you)** Read from the code and not tried: the phones' message and finance requests carry no cookie, and the live app's middleware turns such a request away. If sending a message or changing money from a phone has been failing, that is why; this change fixes it on the next deploy. Say whether it has been.
+- [~] The session module complete on the web and the phone: expiry, revocation by a parent, and the list of writes waiting for someone to sign in.
+  - The server's half of revocation is done: `DELETE /api/auth/members/<id>/sessions`. Left: the screens.
+- [x] `has_pin` in place of a synced PIN hash, and a server route that sets a PIN.
+  - `PUT /api/auth/pin`, for a parent. The family list calls it when it moves in 7.7.
 
 ### 7.5 Sync and the write rules
 

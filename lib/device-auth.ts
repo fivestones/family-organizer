@@ -81,3 +81,21 @@ export function getDeviceAuthCookieOptions(hostname?: string) {
         ...(domain !== undefined ? { domain } : {}),
     };
 }
+
+/**
+ * API routes that check for an activated device themselves, so the middleware lets a request through to them
+ * without the activation cookie. A phone has no cookie: it proves itself with a token in `Authorization`, which
+ * only a route can verify. A contract test holds every route under these to making that check.
+ */
+export const SELF_AUTHENTICATING_API_PREFIXES = [
+    '/api/calendar-sync/',
+    '/api/auth/',
+    '/api/sync/',
+    '/api/client-config',
+    '/api/finance/',
+    '/api/messages/',
+] as const;
+
+/** A name ending in a slash covers everything beneath it; any other names one route exactly. */
+export const isSelfAuthenticatingApiPath = (pathname: string) =>
+    SELF_AUTHENTICATING_API_PREFIXES.some((prefix) => (prefix.endsWith('/') ? pathname.startsWith(prefix) : pathname === prefix));

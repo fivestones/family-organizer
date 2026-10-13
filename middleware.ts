@@ -1,7 +1,7 @@
 // middleware.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { DEVICE_AUTH_COOKIE_NAME, sha256hex, getDeviceAuthCookieOptions } from '@/lib/device-auth';
+import { DEVICE_AUTH_COOKIE_NAME, sha256hex, getDeviceAuthCookieOptions, isSelfAuthenticatingApiPath } from '@/lib/device-auth';
 
 // 2. Paths that are always allowed (e.g., static assets, manifest)
 // You might want to allow manifest.json so the PWA is recognized,
@@ -16,7 +16,6 @@ const PUBLIC_ALLOWLIST_PATHS = [
     '/api/device-activate',
 ];
 const PUBLIC_ALLOWLIST_PREFIXES = ['/api/mobile/'];
-const API_ROUTE_AUTH_PREFIXES = ['/api/calendar-sync/'];
 
 const POWERSYNC_HOME = '/sync';
 /** A page of the app, as opposed to an API route or one of the files a page loads. */
@@ -34,7 +33,7 @@ export async function middleware(request: NextRequest) {
     if (
         PUBLIC_ALLOWLIST_PATHS.includes(pathname) ||
         PUBLIC_ALLOWLIST_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
-        API_ROUTE_AUTH_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
+        isSelfAuthenticatingApiPath(pathname) ||
         PUBLIC_FILE_EXTENSIONS.some((ext) => pathname.endsWith(ext))
     ) {
         return NextResponse.next();
