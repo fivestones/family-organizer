@@ -1,24 +1,28 @@
-# A second copy of the app, on PowerSync, beside the live one on the same machine and the same reverse proxy.
-# docs/powersync-staging.md walks through it. In short:
+# A second copy of the app, on PowerSync, in a folder of its own beside the live one. docs/powersync-staging.md walks
+# through it. The folder's .env names this file, so every command there is plain `docker compose …`:
 #
-#   docker compose -p family-organizer-staging --env-file .env.staging \
-#     -f docker-compose.yml -f docker-compose.staging.yml --profile powersync up -d
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml
+#   COMPOSE_PROFILES=powersync
 #
-# It runs the same image as the live app. What makes it staging is its own environment file, its own Postgres,
-# and DATA_BACKEND=powersync.
+# It shares nothing with the live app: its own folder and .env, its own image, its own Postgres, its own network.
+# It is reached on two ports of this machine and nowhere else, for a reverse proxy on the host to send a hostname to.
 services:
   family-organizer:
     container_name: family-organizer-staging
-    # Its own environment, never the live app's.
-    env_file: !override
-      - path: .env.staging
-        required: true
+    # Its own image, so building staging never replaces the one the live app runs.
+    image: family-organizer:staging
     environment:
       # Every page of a deployment on PowerSync leads to /sync, the part of the app that runs on it so far.
       - DATA_BACKEND=powersync
     depends_on: !override
       fo-postgres:
         condition: service_healthy
+    ports:
+      - "127.0.0.1:${STAGING_APP_PORT:-8440}:3000"
+
+  fo-powersync:
+    ports:
+      - "127.0.0.1:${STAGING_POWERSYNC_PORT:-8430}:8080"
 
   # What has been built on PowerSync so far needs neither file storage nor calendar sync.
   family-organizer-calendar-sync-worker:
@@ -27,3 +31,10 @@ services:
     profiles: ["not-in-staging"]
   createbuckets:
     profiles: ["not-in-staging"]
+
+# The main file joins a reverse proxy's Docker network. Staging is reached through its two ports, and has a network
+# of its own.
+networks:
+  default:
+    name: family-organizer-staging
+    external: false

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { AbstractPowerSyncDatabase, PowerSyncBackendConnector } from '@powersync/common';
+import { SyncStreamConnectionMethod, type AbstractPowerSyncDatabase, type PowerSyncBackendConnector } from '@powersync/common';
 import { PowerSyncDatabase } from '@powersync/node';
 import { AppSchema } from '@family-organizer/data/powersync/schema';
 import type { DevicePlatform, ServerResponse } from '@family-organizer/data/session/platform';
@@ -44,7 +44,10 @@ const routes: Array<[string, RegExp, (request: any) => Promise<Response>]> = [
 export function createTestPlatform(options: { syncUrl?: string } = {}): TestPlatform {
     const directory = mkdtempSync(path.join(tmpdir(), 'platform-'));
     const connected = new Map<AbstractPowerSyncDatabase, PowerSyncBackendConnector>();
-    const syncOptions = { crudUploadThrottleMs: 50, retryDelayMs: 300 };
+    // SYNC_TEST_CONNECTION=websocket or http chooses how a device holds its connection open, for trying the sync
+    // service through a reverse proxy both ways. Unset, the SDK chooses.
+    const method = { websocket: SyncStreamConnectionMethod.WEB_SOCKET, http: SyncStreamConnectionMethod.HTTP }[process.env.SYNC_TEST_CONNECTION ?? ''];
+    const syncOptions = { crudUploadThrottleMs: 50, retryDelayMs: 300, ...(method ? { connectionMethod: method } : {}) };
     const stored = new Map<string, string>();
     const open = new Map<string, PowerSyncDatabase>();
     const pumps = new Set<() => void>();

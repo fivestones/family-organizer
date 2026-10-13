@@ -7,76 +7,67 @@ This puts a second copy of the app beside the live one, running on Postgres and 
 
 What you get at the end is one address. Every page on it leads to `/sync`: a day's chores, ticked and un-ticked, and the currency and countdown settings, with sign-in, a sync badge and a list of changes that did not go through.
 
-**What has and has not been tried.** Steps 2, 3, 5, 6 and 7 have been run on a Mac exactly as written, from the Docker image built from a clean copy of the repository, with the real export: the app created its tables as it started, the import ran inside the container, and Chromium, Firefox and WebKit each landed on `/sync` and showed the family's chores within three seconds. What has not been tried is your server, and step 4: the Mac had no reverse proxy, so the browser reached the sync service directly, and the nginx rule has not been run anywhere. Budgeter's working equivalent is Caddy's. Expect step 4 to be where something needs adjusting.
+**What has and has not been tried.** The Caddy rule below has been run for real: a Caddy with exactly that rule stood in front of the sync service, and the live sync tests passed through it both ways a device can hold its connection open, by WebSocket and by HTTP streaming. An earlier version of these steps was run end to end on a Mac from the built image with the real export, and Chromium, Firefox and WebKit each landed on `/sync` with the family's chores within three seconds. No real iPad, iPhone or Safari has opened it.
 
 ## What you need
 
-- A hostname for staging, served over HTTPS by the reverse proxy the live app already uses. It has to be its own hostname: a browser keeps storage, the service worker and the activation cookie per address, and staging must not share them with the live app.
-- The export of the live data that is already on the Mac, under `.migration/exports/`. It holds the family's data in plain text. Copy it to the server by hand and do not commit it.
+- A hostname for staging, served over HTTPS by a reverse proxy on the same machine. It has to be its own hostname: a browser keeps storage, the service worker and the activation cookie per address, and staging must not share them with the live app.
+- A folder of its own with a checkout of this repository. Staging shares nothing with the live app, which may be on this machine or another: its own folder and `.env`, its own image, its own Postgres, its own Docker network. Its file storage and calendar sync are not started; what is built on PowerSync so far needs neither.
+- The export of the live data, under `.migration/exports/` on the machine it was made on. It holds the family's data in plain text. Copy it to the staging folder by hand and do not commit it.
 
 ## Steps
 
-All commands are run in the repository's folder on the server.
+All commands are run in the staging folder.
 
-**1. Update the live app to this commit.** `git pull`, then rebuild as you normally do (`docker compose up -d --build`). Staging runs the same image. Nothing changes for the live app: with no `DATABASE_URL` in its `.env` it stays on InstantDB.
-
-**2. Make staging's environment file.** The script prints fresh secrets and writes nothing itself.
+**1. Make its `.env`.** The script prints fresh secrets, the two ports staging is reached on, and the two lines that make every `docker compose` command in this folder a staging command. It needs only Node, so a stock image runs it before the app's own image exists.
 
 ```bash
-docker run --rm family-organizer:latest node scripts/powersync/setup-env.mjs > .env.staging
+docker run --rm -v "$PWD:/app:ro" -w /app node:24-alpine node scripts/powersync/setup-env.mjs --staging > .env
 ```
 
-Then add three lines of your own to `.env.staging`:
+Change `STAGING_APP_PORT` and `STAGING_POWERSYNC_PORT` in it if 8440 and 8430 are taken. `.env` is ignored by git.
 
-```
-DEVICE_ACCESS_KEY=<a new key, not the live app's>
-POWERSYNC_HOST_ALIAS=family-organizer-powersync-staging
-DOCKER_NETWORK_NAME=<the reverse proxy's network, as in the live .env>
-```
-
-`.env.staging` is ignored by git, like every `.env` file here.
-
-**3. Start staging.**
+**2. Build and start it.**
 
 ```bash
-docker compose -p family-organizer-staging --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml --profile powersync up -d
+docker compose up -d --build
 ```
 
-Three containers start: the app as `family-organizer-staging`, Postgres, and the PowerSync service. The app creates its tables as it starts. The PowerSync service logs once that its publication is missing and carries on by itself when the tables exist.
+Three containers start: the app as `family-organizer-staging`, Postgres, and the PowerSync service. The app is on `127.0.0.1:8440` and the sync service on `127.0.0.1:8430`, reachable from this machine only. The app creates its tables as it starts. The PowerSync service logs once that its publication is missing and carries on by itself when the tables exist.
 
-**4. Point the reverse proxy at it.** Two rules on the staging hostname:
+**3. Point the reverse proxy at it.** Two rules on the staging hostname: `/powersync/` to the sync service with the prefix removed and response buffering off, and everything else to the app. In Caddy, inside the site that serves the hostname:
 
-- everything to `http://family-organizer-staging:3000`;
-- `/powersync/` to `http://family-organizer-powersync-staging:8080/`, with the prefix removed, WebSocket upgrades passed and response buffering off.
-
-In nginx the second is:
-
-```nginx
-location /powersync/ {
-    proxy_pass http://family-organizer-powersync-staging:8080/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_buffering off;
-    proxy_read_timeout 1h;
+```caddy
+@family-organizer-staging host <staging hostname>
+handle @family-organizer-staging {
+    handle_path /powersync/* {
+        reverse_proxy 127.0.0.1:8430 {
+            flush_interval -1
+        }
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8440
+    }
 }
 ```
 
-**5. Load the family's data.** With the export copied to `.migration/exports/` on the server:
+The name after `@` on the first line must be the name `handle` is given on the second. Caddy passes WebSocket upgrades by itself. In nginx the sync service's rule is a `location /powersync/` with `proxy_pass http://127.0.0.1:8430/;`, the `Upgrade` and `Connection` headers passed, `proxy_buffering off` and a long `proxy_read_timeout`; that one has not been run.
+
+**4. Load the family's data.** With the export copied to `.migration/exports/` in the staging folder:
 
 ```bash
-docker compose -p family-organizer-staging --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml --profile powersync run --rm -v "$PWD/.migration:/app/.migration" family-organizer node scripts/migrate/import.mjs
+docker compose run --rm -v "$PWD/.migration:/app/.migration" family-organizer node scripts/migrate/import.mjs
 ```
 
-It prints how many rows went into each table and anything it held back. On the export of 12 October that is 46 chore completions that belong to no chore, which is expected.
+It prints how many rows went into each table, anything it held back, and every conversion that changed how a value is held.
 
-**6. Tell staging's clients to use PowerSync.**
+**5. Tell staging's clients to use PowerSync.**
 
 ```bash
-docker compose -p family-organizer-staging --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml --profile powersync exec family-organizer node scripts/powersync/set-backend.mjs powersync
+docker compose exec family-organizer node scripts/powersync/set-backend.mjs powersync
 ```
 
-**7. Open it.** On a device, go to `https://<staging hostname>/?activate=<staging DEVICE_ACCESS_KEY>`. It should land on `/sync`, show "Up to date", and list today's chores. Pick yourself from the button at the top right to sign in.
+**6. Open it.** On a device, go to `https://<staging hostname>/?activate=<DEVICE_ACCESS_KEY from the staging .env>`. It should land on `/sync`, show "Up to date", and list today's chores. Pick yourself from the button at the top right to sign in.
 
 ## What to try
 
@@ -91,25 +82,18 @@ These are the checks only a real device can make ([Phase 2](powersync-migration.
 
 ## The nightly jobs, once by hand
 
-Not needed to try the app, but staging is the place to see the backup work before production depends on it. Add two lines to `.env.staging`, so the script knows which copy of the project it is for:
+Not needed to try the app, but staging is the place to see the backup work before production depends on it:
 
 ```bash
-COMPOSE_PROJECT_NAME=family-organizer-staging
-COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml
+sh scripts/powersync/nightly.sh
 ```
 
-Then run it:
-
-```bash
-sh scripts/powersync/nightly.sh .env.staging
-```
-
-It writes a dump under `./backups`, says it has nowhere to copy it to until `BACKUP_OFFSITE_REMOTE` is set, and compacts the sync service's storage. `https://<staging hostname>/api/health` then shows, under `data`, the sync service connected, how old the backup is, and anything that wants attention. On this machine it has been run against a throwaway stack, restore included; it has not been run on your server, from a scheduler, or to a real remote.
+It writes a dump under `./backups`, says it has nowhere to copy it to until `BACKUP_OFFSITE_REMOTE` is set, and compacts the sync service's storage. `https://<staging hostname>/api/health` then shows, under `data`, the sync service connected, how old the backup is, and anything that wants attention.
 
 ## Taking it down
 
 ```bash
-docker compose -p family-organizer-staging --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml --profile powersync down --volumes
+docker compose down --volumes
 ```
 
 `--volumes` removes staging's Postgres data, which is only ever a copy.

@@ -6,6 +6,11 @@
 // every device has to fetch a new token, and the database passwords would no longer match the database.
 //
 //   node scripts/powersync/setup-env.mjs
+//   node scripts/powersync/setup-env.mjs --staging    the whole .env for a staging copy in a folder of its own
+//
+// It needs nothing installed but Node, so before there is an image it can be run in a stock one:
+//
+//   docker run --rm -v "$PWD:/app:ro" -w /app node:24-alpine node scripts/powersync/setup-env.mjs --staging > .env
 
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 
@@ -28,4 +33,24 @@ const lines = [
     `POWERSYNC_JWK_N=${jwk.n}`,
     `POWERSYNC_JWK_E=${jwk.e}`,
 ];
+if (process.argv.includes('--staging')) {
+    lines.unshift(
+        '# --- A staging copy, in a folder of its own (docs/powersync-staging.md) ---',
+        '# These two make every `docker compose` command in this folder a staging command.',
+        'COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml',
+        'COMPOSE_PROFILES=powersync',
+        '# Where the reverse proxy finds staging on this machine: the app, and the sync service behind /powersync/.',
+        'STAGING_APP_PORT=8440',
+        'STAGING_POWERSYNC_PORT=8430',
+        '# What a device presents, once, to be let in: https://<staging hostname>/?activate=<this>',
+        `DEVICE_ACCESS_KEY=${secret()}`,
+        '# File storage is not part of staging. These only stop Compose warning that they are missing.',
+        'S3_ACCESS_KEY_ID=unused',
+        'S3_SECRET_ACCESS_KEY=unused',
+        'NEXT_PUBLIC_S3_ENDPOINT=',
+        'MINIO_PORT=0',
+        'MINIO_CONSOLE_PORT=0',
+        ''
+    );
+}
 console.log(lines.join('\n'));
