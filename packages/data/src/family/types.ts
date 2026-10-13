@@ -34,6 +34,12 @@ export interface FamilyMember {
     allowancePayoutDelayDays: number;
     allowanceConfig: Record<string, unknown> | null;
 
+    /**
+     * The envelope money goes into when nobody says, or `null` when none is chosen. Over Instant, where it is a
+     * flag on each envelope, it is not known from the member and is always `null`.
+     */
+    defaultEnvelopeId: string | null;
+
     // The member's own preferences
     lastDisplayCurrency: string | null;
     viewShowChoreDescriptions: boolean | null;

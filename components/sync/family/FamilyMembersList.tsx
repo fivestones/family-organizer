@@ -1,0 +1,1401 @@
+// components/FamilyMembersList.tsx
+import React, { useState, useEffect, useMemo, useCallback } from 'react'; // <-- Import useEffect, useState, useCallback
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { PlusCircle } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useToast } from '@/components/ui/use-toast';
+import Cropper from 'react-easy-crop';
+import { Checkbox } from '@/components/ui/checkbox';
+import Link from 'next/link';
+import { deleteS3Objects, getAvatarVariantUploadUrls } from '@/app/actions';
+import {
+    MEMBER_COLOR_SWATCHES,
+    buildMemberColorMap,
+    findSimilarMemberColors,
+    getReadableTextColor,
+    hexToRgbaString,
+    normalizeHexColor,
+    pickRandomMemberColor,
+} from '@/lib/family-member-colors';
+import { getPhotoKeys, getPhotoUrl, type PhotoUrls } from '@/lib/photo-urls';
+import {
+    addFamilyMember,
+    clearSetting,
+    ensureFirstEnvelope,
+    removeFamilyMember,
+    reorderFamilyMembers,
+    saveSetting,
+    setMemberPin,
+    updateFamilyMember,
+    useFamilyMembers,
+    useSetting,
+    useUnitDefinitions,
+    type FamilyMember,
+    type FamilyMemberChanges,
+    type UnitDefinition,
+} from '@/lib/data';
+import { sessionHeaders, sessionToken } from '@/lib/powersync/session-token';
+import { cn } from '@/lib/utils';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
+// **** NEW: Import PDND tools ****
+import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { extractClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
+import { reorderWithEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/util/reorder-with-edge';
+import { SortableFamilyMemberItem } from '@/components/SortableFamilyMemberItem';
+
+// +++ NEW: Import RadioGroup for Role selection +++
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+// +++ NEW: Import Auth Hook +++
+import { useCurrentMember } from '@/components/sync/session';
+// +++ NEW: Import Utils for Internal Calculation +++
+
+// Define FamilyMember type based on usage
+// **** UPDATED: Removed addFamilyMember and deleteFamilyMember from props ****
+interface FamilyMembersListProps {
+    selectedMember?: string | null | 'All';
+    setSelectedMember?: (id: string | null | 'All') => void;
+    // **** NEW Props for balance display ****
+    showBalances?: boolean; // To control the feature
+    // What each member holds and has earned today, from the page that knows. Left out, neither is shown.
+    membersBalances?: { [memberId: string]: { [currency: string]: number } };
+    unitDefinitions?: UnitDefinition[];
+    membersXP?: { [memberId: string]: { current: number; possible: number } };
+    // When true, the list is always in edit mode with no toggle (for settings page)
+    alwaysEditMode?: boolean;
+}
+
+const noopSetSelectedMember = () => {};
+const NO_BALANCES: { [memberId: string]: { [currency: string]: number } } = {};
+const NO_XP: { [memberId: string]: { current: number; possible: number } } = {};
+const AVATAR_UPLOAD_SIZES = ['64', '320', '1200'] as const;
+
+type AvatarUploadSize = (typeof AVATAR_UPLOAD_SIZES)[number];
+
+interface AvatarUploadTarget {
+    size: AvatarUploadSize;
+    url: string;
+    fields: Record<string, string>;
+    key: string;
+}
+
+interface AvatarUploadApiResponse {
+    photoUrls: PhotoUrls;
+}
+
+function formatColorSimilarityWarning(matches: ReturnType<typeof findSimilarMemberColors>) {
+    if (matches.length === 0) return null;
+
+    const names = matches.map((match) => match.memberName);
+    if (names.length === 1) {
+        return `This color is very close to ${names[0]}'s and may be hard to distinguish on the calendar.`;
+    }
+    if (names.length === 2) {
+        return `This color is very close to ${names[0]} and ${names[1]} and may be hard to distinguish on the calendar.`;
+    }
+    return `This color is very close to ${names[0]}, ${names[1]}, and ${names.length - 2} more family members and may be hard to distinguish on the calendar.`;
+}
+
+function loadImageForCanvas(file: Blob): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(image);
+        };
+        image.onerror = (error) => {
+            URL.revokeObjectURL(objectUrl);
+            reject(error);
+        };
+        image.src = objectUrl;
+    });
+}
+
+function renderSquarePngVariant(image: HTMLImageElement, size: number): Promise<File> {
+    return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            reject(new Error('Unable to create canvas context'));
+            return;
+        }
+
+        const sourceSize = Math.min(image.naturalWidth, image.naturalHeight);
+        const sourceX = (image.naturalWidth - sourceSize) / 2;
+        const sourceY = (image.naturalHeight - sourceSize) / 2;
+        ctx.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+
+        canvas.toBlob(
+            (blob) => {
+                if (!blob) {
+                    reject(new Error('Failed to render avatar variant'));
+                    return;
+                }
+                resolve(new File([blob], `avatar-${size}.png`, { type: 'image/png' }));
+            },
+            'image/png',
+            0.95
+        );
+    });
+}
+
+function MemberColorField({
+    color,
+    inputId,
+    onColorChange,
+    previewName,
+    warningMessage,
+}: {
+    color: string;
+    inputId: string;
+    onColorChange: (nextColor: string) => void;
+    previewName: string;
+    warningMessage?: string | null;
+}) {
+    const readableTextColor = getReadableTextColor(color);
+    const normalizedPreviewName = previewName.trim() || 'New family member';
+
+    return (
+        <div className="grid grid-cols-4 items-start gap-4">
+            <Label htmlFor={inputId} className="text-right pt-2">
+                Calendar color
+            </Label>
+            <div className="col-span-3 space-y-3">
+                <p className="text-sm text-muted-foreground">This color will be used for calendar events associated with this family member.</p>
+
+                <div
+                    className="rounded-2xl border p-3"
+                    style={{
+                        backgroundColor: hexToRgbaString(color, 0.08),
+                        borderColor: hexToRgbaString(color, 0.22),
+                    }}
+                >
+                    <div
+                        className="rounded-xl border px-4 py-4 shadow-sm"
+                        style={{
+                            background: `linear-gradient(135deg, ${hexToRgbaString(color, 0.96)} 0%, ${hexToRgbaString(color, 0.76)} 100%)`,
+                            borderColor: hexToRgbaString(color, 0.38),
+                            color: readableTextColor,
+                        }}
+                    >
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.28em] opacity-80">Calendar preview</div>
+                        <div className="mt-3 flex items-center gap-3">
+                            <div
+                                className="inline-flex h-11 min-w-[2.75rem] items-center justify-center rounded-full border px-3 text-sm font-semibold"
+                                style={{
+                                    borderColor: hexToRgbaString(readableTextColor, 0.28),
+                                    backgroundColor: hexToRgbaString(readableTextColor, 0.12),
+                                }}
+                            >
+                                {normalizedPreviewName.slice(0, 1).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                                <div className="truncate text-lg font-semibold leading-none">{normalizedPreviewName}</div>
+                                <div className="mt-1 text-sm opacity-80">Sample event color for this person</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="rounded-xl border bg-background/70 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Quick picks</div>
+                            <div className="mt-1 text-sm text-muted-foreground">Choose one of the built-in swatches or fine-tune with the custom picker.</div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <div
+                                aria-hidden="true"
+                                className="h-10 w-10 rounded-lg border shadow-sm"
+                                style={{ backgroundColor: color, borderColor: hexToRgbaString(color, 0.3) }}
+                            />
+                            <Input
+                                id={inputId}
+                                type="color"
+                                value={color}
+                                onChange={(event) => {
+                                    const nextColor = normalizeHexColor(event.target.value);
+                                    if (nextColor) {
+                                        onColorChange(nextColor);
+                                    }
+                                }}
+                                aria-label={`${normalizedPreviewName} custom calendar color`}
+                                className="h-10 w-16 cursor-pointer rounded-lg border p-1"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-8">
+                        {MEMBER_COLOR_SWATCHES.map((swatch) => {
+                            const isSelected = swatch.value === color;
+                            return (
+                                <button
+                                    key={swatch.value}
+                                    type="button"
+                                    aria-label={`Use ${swatch.label} for ${normalizedPreviewName}'s calendar color`}
+                                    title={swatch.label}
+                                    onClick={() => onColorChange(swatch.value)}
+                                    className={cn(
+                                        'h-10 rounded-xl border transition-transform duration-150 hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2',
+                                        isSelected ? 'scale-[1.04] ring-2 ring-slate-900/15 ring-offset-2' : ''
+                                    )}
+                                    style={{
+                                        backgroundColor: swatch.value,
+                                        borderColor: isSelected ? hexToRgbaString(swatch.value, 0.72) : hexToRgbaString(swatch.value, 0.25),
+                                    }}
+                                >
+                                    <span className="sr-only">{swatch.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2">
+                    <div
+                        aria-hidden="true"
+                        className="h-10 w-10 rounded-lg border shadow-sm"
+                        style={{ backgroundColor: color, borderColor: hexToRgbaString(color, 0.32) }}
+                    />
+                    <div className="min-w-0">
+                        <div className="text-sm font-medium">Selected color</div>
+                        <div className="font-mono text-xs uppercase text-muted-foreground">{color}</div>
+                    </div>
+                </div>
+
+                {warningMessage ? (
+                    <p className="text-sm font-medium text-amber-700">{warningMessage}</p>
+                ) : (
+                    <p className="text-xs text-muted-foreground">You can still save if colors are close. We’ll only show a warning.</p>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function FamilyMembersList({
+    selectedMember = null,
+    setSelectedMember = noopSetSelectedMember,
+    showBalances = false,
+    membersBalances = NO_BALANCES,
+    unitDefinitions: propUnitDefs,
+    membersXP = NO_XP,
+    alwaysEditMode = false,
+}: FamilyMembersListProps) {
+    const currentUser = useCurrentMember();
+    const { data: familyMembers } = useFamilyMembers();
+    const { data: fetchedUnitDefinitions } = useUnitDefinitions({ enabled: !propUnitDefs });
+    const { data: familyPhotoUrls } = useSetting('familyPhoto');
+    const unitDefinitions = propUnitDefs || fetchedUnitDefinitions;
+
+
+    const [isCreatingMember, setIsCreatingMember] = useState(false);
+    const [newMemberName, setNewMemberName] = useState('');
+    const [newMemberEmail, setNewMemberEmail] = useState('');
+    // +++ NEW State for Add Member +++
+    const [newMemberRole, setNewMemberRole] = useState('child');
+    const [newMemberPin, setNewMemberPin] = useState('');
+    const [newMemberColor, setNewMemberColor] = useState<string>(MEMBER_COLOR_SWATCHES[0].value);
+
+    const isEditMode = alwaysEditMode;
+    const { toast } = useToast();
+
+    // State variables for cropping images
+    const [crop, setCrop] = useState({ x: 0, y: 0 });
+    const [zoom, setZoom] = useState(1);
+    const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+    const [imageSrc, setImageSrc] = useState<any>(null);
+
+    // State variables for editing members
+    const [editingMember, setEditingMember] = useState<FamilyMember | null>(null); // Type annotation
+    const [editMemberName, setEditMemberName] = useState('');
+    const [editMemberEmail, setEditMemberEmail] = useState('');
+    // +++ NEW State for Edit Member +++
+    const [editMemberRole, setEditMemberRole] = useState('child');
+    const [editMemberPin, setEditMemberPin] = useState('');
+    const [editMemberColor, setEditMemberColor] = useState<string>(MEMBER_COLOR_SWATCHES[0].value);
+
+    const [editImageSrc, setEditImageSrc] = useState<string | null>(null); // Type annotation
+    const [editCrop, setEditCrop] = useState({ x: 0, y: 0 });
+    const [editZoom, setEditZoom] = useState(1);
+    const [editCroppedAreaPixels, setEditCroppedAreaPixels] = useState<any>(null);
+    const [removePhoto, setRemovePhoto] = useState(false);
+    const [isEditingAll, setIsEditingAll] = useState(alwaysEditMode);
+    const [isFamilyPhotoSaving, setIsFamilyPhotoSaving] = useState(false);
+    const [isMemberSaving, setIsMemberSaving] = useState(false);
+    const [isMemberDeleting, setIsMemberDeleting] = useState(false);
+    const [isDeleteMemberDialogOpen, setIsDeleteMemberDialogOpen] = useState(false);
+    const [familyPhotoImageSrc, setFamilyPhotoImageSrc] = useState<string | null>(null);
+    const [familyPhotoCrop, setFamilyPhotoCrop] = useState({ x: 0, y: 0 });
+    const [familyPhotoZoom, setFamilyPhotoZoom] = useState(1);
+    const [familyPhotoCroppedAreaPixels, setFamilyPhotoCroppedAreaPixels] = useState<any>(null);
+    const needsAllHandleSpacer = alwaysEditMode && currentUser?.role === 'parent';
+
+    // --- NEW: State for optimistic UI reordering ---
+    const [orderedMembers, setOrderedMembers] = useState<FamilyMember[]>(familyMembers);
+    const memberColorsById = useMemo(() => buildMemberColorMap(orderedMembers), [orderedMembers]);
+    const currentMemberColors = useMemo(
+        () => orderedMembers.map((member) => memberColorsById[member.id]).filter((color): color is string => Boolean(color)),
+        [orderedMembers, memberColorsById]
+    );
+    const newMemberColorComparisons = useMemo(
+        () =>
+            orderedMembers.map((member) => ({
+                id: member.id,
+                name: member.name,
+                color: memberColorsById[member.id],
+            })),
+        [orderedMembers, memberColorsById]
+    );
+    const editMemberColorComparisons = useMemo(
+        () =>
+            orderedMembers
+                .filter((member) => member.id !== editingMember?.id)
+                .map((member) => ({
+                    id: member.id,
+                    name: member.name,
+                    color: memberColorsById[member.id],
+                })),
+        [orderedMembers, memberColorsById, editingMember?.id]
+    );
+    const newMemberColorWarning = useMemo(
+        () => formatColorSimilarityWarning(findSimilarMemberColors(newMemberColor, newMemberColorComparisons)),
+        [newMemberColor, newMemberColorComparisons]
+    );
+    const editMemberColorWarning = useMemo(
+        () => formatColorSimilarityWarning(findSimilarMemberColors(editMemberColor, editMemberColorComparisons)),
+        [editMemberColor, editMemberColorComparisons]
+    );
+
+    // --- NEW: Sync local state with sorted prop ---
+    useEffect(() => {
+        setOrderedMembers(familyMembers);
+    }, [familyMembers]);
+
+    // --- NEW: PDND Monitor Setup ---
+    useEffect(() => {
+        const cleanup = monitorForElements({
+            onDrop: async ({ source, location }) => {
+                // No drop target -> ignore
+                if (!location.current.dropTargets.length) return;
+
+                const target = location.current.dropTargets[0];
+
+                const sourceIndex = source.data.index as number | undefined;
+                const targetIndex = target.data.index as number | undefined;
+                const closestEdgeOfTarget = extractClosestEdge(target.data);
+
+                // Sanity checks
+                if (sourceIndex == null || targetIndex == null || closestEdgeOfTarget == null) {
+                    return;
+                }
+
+                // Nothing to do if we effectively didn't move
+                if (sourceIndex === targetIndex && closestEdgeOfTarget === 'top') {
+                    return;
+                }
+
+                // 1. Compute new list using both index and edge
+                const reorderedList = reorderWithEdge({
+                    list: orderedMembers,
+                    startIndex: sourceIndex,
+                    indexOfTarget: targetIndex,
+                    closestEdgeOfTarget,
+                    axis: 'vertical',
+                });
+
+                setOrderedMembers(reorderedList);
+
+                // 2. Save the new order
+                try {
+                    await reorderFamilyMembers(reorderedList.map((member) => member.id));
+                    toast({
+                        title: 'Order Saved',
+                        description: 'Family member order has been updated.',
+                    });
+                } catch (error: any) {
+                    console.error('Failed to save member order:', error);
+                    toast({
+                        title: 'Error Saving Order',
+                        description: 'Could not save the new order. Reverting changes.',
+                        variant: 'destructive',
+                    });
+                    setOrderedMembers(familyMembers);
+                }
+            },
+        });
+
+        return cleanup;
+    }, [orderedMembers, familyMembers, toast]); // Re-run if these change
+
+    const showPhotoCleanupWarning = useCallback(
+        (message: string) => {
+            toast({
+                title: 'Saved with warning',
+                description: message,
+                variant: 'destructive',
+            });
+        },
+        [toast]
+    );
+
+    const cleanupS3Photos = useCallback(
+        async (keys: string[], warningMessage: string) => {
+            if (!keys.length) return;
+            try {
+                await deleteS3Objects(keys, sessionToken());
+            } catch (error) {
+                console.error('Photo cleanup failed:', error);
+                showPhotoCleanupWarning(warningMessage);
+            }
+        },
+        [showPhotoCleanupWarning]
+    );
+
+    const uploadAvatarPhotoVariants = useCallback(async (sourceFile: File, options: { scope: 'profile-photo' | 'family-photo'; memberId?: string }) => {
+        const image = await loadImageForCanvas(sourceFile);
+        const filesBySize = {} as Record<AvatarUploadSize, File>;
+        for (const size of AVATAR_UPLOAD_SIZES) {
+            filesBySize[size] = await renderSquarePngVariant(image, Number(size));
+        }
+
+        const uploadViaServerApi = async (): Promise<PhotoUrls> => {
+            const formData = new FormData();
+            formData.append('scope', options.scope);
+            if (options.memberId) {
+                formData.append('memberId', options.memberId);
+            }
+            AVATAR_UPLOAD_SIZES.forEach((size) => {
+                formData.append(`file${size}`, filesBySize[size]);
+            });
+
+            const fallbackResponse = await fetch('/api/avatar-variants', {
+                method: 'POST',
+                headers: sessionHeaders(),
+                body: formData,
+            });
+
+            if (!fallbackResponse.ok) {
+                const fallbackBody = await fallbackResponse.json().catch(() => null);
+                const message =
+                    fallbackBody && typeof fallbackBody.error === 'string' ? fallbackBody.error : 'Failed to upload avatar photo via server fallback';
+                throw new Error(message);
+            }
+
+            const fallbackPayload = (await fallbackResponse.json()) as AvatarUploadApiResponse;
+            const fallbackPhotoUrls: PhotoUrls = {
+                '64': fallbackPayload?.photoUrls?.['64'],
+                '320': fallbackPayload?.photoUrls?.['320'],
+                '1200': fallbackPayload?.photoUrls?.['1200'],
+            };
+            if (!fallbackPhotoUrls['64'] || !fallbackPhotoUrls['320'] || !fallbackPhotoUrls['1200']) {
+                throw new Error('Fallback upload response was missing avatar keys');
+            }
+
+            return fallbackPhotoUrls;
+        };
+
+        let presigned:
+            | {
+                  uploads: AvatarUploadTarget[];
+                  photoUrls: PhotoUrls;
+              }
+            | null = null;
+        const uploadedKeys: string[] = [];
+
+        try {
+            presigned = (await getAvatarVariantUploadUrls(
+                {
+                    scope: options.scope,
+                    memberId: options.memberId ?? null,
+                },
+                sessionToken()
+            )) as {
+                uploads: AvatarUploadTarget[];
+                photoUrls: PhotoUrls;
+            };
+
+            if (!presigned?.uploads?.length) {
+                throw new Error('Failed to generate upload signature');
+            }
+
+            for (const upload of presigned.uploads) {
+                const variantFile = filesBySize[upload.size];
+                if (!variantFile) {
+                    throw new Error(`Missing ${upload.size}px variant`);
+                }
+
+                const formData = new FormData();
+                Object.entries(upload.fields || {}).forEach(([fieldName, fieldValue]) => {
+                    formData.append(fieldName, fieldValue);
+                });
+                formData.append('file', variantFile);
+
+                const uploadResponse = await fetch(upload.url, {
+                    method: 'POST',
+                    body: formData,
+                });
+                if (uploadResponse.status >= 400) {
+                    throw new Error(`Failed to upload ${upload.size}px avatar`);
+                }
+                uploadedKeys.push(upload.key);
+            }
+        } catch (error) {
+            if (uploadedKeys.length > 0) {
+                try {
+                    await deleteS3Objects(uploadedKeys, sessionToken());
+                } catch (cleanupError) {
+                    console.error('Failed to clean up partial avatar upload:', cleanupError);
+                }
+            }
+
+            console.warn('Direct avatar upload failed; retrying via server upload API.', error);
+            return uploadViaServerApi();
+        }
+
+        const photoUrls: PhotoUrls = {
+            '64': presigned?.photoUrls?.['64'],
+            '320': presigned?.photoUrls?.['320'],
+            '1200': presigned?.photoUrls?.['1200'],
+        };
+        if (!photoUrls['64'] || !photoUrls['320'] || !photoUrls['1200']) {
+            throw new Error('Upload response was missing avatar keys');
+        }
+        return photoUrls;
+    }, []);
+
+    // **** MOVED: Full implementation of addFamilyMember logic ****
+    const _internal_addFamilyMember = async (name: string, email: string | null, photoFile: File | null) => {
+        if (!name) return;
+
+        let memberId: string;
+        try {
+            memberId = await addFamilyMember({ name, email, color: newMemberColor, role: newMemberRole === 'parent' ? 'parent' : 'child' });
+        } catch (error) {
+            console.error('Error adding family member:', error);
+            toast({
+                title: 'Error',
+                description: 'Failed to add family member. Please try again.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        toast({
+            title: 'Success',
+            description: 'Family member added successfully.',
+        });
+
+        // The member is saved. A photo, a PIN and a first envelope each need the server, and each can be set
+        // again later if it does not go through now.
+        if (photoFile) {
+            try {
+                const photoUrls = await uploadAvatarPhotoVariants(photoFile, {
+                    scope: 'profile-photo',
+                    memberId,
+                });
+                await updateFamilyMember(memberId, { photoUrls });
+            } catch (error) {
+                console.error('Error uploading photo:', error);
+                toast({
+                    title: 'Photo not saved',
+                    description: error instanceof Error ? error.message : 'Failed to upload photo. Please try again.',
+                    variant: 'destructive',
+                });
+            }
+        }
+        if (newMemberPin) {
+            try {
+                await setMemberPin(memberId, newMemberPin);
+            } catch (error) {
+                console.error('Error setting PIN:', error);
+                toast({
+                    title: 'PIN not set',
+                    description: error instanceof Error ? error.message : 'The PIN could not be set. Edit the member to set it.',
+                    variant: 'destructive',
+                });
+            }
+        }
+        // Without a connection this is left for the allowance page, which makes one for anyone who has none.
+        await ensureFirstEnvelope(memberId).catch(() => undefined);
+    };
+
+    const handleAddMember = async () => {
+        if (newMemberName) {
+            let photoFile: File | null = null;
+            if (imageSrc && croppedAreaPixels) {
+                try {
+                    photoFile = await getCroppedImg(imageSrc, croppedAreaPixels);
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+            // **** UPDATED: Call internal function ****
+            await _internal_addFamilyMember(newMemberName, newMemberEmail || null, photoFile);
+            // Reset states
+            setNewMemberName('');
+            setNewMemberEmail('');
+            setNewMemberRole('child'); // Reset role
+            setNewMemberPin(''); // Reset pin
+            setNewMemberColor(pickRandomMemberColor(currentMemberColors));
+            setImageSrc(null);
+            setCrop({ x: 0, y: 0 });
+            setZoom(1);
+            setCroppedAreaPixels(null);
+            if (alwaysEditMode) {
+                setIsCreatingMember(false);
+                setIsEditingAll(true);
+            }
+        }
+    };
+
+    const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const file = e.target.files[0];
+            const imageDataUrl = await readFile(file);
+            setImageSrc(imageDataUrl);
+            setCrop({ x: 0, y: 0 });
+            setZoom(1);
+            setCroppedAreaPixels(null);
+        }
+    };
+
+    const readFile = (file: File): Promise<string> => {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.addEventListener('load', () => resolve(reader.result as string));
+            reader.readAsDataURL(file);
+        });
+    };
+
+    const onCropComplete = (croppedArea, croppedAreaPixels) => {
+        setCroppedAreaPixels(croppedAreaPixels);
+    };
+
+    const getCroppedImg = (imageSrc, pixelCrop): Promise<File> => {
+        return new Promise((resolve, reject) => {
+            const image = new Image();
+            image.src = imageSrc;
+            image.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                const maxSize = 1200;
+                const scale = maxSize / Math.max(pixelCrop.width, pixelCrop.height);
+                const canvasWidth = pixelCrop.width * scale;
+                const canvasHeight = pixelCrop.height * scale;
+
+                canvas.width = canvasWidth;
+                canvas.height = canvasHeight;
+
+                ctx!.drawImage(image, pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height, 0, 0, canvasWidth, canvasHeight);
+
+                canvas.toBlob((blob) => {
+                    if (!blob) {
+                        return reject(new Error('Canvas is empty'));
+                    }
+                    const file = new File([blob], 'cropped_image.png', {
+                        type: 'image/png',
+                    });
+                    resolve(file);
+                }, 'image/png');
+            };
+            image.onerror = (error) => reject(error);
+        });
+    };
+
+    // Edit member functions
+    const activateMemberForEditing = (member: FamilyMember) => {
+        // Type annotation
+        setIsCreatingMember(false);
+        setIsEditingAll(false);
+        setEditingMember(member);
+        if (!alwaysEditMode) {
+            setSelectedMember(member.id);
+        }
+        setEditMemberName(member.name);
+        setEditMemberEmail(member.email || '');
+        // +++ Populate Role +++
+        setEditMemberRole(member.role || 'child');
+        setEditMemberPin(''); // Always clear PIN input on open
+        setEditMemberColor(memberColorsById[member.id] || MEMBER_COLOR_SWATCHES[0].value);
+
+        setEditImageSrc(getPhotoUrl(member.photoUrls, '1200') || null);
+        setEditCrop({ x: 0, y: 0 });
+        setEditZoom(1);
+        setEditCroppedAreaPixels(null);
+        setRemovePhoto(false);
+    };
+
+    const activateAllForSettings = () => {
+        if (!alwaysEditMode) {
+            setSelectedMember('All');
+            return;
+        }
+        setIsCreatingMember(false);
+        setIsEditingAll(true);
+        setEditingMember(null);
+        setEditMemberName('');
+        setEditMemberEmail('');
+        setEditMemberRole('child');
+        setEditMemberPin('');
+        setEditMemberColor(MEMBER_COLOR_SWATCHES[0].value);
+        setEditImageSrc(null);
+        setEditCrop({ x: 0, y: 0 });
+        setEditZoom(1);
+        setEditCroppedAreaPixels(null);
+        setRemovePhoto(false);
+    };
+
+    const activateCreateMember = () => {
+        if (!alwaysEditMode) {
+            return;
+        }
+        setIsCreatingMember(true);
+        setIsEditingAll(false);
+        setEditingMember(null);
+        setNewMemberName('');
+        setNewMemberEmail('');
+        setNewMemberRole('child');
+        setNewMemberPin('');
+        setNewMemberColor(pickRandomMemberColor(currentMemberColors));
+        setImageSrc(null);
+        setCrop({ x: 0, y: 0 });
+        setZoom(1);
+        setCroppedAreaPixels(null);
+    };
+
+    const onEditFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const file = e.target.files[0];
+            const imageDataUrl = await readFile(file);
+            setEditImageSrc(imageDataUrl);
+            setEditCrop({ x: 0, y: 0 });
+            setEditZoom(1);
+            setEditCroppedAreaPixels(null);
+        }
+    };
+
+    const onEditCropComplete = (croppedArea, croppedAreaPixels) => {
+        setEditCroppedAreaPixels(croppedAreaPixels);
+    };
+
+    const handleUpdateMember = async () => {
+        if (!editMemberName || !editingMember || isMemberSaving) return;
+
+        setIsMemberSaving(true);
+        try {
+            // Check editingMember is not null
+            const role = editMemberRole === 'parent' ? 'parent' : 'child';
+            const updates: FamilyMemberChanges = {
+                name: editMemberName,
+                color: editMemberColor,
+                email: editMemberEmail || '',
+                role,
+            };
+            const previousPhotoKeys = getPhotoKeys(editingMember.photoUrls);
+            let shouldDeletePreviousPhoto = false;
+
+            if (removePhoto) {
+                updates.photoUrls = null;
+                shouldDeletePreviousPhoto = previousPhotoKeys.length > 0;
+            } else if (editImageSrc && editCroppedAreaPixels && !editImageSrc.startsWith('/files/')) {
+                try {
+                    const photoFile = await getCroppedImg(editImageSrc, editCroppedAreaPixels);
+                    updates.photoUrls = await uploadAvatarPhotoVariants(photoFile, {
+                        scope: 'profile-photo',
+                        memberId: editingMember.id,
+                    });
+                    shouldDeletePreviousPhoto = previousPhotoKeys.length > 0;
+                } catch (error) {
+                    console.error('Error uploading photo:', error);
+                    const message = error instanceof Error ? error.message : 'Failed to upload photo. Please try again.';
+                    toast({
+                        title: 'Error',
+                        description: message,
+                        variant: 'destructive',
+                    });
+                    return; // Stop execution if upload fails
+                }
+            }
+            // If editImageSrc exists but starts with '/files/', it means no new file was selected.
+            else if (editImageSrc && editImageSrc.startsWith('/files/')) {
+                // No change needed for photoUrls unless removePhoto was checked (handled above)
+            }
+
+            try {
+                await updateFamilyMember(editingMember.id, updates);
+                // A PIN is the server's to keep: it is set there, and only if one was typed.
+                if (editMemberPin.trim() !== '') await setMemberPin(editingMember.id, editMemberPin);
+                toast({
+                    title: 'Success',
+                    description: 'Family member updated successfully.',
+                });
+                const updatedPhotoUrls =
+                    updates.photoUrls === undefined ? editingMember.photoUrls || null : ((updates.photoUrls as FamilyMember['photoUrls'] | null) ?? null);
+                const updatedMember: FamilyMember = {
+                    ...editingMember,
+                    name: editMemberName,
+                    color: editMemberColor,
+                    email: editMemberEmail || '',
+                    role,
+                    photoUrls: updatedPhotoUrls,
+                };
+                setOrderedMembers((prevMembers) => prevMembers.map((member) => (member.id === editingMember.id ? updatedMember : member)));
+                setEditingMember(updatedMember);
+                setEditImageSrc(getPhotoUrl(updatedPhotoUrls, '1200') || null);
+                if (shouldDeletePreviousPhoto) {
+                    await cleanupS3Photos(previousPhotoKeys, 'Family member was saved, but old photo cleanup failed.');
+                }
+            } catch (error) {
+                console.error('Error updating family member:', error);
+                toast({
+                    title: 'Error',
+                    description: error instanceof Error && error.name !== 'Error' ? error.message : 'Failed to update family member. Please try again.',
+                    variant: 'destructive',
+                });
+            }
+
+            // Reset states
+            setEditMemberPin(''); // Reset
+            setEditCrop({ x: 0, y: 0 });
+            setEditZoom(1);
+            setEditCroppedAreaPixels(null);
+            setRemovePhoto(false);
+        } finally {
+            setIsMemberSaving(false);
+        }
+    };
+
+    // **** MOVED: Full implementation of deleteFamilyMember logic ****
+    const handleDeleteMember = async (memberId: string) => {
+        // Add type annotation
+        // Fetch the family member to get the photo URLs
+        const member = familyMembers.find((m) => m.id === memberId);
+        const photoKeysToDelete = getPhotoKeys(member?.photoUrls);
+        try {
+            await removeFamilyMember(memberId);
+        } catch (error) {
+            console.error('Error deleting member:', error);
+            toast({
+                title: 'Delete failed',
+                description: 'Could not delete the family member. Please try again.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (selectedMember === memberId) {
+            setSelectedMember('All');
+        }
+        if (editingMember?.id === memberId) {
+            setEditingMember(null);
+            if (alwaysEditMode) {
+                setIsEditingAll(true);
+            }
+        }
+        toast({
+            title: 'Member Deleted',
+            description: `${member?.name || 'Member'} removed.`,
+        });
+        await cleanupS3Photos(photoKeysToDelete, `${member?.name || 'Member'} was removed, but photo cleanup failed.`);
+    };
+
+    const handleDeleteMemberFromDetail = () => {
+        if (!editingMember || isMemberSaving || isMemberDeleting) return;
+        setIsDeleteMemberDialogOpen(true);
+    };
+
+    const confirmDeleteMemberFromDetail = async () => {
+        if (!editingMember || isMemberSaving || isMemberDeleting) return;
+        setIsMemberDeleting(true);
+        try {
+            await handleDeleteMember(editingMember.id);
+            setIsDeleteMemberDialogOpen(false);
+        } finally {
+            setIsMemberDeleting(false);
+        }
+    };
+
+    // +++ Helper to detect if the logged-in child is editing themselves +++
+    const isChildSelfEdit = currentUser?.role === 'child' && currentUser?.id === editingMember?.id;
+    const canDeleteFromDetail = currentUser?.role === 'parent' && !!editingMember;
+
+    const activeMemberId = alwaysEditMode ? (isCreatingMember ? null : isEditingAll ? 'All' : editingMember?.id ?? null) : selectedMember;
+
+    const handleSaveFamilyPhoto = async (nextPhotoUrls: PhotoUrls | null) => {
+        if (nextPhotoUrls) {
+            await saveSetting('familyPhoto', nextPhotoUrls);
+        } else {
+            await clearSetting('familyPhoto');
+        }
+    };
+
+    const onFamilyPhotoFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const imageDataUrl = await readFile(file);
+        setFamilyPhotoImageSrc(imageDataUrl);
+        setFamilyPhotoCrop({ x: 0, y: 0 });
+        setFamilyPhotoZoom(1);
+        setFamilyPhotoCroppedAreaPixels(null);
+    };
+
+    const onFamilyPhotoCropComplete = (croppedArea, croppedAreaPixels) => {
+        setFamilyPhotoCroppedAreaPixels(croppedAreaPixels);
+    };
+
+    const uploadFamilyPhoto = async () => {
+        if (!familyPhotoImageSrc || !familyPhotoCroppedAreaPixels) return;
+
+        setIsFamilyPhotoSaving(true);
+        const previousPhotoUrls = familyPhotoUrls;
+        try {
+            const photoFile = await getCroppedImg(familyPhotoImageSrc, familyPhotoCroppedAreaPixels);
+            const nextPhotoUrls = await uploadAvatarPhotoVariants(photoFile, { scope: 'family-photo' });
+            await handleSaveFamilyPhoto(nextPhotoUrls);
+            await cleanupS3Photos(getPhotoKeys(previousPhotoUrls), 'Family photo was saved, but old photo cleanup failed.');
+
+            toast({
+                title: 'Family Photo Updated',
+                description: 'The All avatar now uses this photo.',
+            });
+            setFamilyPhotoImageSrc(null);
+            setFamilyPhotoCrop({ x: 0, y: 0 });
+            setFamilyPhotoZoom(1);
+            setFamilyPhotoCroppedAreaPixels(null);
+        } catch (error) {
+            console.error('Failed to upload family photo:', error);
+            const message = error instanceof Error ? error.message : 'Could not update the family photo. Please try again.';
+            toast({
+                title: 'Upload Failed',
+                description: message,
+                variant: 'destructive',
+            });
+        } finally {
+            setIsFamilyPhotoSaving(false);
+        }
+    };
+
+    const removeFamilyPhoto = async () => {
+        if (!familyPhotoUrls) return;
+        setIsFamilyPhotoSaving(true);
+        const previousPhotoUrls = familyPhotoUrls;
+        try {
+            await handleSaveFamilyPhoto(null);
+            await cleanupS3Photos(getPhotoKeys(previousPhotoUrls), 'Family photo was removed, but stored photo cleanup failed.');
+            toast({
+                title: 'Family Photo Removed',
+                description: 'The All avatar is back to its default.',
+            });
+        } catch (error) {
+            console.error('Failed to remove family photo:', error);
+            toast({
+                title: 'Remove Failed',
+                description: 'Could not remove the family photo. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsFamilyPhotoSaving(false);
+        }
+    };
+
+    return (
+        <div className={alwaysEditMode ? 'w-full grid gap-6 md:grid-cols-[minmax(280px,360px)_minmax(420px,1fr)]' : 'w-full h-full min-h-0 flex flex-col'}>
+            <div className="w-full h-full min-h-0 flex flex-col">
+                <div className="mb-4 space-y-3">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold">Family Members</h2>
+                    </div>
+                </div>
+                <ScrollArea className="flex-grow min-h-0">
+                    <div className="pr-2 pb-1">
+                        <div className="flex items-center mb-2">
+                            {needsAllHandleSpacer && <div className="h-10 w-10 shrink-0" aria-hidden="true" />}
+                            <Button
+                                variant={activeMemberId === 'All' ? 'default' : 'ghost'}
+                                className="w-full justify-start h-auto py-2"
+                                onClick={activateAllForSettings}
+                            >
+                                <div className="flex items-center gap-3 min-w-0 w-full">
+                                    <Avatar className="h-10 w-10 flex-shrink-0">
+                                        {getPhotoUrl(familyPhotoUrls, '64') ? (
+                                            <AvatarImage src={getPhotoUrl(familyPhotoUrls, '64')} alt="All family members" />
+                                        ) : (
+                                            <AvatarFallback>All</AvatarFallback>
+                                        )}
+                                    </Avatar>
+                                    <span className="font-medium truncate">All</span>
+                                </div>
+                            </Button>
+                        </div>
+                        {orderedMembers.map((member, index) => {
+                            return (
+                                <SortableFamilyMemberItem
+                                    key={member.id}
+                                    member={member}
+                                    memberColor={memberColorsById[member.id]}
+                                    index={index}
+                                    isEditMode={isEditMode}
+                                    selectedMember={activeMemberId}
+                                    setSelectedMember={setSelectedMember}
+                                    showBalances={showBalances}
+                                    membersBalances={membersBalances}
+                                    unitDefinitions={unitDefinitions}
+                                    onMemberActivate={activateMemberForEditing}
+                                    handleDeleteMember={handleDeleteMember}
+                                    currentUser={currentUser}
+                                    xpData={membersXP?.[member.id]}
+                                    alwaysEditMode={alwaysEditMode}
+                                />
+                            );
+                        })}
+                    </div>
+                </ScrollArea>
+                {alwaysEditMode && (
+                    <Button className="w-full mt-4" onClick={activateCreateMember}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Family Member
+                    </Button>
+                )}
+                {!alwaysEditMode && (
+                    <Button asChild variant="outline" className="w-full mt-4">
+                        <Link href="/settings#family-member-settings">Family Member Settings</Link>
+                    </Button>
+                )}
+            </div>
+
+            {alwaysEditMode && (
+                <div className="border rounded-lg bg-card p-4 md:p-6 min-h-[320px]">
+                    {isCreatingMember ? (
+                        <div className="space-y-4">
+                            <h3 className="text-xl font-semibold">Add Family Member</h3>
+                            <div className="grid gap-4 py-2">
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="name" className="text-right">
+                                        Name
+                                    </Label>
+                                    <Input id="name" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="col-span-3" />
+                                </div>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="email" className="text-right">
+                                        Email (optional)
+                                    </Label>
+                                    <Input id="email" type="email" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} className="col-span-3" />
+                                </div>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Role</Label>
+                                    <RadioGroup value={newMemberRole} onValueChange={setNewMemberRole} className="col-span-3 flex gap-4">
+                                        <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="parent" id="role-parent-add" />
+                                            <Label htmlFor="role-parent-add">Parent</Label>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="child" id="role-child-add" />
+                                            <Label htmlFor="role-child-add">Child</Label>
+                                        </div>
+                                    </RadioGroup>
+                                </div>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="pin" className="text-right">
+                                        PIN (Numbers)
+                                    </Label>
+                                    <Input
+                                        id="pin"
+                                        type="password"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        maxLength={6}
+                                        value={newMemberPin}
+                                        onChange={(e) => setNewMemberPin(e.target.value)}
+                                        className="col-span-3"
+                                        placeholder="4-6 digit code"
+                                    />
+                                </div>
+                                <MemberColorField
+                                    inputId="add-member-color"
+                                    color={newMemberColor}
+                                    onColorChange={setNewMemberColor}
+                                    previewName={newMemberName || 'New family member'}
+                                    warningMessage={newMemberColorWarning}
+                                />
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="photo" className="text-right">
+                                        Photo
+                                    </Label>
+                                    <div className="col-span-3">
+                                        <Input id="photo" type="file" accept="image/*" onChange={onFileChange} />
+                                        {imageSrc && (
+                                            <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
+                                                <Cropper
+                                                    image={imageSrc}
+                                                    crop={crop}
+                                                    zoom={zoom}
+                                                    aspect={1}
+                                                    cropShape="round"
+                                                    showGrid={false}
+                                                    onCropChange={setCrop}
+                                                    onZoomChange={setZoom}
+                                                    onCropComplete={onCropComplete}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex justify-end">
+                                <Button onClick={handleAddMember} disabled={!newMemberName}>
+                                    Add Member
+                                </Button>
+                            </div>
+                        </div>
+                    ) : isEditingAll ? (
+                        <div className="space-y-4">
+                            <h3 className="text-xl font-semibold">All Family Avatar</h3>
+                            <p className="text-sm text-muted-foreground">
+                                This photo is used for the <strong>All</strong> row avatar in family member lists.
+                            </p>
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-4">
+                                    <Avatar className="h-20 w-20">
+                                        {getPhotoUrl(familyPhotoUrls, '320') ? (
+                                            <AvatarImage src={getPhotoUrl(familyPhotoUrls, '320')} alt="All family members" />
+                                        ) : (
+                                            <AvatarFallback>All</AvatarFallback>
+                                        )}
+                                    </Avatar>
+                                    <Input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={onFamilyPhotoFileChange}
+                                        disabled={isFamilyPhotoSaving}
+                                        className="max-w-sm"
+                                    />
+                                </div>
+                                {familyPhotoImageSrc && (
+                                    <div className="space-y-2">
+                                        <div className="relative w-full h-64 mt-1" style={{ height: '300px' }}>
+                                            <Cropper
+                                                image={familyPhotoImageSrc}
+                                                crop={familyPhotoCrop}
+                                                zoom={familyPhotoZoom}
+                                                aspect={1}
+                                                cropShape="round"
+                                                showGrid={false}
+                                                onCropChange={setFamilyPhotoCrop}
+                                                onZoomChange={setFamilyPhotoZoom}
+                                                onCropComplete={onFamilyPhotoCropComplete}
+                                            />
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">Drag to reframe and use scroll or pinch to zoom before saving.</p>
+                                    </div>
+                                )}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button onClick={uploadFamilyPhoto} disabled={isFamilyPhotoSaving || !familyPhotoImageSrc || !familyPhotoCroppedAreaPixels}>
+                                        {isFamilyPhotoSaving ? 'Saving…' : 'Save Family Photo'}
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        onClick={removeFamilyPhoto}
+                                        disabled={isFamilyPhotoSaving || !familyPhotoUrls}
+                                    >
+                                        Remove Family Photo
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    ) : editingMember ? (
+                        <div className="space-y-4">
+                            <h3 className="text-xl font-semibold">{isChildSelfEdit ? 'Update Profile' : `Edit ${editingMember.name}`}</h3>
+                            <div className="grid gap-4 py-2">
+                                {isChildSelfEdit ? (
+                                    <div className="flex justify-center py-2">
+                                        <h4 className="text-2xl font-bold">{editingMember?.name}</h4>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="edit-name" className="text-right">
+                                            Name
+                                        </Label>
+                                        <Input id="edit-name" value={editMemberName} onChange={(e) => setEditMemberName(e.target.value)} className="col-span-3" />
+                                    </div>
+                                )}
+
+                                {!isChildSelfEdit && (
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="edit-email" className="text-right">
+                                            Email (optional)
+                                        </Label>
+                                        <Input
+                                            id="edit-email"
+                                            type="email"
+                                            value={editMemberEmail}
+                                            onChange={(e) => setEditMemberEmail(e.target.value)}
+                                            className="col-span-3"
+                                        />
+                                    </div>
+                                )}
+
+                                {!isChildSelfEdit && (
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label className="text-right">Role</Label>
+                                        <RadioGroup value={editMemberRole} onValueChange={setEditMemberRole} className="col-span-3 flex gap-4">
+                                            <div className="flex items-center space-x-2">
+                                                <RadioGroupItem value="parent" id="role-parent-edit" />
+                                                <Label htmlFor="role-parent-edit">Parent</Label>
+                                            </div>
+                                            <div className="flex items-center space-x-2">
+                                                <RadioGroupItem value="child" id="role-child-edit" />
+                                                <Label htmlFor="role-child-edit">Child</Label>
+                                            </div>
+                                        </RadioGroup>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="edit-pin" className={isChildSelfEdit ? 'text-right font-semibold' : 'text-right'}>
+                                        New PIN
+                                    </Label>
+                                    <Input
+                                        id="edit-pin"
+                                        type="password"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        maxLength={6}
+                                        value={editMemberPin}
+                                        onChange={(e) => setEditMemberPin(e.target.value)}
+                                        className="col-span-3"
+                                        placeholder={isChildSelfEdit ? 'Enter new PIN to change' : 'Leave blank to keep existing'}
+                                    />
+                                </div>
+
+                                <MemberColorField
+                                    inputId="edit-member-color"
+                                    color={editMemberColor}
+                                    onColorChange={setEditMemberColor}
+                                    previewName={editMemberName || editingMember.name || 'Family member'}
+                                    warningMessage={editMemberColorWarning}
+                                />
+
+                                {isChildSelfEdit ? (
+                                    <div className="flex justify-center mt-2 mb-2">
+                                        <Avatar className="h-32 w-32">
+                                            <AvatarImage
+                                                src={getPhotoUrl(editingMember?.photoUrls, '320')}
+                                                alt={editingMember?.name}
+                                                className="object-cover"
+                                            />
+                                            <AvatarFallback className="text-4xl">{editingMember?.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                                        </Avatar>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-4 items-start gap-4">
+                                        <Label htmlFor="edit-photo" className="text-right">
+                                            Photo
+                                        </Label>
+                                        <div className="col-span-3">
+                                            <Input id="edit-photo" type="file" accept="image/*" onChange={onEditFileChange} />
+                                            {editImageSrc && (
+                                                <div className="relative w-full h-64 mt-4" style={{ height: '300px' }}>
+                                                    <Cropper
+                                                        image={editImageSrc}
+                                                        crop={editCrop}
+                                                        zoom={editZoom}
+                                                        aspect={1}
+                                                        cropShape="round"
+                                                        showGrid={false}
+                                                        onCropChange={setEditCrop}
+                                                        onZoomChange={setEditZoom}
+                                                        onCropComplete={onEditCropComplete}
+                                                    />
+                                                </div>
+                                            )}
+                                            {!editImageSrc && editingMember?.photoUrls && (
+                                                <div className="mt-4">
+                                                    <Avatar className="h-16 w-16">
+                                                        <AvatarImage
+                                                            src={getPhotoUrl(editingMember.photoUrls, '320')}
+                                                            alt={editingMember.name}
+                                                            className="object-cover"
+                                                        />
+                                                        <AvatarFallback className="text-lg">{editingMember.name.charAt(0).toUpperCase()}</AvatarFallback>
+                                                    </Avatar>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {!isChildSelfEdit && editingMember?.photoUrls && (
+                                    <div className="flex items-center">
+                                        <Checkbox id="remove-photo" checked={removePhoto} onCheckedChange={(checked) => setRemovePhoto(checked === true)} />
+                                        <Label htmlFor="remove-photo" className="ml-2">
+                                            Remove existing photo
+                                        </Label>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    {canDeleteFromDetail && (
+                                        <Button
+                                            variant="destructive"
+                                            onClick={handleDeleteMemberFromDetail}
+                                            disabled={isMemberSaving || isMemberDeleting || isDeleteMemberDialogOpen}
+                                        >
+                                            {isMemberDeleting ? 'Deleting Member…' : 'Delete Member'}
+                                        </Button>
+                                    )}
+                                </div>
+                                <Button onClick={handleUpdateMember} disabled={!editMemberName || isMemberSaving || isMemberDeleting}>
+                                    {isMemberSaving ? 'Saving Member…' : 'Save Member'}
+                                </Button>
+                            </div>
+                            <AlertDialog open={isDeleteMemberDialogOpen} onOpenChange={setIsDeleteMemberDialogOpen}>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete {editingMember.name}?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            This permanently removes this family member and cannot be undone.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel disabled={isMemberDeleting}>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                            onClick={confirmDeleteMemberFromDetail}
+                                            disabled={isMemberDeleting}
+                                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        >
+                                            {isMemberDeleting ? 'Deleting…' : 'Delete Member'}
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        </div>
+                    ) : (
+                        <div className="h-full min-h-[240px] flex items-center justify-center text-sm text-muted-foreground">
+                            Select a family member to edit their profile and permissions.
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+export default FamilyMembersList;

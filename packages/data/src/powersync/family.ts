@@ -21,6 +21,7 @@ export function toFamilyMember(row: MemberRow): FamilyMember {
         sortOrder: row.sort_order ?? 0,
         // Every device is sent whether a PIN is set, and none is sent the PIN's hash.
         hasPin: flag(row.has_pin),
+        defaultEnvelopeId: row.default_envelope_id,
         allowanceAmount: row.allowance_amount,
         allowanceCurrency: row.allowance_currency,
         allowanceRrule: row.allowance_rrule,

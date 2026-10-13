@@ -40,6 +40,7 @@ export function toFamilyMember(row: any): FamilyMember {
         // Instant hides the hash from everyone but a parent and the member themselves. A hash that is visible
         // means a PIN is set; one that is not could be either, so this implementation says it does not know.
         hasPin: row.pinHash ? true : null,
+        defaultEnvelopeId: null,
         allowanceAmount: numeric(row.allowanceAmount),
         allowanceCurrency: text(row.allowanceCurrency),
         allowanceRrule: text(row.allowanceRrule),

@@ -2,6 +2,7 @@ export { getDataBackend, setDataBackend, type DataBackend } from './backend';
 export type { QueryResult, ReadOptions } from './query-result';
 export * from './chores';
 export * from './family';
+export * from './finance';
 export * from './settings';
 export * from './sync';
 export * from './units';

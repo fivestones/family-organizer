@@ -10,7 +10,7 @@ import invariant from 'tiny-invariant';
 import { getPhotoUrl } from '@/lib/photo-urls';
 
 // Import types from FamilyMembersList
-import { UnitDefinition, formatBalances } from '@/lib/currency-utils';
+import { type UnitDefinition, formatBalances } from '@/lib/money-format';
 
 interface FamilyMember {
     id: string;
